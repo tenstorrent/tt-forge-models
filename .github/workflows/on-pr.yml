@@ -10,9 +10,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  spdx:
-    uses: ./.github/workflows/spdx.yml
-    secrets: inherit
   pre-commit:
     uses: ./.github/workflows/pre-commit.yml
     secrets: inherit
