@@ -16,7 +16,7 @@ jobs:
   pre-commit:
     uses: ./.github/workflows/pre-commit.yml
     secrets: inherit
-  
+
   check-all-green:
     if: always()
     needs:
