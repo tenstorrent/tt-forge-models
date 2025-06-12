@@ -12,6 +12,7 @@ from datasets import load_dataset
 from ...base import ForgeModel
 from .src.linear_ae import LinearAE
 
+
 class ModelLoader(ForgeModel):
     """Autoencoder linear model loader implementation."""
 
@@ -66,6 +67,3 @@ class ModelLoader(ForgeModel):
             batch_tensor = batch_tensor.to(dtype_override)
 
         return batch_tensor
-
-
-
