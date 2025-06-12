@@ -41,7 +41,7 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def load_inputs(cls, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the CLIP model with default settings.
+        """Load and return sample inputs for the Codegen model with default settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
