@@ -34,7 +34,7 @@ class ModelLoader(ForgeModel):
             model = model.to(dtype_override)
 
         return model
-    
+
     @classmethod
     def load_inputs(cls, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Autoencoder Linear model with default settings.
@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
-            torch.Tensor: Sample input tensor that can be fed to the model.
+            torch.Tensor: A batch of input tensors that can be fed to the model.
         """
 
         # Define transform to normalize data
