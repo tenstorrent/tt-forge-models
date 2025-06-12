@@ -74,3 +74,22 @@ class ModelLoader(ForgeModel):
         )
 
         return inputs
+
+    @classmethod
+    def decode_output(cls, outputs):
+        """Helper method to decode model outputs into human-readable text.
+
+        Args:
+            outputs: Model output from a forward pass
+
+        Returns:
+            str: Decoded answer text
+        """
+        if not hasattr(cls, "tokenizer"):
+            cls.load_model()  # This will initialize the tokenizer
+
+        # Get logits for the last token in each batch
+        next_token_logits = outputs.logits[:, -1]
+        next_tokens = next_token_logits.softmax(dim=-1).argmax(dim=-1)
+
+        return [cls.tokenizer.decode([token.item()]) for token in next_tokens]
