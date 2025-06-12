@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
         # Create batch of sample inputs
         cls.test_input = ["This is a sample text from "] * batch_size
 
-        inputs = cls.tokenizer.encode_plus(
+        inputs = cls.tokenizer(
             cls.test_input,
             return_tensors="pt",
             max_length=32,
