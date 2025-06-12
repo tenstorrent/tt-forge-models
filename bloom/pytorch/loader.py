@@ -47,10 +47,12 @@ class ModelLoader(ForgeModel):
         return model
 
     @classmethod
-    def load_inputs(cls, batch_size=1):
+    def load_inputs(cls, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Bloom model with default settings.
 
         Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                           If not provided, the model will use its default dtype (typically float32).
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
@@ -59,7 +61,9 @@ class ModelLoader(ForgeModel):
 
         # Ensure tokenizer is initialized
         if not hasattr(cls, "tokenizer"):
-            cls.load_model()  # This will initialize the tokenizer
+            cls.load_model(
+                dtype_override=dtype_override
+            )  # This will initialize the tokenizer
 
         # Create batch of sample inputs
         cls.test_input = ["This is a sample text from "] * batch_size
