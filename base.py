@@ -14,7 +14,6 @@ class ForgeModel(ABC):
     # Models can override these class variables to support variants
     _VARIANTS = {}  # Empty by default for models without variants
     DEFAULT_VARIANT = None
-    _current_variant = None
 
     @classmethod
     def query_available_variants(cls):
@@ -75,7 +74,6 @@ class ForgeModel(ABC):
         if variant is None:
             return None
 
-        cls._current_variant = variant
         return cls._VARIANTS[variant]
 
     @classmethod

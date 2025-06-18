@@ -39,9 +39,6 @@ class ModelLoader(ForgeModel):
     # Shared configuration parameters
     sample_text = "The capital of [MASK] is Paris."
 
-    # Track the current variant being used
-    _current_variant = None
-
     # Using the variant methods from ForgeModel base class
 
     @classmethod

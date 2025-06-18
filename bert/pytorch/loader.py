@@ -33,8 +33,6 @@ class ModelLoader(ForgeModel):
     # Shared configuration parameters
     context = 'Johann Joachim Winckelmann was a German art historian and archaeologist. He was a pioneering Hellenist who first articulated the difference between Greek, Greco-Roman and Roman art. "The prophet and founding hero of modern archaeology", Winckelmann was one of the founders of scientific archaeology and first applied the categories of style on a large, systematic basis to the history of art. '
     question = "What discipline did Winkelmann create?"
-    # Track the current variant being used
-    _current_variant = None
 
     # Using the variant methods from ForgeModel base class
 
@@ -93,7 +91,7 @@ class ModelLoader(ForgeModel):
         if variant is not None or not hasattr(cls, "tokenizer"):
             cls.load_model(variant=variant, dtype_override=dtype_override)
 
-        # Get variant config using base class method (or current variant if already set)
+        # Get variant config using base class method
         variant_config = cls.get_variant_config(variant)
         max_length = variant_config["max_length"]
 
@@ -123,7 +121,6 @@ class ModelLoader(ForgeModel):
         """
         # Ensure tokenizer is initialized with the correct variant
         if not hasattr(cls, "tokenizer"):
-            # Using the existing current_variant or default via load_model
             cls.load_model()  # This will initialize the tokenizer
 
         if inputs is None:
