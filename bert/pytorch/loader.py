@@ -34,36 +34,32 @@ class ModelLoader(ForgeModel):
     context = 'Johann Joachim Winckelmann was a German art historian and archaeologist. He was a pioneering Hellenist who first articulated the difference between Greek, Greco-Roman and Roman art. "The prophet and founding hero of modern archaeology", Winckelmann was one of the founders of scientific archaeology and first applied the categories of style on a large, systematic basis to the history of art. '
     question = "What discipline did Winkelmann create?"
 
-    # Using the variant methods from ForgeModel base class
+    # Tokenizer shared across instances
+    tokenizer = None
 
-    @classmethod
-    def load_model(cls, variant=None, dtype_override=None):
-        """Load and return the BERT model instance for a specific variant.
+    def load_model(self, dtype_override=None):
+        """Load and return the BERT model instance for this instance's variant.
 
         Args:
-            variant: Optional string specifying which variant to load.
-                    If None, the default variant will be used.
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
             torch.nn.Module: The BERT model instance for question answering.
-
-        Raises:
-            ValueError: If the specified variant doesn't exist.
         """
-        # Get configuration for the specified variant using the base class method
-        variant_config = cls.get_variant_config(variant)
-        pretrained_model_name = variant_config["pretrained_model_name"]
+        # Get the pretrained model name from the instance's variant config
+        pretrained_model_name = self._variant_config["pretrained_model_name"]
 
         # Initialize tokenizer first with default or overridden dtype
         tokenizer_kwargs = {"padding_side": "left"}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        cls.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
-        )
+        # Initialize the tokenizer if not already done
+        if ModelLoader.tokenizer is None:
+            ModelLoader.tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name, **tokenizer_kwargs
+            )
 
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
@@ -75,30 +71,26 @@ class ModelLoader(ForgeModel):
         )
         return model
 
-    @classmethod
-    def load_inputs(cls, variant=None, dtype_override=None):
-        """Load and return sample inputs for the BERT model with variant-specific settings.
+    def load_inputs(self, dtype_override=None):
+        """Load and return sample inputs for the BERT model with this instance's variant settings.
 
         Args:
-            variant: Optional string specifying which variant to use.
-                    If None, uses the previously set variant from load_model or the default.
-            dtype_override: Optional torch.dtype override (passed to load_model if needed)
+            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
             dict: Input tensors and attention masks that can be fed to the model.
         """
-        # If variant is specified or tokenizer not initialized, load the model first
-        if variant is not None or not hasattr(cls, "tokenizer"):
-            cls.load_model(variant=variant, dtype_override=dtype_override)
+        # Ensure tokenizer is initialized
+        if ModelLoader.tokenizer is None:
+            self.load_model(dtype_override=dtype_override)
 
-        # Get variant config using base class method
-        variant_config = cls.get_variant_config(variant)
-        max_length = variant_config["max_length"]
+        # Get max_length from the variant config
+        max_length = self._variant_config["max_length"]
 
         # Create tokenized inputs
-        inputs = cls.tokenizer.encode_plus(
-            cls.question,
-            cls.context,
+        inputs = ModelLoader.tokenizer.encode_plus(
+            self.question,
+            self.context,
             add_special_tokens=True,
             return_tensors="pt",
             max_length=max_length,
@@ -108,8 +100,7 @@ class ModelLoader(ForgeModel):
 
         return inputs
 
-    @classmethod
-    def decode_output(cls, outputs, inputs=None):
+    def decode_output(self, outputs, inputs=None):
         """Helper method to decode model outputs into human-readable text.
 
         Args:
@@ -119,15 +110,15 @@ class ModelLoader(ForgeModel):
         Returns:
             str: Decoded answer text
         """
-        # Ensure tokenizer is initialized with the correct variant
-        if not hasattr(cls, "tokenizer"):
-            cls.load_model()  # This will initialize the tokenizer
+        # Ensure tokenizer is initialized
+        if ModelLoader.tokenizer is None:
+            self.load_model()
 
         if inputs is None:
-            inputs = cls.load_inputs()
+            inputs = self.load_inputs()
 
         response_start = torch.argmax(outputs.start_logits)
         response_end = torch.argmax(outputs.end_logits) + 1
         response_tokens = inputs.input_ids[0, response_start:response_end]
 
-        return cls.tokenizer.decode(response_tokens)
+        return ModelLoader.tokenizer.decode(response_tokens)

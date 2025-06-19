@@ -39,24 +39,21 @@ class ModelLoader(ForgeModel):
     # Shared configuration parameters
     sample_text = "The capital of [MASK] is Paris."
 
-    # Using the variant methods from ForgeModel base class
+    # Tokenizer shared across instances
+    tokenizer = None
 
-    @classmethod
-    def load_model(cls, variant=None, dtype_override=None):
-        """Load and return the ALBERT model instance for a specific variant.
+    def load_model(self, dtype_override=None):
+        """Load and return the ALBERT model instance for this instance's variant.
 
         Args:
-            variant: Optional string specifying which variant to load.
-                    If None, the default variant will be used.
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
             torch.nn.Module: The ALBERT model instance for masked language modeling.
         """
-        # Get configuration for the specified variant using the base class method
-        variant_config = cls.get_variant_config(variant)
-        pretrained_model_name = variant_config["pretrained_model_name"]
+        # Get the pretrained model name from the instance's variant config
+        pretrained_model_name = self._variant_config["pretrained_model_name"]
 
         # Load the model with dtype override if specified
         model_kwargs = {}
@@ -65,36 +62,34 @@ class ModelLoader(ForgeModel):
 
         model = AlbertForMaskedLM.from_pretrained(pretrained_model_name, **model_kwargs)
 
-        # Load tokenizer for later use
+        # Initialize the tokenizer if not already done
+        # Note: tokenizer is shared across all instances
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        cls.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
-        )
+        if ModelLoader.tokenizer is None:
+            ModelLoader.tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name, **tokenizer_kwargs
+            )
 
         return model
 
-    @classmethod
-    def load_inputs(cls, variant=None, dtype_override=None):
-        """Load and return sample inputs for the ALBERT model with variant-specific settings.
+    def load_inputs(self, dtype_override=None):
+        """Load and return sample inputs for the ALBERT model with this instance's variant settings.
 
         Args:
-            variant: Optional string specifying which variant to use.
-                    If None, uses the previously set variant from load_model or the default.
-            dtype_override: Optional torch.dtype override (passed to load_model if needed)
+            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        # If variant is specified or tokenizer not initialized, load the model first
-        if variant is not None or not hasattr(cls, "tokenizer"):
-            cls.load_model(variant=variant, dtype_override=dtype_override)
+        # Ensure tokenizer is initialized
+        if ModelLoader.tokenizer is None:
+            self.load_model(dtype_override=dtype_override)
 
         # Create tokenized inputs for the masked language modeling task
-        inputs = cls.tokenizer(cls.sample_text, return_tensors="pt")
-
+        inputs = ModelLoader.tokenizer(self.sample_text, return_tensors="pt")
         return inputs
 
     @classmethod
@@ -109,18 +104,18 @@ class ModelLoader(ForgeModel):
             str: Decoded prediction for the masked token
         """
         # Ensure tokenizer is initialized
-        if not hasattr(cls, "tokenizer"):
-            cls.load_model()
+        if ModelLoader.tokenizer is None:
+            self.load_model()
 
         if inputs is None:
-            inputs = cls.load_inputs()
+            inputs = self.load_inputs()
 
         # Get the prediction for the masked token
         logits = outputs.logits
-        mask_token_index = (inputs.input_ids == cls.tokenizer.mask_token_id)[0].nonzero(
-            as_tuple=True
-        )[0]
+        mask_token_index = (inputs.input_ids == ModelLoader.tokenizer.mask_token_id)[
+            0
+        ].nonzero(as_tuple=True)[0]
         predicted_token_id = logits[0, mask_token_index].argmax(axis=-1)
-        predicted_tokens = cls.tokenizer.decode(predicted_token_id)
+        predicted_tokens = ModelLoader.tokenizer.decode(predicted_token_id)
 
         return predicted_tokens
