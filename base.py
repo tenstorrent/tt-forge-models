@@ -1,29 +1,40 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""
-Base class for all model implementations in tt-forge-models
+"""Base class for model loaders.
+
+This module provides the ForgeModel base class with common functionality
+for loading models, inputs, etc.
 """
 from abc import ABC, abstractmethod
+from typing import Dict, Optional, Union, Type
+
+from .config import ModelConfig, ModelInfo
 import torch
 
 
 class ForgeModel(ABC):
-    """Base class for all model implementations that can be shared across Tenstorrent projects."""
+    """Base class for all TT-Forge model loaders."""
 
-    # Models can override these class variables to support variants
-    _VARIANTS = {}  # Empty by default for models without variants
+    # This is intended to be overridden by subclasses to define available model variants
+    # Format: {"variant_name": ModelConfig(...), ...}
+    _VARIANTS: Dict[
+        str, ModelConfig
+    ] = {}  # Empty by default for models without variants
     DEFAULT_VARIANT = None
 
     def __init__(self, variant=None):
-        """Initialize the model loader with an optional variant.
+        """Initialize a ForgeModel instance.
 
         Args:
-            variant: Optional string specifying which variant to use for this instance.
-                    If None, the class's DEFAULT_VARIANT will be used.
+            variant: Optional string specifying which variant to use.
+                    If None, the default variant will be used.
         """
+        # Validate and store the variant for this instance
         self._variant = self._validate_variant(variant)
-        self._variant_config = self.get_variant_config(self._variant)
+
+        # Cache the variant configuration for efficiency
+        self._variant_config = self.get_variant_config(variant)
 
     @classmethod
     def query_available_variants(cls):
@@ -36,8 +47,7 @@ class ForgeModel(ABC):
         if not cls._VARIANTS:
             return {}
         return {
-            variant: config.get("description", "")
-            for variant, config in cls._VARIANTS.items()
+            variant: config.description for variant, config in cls._VARIANTS.items()
         }
 
     @classmethod
@@ -71,20 +81,33 @@ class ForgeModel(ABC):
         return variant
 
     @classmethod
-    def get_variant_config(cls, variant=None):
+    def get_variant_config(cls, variant=None) -> Optional[ModelConfig]:
         """Get configuration for a specific variant after validation.
 
         Args:
             variant: Optional string specifying which variant to get config for.
 
         Returns:
-            dict or None: Variant configuration dictionary, or None for models without variants.
+            ModelConfig or None: Variant configuration object, or None for models without variants.
         """
         variant = cls._validate_variant(variant)
         if variant is None:
             return None
 
         return cls._VARIANTS[variant]
+
+    @classmethod
+    def get_model_info(cls, variant=None) -> ModelInfo:
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant: Optional string specifying which variant to get info for.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        # This method should be implemented by subclasses
+        raise NotImplementedError("Subclasses must implement get_model_info")
 
     @abstractmethod
     def load_model(self, **kwargs):

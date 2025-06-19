@@ -2,35 +2,47 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-ALBERT model loader implementation for masked language modeling
+ALBERT model loader implementation for masked language modeling.
 """
 import torch
-from transformers import AutoTokenizer, AlbertForMaskedLM
+from transformers import AlbertForMaskedLM, AutoTokenizer
 
 from ....base import ForgeModel
+from ....config import (
+    LLMModelConfig,
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 
 
 class ModelLoader(ForgeModel):
     """ALBERT model loader implementation for masked language modeling tasks."""
 
-    # Dictionary of available model variants
+    # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        "albert-base-v2": {
-            "pretrained_model_name": "albert/albert-base-v2",
-            "description": "ALBERT base model (12M parameters)",
-        },
-        "albert-large-v2": {
-            "pretrained_model_name": "albert/albert-large-v2",
-            "description": "ALBERT large model (18M parameters)",
-        },
-        "albert-xlarge-v2": {
-            "pretrained_model_name": "albert/albert-xlarge-v2",
-            "description": "ALBERT xlarge model (60M parameters)",
-        },
-        "albert-xxlarge-v2": {
-            "pretrained_model_name": "albert/albert-xxlarge-v2",
-            "description": "ALBERT xxlarge model (235M parameters)",
-        },
+        "albert-base-v2": LLMModelConfig(
+            pretrained_model_name="albert/albert-base-v2",
+            max_length=128,
+            description="ALBERT base model (12M parameters)",
+        ),
+        "albert-large-v2": LLMModelConfig(
+            pretrained_model_name="albert/albert-large-v2",
+            max_length=128,
+            description="ALBERT large model (18M parameters)",
+        ),
+        "albert-xlarge-v2": LLMModelConfig(
+            pretrained_model_name="albert/albert-xlarge-v2",
+            max_length=128,
+            description="ALBERT xlarge model (60M parameters)",
+        ),
+        "albert-xxlarge-v2": LLMModelConfig(
+            pretrained_model_name="albert/albert-xxlarge-v2",
+            max_length=128,  # Added default max length
+            description="ALBERT xxlarge model (235M parameters)",
+        ),
     }
 
     # Default variant to use
@@ -41,6 +53,27 @@ class ModelLoader(ForgeModel):
 
     # Tokenizer shared across instances
     tokenizer = None
+
+    @classmethod
+    def get_model_info(cls, variant=None) -> ModelInfo:
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant: Optional string specifying which variant to get info for.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        variant = cls._validate_variant(variant)
+
+        return ModelInfo(
+            model="albert_v2",
+            variant=variant,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.NLP_MASKED_LM,
+            source=ModelSource.HUGGING_FACE,
+            framework=Framework.TORCH,
+        )
 
     def load_model(self, dtype_override=None):
         """Load and return the ALBERT model instance for this instance's variant.
@@ -53,7 +86,7 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The ALBERT model instance for masked language modeling.
         """
         # Get the pretrained model name from the instance's variant config
-        pretrained_model_name = self._variant_config["pretrained_model_name"]
+        pretrained_model_name = self._variant_config.pretrained_model_name
 
         # Load the model with dtype override if specified
         model_kwargs = {}

@@ -8,6 +8,14 @@ import torch
 from transformers import AutoTokenizer, AutoModelForQuestionAnswering
 
 from ...base import ForgeModel
+from ...config import (
+    LLMModelConfig,
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 
 
 class ModelLoader(ForgeModel):
@@ -15,16 +23,16 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants
     _VARIANTS = {
-        "base": {
-            "pretrained_model_name": "phiyodr/bert-base-finetuned-squad2",
-            "max_length": 256,
-            "description": "BERT-base fine-tuned on SQuAD v2",
-        },
-        "large": {
-            "pretrained_model_name": "phiyodr/bert-large-finetuned-squad2",
-            "max_length": 256,
-            "description": "BERT-large fine-tuned on SQuAD v2",
-        },
+        "base": LLMModelConfig(
+            pretrained_model_name="phiyodr/bert-base-finetuned-squad2",
+            max_length=256,
+            description="BERT-base fine-tuned on SQuAD v2",
+        ),
+        "large": LLMModelConfig(
+            pretrained_model_name="phiyodr/bert-large-finetuned-squad2",
+            max_length=256,
+            description="BERT-large fine-tuned on SQuAD v2",
+        ),
     }
 
     # Default variant to use
@@ -37,6 +45,27 @@ class ModelLoader(ForgeModel):
     # Tokenizer shared across instances
     tokenizer = None
 
+    @classmethod
+    def get_model_info(cls, variant=None) -> ModelInfo:
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant: Optional string specifying which variant to get info for.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        variant = cls._validate_variant(variant)
+
+        return ModelInfo(
+            model="bert",
+            variant=variant,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.NLP_QA,
+            source=ModelSource.HUGGING_FACE,
+            framework=Framework.TORCH,
+        )
+
     def load_model(self, dtype_override=None):
         """Load and return the BERT model instance for this instance's variant.
 
@@ -48,7 +77,7 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The BERT model instance for question answering.
         """
         # Get the pretrained model name from the instance's variant config
-        pretrained_model_name = self._variant_config["pretrained_model_name"]
+        pretrained_model_name = self._variant_config.pretrained_model_name
 
         # Initialize tokenizer first with default or overridden dtype
         tokenizer_kwargs = {"padding_side": "left"}
@@ -85,7 +114,7 @@ class ModelLoader(ForgeModel):
             self.load_model(dtype_override=dtype_override)
 
         # Get max_length from the variant config
-        max_length = self._variant_config["max_length"]
+        max_length = self._variant_config.max_length
 
         # Create tokenized inputs
         inputs = ModelLoader.tokenizer.encode_plus(
