@@ -15,6 +15,16 @@ class ForgeModel(ABC):
     _VARIANTS = {}  # Empty by default for models without variants
     DEFAULT_VARIANT = None
 
+    def __init__(self, variant=None):
+        """Initialize the model loader with an optional variant.
+
+        Args:
+            variant: Optional string specifying which variant to use for this instance.
+                    If None, the class's DEFAULT_VARIANT will be used.
+        """
+        self._variant = self._validate_variant(variant)
+        self._variant_config = self.get_variant_config(self._variant)
+
     @classmethod
     def query_available_variants(cls):
         """Returns a dictionary of available model variants and their descriptions.
@@ -76,13 +86,11 @@ class ForgeModel(ABC):
 
         return cls._VARIANTS[variant]
 
-    @classmethod
     @abstractmethod
-    def load_model(cls, **kwargs):
-        """Load and return the model instance.
+    def load_model(self, **kwargs):
+        """Load and return the model instance using this instance's variant.
 
         Args:
-            variant: Optional string specifying which variant to load, for models that support variants.
             **kwargs: Additional model-specific arguments.
 
         Returns:
@@ -90,13 +98,11 @@ class ForgeModel(ABC):
         """
         pass
 
-    @classmethod
     @abstractmethod
-    def load_inputs(cls, **kwargs):
-        """Load and return sample inputs for the model.
+    def load_inputs(self, **kwargs):
+        """Load and return sample inputs for the model using this instance's variant.
 
         Args:
-            variant: Optional string specifying which variant to use, for models that support variants.
             **kwargs: Additional input-specific arguments.
 
         Returns:
