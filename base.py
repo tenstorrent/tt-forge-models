@@ -38,17 +38,15 @@ class ForgeModel(ABC):
 
     @classmethod
     def query_available_variants(cls):
-        """Returns a dictionary of available model variants and their descriptions.
+        """Returns a dictionary of available model variants and their configs.
 
         Returns:
-            dict: Dictionary mapping variant names to descriptions, or empty dict if
+            dict: Dictionary mapping variant names to their configuration objects, or empty dict if
                   the model doesn't support variants.
         """
         if not cls._VARIANTS:
             return {}
-        return {
-            variant: config.description for variant, config in cls._VARIANTS.items()
-        }
+        return cls._VARIANTS
 
     @classmethod
     def _validate_variant(cls, variant=None):

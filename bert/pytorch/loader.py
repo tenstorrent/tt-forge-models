@@ -26,12 +26,10 @@ class ModelLoader(ForgeModel):
         "base": LLMModelConfig(
             pretrained_model_name="phiyodr/bert-base-finetuned-squad2",
             max_length=256,
-            description="BERT-base fine-tuned on SQuAD v2",
         ),
         "large": LLMModelConfig(
             pretrained_model_name="phiyodr/bert-large-finetuned-squad2",
             max_length=256,
-            description="BERT-large fine-tuned on SQuAD v2",
         ),
     }
 
