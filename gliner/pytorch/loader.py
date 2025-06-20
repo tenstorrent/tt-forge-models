@@ -4,7 +4,6 @@
 """
 GLiNER model loader implementation for question answering
 """
-import torch
 
 
 from gliner import GLiNER
@@ -21,10 +20,6 @@ class ModelLoader(ForgeModel):
     def load_model(cls):
         """Load and return the GLiNER model instance with default settings.
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
-
         Returns:
             torch.nn.Module: The GLiNER model instance.
         """
@@ -32,12 +27,10 @@ class ModelLoader(ForgeModel):
         return model
 
     @classmethod
-    def load_inputs(cls, dtype_override=None, batch_size=1):
+    def load_inputs(cls, batch_size=1):
         """Load and return sample inputs for the GLiNER model with default settings.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                            If not provided, the model will use its default dtype (typically float32).
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
