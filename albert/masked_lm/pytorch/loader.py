@@ -26,22 +26,18 @@ class ModelLoader(ForgeModel):
         "albert-base-v2": LLMModelConfig(
             pretrained_model_name="albert/albert-base-v2",
             max_length=128,
-            description="ALBERT base model (12M parameters)",
         ),
         "albert-large-v2": LLMModelConfig(
             pretrained_model_name="albert/albert-large-v2",
             max_length=128,
-            description="ALBERT large model (18M parameters)",
         ),
         "albert-xlarge-v2": LLMModelConfig(
             pretrained_model_name="albert/albert-xlarge-v2",
             max_length=128,
-            description="ALBERT xlarge model (60M parameters)",
         ),
         "albert-xxlarge-v2": LLMModelConfig(
             pretrained_model_name="albert/albert-xxlarge-v2",
             max_length=128,  # Added default max length
-            description="ALBERT xxlarge model (235M parameters)",
         ),
     }
 

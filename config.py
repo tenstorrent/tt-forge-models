@@ -109,7 +109,6 @@ class ModelConfig:
     Contains common configuration parameters that apply across model types.
     """
 
-    description: str
     pretrained_model_name: str
 
     # Common configuration fields shared across models
