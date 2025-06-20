@@ -57,8 +57,12 @@ class ModelLoader(ForgeModel):
                 dtype_override=dtype_override
             )  # This will initialize the tokenizer
 
-        text = ["def hello_world():"] * batch_size
+        text = "def hello_world():"
         inputs = cls.tokenizer(text, return_tensors="pt")
+
+         # Replicate tensors for batch size
+        for key in inputs:
+            inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
 
@@ -75,5 +79,9 @@ class ModelLoader(ForgeModel):
         # Ensure tokenizer is initialized
         if not hasattr(cls, "tokenizer"):
             cls.load_model()
-
-        return [cls.tokenizer.decode(output) for output in outputs]
+            
+        # Get logits for the last token in each batch
+        next_token_logits = outputs.logits[:, -1]
+        next_tokens = next_token_logits.softmax(dim=-1).argmax(dim=-1)
+        
+        return [cls.tokenizer.decode([token.item()]) for token in next_tokens]
