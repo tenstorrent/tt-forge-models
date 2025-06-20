@@ -80,8 +80,11 @@ class ModelLoader(ForgeModel):
         if not hasattr(cls, "tokenizer"):
             cls.load_model()
 
+        # Handle both structured outputs and raw tensors
+        logits = outputs.logits if hasattr(outputs, "logits") else outputs
+
         # Get logits for the last token in each batch
-        next_token_logits = outputs.logits[:, -1]
+        next_token_logits = logits[:, -1]
         next_tokens = next_token_logits.softmax(dim=-1).argmax(dim=-1)
 
         return [cls.tokenizer.decode([token.item()]) for token in next_tokens]
