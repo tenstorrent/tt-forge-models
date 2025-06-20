@@ -12,7 +12,7 @@ from ...base import ForgeModel
 
 
 class ModelLoader(ForgeModel):
-    """FlanT5 model loader implementation for question answering tasks."""
+    """FlanT5 model loader implementation for Seq2SeqLM."""
 
     # Shared configuration parameters
     model_name = "google/flan-t5-small"
@@ -41,12 +41,13 @@ class ModelLoader(ForgeModel):
         return model
 
     @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(cls, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the FlanT5 model with default settings.
 
         Args:
-        dtype_override: Optional torch.dtype to override the model's default dtype.
-                        If not provided, the model will use its default dtype (typically float32).
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                            If not provided, the model will use its default dtype (typically float32).
+            batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
             dict: Input tensors and attention masks that can be fed to the model.
@@ -62,6 +63,11 @@ class ModelLoader(ForgeModel):
             "A step by step recipe to make bolognese pasta:", return_tensors="pt"
         )
         decoder_input_ids = torch.tensor([[cls.tokenizer.pad_token_id]])
+
+        # Batch the inputs using repeat_interleave (works for batch_size=1 too)
+        for key in inputs:
+            inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        decoder_input_ids = decoder_input_ids.repeat_interleave(batch_size, dim=0)
         inputs["decoder_input_ids"] = decoder_input_ids
 
         return inputs
