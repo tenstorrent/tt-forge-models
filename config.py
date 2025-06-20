@@ -72,6 +72,14 @@ class Framework(StrEnum):
     NUMPY = "numpy"
 
 
+class Parallelism(StrEnum):
+    """Multi-device parallelism strategy the model is using."""
+
+    SINGLE_DEVICE = "single_device"
+    DATA_PARALLEL = "data_parallel"
+    TENSOR_PARALLEL = "tensor_parallel"
+
+
 @dataclass(frozen=True)
 class ModelInfo:
     """
