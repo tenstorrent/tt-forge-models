@@ -77,7 +77,7 @@ class ModelLoader(ForgeModel):
             truncation=True,
         )
 
-         # Replicate tensors for batch size
+        # Replicate tensors for batch size
         for key in inputs:
             inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
