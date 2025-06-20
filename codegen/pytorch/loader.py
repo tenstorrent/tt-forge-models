@@ -83,8 +83,17 @@ class ModelLoader(ForgeModel):
         # Handle both structured outputs and raw tensors
         logits = outputs.logits if hasattr(outputs, "logits") else outputs
 
+        # Ensure logits are float type for softmax operation
+        if not logits.dtype.is_floating_point:
+            logits = logits.float()
+
         # Get logits for the last token in each batch
         next_token_logits = logits[:, -1]
         next_tokens = next_token_logits.softmax(dim=-1).argmax(dim=-1)
 
-        return [cls.tokenizer.decode([token.item()]) for token in next_tokens]
+        if next_tokens.dim() == 0:
+            # Single token case
+            return [cls.tokenizer.decode([next_tokens.item()])]
+        else:
+            # Batch of tokens case
+            return [cls.tokenizer.decode([token.item()]) for token in next_tokens]
