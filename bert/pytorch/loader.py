@@ -8,20 +8,64 @@ import torch
 from transformers import AutoTokenizer, AutoModelForQuestionAnswering
 
 from ...base import ForgeModel
+from ...config import (
+    LLMModelConfig,
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 
 
 class ModelLoader(ForgeModel):
     """BERT model loader implementation for question answering tasks."""
 
+    # Dictionary of available model variants
+    _VARIANTS = {
+        "base": LLMModelConfig(
+            pretrained_model_name="phiyodr/bert-base-finetuned-squad2",
+            max_length=256,
+        ),
+        "large": LLMModelConfig(
+            pretrained_model_name="phiyodr/bert-large-finetuned-squad2",
+            max_length=256,
+        ),
+    }
+
+    # Default variant to use
+    DEFAULT_VARIANT = "large"
+
     # Shared configuration parameters
-    model_name = "phiyodr/bert-large-finetuned-squad2"
     context = 'Johann Joachim Winckelmann was a German art historian and archaeologist. He was a pioneering Hellenist who first articulated the difference between Greek, Greco-Roman and Roman art. "The prophet and founding hero of modern archaeology", Winckelmann was one of the founders of scientific archaeology and first applied the categories of style on a large, systematic basis to the history of art. '
     question = "What discipline did Winkelmann create?"
-    max_length = 256
+
+    # Tokenizer shared across instances
+    tokenizer = None
 
     @classmethod
-    def load_model(cls, dtype_override=None):
-        """Load and return the BERT model instance with default settings.
+    def get_model_info(cls, variant=None) -> ModelInfo:
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant: Optional string specifying which variant to get info for.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        variant = cls._validate_variant(variant)
+
+        return ModelInfo(
+            model="bert",
+            variant=variant,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.NLP_QA,
+            source=ModelSource.HUGGING_FACE,
+            framework=Framework.TORCH,
+        )
+
+    def load_model(self, dtype_override=None):
+        """Load and return the BERT model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
@@ -30,14 +74,19 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The BERT model instance for question answering.
         """
+        # Get the pretrained model name from the instance's variant config
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
         # Initialize tokenizer first with default or overridden dtype
         tokenizer_kwargs = {"padding_side": "left"}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        cls.tokenizer = AutoTokenizer.from_pretrained(
-            cls.model_name, **tokenizer_kwargs
-        )
+        # Initialize the tokenizer if not already done
+        if ModelLoader.tokenizer is None:
+            ModelLoader.tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name, **tokenizer_kwargs
+            )
 
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
@@ -45,36 +94,40 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         model = AutoModelForQuestionAnswering.from_pretrained(
-            cls.model_name, **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
         return model
 
-    @classmethod
-    def load_inputs(cls):
-        """Load and return sample inputs for the BERT model with default settings.
+    def load_inputs(self, dtype_override=None):
+        """Load and return sample inputs for the BERT model with this instance's variant settings.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
             dict: Input tensors and attention masks that can be fed to the model.
         """
         # Ensure tokenizer is initialized
-        if not hasattr(cls, "tokenizer"):
-            cls.load_model()  # This will initialize the tokenizer
+        if ModelLoader.tokenizer is None:
+            self.load_model(dtype_override=dtype_override)
+
+        # Get max_length from the variant config
+        max_length = self._variant_config.max_length
 
         # Create tokenized inputs
-        inputs = cls.tokenizer.encode_plus(
-            cls.question,
-            cls.context,
+        inputs = ModelLoader.tokenizer.encode_plus(
+            self.question,
+            self.context,
             add_special_tokens=True,
             return_tensors="pt",
-            max_length=cls.max_length,
+            max_length=max_length,
             padding="max_length",
             truncation=True,
         )
 
         return inputs
 
-    @classmethod
-    def decode_output(cls, outputs, inputs=None):
+    def decode_output(self, outputs, inputs=None):
         """Helper method to decode model outputs into human-readable text.
 
         Args:
@@ -84,14 +137,15 @@ class ModelLoader(ForgeModel):
         Returns:
             str: Decoded answer text
         """
-        if not hasattr(cls, "tokenizer"):
-            cls.load_model()  # This will initialize the tokenizer
+        # Ensure tokenizer is initialized
+        if ModelLoader.tokenizer is None:
+            self.load_model()
 
         if inputs is None:
-            inputs = cls.load_inputs()
+            inputs = self.load_inputs()
 
         response_start = torch.argmax(outputs.start_logits)
         response_end = torch.argmax(outputs.end_logits) + 1
         response_tokens = inputs.input_ids[0, response_start:response_end]
 
-        return cls.tokenizer.decode(response_tokens)
+        return ModelLoader.tokenizer.decode(response_tokens)
