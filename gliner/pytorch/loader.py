@@ -24,7 +24,7 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The GLiNER model instance.
         """
         model = GLiNER.from_pretrained("urchade/gliner_largev2")
-        return model
+        return model.batch_predict_entities
 
     @classmethod
     def load_inputs(cls, batch_size=1):
@@ -44,6 +44,5 @@ class ModelLoader(ForgeModel):
 
         # Batch the inputs using list replication
         texts = [text] * batch_size
-        labels_batch = [labels] * batch_size
 
-        return (texts, labels_batch)
+        return (texts, labels)

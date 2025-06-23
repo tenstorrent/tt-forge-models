@@ -38,10 +38,12 @@ class ModelLoader(ForgeModel):
         return model
 
     @classmethod
-    def load_inputs(cls, batch_size=1):
+    def load_inputs(cls, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the GPT-Neo model with default settings.
 
         Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                            If not provided, the model will use its default dtype (typically float32).
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
@@ -55,7 +57,7 @@ class ModelLoader(ForgeModel):
         )
 
         if not hasattr(cls, "tokenizer"):
-            model = cls.load_model()
+            model = cls.load_model(dtype_override=dtype_override)
 
         input_ids = cls.tokenizer(prompt, return_tensors="pt").input_ids
         generation_config = GenerationConfig(

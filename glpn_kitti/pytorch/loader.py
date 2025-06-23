@@ -10,7 +10,7 @@ import torch
 from PIL import Image
 from transformers import GLPNImageProcessor, GLPNForDepthEstimation
 from ...base import ForgeModel
-from ...utils import get_file
+from ...tools.utils import get_file
 
 
 class ModelLoader(ForgeModel):
