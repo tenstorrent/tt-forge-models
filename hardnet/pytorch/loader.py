@@ -17,9 +17,6 @@ from ...base import ForgeModel
 class ModelLoader(ForgeModel):
     """HardNet model loader implementation."""
 
-    # Shared configuration parameters
-    model_name = "EleutherAI/gpt-neo-125M"
-
     @classmethod
     def load_model(cls, dtype_override=None):
         """Load and return the HardNet model instance with default settings.
