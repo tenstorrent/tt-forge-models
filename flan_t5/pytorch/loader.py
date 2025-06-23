@@ -71,3 +71,32 @@ class ModelLoader(ForgeModel):
         inputs["decoder_input_ids"] = decoder_input_ids
 
         return inputs
+
+    @classmethod
+    def decode_output(cls, outputs, dtype_override=None, inputs=None):
+        """Helper method to decode model outputs into human-readable text.
+
+        Args:
+            outputs: Model output from a forward pass
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                           If not provided, the model will use its default dtype (typically float32).
+            inputs: Optional input tensors used to generate the outputs
+
+        Returns:
+            str: Decoded answer text
+        """
+        # Ensure tokenizer is initialized
+        if not hasattr(cls, "tokenizer"):
+            cls.load_model(
+                dtype_override=dtype_override
+            )  # This will initialize the tokenizer
+
+        if inputs is None:
+            inputs = cls.load_inputs()
+
+        logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
+        token_ids = torch.argmax(logits, dim=-1)
+        decoded = cls.tokenizer.batch_decode(token_ids, skip_special_tokens=True)
+
+        # Return single string for batch_size=1, list for batch_size>1
+        return decoded[0] if len(decoded) == 1 else decoded
