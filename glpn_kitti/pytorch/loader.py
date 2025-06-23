@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-GLPN-KITTI model loader implementation for question answering
+GLPN-KITTI model loader implementation
 """
 import torch
 
@@ -57,6 +57,10 @@ class ModelLoader(ForgeModel):
 
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         cls.image = Image.open(str(image_file))
+
+        # Ensure processor is initialized
+        if not hasattr(cls, "processor"):
+            cls.load_model(dtype_override=dtype_override)
         # prepare image for the model
         inputs = cls.processor(images=cls.image, return_tensors="pt")
 

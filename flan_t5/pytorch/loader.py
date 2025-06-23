@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-FlanT5 model loader implementation for question answering
+FlanT5 model loader implementation
 """
 import torch
 

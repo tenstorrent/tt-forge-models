@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-GLiNER model loader implementation for question answering
+GLiNER model loader implementation
 """
 
 

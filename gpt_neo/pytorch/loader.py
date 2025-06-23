@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-GPT-Neo model loader implementation for question answering
+GPT-Neo model loader implementation
 """
 import torch
 
@@ -73,18 +73,23 @@ class ModelLoader(ForgeModel):
         return inputs
 
     @classmethod
-    def decode_output(cls, outputs, inputs=None):
+    def decode_output(cls, outputs, dtype_override=None, inputs=None):
         """Helper method to decode model outputs into human-readable text.
 
         Args:
             outputs: Model output from a forward pass
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                           If not provided, the model will use its default dtype (typically float32).
             inputs: Optional input tensors used to generate the outputs
 
         Returns:
             str: Decoded answer text
         """
+        # Ensure tokenizer is initialized
         if not hasattr(cls, "tokenizer"):
-            cls.load_model()  # This will initialize the tokenizer
+            cls.load_model(
+                dtype_override=dtype_override
+            )  # This will initialize the tokenizer
 
         if inputs is None:
             inputs = cls.load_inputs()
