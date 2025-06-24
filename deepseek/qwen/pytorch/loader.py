@@ -5,11 +5,7 @@
 """
 Deepseek-Qwen model loader implementation
 """
-import torch
-import os
-from unittest.mock import patch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from transformers.dynamic_module_utils import get_imports
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from ...base import ForgeModel
 
 
