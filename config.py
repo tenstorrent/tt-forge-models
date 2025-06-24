@@ -28,32 +28,38 @@ class ModelTask(StrEnum):
     """
     Classification of tasks models can perform.
 
-    Based on HuggingFace task classifications.
+    Implemented based on
+    https://huggingface.co/docs/transformers/en/tasks/sequence_classification.
     """
 
-    NLP_TEXT_CLS = "nlp_text_cls"  # Text classification
-    NLP_TOKEN_CLS = "nlp_token_cls"  # Token classification
-    NLP_QA = "nlp_qa"  # Question answering
-    NLP_CAUSAL_LM = "nlp_causal_lm"  # Causal language modeling
-    NLP_MASKED_LM = "nlp_masked_lm"  # Masked language modeling
-    NLP_TRANSLATION = "nlp_translation"  # Translation
-    NLP_SUMMARIZATION = "nlp_summarization"  # Summarization
-    NLP_MULTI_CHOICE = "nlp_multi_choice"  # Multiple choice
-
-    # Audio tasks
-    AUDIO_CLS = "audio_cls"  # Audio classification
-    AUDIO_ASR = "audio_asr"  # Automatic speech recognition
-
-    # Computer Vision tasks
-    CV_IMAGE_CLS = "cv_image_cls"  # Image classification
-    CV_IMAGE_SEG = "cv_image_seg"  # Image segmentation
-    CV_VIDEO_CLS = "cv_video_cls"  # Video classification
-    CV_OBJECT_DET = "cv_object_det"  # Object detection
-    CV_IMAGE_FE = "cv_image_fe"  # Image feature extraction
-
-    # Multimodal tasks
-    MM_IMAGE_CAPT = "mm_image_capt"  # Image captioning
-    MM_VISUAL_QA = "mm_visual_qa"  # Visual question answering
+    NLP_TEXT_CLS = "nlp_text_cls"
+    NLP_TOKEN_CLS = "nlp_token_cls"
+    NLP_QA = "nlp_qa"
+    NLP_CAUSAL_LM = "nlp_causal_lm"
+    NLP_MASKED_LM = "nlp_masked_lm"
+    NLP_TRANSLATION = "nlp_translation"
+    NLP_SUMMARIZATION = "nlp_summarization"
+    NLP_MULTI_CHOICE = "nlp_multi_choice"
+    AUDIO_CLS = "audio_cls"
+    AUDIO_ASR = "audio_asr"
+    CV_IMAGE_CLS = "cv_image_cls"
+    CV_IMAGE_SEG = "cv_image_seg"
+    CV_VIDEO_CLS = "cv_video_cls"
+    CV_OBJECT_DET = "cv_object_det"
+    CV_ZS_OBJECT_DET = "cv_zs_object_det"
+    CV_ZS_IMAGE_CLS = "cv_zs_image_cls"
+    CV_DEPTH_EST = "cv_depth_est"
+    CV_IMG_TO_IMG = "cv_img_to_img"
+    CV_IMAGE_FE = "cv_image_fe"
+    CV_MASK_GEN = "cv_mask_gen"
+    CV_KEYPOINT_DET = "cv_keypoint_det"
+    CV_KNOW_DISTILL = "cv_know_distill"
+    MM_IMAGE_CAPT = "mm_image_capt"
+    MM_DOC_QA = "mm_doc_qa"
+    MM_VISUAL_QA = "mm_visual_qa"
+    MM_TTS = "mm_tts"
+    MM_IMAGE_TTT = "mm_image_ttt"
+    MM_VIDEO_TTT = "mm_video_ttt"
 
 
 class ModelSource(StrEnum):
