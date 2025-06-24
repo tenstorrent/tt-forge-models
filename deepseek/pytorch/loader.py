@@ -58,6 +58,10 @@ class ModelLoader(ForgeModel):
                 trust_remote_code=True,
             )
 
+        cls.tokenizer = AutoTokenizer.from_pretrained(
+            cls.model_name, trust_remote_code=True
+        )
+
         return model
 
     @classmethod
@@ -72,9 +76,9 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors, pixel values and attention masks that can be fed to the model.
         """
-        cls.tokenizer = AutoTokenizer.from_pretrained(
-            cls.model_name, trust_remote_code=True
-        )
+        if not hasattr(cls, "tokenizer"):
+            cls.load_model()  # Ensure tokenizer is initialized
+
         cls.text = "What is machine learning?"
         cls.inputs = cls.tokenizer(cls.text, return_tensors="pt")
 
