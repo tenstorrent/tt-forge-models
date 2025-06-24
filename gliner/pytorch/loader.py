@@ -14,7 +14,7 @@ class ModelLoader(ForgeModel):
     """GLiNER model loader implementation."""
 
     # Shared configuration parameters
-    model_name = "google/flan-t5-small"
+    model_name = "urchade/gliner_largev2"
 
     @classmethod
     def load_model(cls):
@@ -23,7 +23,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The GLiNER model instance.
         """
-        model = GLiNER.from_pretrained("urchade/gliner_largev2")
+        model = GLiNER.from_pretrained(cls.model_name)
         return model.batch_predict_entities
 
     @classmethod
