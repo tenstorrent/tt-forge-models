@@ -6,7 +6,7 @@
 Deepseek-Qwen model loader implementation
 """
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from ...base import ForgeModel
+from ....base import ForgeModel
 
 
 class ModelLoader(ForgeModel):
