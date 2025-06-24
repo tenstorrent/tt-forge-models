@@ -15,7 +15,17 @@ from ....config import (
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
+
+
+class Variants(StrEnum):
+    """Available ALBERT model variants."""
+
+    BASE = "albert-base-v2"
+    LARGE = "albert-large-v2"
+    XLARGE = "albert-xlarge-v2"
+    XXLARGE = "albert-xxlarge-v2"
 
 
 class ModelLoader(ForgeModel):
@@ -23,26 +33,26 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        "albert-base-v2": LLMModelConfig(
+        Variants.BASE: LLMModelConfig(
             pretrained_model_name="albert/albert-base-v2",
             max_length=128,
         ),
-        "albert-large-v2": LLMModelConfig(
+        Variants.LARGE: LLMModelConfig(
             pretrained_model_name="albert/albert-large-v2",
             max_length=128,
         ),
-        "albert-xlarge-v2": LLMModelConfig(
+        Variants.XLARGE: LLMModelConfig(
             pretrained_model_name="albert/albert-xlarge-v2",
             max_length=128,
         ),
-        "albert-xxlarge-v2": LLMModelConfig(
+        Variants.XXLARGE: LLMModelConfig(
             pretrained_model_name="albert/albert-xxlarge-v2",
-            max_length=128,  # Added default max length
+            max_length=128,
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = "albert-base-v2"
+    DEFAULT_VARIANT = Variants.BASE
 
     # Shared configuration parameters
     sample_text = "The capital of [MASK] is Paris."
@@ -62,7 +72,7 @@ class ModelLoader(ForgeModel):
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant: Optional string specifying which variant to get info for.
+            variant: Optional StrEnum specifying which variant to get info for.
 
         Returns:
             ModelInfo: Information about the model and variant
@@ -71,7 +81,7 @@ class ModelLoader(ForgeModel):
 
         return ModelInfo(
             model="albert_v2",
-            variant=variant,
+            variant=str(variant),  # Convert enum to string
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,
             source=ModelSource.HUGGING_FACE,

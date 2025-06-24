@@ -15,7 +15,15 @@ from ...config import (
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
+
+
+class Variants(StrEnum):
+    """Available BERT model variants."""
+
+    BASE = "base"
+    LARGE = "large"
 
 
 class ModelLoader(ForgeModel):
@@ -23,18 +31,18 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants
     _VARIANTS = {
-        "base": LLMModelConfig(
+        Variants.BASE: LLMModelConfig(
             pretrained_model_name="phiyodr/bert-base-finetuned-squad2",
             max_length=256,
         ),
-        "large": LLMModelConfig(
+        Variants.LARGE: LLMModelConfig(
             pretrained_model_name="phiyodr/bert-large-finetuned-squad2",
             max_length=256,
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = "large"
+    DEFAULT_VARIANT = Variants.LARGE
 
     # Shared configuration parameters
     context = 'Johann Joachim Winckelmann was a German art historian and archaeologist. He was a pioneering Hellenist who first articulated the difference between Greek, Greco-Roman and Roman art. "The prophet and founding hero of modern archaeology", Winckelmann was one of the founders of scientific archaeology and first applied the categories of style on a large, systematic basis to the history of art. '
@@ -55,7 +63,7 @@ class ModelLoader(ForgeModel):
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant: Optional string specifying which variant to get info for.
+            variant: Optional StrEnum specifying which variant to get info for.
 
         Returns:
             ModelInfo: Information about the model and variant
@@ -64,7 +72,7 @@ class ModelLoader(ForgeModel):
 
         return ModelInfo(
             model="bert",
-            variant=variant,
+            variant=str(variant),  # Convert enum to string
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_QA,
             source=ModelSource.HUGGING_FACE,

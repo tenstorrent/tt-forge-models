@@ -7,9 +7,9 @@ This module provides the ForgeModel base class with common functionality
 for loading models, inputs, etc.
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Union, Type
+from typing import Dict, Optional, Union, Type, Any
 
-from .config import ModelConfig, ModelInfo
+from .config import ModelConfig, ModelInfo, StrEnum
 import torch
 
 
@@ -17,9 +17,9 @@ class ForgeModel(ABC):
     """Base class for all TT-Forge model loaders."""
 
     # This is intended to be overridden by subclasses to define available model variants
-    # Format: {"variant_name": ModelConfig(...), ...}
+    # Format: {Variants.NAME: ModelConfig(...), ...}
     _VARIANTS: Dict[
-        str, ModelConfig
+        StrEnum, ModelConfig
     ] = {}  # Empty by default for models without variants
     DEFAULT_VARIANT = None
 
@@ -27,7 +27,7 @@ class ForgeModel(ABC):
         """Initialize a ForgeModel instance.
 
         Args:
-            variant: Optional string specifying which variant to use.
+            variant: Optional StrEnum value specifying which variant to use.
                     If None, the default variant will be used.
         """
         # Validate and store the variant for this instance
@@ -53,10 +53,10 @@ class ForgeModel(ABC):
         """Validates and returns the variant to use.
 
         Args:
-            variant: Optional string specifying which variant to validate.
+            variant: Optional StrEnum specifying which variant to validate.
 
         Returns:
-            str or None: Validated variant name, or None for models without variants.
+            StrEnum or None: Validated variant, or None for models without variants.
 
         Raises:
             ValueError: If the specified variant doesn't exist.
@@ -99,7 +99,7 @@ class ForgeModel(ABC):
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant: Optional string specifying which variant to get info for.
+            variant: Optional StrEnum specifying which variant to get info for.
 
         Returns:
             ModelInfo: Information about the model and variant
