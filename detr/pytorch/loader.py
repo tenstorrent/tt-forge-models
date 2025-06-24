@@ -9,7 +9,7 @@ from PIL import Image
 import torch
 import numpy as np
 from torchvision import transforms
-from third_party.tt_forge_models.tools.utils import get_file
+from ...tools.utils import get_file
 from ...base import ForgeModel
 
 
