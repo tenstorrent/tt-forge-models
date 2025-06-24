@@ -40,8 +40,15 @@ class ModelLoader(ForgeModel):
     context = 'Johann Joachim Winckelmann was a German art historian and archaeologist. He was a pioneering Hellenist who first articulated the difference between Greek, Greco-Roman and Roman art. "The prophet and founding hero of modern archaeology", Winckelmann was one of the founders of scientific archaeology and first applied the categories of style on a large, systematic basis to the history of art. '
     question = "What discipline did Winkelmann create?"
 
-    # Tokenizer shared across instances
-    tokenizer = None
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+        self.tokenizer = None
 
     @classmethod
     def get_model_info(cls, variant=None) -> ModelInfo:
@@ -64,6 +71,28 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_tokenizer(self, dtype_override=None):
+        """Load tokenizer for the current variant.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
+
+        Returns:
+            The loaded tokenizer instance
+        """
+
+        # Initialize tokenizer with dtype override if specified
+        tokenizer_kwargs = {"padding_side": "left"}
+        if dtype_override is not None:
+            tokenizer_kwargs["torch_dtype"] = dtype_override
+
+        # Load the tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        )
+
+        return self.tokenizer
+
     def load_model(self, dtype_override=None):
         """Load and return the BERT model instance for this instance's variant.
 
@@ -77,16 +106,9 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Initialize tokenizer first with default or overridden dtype
-        tokenizer_kwargs = {"padding_side": "left"}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        # Initialize the tokenizer if not already done
-        if ModelLoader.tokenizer is None:
-            ModelLoader.tokenizer = AutoTokenizer.from_pretrained(
-                pretrained_model_name, **tokenizer_kwargs
-            )
+        # Ensure tokenizer is loaded
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
 
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
@@ -108,14 +130,14 @@ class ModelLoader(ForgeModel):
             dict: Input tensors and attention masks that can be fed to the model.
         """
         # Ensure tokenizer is initialized
-        if ModelLoader.tokenizer is None:
-            self.load_model(dtype_override=dtype_override)
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
 
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
         # Create tokenized inputs
-        inputs = ModelLoader.tokenizer.encode_plus(
+        inputs = self.tokenizer.encode_plus(
             self.question,
             self.context,
             add_special_tokens=True,
@@ -138,8 +160,8 @@ class ModelLoader(ForgeModel):
             str: Decoded answer text
         """
         # Ensure tokenizer is initialized
-        if ModelLoader.tokenizer is None:
-            self.load_model()
+        if self.tokenizer is None:
+            self._load_tokenizer()
 
         if inputs is None:
             inputs = self.load_inputs()
@@ -148,4 +170,4 @@ class ModelLoader(ForgeModel):
         response_end = torch.argmax(outputs.end_logits) + 1
         response_tokens = inputs.input_ids[0, response_start:response_end]
 
-        return ModelLoader.tokenizer.decode(response_tokens)
+        return self.tokenizer.decode(response_tokens)
