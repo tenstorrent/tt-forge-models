@@ -6,6 +6,7 @@ ALBERT model loader implementation for masked language modeling.
 """
 import torch
 from transformers import AlbertForMaskedLM, AutoTokenizer
+from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
@@ -58,20 +59,19 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
 
     @classmethod
-    def get_model_info(cls, variant=None) -> ModelInfo:
-        """Get model information for dashboard and metrics reporting.
+    def _get_model_info(cls, variant_name: Optional[str]) -> ModelInfo:
+        """Implementation method for getting model info with validated variant.
 
         Args:
-            variant: Optional string specifying which variant to get info for.
+            variant_name: Validated variant name string (or None if model has no variants).
+                         For models that support variants, this will never be None.
 
         Returns:
             ModelInfo: Information about the model and variant
         """
-        variant = cls._validate_variant(variant)
-
         return ModelInfo(
             model="albert_v2",
-            variant=variant,
+            variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,
             source=ModelSource.HUGGING_FACE,
