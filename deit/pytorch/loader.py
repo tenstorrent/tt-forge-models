@@ -16,11 +16,20 @@ from ...tools.utils import get_file
 class ModelLoader(ForgeModel):
     """Deit model loader implementation."""
 
-    # Shared configuration parameters
-    model_name = "facebook/deit-base-patch16-224"
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_name = "facebook/deit-base-patch16-224"
+        self.feature_extractor = None
+
+    def load_model(self, dtype_override=None):
         """Load and return the Deit model instance with default settings.
 
         Args:
@@ -31,18 +40,17 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The Deit model instance.
         """
         # Initialize feature extractor first
-        cls.feature_extractor = AutoFeatureExtractor.from_pretrained(cls.model_name)
+        self.feature_extractor = AutoFeatureExtractor.from_pretrained(self.model_name)
 
         # Load pre-trained model from HuggingFace
-        model = ViTForImageClassification.from_pretrained(cls.model_name)
+        model = ViTForImageClassification.from_pretrained(self.model_name)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None, batch_size=1):
+    def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Deit model with default settings.
 
         Args:
@@ -55,14 +63,14 @@ class ModelLoader(ForgeModel):
         """
 
         # Ensure feature extractor is initialized
-        if not hasattr(cls, "feature_extractor"):
-            cls.load_model(
+        if self.feature_extractor is None:
+            self.load_model(
                 dtype_override=dtype_override
             )  # This will initialize the feature extractor
 
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         image = Image.open(str(image_file))
-        inputs = cls.feature_extractor(images=image, return_tensors="pt")
+        inputs = self.feature_extractor(images=image, return_tensors="pt")
 
         # Replicate tensors for batch size
         for key in inputs:

@@ -13,21 +13,28 @@ from ...base import ForgeModel
 class ModelLoader(ForgeModel):
     """GLiNER model loader implementation."""
 
-    # Shared configuration parameters
-    model_name = "urchade/gliner_largev2"
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    @classmethod
-    def load_model(cls):
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_name = "urchade/gliner_largev2"
+
+    def load_model(self):
         """Load and return the GLiNER model instance with default settings.
 
         Returns:
             torch.nn.Module: The GLiNER model instance.
         """
-        model = GLiNER.from_pretrained(cls.model_name)
+        model = GLiNER.from_pretrained(self.model_name)
         return model.batch_predict_entities
 
-    @classmethod
-    def load_inputs(cls, batch_size=1):
+    def load_inputs(self, batch_size=1):
         """Load and return sample inputs for the GLiNER model with default settings.
 
         Args:
