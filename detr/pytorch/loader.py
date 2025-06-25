@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
         )
         input_tensor = preprocess(input_image)
         input_batch = torch.stack(
-            input_tensor * batch_size
+            [input_tensor] * batch_size
         )  # Create batch of size `batch_size`
         if dtype_override is not None:
             input_batch = input_batch.to(dtype_override)

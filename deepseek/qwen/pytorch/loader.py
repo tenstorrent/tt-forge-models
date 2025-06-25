@@ -13,7 +13,7 @@ class ModelLoader(ForgeModel):
     """Deepseek-Qwen model loader implementation."""
 
     # Shared configuration parameters
-    model_name = "deepseek-ai/DeepSeek-V3"
+    model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B"
 
     @classmethod
     def load_model(cls, dtype_override=None):
@@ -26,7 +26,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Deepseek-Qwen model instance.
         """
-        tokenizer_kwargs = {"trust_remote_code": True}
+        tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
@@ -34,7 +34,7 @@ class ModelLoader(ForgeModel):
             cls.model_name, **tokenizer_kwargs
         )
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
