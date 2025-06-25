@@ -6,6 +6,13 @@ VGG19-UNet model loader implementation
 """
 import torch
 
+from ...config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ...base import ForgeModel
 from .src.vgg19_unet import VGG19UNet
 
@@ -25,6 +32,27 @@ class ModelLoader(ForgeModel):
         # Configuration parameters
         self.input_shape = (3, 512, 512)
         self.out_channels = 1
+
+    @classmethod
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'default'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "default"
+        return ModelInfo(
+            model="vgg19_unet",
+            variant=variant_name,
+            group=ModelGroup.PRIORITY,
+            task=ModelTask.CV_IMAGE_SEG,
+            source=ModelSource.CUSTOM,
+            framework=Framework.TORCH,
+        )
 
     def load_model(self, dtype_override=None):
         """Load and return the VGG19-UNet model instance with default settings.

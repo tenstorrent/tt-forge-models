@@ -6,10 +6,38 @@ DPR model loader implementation
 """
 
 from transformers import DPRContextEncoderTokenizer, DPRContextEncoder
+from ...config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ...base import ForgeModel
 
 
 class ModelLoader(ForgeModel):
+    @classmethod
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'default'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "default"
+        return ModelInfo(
+            model="dpr",
+            variant=variant_name,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.NLP_QA,
+            source=ModelSource.HUGGING_FACE,
+            framework=Framework.TORCH,
+        )
+
     def __init__(self, variant=None):
         """Initialize ModelLoader with specified variant.
 

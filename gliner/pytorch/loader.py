@@ -7,6 +7,13 @@ GLiNER model loader implementation
 
 
 from gliner import GLiNER
+from ...config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ...base import ForgeModel
 
 
@@ -24,6 +31,27 @@ class ModelLoader(ForgeModel):
 
         # Configuration parameters
         self.model_name = "urchade/gliner_largev2"
+
+    @classmethod
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'default'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "default"
+        return ModelInfo(
+            model="gliner",
+            variant=variant_name,
+            group=ModelGroup.PRIORITY,
+            task=ModelTask.NLP_TOKEN_CLS,
+            source=ModelSource.HUGGING_FACE,
+            framework=Framework.TORCH,
+        )
 
     def load_model(self):
         """Load and return the GLiNER model instance with default settings.

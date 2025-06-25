@@ -9,6 +9,13 @@ import torch
 
 from PIL import Image
 from transformers import GLPNImageProcessor, GLPNForDepthEstimation
+from ...config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ...base import ForgeModel
 from ...tools.utils import get_file
 
@@ -29,6 +36,27 @@ class ModelLoader(ForgeModel):
         self.model_name = "vinvino02/glpn-kitti"
         self.processor = None
         self.image = None
+
+    @classmethod
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'default'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "default"
+        return ModelInfo(
+            model="glpn_kitti",
+            variant=variant_name,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.CV_DEPTH_EST,
+            source=ModelSource.HUGGING_FACE,
+            framework=Framework.TORCH,
+        )
 
     def load_model(self, dtype_override=None):
         """Load and return the GLPN-KITTI model instance with default settings.

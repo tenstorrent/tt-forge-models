@@ -7,6 +7,13 @@ Deit model loader implementation
 """
 
 
+from ...config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ...base import ForgeModel
 from PIL import Image
 from transformers import AutoFeatureExtractor, ViTForImageClassification
@@ -28,6 +35,27 @@ class ModelLoader(ForgeModel):
         # Configuration parameters
         self.model_name = "facebook/deit-base-patch16-224"
         self.feature_extractor = None
+
+    @classmethod
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'default'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "default"
+        return ModelInfo(
+            model="deit",
+            variant=variant_name,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.CV_IMAGE_CLS,
+            source=ModelSource.HUGGING_FACE,
+            framework=Framework.TORCH,
+        )
 
     def load_model(self, dtype_override=None):
         """Load and return the Deit model instance with default settings.

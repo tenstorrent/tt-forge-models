@@ -7,6 +7,13 @@ Codegen model loader implementation
 """
 
 
+from ...config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ...base import ForgeModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -26,6 +33,27 @@ class ModelLoader(ForgeModel):
         # Configuration parameters
         self.model_name = "Salesforce/codegen-350M-mono"
         self.tokenizer = None
+
+    @classmethod
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'default'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "default"
+        return ModelInfo(
+            model="codegen",
+            variant=variant_name,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.NLP_CAUSAL_LM,
+            source=ModelSource.HUGGING_FACE,
+            framework=Framework.TORCH,
+        )
 
     def load_model(self, dtype_override=None):
         """Load and return the Codegen model instance with default settings.

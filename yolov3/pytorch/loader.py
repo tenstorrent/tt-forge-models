@@ -10,6 +10,13 @@ import torch
 from PIL import Image
 from torchvision import transforms
 
+from ...config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ...base import ForgeModel
 from .src.yolov3 import Yolov3
 from ...tools.utils import get_file
@@ -17,6 +24,27 @@ from ...tools.utils import get_file
 
 class ModelLoader(ForgeModel):
     """YOLOv3 model loader implementation."""
+
+    @classmethod
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'default'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "default"
+        return ModelInfo(
+            model="yolov3",
+            variant=variant_name,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.CV_OBJECT_DET,
+            source=ModelSource.CUSTOM,
+            framework=Framework.TORCH,
+        )
 
     def __init__(self, variant=None):
         """Initialize ModelLoader with specified variant.
