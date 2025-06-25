@@ -20,11 +20,19 @@ def get_state_dict(self, *args, **kwargs):
 class ModelLoader(ForgeModel):
     """Efficientnet model loader implementation."""
 
-    # Shared configuration parameters
-    input_shape = (3, 224, 224)
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.input_shape = (3, 224, 224)
+
+    def load_model(self, dtype_override=None):
         """Load and return the Efficientnet model instance with default settings.
 
         Args:
@@ -45,8 +53,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the Efficientnet model with default settings.
 
         Args:
@@ -57,7 +64,7 @@ class ModelLoader(ForgeModel):
             torch.Tensor: Sample input tensor that can be fed to the model.
         """
         # Create a random input tensor with the correct shape, using default dtype
-        inputs = torch.rand(1, *cls.input_shape)
+        inputs = torch.rand(1, *self.input_shape)
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:

@@ -16,13 +16,21 @@ from .src import dla_model
 class ModelLoader(ForgeModel):
     """Loads DLA model and sample input."""
 
-    # Shared configuration parameters
-    model_name = "dla34"
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_name = "dla34"
+
+    def load_model(self, dtype_override=None):
         """Load pretrained DLA model."""
-        func = getattr(dla_model, cls.model_name)
+        func = getattr(dla_model, self.model_name)
         model = func(pretrained=None)
         model.eval()
 
@@ -32,8 +40,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(self, dtype_override=None):
         """Prepare sample input for DLA model"""
 
         # Get the Image

@@ -12,17 +12,27 @@ from .src.utils import load_model, load_input
 class ModelLoader(ForgeModel):
     """Loads Monodepth2 model and sample input."""
 
-    # Shared configuration parameters
-    model_name = "mono_640x192"
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_name = "mono_640x192"
+        self._height = None
+        self._width = None
+
+    def load_model(self, dtype_override=None):
         """Load pretrained Monodepth2 model."""
-        model, height, width = load_model(cls.model_name)
+        model, height, width = load_model(self.model_name)
         model.eval()
 
-        cls._height = height
-        cls._width = width
+        self._height = height
+        self._width = width
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
@@ -30,11 +40,10 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(self, dtype_override=None):
         """Prepare sample input for Monodepth2 model"""
 
-        inputs = load_input(cls._height, cls._width)
+        inputs = load_input(self._height, self._width)
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
