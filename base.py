@@ -7,16 +7,9 @@ This module provides the ForgeModel base class with common functionality
 for loading models, inputs, etc.
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Union, Type, Any, List
+from typing import Dict, Optional, Union, Type, Any
 
-from .config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
-    Framework,
-)
+from .config import ModelConfig, ModelInfo
 import torch
 
 
@@ -115,11 +108,9 @@ class ForgeModel(ABC):
         return cls._get_model_info(variant_name)
 
     @classmethod
+    @abstractmethod
     def _get_model_info(cls, variant_name: Optional[str]) -> ModelInfo:
         """Implementation method for getting model info with validated variant.
-
-        This method is optional - it provides metadata about the model.
-        Default implementation returns basic model info derived from class name.
 
         Args:
             variant_name: Validated variant name string (or None if model has no variants).
@@ -127,20 +118,7 @@ class ForgeModel(ABC):
         Returns:
             ModelInfo: Information about the model and variant
         """
-        # Extract model name from the module path by default
-        model_name = cls.__module__.split(".")[
-            -3
-        ]  # e.g. 'bert' from 'tt_forge_models.bert.pytorch.loader'
-
-        # Use defaults for required fields
-        return ModelInfo(
-            model=model_name,
-            variant=variant_name or "default",
-            group=ModelGroup.GENERALITY,
-            task=ModelTask.CV_IMAGE_CLS,  # Default to image classification as most common
-            source=ModelSource.CUSTOM,
-            framework=Framework.TORCH,
-        )
+        raise NotImplementedError("Subclasses must implement _get_model_info")
 
     @abstractmethod
     def load_model(self, **kwargs):
