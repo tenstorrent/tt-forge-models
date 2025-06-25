@@ -25,15 +25,11 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
 
-        # Configuration parameters
-        self.model_name = "vgg19_bn"
-
     def load_model(self, dtype_override=None):
         """Load pretrained Vgg model."""
 
-        model = torch.hub.load(
-            "pytorch/vision:v0.10.0", self.model_name, pretrained=True
-        )
+        model_name = "vgg19_bn"
+        model = torch.hub.load("pytorch/vision:v0.10.0", model_name, pretrained=True)
         model.eval()
 
         # Only convert dtype if explicitly requested

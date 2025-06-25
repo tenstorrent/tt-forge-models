@@ -25,15 +25,11 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
 
-        # Configuration parameters
-        self.model_name = "densenet121"
-
     def load_model(self, dtype_override=None):
         """Load pretrained Densenet model."""
 
-        model = torch.hub.load(
-            "pytorch/vision:v0.10.0", self.model_name, pretrained=True
-        )
+        model_name = "densenet121"
+        model = torch.hub.load("pytorch/vision:v0.10.0", model_name, pretrained=True)
         model.eval()
 
         # Only convert dtype if explicitly requested

@@ -25,13 +25,11 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
 
-        # Configuration parameters
-        self.model_name = "mobilenet_v2"
-
     def load_model(self, dtype_override=None):
         """Load pretrained MobilenetV2 model."""
+        model_name = "mobilenet_v2"
         model = download_model(
-            torch.hub.load, "pytorch/vision:v0.10.0", self.model_name, pretrained=True
+            torch.hub.load, "pytorch/vision:v0.10.0", model_name, pretrained=True
         )
         model.eval()
 
