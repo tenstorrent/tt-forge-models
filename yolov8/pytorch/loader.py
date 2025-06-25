@@ -16,8 +16,19 @@ from ultralytics.nn.tasks import DetectionModel
 class ModelLoader(ForgeModel):
     """YOLOv8 model loader implementation."""
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_variant = "yolov8x"
+
+    def load_model(self, dtype_override=None):
         """Load and return the YOLOv8 model instance with default settings.
 
         Args:
@@ -28,7 +39,7 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The YOLOv8 model instance.
         """
 
-        variant = "yolov8x"
+        variant = self.model_variant
         weights = load_state_dict_from_url(
             f"https://github.com/ultralytics/assets/releases/download/v8.2.0/{variant}.pt"
         )
@@ -42,8 +53,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the YOLOv8 model with default settings.
 
         Args:

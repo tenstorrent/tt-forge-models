@@ -16,15 +16,23 @@ from torchvision import transforms
 class ModelLoader(ForgeModel):
     """Loads Vgg model and sample input."""
 
-    # Shared configuration parameters
-    model_name = "vgg19_bn"
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_name = "vgg19_bn"
+
+    def load_model(self, dtype_override=None):
         """Load pretrained Vgg model."""
 
         model = torch.hub.load(
-            "pytorch/vision:v0.10.0", cls.model_name, pretrained=True
+            "pytorch/vision:v0.10.0", self.model_name, pretrained=True
         )
         model.eval()
 
@@ -34,8 +42,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(self, dtype_override=None):
         """Prepare sample input for Vgg model"""
 
         # Get the Image

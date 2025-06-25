@@ -11,12 +11,20 @@ from datasets import load_dataset
 
 
 class ModelLoader(ForgeModel):
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    # Shared configuration parameters
-    model_name = "openai/whisper-tiny"
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+        # Configuration parameters
+        self.model_name = "openai/whisper-tiny"
+        self.processor = None
+
+    def load_model(self, dtype_override=None):
         """Load a Whisper model from Hugging Face."""
 
         # Initialize processor first with default or overridden dtype
@@ -24,8 +32,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             processor_kwargs["torch_dtype"] = dtype_override
 
-        cls.processor = WhisperProcessor.from_pretrained(
-            cls.model_name, use_cache=False, return_dict=False, **processor_kwargs
+        self.processor = WhisperProcessor.from_pretrained(
+            self.model_name, use_cache=False, return_dict=False, **processor_kwargs
         )
 
         # Load pre-trained model from HuggingFace
@@ -34,25 +42,24 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         model = WhisperForConditionalGeneration.from_pretrained(
-            cls.model_name, use_cache=False, return_dict=False, **model_kwargs
+            self.model_name, use_cache=False, return_dict=False, **model_kwargs
         )
         model.eval()
         return model
 
-    @classmethod
-    def load_inputs(cls):
+    def load_inputs(self):
         """Generate sample inputs for Whisper model."""
 
         # Ensure processor is initialized
         if not hasattr(cls, "processor"):
-            cls.load_model()  # This will initialize the processor
+            self.load_model()  # This will initialize the processor
 
         # load dummy dataset and read audio files
         ds = load_dataset(
             "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
         )
         sample = ds[0]["audio"]
-        inputs = cls.processor(
+        inputs = self.processor(
             sample["array"], sampling_rate=sample["sampling_rate"], return_tensors="pt"
         ).input_features
         return inputs
