@@ -51,7 +51,7 @@ class ModelLoader(ForgeModel):
         """Generate sample inputs for Mamba model."""
 
         # Ensure tokenizer is initialized
-        if not hasattr(cls, "tokenizer"):
+        if self.tokenizer is None:
             self.load_model()  # This will initialize the tokenizer
 
         # Create tokenized inputs
