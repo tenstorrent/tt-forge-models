@@ -5,9 +5,10 @@
 DPR model loader implementation
 """
 
+
 import torch
 from transformers import DPRReader, DPRReaderTokenizer
-from ...base import ForgeModel
+from ....base import ForgeModel
 
 
 class ModelLoader(ForgeModel):
@@ -36,13 +37,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model = DPRReader.from_pretrained(
-            cls.model_name, return_dict=False, **model_kwargs
-        )
+        model = DPRReader.from_pretrained(cls.model_name, **model_kwargs)
         return model
 
     @classmethod
-    def load_inputs(cls, dtype_override=None, batch_size=1):
+    def load_inputs(cls, dtype_override=None):
         """Load and return sample inputs for the DPR Reader model with default settings.
 
         Args:
@@ -64,9 +63,5 @@ class ModelLoader(ForgeModel):
             texts=["'What Is Love' is a song recorded by the artist Haddaway"],
             return_tensors="pt",
         )
-
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
