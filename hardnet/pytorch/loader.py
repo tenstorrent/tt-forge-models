@@ -37,7 +37,8 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The HardNet model instance.
         """
         torch.hub._validate_not_a_forked_repo = lambda a, b, c: True
-        model = torch.hub.load("PingoLH/Pytorch-HarDNet", "hardnet68", pretrained=False)
+        model_name = "hardnet68"
+        model = torch.hub.load("PingoLH/Pytorch-HarDNet", model_name, pretrained=False)
         checkpoint = "https://github.com/PingoLH/Pytorch-HarDNet/raw/refs/heads/master/hardnet68.pth"
         model.load_state_dict(
             torch.hub.load_state_dict_from_url(

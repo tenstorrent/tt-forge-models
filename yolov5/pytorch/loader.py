@@ -24,9 +24,6 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
 
-        # Configuration parameters
-        self.model_variant = "yolov5s"
-
     def load_model(self, dtype_override=None):
         """Load and return the YOLOv5 model instance with default settings.
 
@@ -37,7 +34,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The YOLOv5 model instance.
         """
-        model = torch.hub.load("ultralytics/yolov5", self.model_variant)
+        model_variant = "yolov5s"
+        model = torch.hub.load("ultralytics/yolov5", model_variant)
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
