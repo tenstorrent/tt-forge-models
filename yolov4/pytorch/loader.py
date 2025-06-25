@@ -9,6 +9,13 @@ import cv2
 import numpy as np
 from ...tools.utils import get_file
 
+from ...config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ...base import ForgeModel
 from .src.yolov4 import Yolov4
 
@@ -24,6 +31,27 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
+
+    @classmethod
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'default'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "default"
+        return ModelInfo(
+            model="yolov4",
+            variant=variant_name,
+            group=ModelGroup.PRIORITY,
+            task=ModelTask.CV_OBJECT_DET,
+            source=ModelSource.CUSTOM,
+            framework=Framework.TORCH,
+        )
 
     def load_model(self, dtype_override=None):
         """Load and return the YOLOv4 model instance with default settings.

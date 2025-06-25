@@ -5,6 +5,13 @@
 Xception model loader implementation
 """
 
+from ...config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ...base import ForgeModel
 import timm
 from timm.data import resolve_data_config
@@ -14,6 +21,27 @@ from ...tools.utils import get_file
 
 
 class ModelLoader(ForgeModel):
+    @classmethod
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'default'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "default"
+        return ModelInfo(
+            model="xception",
+            variant=variant_name,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.CV_IMAGE_CLS,
+            source=ModelSource.TORCH_HUB,
+            framework=Framework.TORCH,
+        )
+
     """Loads Xception model and sample input."""
 
     def __init__(self, variant=None):

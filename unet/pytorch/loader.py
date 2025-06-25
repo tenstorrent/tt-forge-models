@@ -6,11 +6,39 @@ UNet model loader implementation
 """
 import torch
 
+from ...config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ...base import ForgeModel
 from .src.unet import UNET
 
 
 class ModelLoader(ForgeModel):
+    @classmethod
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'default'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "default"
+        return ModelInfo(
+            model="unet",
+            variant=variant_name,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.CV_IMAGE_SEG,
+            source=ModelSource.CUSTOM,
+            framework=Framework.TORCH,
+        )
+
     """UNet model loader implementation."""
 
     def __init__(self, variant=None):

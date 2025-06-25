@@ -10,10 +10,38 @@ import requests
 from PIL import Image
 from transformers import ResNetForImageClassification
 
+from ...config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ...base import ForgeModel
 
 
 class ModelLoader(ForgeModel):
+    @classmethod
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'default'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "default"
+        return ModelInfo(
+            model="resnet",
+            variant=variant_name,
+            group=ModelGroup.PRIORITY,
+            task=ModelTask.CV_IMAGE_CLS,
+            source=ModelSource.TORCH_HUB,
+            framework=Framework.TORCH,
+        )
+
     def __init__(self, variant=None):
         """Initialize ModelLoader with specified variant.
 

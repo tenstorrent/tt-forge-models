@@ -8,6 +8,13 @@ import torch
 
 
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, GenerationConfig
+from ...config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ...base import ForgeModel
 
 
@@ -26,6 +33,27 @@ class ModelLoader(ForgeModel):
         # Configuration parameters
         self.model_name = "google/flan-t5-small"
         self.tokenizer = None
+
+    @classmethod
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'default'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "default"
+        return ModelInfo(
+            model="flan_t5",
+            variant=variant_name,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.NLP_CAUSAL_LM,
+            source=ModelSource.HUGGING_FACE,
+            framework=Framework.TORCH,
+        )
 
     def load_model(self, dtype_override=None):
         """Load and return the FlanT5 model instance with default settings.
