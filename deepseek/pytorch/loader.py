@@ -27,7 +27,7 @@ class ModelLoader(ForgeModel):
     model_name = "deepseek-ai/DeepSeek-V3"
 
     @classmethod
-    def load_model(cls):
+    def load_model(cls, dtype_override=None):
         """Load and return the Deepseek model instance with default settings.
 
         Args:
@@ -51,12 +51,11 @@ class ModelLoader(ForgeModel):
             config.q_lora_rank = 256
             config.use_flash_attention = False
 
-            model = AutoModelForCausalLM.from_config(
-                config,
-                torch_dtype=torch.bfloat16,
-                attn_implementation="eager",
-                trust_remote_code=True,
-            )
+            model_kwargs = {"attn_implementation": "eager", "trust_remote_code": True}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+
+            model = AutoModelForCausalLM.from_config(config, **model_kwargs)
 
         cls.tokenizer = AutoTokenizer.from_pretrained(
             cls.model_name, trust_remote_code=True
