@@ -13,12 +13,20 @@ from .src.vgg19_unet import VGG19UNet
 class ModelLoader(ForgeModel):
     """VGG19-UNet model loader implementation."""
 
-    # Shared configuration parameters
-    input_shape = (3, 512, 512)
-    out_channels = 1
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.input_shape = (3, 512, 512)
+        self.out_channels = 1
+
+    def load_model(self, dtype_override=None):
         """Load and return the VGG19-UNet model instance with default settings.
 
         Args:
@@ -29,7 +37,7 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The VGG19-UNet model instance.
         """
         # Load model with defaults
-        model = VGG19UNet(input_shape=cls.input_shape, out_channels=cls.out_channels)
+        model = VGG19UNet(input_shape=self.input_shape, out_channels=self.out_channels)
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
@@ -37,8 +45,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the VGG19-UNet model with default settings.
 
         Args:
@@ -49,7 +56,7 @@ class ModelLoader(ForgeModel):
             torch.Tensor: Sample input tensor that can be fed to the model.
         """
         # Create a random input tensor with the correct shape, using default dtype
-        inputs = torch.rand(1, *cls.input_shape)
+        inputs = torch.rand(1, *self.input_shape)
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
