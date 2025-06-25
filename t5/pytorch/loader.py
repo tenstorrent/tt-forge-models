@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
         return model
 
     @classmethod
-    def load_inputs(cls):
+    def load_inputs(cls, dtype_override=None):
         """Generate sample inputs for T5 model."""
 
         # Ensure tokenizer is initialized
