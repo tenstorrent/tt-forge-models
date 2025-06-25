@@ -18,19 +18,15 @@ class ModelLoader(ForgeModel):
     model_name = "DETR_onnx"
 
     @classmethod
-    def load_model(cls, dtype_override=None):
+    def load_model(cls):
         """Load and return the DETR model instance with default settings.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
             torch.nn.Module: The DETR-onnx model instance.
 
         The model is from https://github.com/facebookresearch/detr
         """
-        model = ModelLoader.load_model(dtype_override=dtype_override)
+        model = ModelLoader.load_model()
 
         # Export to ONNX
         torch.onnx.export(model, cls._load_torch_inputs(), f"{cls.model_name}.onnx")
@@ -40,7 +36,7 @@ class ModelLoader(ForgeModel):
         return model
 
     @classmethod
-    def load_inputs(cls, dtype_override=None, batch_size=1):
+    def load_inputs(cls, batch_size=1):
         """Load and return sample inputs for the DETR-onnx model with default settings.
 
         Args:
@@ -49,6 +45,4 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        return ModelLoader.load_inputs(
-            dtype_override=dtype_override, batch_size=batch_size
-        )
+        return ModelLoader.load_inputs(batch_size=batch_size)
