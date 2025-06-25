@@ -13,14 +13,22 @@ from transformers import AutoModel, AutoTokenizer
 class ModelLoader(ForgeModel):
     """Loads NanoGPT model and sample input."""
 
-    # Shared configuration parameters
-    model_name = "FinancialSupport/NanoGPT"
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_name = "FinancialSupport/NanoGPT"
+
+    def load_model(self, dtype_override=None):
         """Load pretrained NanoGPT model."""
         model = AutoModel.from_pretrained(
-            cls.model_name,
+            self.model_name,
             ignore_mismatched_sizes=True,
             use_cache=False,
             return_dict=False,
@@ -33,11 +41,10 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(self, dtype_override=None):
         """Prepare sample input for NanoGPT model"""
 
-        tokenizer = AutoTokenizer.from_pretrained(cls.model_name)
+        tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         tokenizer.pad_token = tokenizer.eos_token
 
         # Input prompt

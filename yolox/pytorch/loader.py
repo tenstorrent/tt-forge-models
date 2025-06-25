@@ -20,8 +20,19 @@ subprocess.run(["pip", "install", "yolox==0.3.0", "--no-deps"])
 class ModelLoader(ForgeModel):
     """YOLOX model loader implementation."""
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_variant = "yolox-tiny"
+
+    def load_model(self, dtype_override=None):
         """Load and return the YOLOX model instance with default settings.
 
         Args:
@@ -31,7 +42,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The YOLOX model instance.
         """
-        variant = "yolox-tiny"
+        variant = self.model_variant
         from yolox.exp import get_exp
 
         exp = get_exp(
@@ -46,8 +57,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the YOLOX model with default settings.
 
         Args:

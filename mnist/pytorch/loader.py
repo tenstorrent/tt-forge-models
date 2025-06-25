@@ -12,8 +12,16 @@ from .src.utils import load_model, load_input
 class ModelLoader(ForgeModel):
     """Loads MNIST model and sample input."""
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+    def load_model(self, dtype_override=None):
         """Load pretrained MNIST model."""
         model = load_model()
         model.eval()
@@ -24,8 +32,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(self, dtype_override=None):
         """Prepare sample input for MNIST model"""
 
         inputs = load_input()

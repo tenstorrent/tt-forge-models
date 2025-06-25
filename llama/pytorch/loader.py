@@ -10,13 +10,21 @@ from ...base import ForgeModel
 
 
 class ModelLoader(ForgeModel):
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    # Shared configuration parameters
-    model_name = "meta-llama/Llama-3.2-1B-Instruct"
-    text = "Movie is great"
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+        # Configuration parameters
+        self.model_name = "meta-llama/Llama-3.2-1B-Instruct"
+        self.text = "Movie is great"
+        self.tokenizer = None
+
+    def load_model(self, dtype_override=None):
         """Load a Llama3 model from Hugging Face."""
 
         # Initialize tokenizer first with default or overridden dtype
@@ -24,8 +32,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        cls.tokenizer = AutoTokenizer.from_pretrained(
-            cls.model_name, **tokenizer_kwargs
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.model_name, **tokenizer_kwargs
         )
 
         # Load pre-trained model from HuggingFace
@@ -34,22 +42,21 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         model = AutoModelForSequenceClassification.from_pretrained(
-            cls.model_name, return_dict=False, use_cache=False, **model_kwargs
+            self.model_name, return_dict=False, use_cache=False, **model_kwargs
         )
         model.eval()
         return model
 
-    @classmethod
-    def load_inputs(cls):
+    def load_inputs(self):
         """Generate sample inputs for Llama3 model."""
 
         # Ensure tokenizer is initialized
-        if not hasattr(cls, "tokenizer"):
-            cls.load_model()  # This will initialize the tokenizer
+        if self.tokenizer is None:
+            self.load_model()  # This will initialize the tokenizer
 
         # Create tokenized inputs
-        inputs = cls.tokenizer(
-            cls.text,
+        inputs = self.tokenizer(
+            self.text,
             return_tensors="pt",
         )
 

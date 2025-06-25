@@ -16,11 +16,19 @@ from .src.utils import MobileNetV1
 class ModelLoader(ForgeModel):
     """Loads MobilenetV1 model and sample input."""
 
-    # Shared configuration parameters
-    model_name = "mobilenet_v1"
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_name = "mobilenet_v1"
+
+    def load_model(self, dtype_override=None):
         """Load pretrained MobilenetV1 model."""
         model = MobileNetV1(9)
         model.eval()
@@ -31,8 +39,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(self, dtype_override=None):
         """Prepare sample input for MobilenetV1 model"""
 
         # Get the Image

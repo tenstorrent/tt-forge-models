@@ -17,8 +17,16 @@ from ...tools.utils import get_file
 class ModelLoader(ForgeModel):
     """CenterNet model loader implementation."""
 
-    @classmethod
-    def load_model(cls, **kwargs):
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+    def load_model(self, **kwargs):
         """Load and return the CenterNet model instance with default settings.
 
         Returns:
@@ -32,8 +40,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    @classmethod
-    def load_inputs(cls, **kwargs):
+    def load_inputs(self, **kwargs):
         """Load and return sample inputs for the CenterNet model with default settings.
 
         Returns:

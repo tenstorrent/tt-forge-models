@@ -10,14 +10,22 @@ from ...base import ForgeModel
 
 
 class ModelLoader(ForgeModel):
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    # Shared configuration parameters
-    model_name = "facebook/dpr-ctx_encoder-multiset-base"
-    text = "Hello, is my dog cute?"
-    max_length = 128
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+        # Configuration parameters
+        self.model_name = "facebook/dpr-ctx_encoder-multiset-base"
+        self.text = "Hello, is my dog cute?"
+        self.max_length = 128
+        self.tokenizer = None
+
+    def load_model(self, dtype_override=None):
         """Load a DPR model from Hugging Face."""
 
         # Initialize tokenizer first with default or overridden dtype
@@ -25,8 +33,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        cls.tokenizer = DPRContextEncoderTokenizer.from_pretrained(
-            cls.model_name, **tokenizer_kwargs
+        self.tokenizer = DPRContextEncoderTokenizer.from_pretrained(
+            self.model_name, **tokenizer_kwargs
         )
 
         # Load pre-trained model from HuggingFace
@@ -35,23 +43,22 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         model = DPRContextEncoder.from_pretrained(
-            cls.model_name, return_dict=False, **model_kwargs
+            self.model_name, return_dict=False, **model_kwargs
         )
         model.eval()
         return model
 
-    @classmethod
-    def load_inputs(cls):
+    def load_inputs(self):
         """Generate sample inputs for DPR model."""
 
         # Ensure tokenizer is initialized
-        if not hasattr(cls, "tokenizer"):
-            cls.load_model()  # This will initialize the tokenizer
+        if self.tokenizer is None:
+            self.load_model()  # This will initialize the tokenizer
 
         # Create tokenized inputs
-        inputs = cls.tokenizer(
-            cls.text,
-            max_length=cls.max_length,
+        inputs = self.tokenizer(
+            self.text,
+            max_length=self.max_length,
             padding="max_length",
             truncation=True,
             return_tensors="pt",

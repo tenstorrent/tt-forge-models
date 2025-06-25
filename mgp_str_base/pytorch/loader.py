@@ -14,15 +14,23 @@ from ...tools.utils import get_file
 class ModelLoader(ForgeModel):
     """Loads MGP-STR model and sample input."""
 
-    # Shared configuration parameters
-    model_name = "alibaba-damo/mgp-str-base"
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_name = "alibaba-damo/mgp-str-base"
+
+    def load_model(self, dtype_override=None):
         """Load pretrained MGP-STR model."""
 
         model = MgpstrForSceneTextRecognition.from_pretrained(
-            cls.model_name, return_dict=False
+            self.model_name, return_dict=False
         )
         model.eval()
 
@@ -32,8 +40,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(self, dtype_override=None):
         """Prepare sample input for MGP-STR model"""
 
         # Get the Image
@@ -41,7 +48,7 @@ class ModelLoader(ForgeModel):
         image = Image.open(image_file).convert("RGB")
 
         # Preprocess image
-        processor = MgpstrProcessor.from_pretrained(cls.model_name)
+        processor = MgpstrProcessor.from_pretrained(self.model_name)
         inputs = processor(
             images=image,
             return_tensors="pt",

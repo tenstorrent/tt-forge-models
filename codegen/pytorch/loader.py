@@ -14,11 +14,20 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 class ModelLoader(ForgeModel):
     """Codegen model loader implementation."""
 
-    # Shared configuration parameters
-    model_name = "Salesforce/codegen-350M-mono"
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_name = "Salesforce/codegen-350M-mono"
+        self.tokenizer = None
+
+    def load_model(self, dtype_override=None):
         """Load and return the Codegen model instance with default settings.
 
         Args:
@@ -28,19 +37,18 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Codegen model instance.
         """
-        cls.tokenizer = AutoTokenizer.from_pretrained(cls.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model = AutoModelForCausalLM.from_pretrained(cls.model_name, **model_kwargs)
+        model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None, batch_size=1):
+    def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Codegen model with default settings.
 
         Args:
@@ -52,13 +60,13 @@ class ModelLoader(ForgeModel):
             dict: Input tensors, pixel values and attention masks that can be fed to the model.
         """
         # Ensure tokenizer is initialized
-        if not hasattr(cls, "tokenizer"):
-            cls.load_model(
+        if self.tokenizer is None:
+            self.load_model(
                 dtype_override=dtype_override
             )  # This will initialize the tokenizer
 
         text = "def hello_world():"
-        inputs = cls.tokenizer(text, return_tensors="pt")
+        inputs = self.tokenizer(text, return_tensors="pt")
 
         # Replicate tensors for batch size
         for key in inputs:
@@ -66,8 +74,7 @@ class ModelLoader(ForgeModel):
 
         return inputs
 
-    @classmethod
-    def decode_outputs(cls, outputs):
+    def decode_outputs(self, outputs):
         """Decode the model outputs to text.
 
         Args:
@@ -77,8 +84,8 @@ class ModelLoader(ForgeModel):
             str: The decoded text.
         """
         # Ensure tokenizer is initialized
-        if not hasattr(cls, "tokenizer"):
-            cls.load_model()
+        if self.tokenizer is None:
+            self.load_model()
 
         # Handle both structured outputs and raw tensors
         logits = outputs.logits if hasattr(outputs, "logits") else outputs
@@ -93,7 +100,7 @@ class ModelLoader(ForgeModel):
 
         if next_tokens.dim() == 0:
             # Single token case
-            return [cls.tokenizer.decode([next_tokens.item()])]
+            return [self.tokenizer.decode([next_tokens.item()])]
         else:
             # Batch of tokens case
-            return [cls.tokenizer.decode([token.item()]) for token in next_tokens]
+            return [self.tokenizer.decode([token.item()]) for token in next_tokens]

@@ -16,8 +16,16 @@ from .src.linear_ae import LinearAE
 class ModelLoader(ForgeModel):
     """Autoencoder linear model loader implementation."""
 
-    @classmethod
-    def load_model(cls, dtype_override=None):
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+    def load_model(self, dtype_override=None):
         """Load and return the Autoencoder Linear model instance with default settings.
 
         Args:
@@ -35,8 +43,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None, batch_size=1):
+    def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Autoencoder Linear model with default settings.
 
         Args:
