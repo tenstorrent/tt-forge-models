@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Reference: https://github.com/tenstorrent/tt-buda-demos/blob/main/model_demos/cv_demos/openpose/pytorch_lwopenpose_2d_osmr.py
 """
-Openpose model loader implementation
+Openpose V2 model loader implementation
 """
 import torch
 from PIL import Image
@@ -21,14 +21,14 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def load_model(cls, dtype_override=None):
-        """Load and return the Openpose model instance with default settings.
+        """Load and return the Openpose V2 model instance with default settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                             If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The Openpose model instance.
+            torch.nn.Module: The Openpose V2 model instance.
 
         """
         model = ptcv_get_model(cls.model_name, pretrained=True)
@@ -38,11 +38,12 @@ class ModelLoader(ForgeModel):
         return model
 
     @classmethod
-    def load_inputs(cls):
-        """Load and return sample inputs for the Openpose model with default settings.
+    def load_inputs(cls, dtype_override=None):
+        """Load and return sample inputs for the Openpose V2 model with default settings.
 
         Args:
-            batch_size: Optional batch size to override the default batch size of 1.
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
             dict: Input tensors that can be fed to the model.
@@ -68,6 +69,7 @@ class ModelLoader(ForgeModel):
         )  # create a mini-batch as expected by the model
 
         batch_input = torch.cat([input_batch], dim=0)
-        batch_input = batch_input.to(torch.bfloat16)
+        if dtype_override is not None:
+            batch_input = batch_input.to(dtype_override)
 
         return batch_input
