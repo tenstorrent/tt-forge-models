@@ -27,6 +27,27 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
 
+    @classmethod
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string (not used in this model).
+
+        Returns:
+            ModelInfo: Information about the YOLOv3 model
+        """
+        from ...config import ModelInfo, ModelGroup, ModelTask, ModelSource, Framework
+
+        return ModelInfo(
+            model="yolov3",
+            variant=variant_name or "default",
+            group=ModelGroup.PRIORITY,
+            task=ModelTask.CV_OBJECT_DET,
+            source=ModelSource.CUSTOM,
+            framework=Framework.TORCH,
+        )
+
     def load_model(self, dtype_override=None):
         """Load and return the YOLOv3 model instance with default settings.
 
