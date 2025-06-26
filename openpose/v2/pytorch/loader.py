@@ -38,12 +38,13 @@ class ModelLoader(ForgeModel):
         return model
 
     @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(cls, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Openpose V2 model with default settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                             If not provided, the model will use its default dtype (typically float32).
+            batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
             dict: Input tensors that can be fed to the model.
@@ -68,7 +69,7 @@ class ModelLoader(ForgeModel):
             0
         )  # create a mini-batch as expected by the model
 
-        batch_input = torch.cat([input_batch], dim=0)
+        batch_input = input_batch.repeat_interleave(batch_size, dim=0)
         if dtype_override is not None:
             batch_input = batch_input.to(dtype_override)
 

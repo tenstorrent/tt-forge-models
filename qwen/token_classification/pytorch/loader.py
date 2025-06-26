@@ -47,12 +47,13 @@ class ModelLoader(ForgeModel):
         return model
 
     @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(cls, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Qwen Token Classification model with default settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                             If not provided, the model will use its default dtype (typically float32).
+            batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
             dict: Input tensors that can be fed to the model.
@@ -66,5 +67,9 @@ class ModelLoader(ForgeModel):
         cls.inputs = cls.tokenizer(
             cls.text, add_special_tokens=False, return_tensors="pt"
         )
+
+        for key in cls.inputs:
+            if isinstance(cls.inputs[key], torch.Tensor):
+                cls.inputs[key] = cls.inputs[key].repeat_interleave(batch_size, dim=0)
 
         return cls.inputs

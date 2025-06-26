@@ -47,12 +47,13 @@ class ModelLoader(ForgeModel):
         return model
 
     @classmethod
-    def load_inputs(cls, dtype_override=None):
+    def load_inputs(cls, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Qwen Casual LM model with default settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                             If not provided, the model will use its default dtype (typically float32).
+            batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
             dict: Input tensors that can be fed to the model.
@@ -64,6 +65,10 @@ class ModelLoader(ForgeModel):
 
         cls.text = "Hey, are you conscious? Can you talk to me?"
         input_ids = cls.tokenizer(cls.text, return_tensors="pt").input_ids
+
+        # Use repeat_interleave to expand batch dimension
+        input_ids = input_ids.repeat_interleave(batch_size, dim=0)
+
         generation_config = GenerationConfig(max_length=30)
         arguments = {"input_ids": input_ids, "generation_config": generation_config}
 
