@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-# Reference: https://github.com/tenstorrent/tt-buda-demos/blob/main/model_demos/cv_demos/linear_autoencoder/pytorch_linear_autoencoder.py
 """
 Musicgen-small model loader implementation
 """
@@ -27,11 +26,10 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Musicgen-small model instance.
 
-        The model is from https://github.com/facebookresearch/detr
         """
         cls.processor = AutoProcessor.from_pretrained(cls.model_name)
-        model = MusicgenForConditionalGeneration.from_pretrained(cls.model_name)
-        return model
+        cls.model = MusicgenForConditionalGeneration.from_pretrained(cls.model_name)
+        return cls.model
 
     @classmethod
     def load_inputs(cls, batch_size=1):
@@ -59,8 +57,7 @@ class ModelLoader(ForgeModel):
         decoder_input_ids = (
             torch.ones(
                 (
-                    inputs.input_ids.shape[0]
-                    * cls.framework_model.decoder.num_codebooks,
+                    inputs.input_ids.shape[0] * cls.model.decoder.num_codebooks,
                     1,
                 ),
                 dtype=torch.long,
