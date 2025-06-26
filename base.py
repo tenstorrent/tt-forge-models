@@ -13,7 +13,7 @@ from .config import ModelConfig, ModelInfo
 import torch
 
 
-class ForgeModel(ABC):
+class ModelLoader(ABC):
     """Base class for all TT-Forge model loaders."""
 
     # This is intended to be overridden by subclasses to define available model variants

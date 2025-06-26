@@ -13,7 +13,7 @@ from ...config import (
     ModelSource,
     Framework,
 )
-from ...base import ForgeModel
+from ...base import ModelLoader
 from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
 from torchvision.models._api import WeightsEnum
 from torch.hub import load_state_dict_from_url
@@ -25,7 +25,7 @@ def get_state_dict(self, *args, **kwargs):
     return load_state_dict_from_url(self.url, *args, **kwargs)
 
 
-class ModelLoader(ForgeModel):
+class PytorchEfficientNetLoader(ModelLoader):
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
         """Get model information for dashboard and metrics reporting.
