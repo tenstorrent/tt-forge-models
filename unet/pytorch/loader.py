@@ -23,13 +23,13 @@ class ModelLoader(ForgeModel):
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant_name: Optional variant name string. If None, uses 'default'.
+            variant_name: Optional variant name string. If None, uses 'base'.
 
         Returns:
             ModelInfo: Information about the model and variant
         """
         if variant_name is None:
-            variant_name = "default"
+            variant_name = "base"
         return ModelInfo(
             model="unet",
             variant=variant_name,
