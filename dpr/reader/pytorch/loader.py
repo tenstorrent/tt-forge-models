@@ -47,7 +47,6 @@ class ModelLoader(ForgeModel):
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                             If not provided, the model will use its default dtype (typically float32).
-            batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
             dict: Input tensors that can be fed to the model.

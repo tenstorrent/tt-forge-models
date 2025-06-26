@@ -53,6 +53,29 @@ class ModelLoader(ForgeModel):
             padding=True,
             return_tensors="pt",
         )
+
+        # If batch_size is different from 2, adjust using repeat_interleave
+        if batch_size != 2:
+            # Calculate how many times to repeat each example
+            repeats_per_example = batch_size // 2
+            remaining = batch_size % 2
+
+            # Apply repeat_interleave to input tensors
+            for key in inputs:
+                if isinstance(inputs[key], torch.Tensor):
+                    if remaining == 0:
+                        # Even division
+                        inputs[key] = inputs[key].repeat_interleave(
+                            repeats_per_example, dim=0
+                        )
+                    else:
+                        # Handle remainder by repeating first example one extra time
+                        repeated = inputs[key].repeat_interleave(
+                            repeats_per_example, dim=0
+                        )
+                        extra = inputs[key][:1].repeat_interleave(remaining, dim=0)
+                        inputs[key] = torch.cat([repeated, extra], dim=0)
+
         pad_token_id = cls.model.generation_config.pad_token_id
         decoder_input_ids = (
             torch.ones(

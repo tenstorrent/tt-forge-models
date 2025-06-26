@@ -41,8 +41,11 @@ class ModelLoader(ForgeModel):
         return model
 
     @classmethod
-    def load_inputs(cls):
+    def load_inputs(cls, batch_size=1):
         """Load and return sample inputs for the Mistral Pixtral model with default settings.
+
+        Args:
+            batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
             dict: Input tensors that can be fed to the model.
@@ -56,6 +59,14 @@ class ModelLoader(ForgeModel):
             ),
             "attention_mask": torch.tensor(
                 [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], dtype=torch.long
+            ),
+        }
+
+        # Use repeat_interleave to expand batch dimension
+        inputs = {
+            "input_ids": inputs["input_ids"].repeat_interleave(batch_size, dim=0),
+            "attention_mask": inputs["attention_mask"].repeat_interleave(
+                batch_size, dim=0
             ),
         }
 

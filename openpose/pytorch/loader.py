@@ -39,7 +39,7 @@ class ModelLoader(ForgeModel):
         return model
 
     @classmethod
-    def load_inputs(cls):
+    def load_inputs(cls, batch_size=1):
         """Load and return sample inputs for the Openpose model with default settings.
 
         Args:
@@ -51,5 +51,6 @@ class ModelLoader(ForgeModel):
         image = load_image(
             "https://huggingface.co/lllyasviel/control_v11p_sd15_openpose/resolve/main/images/input.png"
         )
+        image = [image] * batch_size
         arguments = {"input_image": image, "hand_and_face": True}
         return arguments
