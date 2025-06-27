@@ -6,17 +6,55 @@ Qwen Token Classification loader implementation
 """
 import torch
 from transformers import AutoTokenizer, Qwen2ForTokenClassification
+from ....config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ....base import ForgeModel
 
 
 class ModelLoader(ForgeModel):
     """Qwen Token Classification model loader implementation."""
 
-    # Shared configuration parameters
-    model_name = "Qwen/Qwen2-7B"
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_name = "Qwen/Qwen2-7B"
+        self.tokenizer = None
+        self.text = "HuggingFace is a company based in Paris and New York."
 
     @classmethod
-    def load_model(cls, dtype_override=None):
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'base'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "base"
+        return ModelInfo(
+            model="Qwen/Qwen2-7B",
+            variant=variant_name,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.NLP_TOKEN_CLS,
+            source=ModelSource.HUGGING_FACE,
+            framework=Framework.TORCH,
+        )
+
+    def load_model(self, dtype_override=None):
         """Load and return the Qwen Token Classification model instance with default settings.
 
         Args:
@@ -32,8 +70,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        cls.tokenizer = AutoTokenizer.from_pretrained(
-            cls.model_name, **tokenizer_kwargs
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.model_name, **tokenizer_kwargs
         )
 
         model_kwargs = {}
@@ -41,13 +79,12 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         model = Qwen2ForTokenClassification.from_pretrained(
-            cls.model_name, **model_kwargs
+            self.model_name, **model_kwargs
         )
 
         return model
 
-    @classmethod
-    def load_inputs(cls, dtype_override=None, batch_size=1):
+    def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Qwen Token Classification model with default settings.
 
         Args:
@@ -60,16 +97,15 @@ class ModelLoader(ForgeModel):
         """
 
         # Ensure tokenizer is initialized
-        if not hasattr(cls, "tokenizer"):
-            cls.load_model(dtype_override=dtype_override)
+        if self.tokenizer is None:
+            self.load_model(dtype_override=dtype_override)
 
-        cls.text = "HuggingFace is a company based in Paris and New York."
-        cls.inputs = cls.tokenizer(
-            cls.text, add_special_tokens=False, return_tensors="pt"
+        inputs = self.tokenizer(
+            self.text, add_special_tokens=False, return_tensors="pt"
         )
 
-        for key in cls.inputs:
-            if isinstance(cls.inputs[key], torch.Tensor):
-                cls.inputs[key] = cls.inputs[key].repeat_interleave(batch_size, dim=0)
+        for key in inputs:
+            if isinstance(inputs[key], torch.Tensor):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        return cls.inputs
+        return inputs

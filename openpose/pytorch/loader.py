@@ -4,8 +4,16 @@
 """
 Openpose model loader implementation
 """
-import torch
+
+
 from diffusers.utils import load_image
+from ...config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ...base import ForgeModel
 
 dependencies = ["controlnet_aux==0.0.9"]
@@ -14,11 +22,40 @@ dependencies = ["controlnet_aux==0.0.9"]
 class ModelLoader(ForgeModel):
     """Openpose model loader implementation."""
 
-    # Shared configuration parameters
-    model_name = "lllyasviel/ControlNet"
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_name = "lllyasviel/ControlNet"
 
     @classmethod
-    def load_model(cls, dtype_override=None):
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'base'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "base"
+        return ModelInfo(
+            model="OpenPose",
+            variant=variant_name,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.CV_KEYPOINT_DET,
+            source=ModelSource.HUGGING_FACE,
+            framework=Framework.TORCH,
+        )
+
+    def load_model(self, dtype_override=None):
         """Load and return the Openpose model instance with default settings.
 
         Args:
@@ -31,15 +68,14 @@ class ModelLoader(ForgeModel):
         """
         from controlnet_aux import OpenposeDetector
 
-        model = OpenposeDetector.from_pretrained(cls.model_name)
+        model = OpenposeDetector.from_pretrained(self.model_name)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
 
         return model
 
-    @classmethod
-    def load_inputs(cls, batch_size=1):
+    def load_inputs(self, batch_size=1):
         """Load and return sample inputs for the Openpose model with default settings.
 
         Args:
