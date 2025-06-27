@@ -8,16 +8,54 @@ Mistral Pixtral model loader implementation
 
 import torch
 from transformers import LlavaForConditionalGeneration  # , AutoProcessor
+from ....config import (
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+)
 from ....base import ForgeModel
 
 
 class ModelLoader(ForgeModel):
+    """Pixtral model loader implementation."""
 
-    # Shared configuration parameters
-    model_name = "mistral-community/pixtral-12b"
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
+        # Configuration parameters
+        self.model_name = "mistral-community/pixtral-12b"
+        # self.processor = None
 
     @classmethod
-    def load_model(cls, dtype_override=None):
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'base'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "base"
+        return ModelInfo(
+            model="mistral-community/pixtral-12b",
+            variant=variant_name,
+            group=ModelGroup.RED,
+            task=ModelTask.MM_VISUAL_QA,
+            source=ModelSource.HUGGING_FACE,
+            framework=Framework.TORCH,
+        )
+
+    def load_model(self, dtype_override=None):
         """Load and return the Mistral Pixtral model instance with default settings.
 
         Args:
@@ -36,12 +74,11 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         model = LlavaForConditionalGeneration.from_pretrained(
-            cls.model_name, **model_kwargs
+            self.model_name, **model_kwargs
         )
         return model
 
-    @classmethod
-    def load_inputs(cls, batch_size=1):
+    def load_inputs(self, batch_size=1):
         """Load and return sample inputs for the Mistral Pixtral model with default settings.
 
         Args:
