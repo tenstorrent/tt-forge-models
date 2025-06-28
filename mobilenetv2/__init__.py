@@ -5,4 +5,5 @@
 MobilenetV2 model implementation for Tenstorrent projects.
 """
 # Import from the PyTorch implementation by default
-from .pytorch import ModelLoader
+from .pytorch import PytorchMobilenetv2ModelLoader
+from .onnx import OnnxMobilenetv2ModelLoader
