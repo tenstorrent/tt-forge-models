@@ -18,7 +18,7 @@ from ...base import ForgeModel
 from PIL import Image
 from ...tools.utils import get_file, print_compiled_model_results
 from torchvision import transforms
-
+from torchvision.models import alexnet, AlexNet_Weights
 
 class ModelLoader(ForgeModel):
     @classmethod
@@ -56,8 +56,8 @@ class ModelLoader(ForgeModel):
     def load_model(self, dtype_override=None):
         """Load pretrained AlexNet model."""
 
-        model_name = "alexnet"
-        model = torch.hub.load("pytorch/vision:v0.10.0", model_name, pretrained=True)
+        weights = AlexNet_Weights.IMAGENET1K_V1  
+        model = alexnet(weights=weights)
         model.eval()
 
         # Only convert dtype if explicitly requested
