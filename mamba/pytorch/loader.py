@@ -6,7 +6,9 @@ Mamba model loader implementation
 """
 
 from transformers import AutoTokenizer, MambaForCausalLM
+from typing import Optional
 from ...config import (
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
@@ -17,8 +19,28 @@ from ...base import ForgeModel
 
 
 class ModelLoader(ForgeModel):
+
+    # Dictionary of available model variants
+    _VARIANTS = {
+        "base": ModelConfig(
+            pretrained_model_name="state-spaces/mamba-790m-hf",
+        ),
+        "large": ModelConfig(
+            pretrained_model_name="state-spaces/mamba-2.8b-hf",
+        ),
+        "medium": ModelConfig(
+            pretrained_model_name="state-spaces/mamba-1.4b-hf",
+        ),
+        "small": ModelConfig(
+            pretrained_model_name="state-spaces/mamba-370m-hf",
+        ),
+    }
+
+    # Default variant to use
+    DEFAULT_VARIANT = "base"
+
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant_name: Optional[str]) -> ModelInfo:
         """Get model information for dashboard and metrics reporting.
 
         Args:
@@ -48,7 +70,6 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
 
         # Configuration parameters
-        self.model_name = "state-spaces/mamba-790m-hf"
         self.text = "Hey how are you doing?"
         self.tokenizer = None
 
@@ -61,7 +82,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
 
         # Load pre-trained model from HuggingFace
@@ -70,7 +91,10 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         model = MambaForCausalLM.from_pretrained(
-            self.model_name, use_cache=False, return_dict=False, **model_kwargs
+            self._variant_config.pretrained_model_name,
+            use_cache=False,
+            return_dict=False,
+            **model_kwargs
         )
         model.eval()
         return model
