@@ -75,7 +75,8 @@ def get_file(path):
         if path_is_url:
             try:
                 print(f"Downloading file from URL {path} to {file_path}")
-                response = requests.get(path, stream=True, timeout=(15, 60))
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                response = requests.get(path, stream=True, timeout=(15, 60), headers=headers)
                 response.raise_for_status()  # Raise exception for HTTP errors
 
                 with open(file_path, "wb") as f:
