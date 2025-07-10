@@ -5,6 +5,7 @@
 Mamba model loader implementation
 """
 
+import torch
 from transformers import AutoTokenizer, MambaForCausalLM
 from typing import Optional
 from ...config import (
@@ -99,7 +100,7 @@ class ModelLoader(ForgeModel):
         model.eval()
         return model
 
-    def load_inputs(self):
+    def load_inputs(self, batch_size=1):
         """Generate sample inputs for Mamba model."""
 
         # Ensure tokenizer is initialized
@@ -111,5 +112,9 @@ class ModelLoader(ForgeModel):
             self.text,
             return_tensors="pt",
         )
+
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
