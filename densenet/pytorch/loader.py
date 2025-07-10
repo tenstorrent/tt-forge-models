@@ -73,6 +73,9 @@ class ModelLoader(ForgeModel):
         image_file = get_file(
             "https://github.com/pytorch/hub/raw/master/images/dog.jpg"
         )
+        print("IN DENSNET: ")
+        print("IMAGE_FILE")
+        print(image_file)
         image = Image.open(image_file)
 
         # Preprocess image

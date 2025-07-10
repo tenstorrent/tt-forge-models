@@ -27,6 +27,8 @@ def get_file(path):
     # Check if path is a URL - handle URLs and files differently
     path_is_url = path.startswith(("http://", "https://"))
 
+    print("LOADING FILE")
+    print(path)
     if path_is_url:
         # Create a hash from the URL to ensure uniqueness and prevent collisions
         url_hash = hashlib.md5(path.encode()).hexdigest()[:10]
@@ -45,6 +47,11 @@ def get_file(path):
         rel_path = Path("models/tt-ci-models-private") / rel_dir
         cache_dir_fallback = Path.home() / ".cache/lfcache" / rel_dir
 
+    print("REL PATH")
+    print(rel_path)
+    print("CACHE DIR FALLBACK")
+    print(cache_dir_fallback)
+
     # Determine the base cache directory based on environment variables
     if (
         "DOCKER_CACHE_ROOT" in os.environ
@@ -57,6 +64,9 @@ def get_file(path):
         cache_dir = cache_dir_fallback
 
     file_path = cache_dir / file_name
+
+    print("FILE PATH")
+    print(file_path)
 
     # Support case where shared cache is read only and file not found. Can read files from it, but
     # fall back to home dir cache for storing downloaded files. Common w/ CI cache shared w/ users.
@@ -71,6 +81,8 @@ def get_file(path):
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     # If file is not found in cache, download URL from web, or get file from IRD_LF_CACHE web server.
+    print("FILE PATH EXISTS?")
+    print(file_path.exists())
     if not file_path.exists():
         if path_is_url:
             try:
