@@ -8,7 +8,6 @@ import torch
 import cv2
 import numpy as np
 from ...tools.utils import get_file
-from yolov6.layers.common import DetectBackend
 from ...config import (
     ModelInfo,
     ModelGroup,
@@ -69,6 +68,7 @@ class ModelLoader(ForgeModel):
         weight = get_file(
             "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov9c.pt"
         )
+        from yolov6.layers.common import DetectBackend
         model = DetectBackend(weight)
 
         # Only convert dtype if explicitly requested
