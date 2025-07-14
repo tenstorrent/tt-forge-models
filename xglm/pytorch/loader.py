@@ -5,11 +5,13 @@
 XGLM model loader implementation
 """
 
+import torch
 from transformers import AutoTokenizer, XGLMForCausalLM
 from ...config import (
     ModelInfo,
     ModelGroup,
     ModelTask,
+    ModelConfig,
     ModelSource,
     Framework,
 )
@@ -17,6 +19,16 @@ from ...base import ForgeModel
 
 
 class ModelLoader(ForgeModel):
+    # Dictionary of available model variants
+    _VARIANTS = {
+        "base": ModelConfig(
+            pretrained_model_name="facebook/xglm-1.7B",
+        ),
+        "small": ModelConfig(
+            pretrained_model_name="facebook/xglm-564M",
+        ),
+    }
+
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
         """Get model information for dashboard and metrics reporting.
@@ -48,7 +60,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
 
         # Configuration parameters
-        self.model_name = "facebook/xglm-1.7B"
+        self.model_name = self._variant_config.pretrained_model_name
         self.text = "My name is Thomas and my main"
         self.max_length = 256
         self.tokenizer = None
@@ -76,7 +88,7 @@ class ModelLoader(ForgeModel):
         model.eval()
         return model
 
-    def load_inputs(self):
+    def load_inputs(self, batch_size=1):
         """Generate sample inputs for XGLM model."""
 
         # Ensure tokenizer is initialized
@@ -91,5 +103,9 @@ class ModelLoader(ForgeModel):
             truncation=True,
             return_tensors="pt",
         )
+
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
