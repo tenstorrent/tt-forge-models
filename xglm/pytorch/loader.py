@@ -29,6 +29,8 @@ class ModelLoader(ForgeModel):
         ),
     }
 
+    DEFAULT_VARIANT = "base"
+
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
         """Get model information for dashboard and metrics reporting.

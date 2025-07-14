@@ -13,6 +13,7 @@ from ...config import (
     ModelGroup,
     ModelTask,
     ModelSource,
+    ModelConfig,
     Framework,
 )
 from ...base import ForgeModel
@@ -20,6 +21,19 @@ from ...tools.utils import get_file
 
 
 class ModelLoader(ForgeModel):
+    # Dictionary of available model variants
+    _VARIANTS = {
+        "base": ModelConfig(
+            pretrained_model_name="google/vit-base-patch16-224",
+        ),
+        "large": ModelConfig(
+            pretrained_model_name="google/vit-large-patch16-224",
+        ),
+    }
+
+    # Default variant to use
+    DEFAULT_VARIANT = "large"
+
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
         """Get model information for dashboard and metrics reporting.
@@ -31,7 +45,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         if variant_name is None:
-            variant_name = "base"
+            variant_name = "large"
         return ModelInfo(
             model="vit",
             variant=variant_name,
@@ -51,7 +65,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
 
         # Configuration parameters
-        self.model_name = "google/vit-large-patch16-224"
+        self.model_name = self._variant_config.pretrained_model_name
 
     def load_model(self, dtype_override=None):
         """Load a Vit model from Hugging Face."""
@@ -67,7 +81,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self, dtype_override=None, batch_size=1):
         """Generate sample inputs for Vit models."""
         # Get the Image
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
@@ -80,6 +94,9 @@ class ModelLoader(ForgeModel):
         # Create tokenized inputs
         inputs = image_processor(images=image, return_tensors="pt").pixel_values
 
+        # Creat batch (default 1)
+        inputs = inputs.repeat_interleave(batch_size, dim=0)
+
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
             inputs = inputs.to(dtype_override)
@@ -88,5 +105,15 @@ class ModelLoader(ForgeModel):
 
     def post_processing(self, co_out):
         logits = co_out[0]
-        predicted_class_idx = logits.argmax(-1).item()
-        print("Predicted class:", self.model.config.id2label[predicted_class_idx])
+        predicted_class_indices = logits.argmax(-1)
+
+        # Handle both single and batch predictions
+        if predicted_class_indices.dim() == 0:  # Single prediction (scalar)
+            print(
+                "Predicted class:",
+                self.model.config.id2label[predicted_class_indices.item()],
+            )
+        else:  # Batch predictions
+            for i, idx in enumerate(predicted_class_indices):
+                class_name = self.model.config.id2label[idx.item()]
+                print(f"Batch {i}: Predicted class: {class_name}")
