@@ -23,22 +23,22 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants
     _VARIANTS = {
-        "base": ModelConfig(
+        "mamba-790m-hf": ModelConfig(
             pretrained_model_name="state-spaces/mamba-790m-hf",
         ),
-        "large": ModelConfig(
+        "mamba-2.8b-hf": ModelConfig(
             pretrained_model_name="state-spaces/mamba-2.8b-hf",
         ),
-        "medium": ModelConfig(
+        "mamba-1.4b-hf": ModelConfig(
             pretrained_model_name="state-spaces/mamba-1.4b-hf",
         ),
-        "small": ModelConfig(
+        "mamba-370m-hf": ModelConfig(
             pretrained_model_name="state-spaces/mamba-370m-hf",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = "base"
+    DEFAULT_VARIANT = "mamba-790m-hf"
 
     @classmethod
     def _get_model_info(cls, variant_name: Optional[str]) -> ModelInfo:
@@ -51,7 +51,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         if variant_name is None:
-            variant_name = "base"
+            variant_name = "mamba-790m-hf"
         return ModelInfo(
             model="mamba",
             variant=variant_name,

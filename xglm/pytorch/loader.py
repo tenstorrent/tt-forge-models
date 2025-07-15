@@ -21,15 +21,15 @@ from ...base import ForgeModel
 class ModelLoader(ForgeModel):
     # Dictionary of available model variants
     _VARIANTS = {
-        "base": ModelConfig(
+        "xglm-1.7B": ModelConfig(
             pretrained_model_name="facebook/xglm-1.7B",
         ),
-        "small": ModelConfig(
+        "xglm-564M": ModelConfig(
             pretrained_model_name="facebook/xglm-564M",
         ),
     }
 
-    DEFAULT_VARIANT = "base"
+    DEFAULT_VARIANT = "xglm-1.7B"
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -42,7 +42,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         if variant_name is None:
-            variant_name = "base"
+            variant_name = "xglm-1.7B"
         return ModelInfo(
             model="xglm",
             variant=variant_name,
