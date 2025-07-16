@@ -21,34 +21,34 @@ from ...base import ForgeModel
 
 
 class ModelVariant(StrEnum):
-    """Available ALBERT model variants."""
+    """Available MAMBA model variants."""
 
-    MAMBA_790M_HF = "mamba-790m-hf"
-    MAMBA_2p8B_HF = "mamba-2.8b-hf"
-    MAMBA_1p4B_HF = "mamba-1.4b-hf"
-    MAMBA_370M_HF = "mamba-370m-hf"
+    MAMBA_370M = "mamba-370m-hf"
+    MAMBA_790M = "mamba-790m-hf"
+    MAMBA_1_4B = "mamba-1.4b-hf"
+    MAMBA_2_8B = "mamba-2.8b-hf"
 
 
 class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants
     _VARIANTS = {
-        ModelVariant.MAMBA_790M_HF: ModelConfig(
+        ModelVariant.MAMBA_370M: ModelConfig(
+            pretrained_model_name="state-spaces/mamba-370m-hf",
+        ),
+        ModelVariant.MAMBA_790M: ModelConfig(
             pretrained_model_name="state-spaces/mamba-790m-hf",
         ),
-        ModelVariant.MAMBA_2p8B_HF: ModelConfig(
-            pretrained_model_name="state-spaces/mamba-2.8b-hf",
-        ),
-        ModelVariant.MAMBA_1p4B_HF: ModelConfig(
+        ModelVariant.MAMBA_1_4B: ModelConfig(
             pretrained_model_name="state-spaces/mamba-1.4b-hf",
         ),
-        ModelVariant.MAMBA_370M_HF: ModelConfig(
-            pretrained_model_name="state-spaces/mamba-370m-hf",
+        ModelVariant.MAMBA_2_8B: ModelConfig(
+            pretrained_model_name="state-spaces/mamba-2.8b-hf",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.MAMBA_790M_HF
+    DEFAULT_VARIANT = ModelVariant.MAMBA_790M
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:

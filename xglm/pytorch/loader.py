@@ -21,25 +21,25 @@ from ...base import ForgeModel
 
 
 class ModelVariant(StrEnum):
-    """Available ALBERT model variants."""
+    """Available XGLM model variants."""
 
-    XGLM_1p7B = "xglm-1.7B"
     XGLM_564M = "xglm-564M"
+    XGLM_1_7B = "xglm-1.7B"
 
 
 class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants
     _VARIANTS = {
-        ModelVariant.XGLM_1p7B: ModelConfig(
-            pretrained_model_name="facebook/xglm-1.7B",
-        ),
         ModelVariant.XGLM_564M: ModelConfig(
             pretrained_model_name="facebook/xglm-564M",
         ),
+        ModelVariant.XGLM_1_7B: ModelConfig(
+            pretrained_model_name="facebook/xglm-1.7B",
+        ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.XGLM_1p7B
+    DEFAULT_VARIANT = ModelVariant.XGLM_1_7B
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
