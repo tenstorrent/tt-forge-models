@@ -15,33 +15,43 @@ from ...config import (
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
 from ...base import ForgeModel
+
+
+class ModelVariant(StrEnum):
+    """Available ALBERT model variants."""
+
+    MAMBA_790M_HF = "mamba-790m-hf"
+    MAMBA_2p8B_HF = "mamba-2.8b-hf"
+    MAMBA_1p4B_HF = "mamba-1.4b-hf"
+    MAMBA_370M_HF = "mamba-370m-hf"
 
 
 class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants
     _VARIANTS = {
-        "mamba-790m-hf": ModelConfig(
+        ModelVariant.MAMBA_790M_HF: ModelConfig(
             pretrained_model_name="state-spaces/mamba-790m-hf",
         ),
-        "mamba-2.8b-hf": ModelConfig(
+        ModelVariant.MAMBA_2p8B_HF: ModelConfig(
             pretrained_model_name="state-spaces/mamba-2.8b-hf",
         ),
-        "mamba-1.4b-hf": ModelConfig(
+        ModelVariant.MAMBA_1p4B_HF: ModelConfig(
             pretrained_model_name="state-spaces/mamba-1.4b-hf",
         ),
-        "mamba-370m-hf": ModelConfig(
+        ModelVariant.MAMBA_370M_HF: ModelConfig(
             pretrained_model_name="state-spaces/mamba-370m-hf",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = "mamba-790m-hf"
+    DEFAULT_VARIANT = ModelVariant.MAMBA_790M_HF
 
     @classmethod
-    def _get_model_info(cls, variant_name: Optional[str]) -> ModelInfo:
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting.
 
         Args:
@@ -50,18 +60,16 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "mamba-790m-hf"
         return ModelInfo(
             model="mamba",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
-    def __init__(self, variant=None):
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:

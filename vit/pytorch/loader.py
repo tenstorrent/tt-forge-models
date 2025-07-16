@@ -7,6 +7,7 @@ Vit model loader implementation for question answering
 import torch
 from transformers import AutoImageProcessor, ViTForImageClassification
 from PIL import Image
+from typing import Optional
 
 from ...config import (
     ModelInfo,
@@ -15,27 +16,35 @@ from ...config import (
     ModelSource,
     ModelConfig,
     Framework,
+    StrEnum,
 )
 from ...base import ForgeModel
 from ...tools.utils import get_file
 
 
+class ModelVariant(StrEnum):
+    """Available ALBERT model variants."""
+
+    BASE = "base"
+    LARGE = "large"
+
+
 class ModelLoader(ForgeModel):
     # Dictionary of available model variants
     _VARIANTS = {
-        "base": ModelConfig(
+        ModelVariant.BASE: ModelConfig(
             pretrained_model_name="google/vit-base-patch16-224",
         ),
-        "large": ModelConfig(
+        ModelVariant.LARGE: ModelConfig(
             pretrained_model_name="google/vit-large-patch16-224",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = "large"
+    DEFAULT_VARIANT = ModelVariant.LARGE
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting.
 
         Args:
@@ -44,18 +53,16 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "large"
         return ModelInfo(
             model="vit",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
             source=ModelSource.TORCH_HUB,
             framework=Framework.TORCH,
         )
 
-    def __init__(self, variant=None):
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:

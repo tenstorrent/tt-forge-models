@@ -7,6 +7,7 @@ XGLM model loader implementation
 
 import torch
 from transformers import AutoTokenizer, XGLMForCausalLM
+from typing import Optional
 from ...config import (
     ModelInfo,
     ModelGroup,
@@ -14,45 +15,53 @@ from ...config import (
     ModelConfig,
     ModelSource,
     Framework,
+    StrEnum,
 )
 from ...base import ForgeModel
 
 
+class ModelVariant(StrEnum):
+    """Available ALBERT model variants."""
+
+    XGLM_1p7B = "xglm-1.7B"
+    XGLM_564M = "xglm-564M"
+
+
 class ModelLoader(ForgeModel):
+
     # Dictionary of available model variants
     _VARIANTS = {
-        "xglm-1.7B": ModelConfig(
+        ModelVariant.XGLM_1p7B: ModelConfig(
             pretrained_model_name="facebook/xglm-1.7B",
         ),
-        "xglm-564M": ModelConfig(
+        ModelVariant.XGLM_564M: ModelConfig(
             pretrained_model_name="facebook/xglm-564M",
         ),
     }
 
-    DEFAULT_VARIANT = "xglm-1.7B"
+    DEFAULT_VARIANT = ModelVariant.XGLM_1p7B
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
+            variant: Optional ModelVariant specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
 
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "xglm-1.7B"
         return ModelInfo(
             model="xglm",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
-    def __init__(self, variant=None):
+    def __init__(self, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Initialize ModelLoader with specified variant.
 
         Args:
