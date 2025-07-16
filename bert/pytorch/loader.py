@@ -20,7 +20,7 @@ from ...config import (
 )
 
 
-class Variant(StrEnum):
+class ModelVariant(StrEnum):
     """Available BERT model variants."""
 
     BASE = "base"
@@ -32,39 +32,39 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants
     _VARIANTS = {
-        Variant.BASE: LLMModelConfig(
+        ModelVariant.BASE: LLMModelConfig(
             pretrained_model_name="phiyodr/bert-base-finetuned-squad2",
             max_length=256,
         ),
-        Variant.LARGE: LLMModelConfig(
+        ModelVariant.LARGE: LLMModelConfig(
             pretrained_model_name="phiyodr/bert-large-finetuned-squad2",
             max_length=256,
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = Variant.LARGE
+    DEFAULT_VARIANT = ModelVariant.LARGE
 
     # Shared configuration parameters
     context = 'Johann Joachim Winckelmann was a German art historian and archaeologist. He was a pioneering Hellenist who first articulated the difference between Greek, Greco-Roman and Roman art. "The prophet and founding hero of modern archaeology", Winckelmann was one of the founders of scientific archaeology and first applied the categories of style on a large, systematic basis to the history of art. '
     question = "What discipline did Winkelmann create?"
 
-    def __init__(self, variant: Optional[StrEnum] = None):
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
-            variant: Optional StrEnum specifying which variant to use.
+            variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
         self.tokenizer = None
 
     @classmethod
-    def _get_model_info(cls, variant: Optional[StrEnum] = None) -> ModelInfo:
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Implementation method for getting model info with validated variant.
 
         Args:
-            variant: Optional StrEnum specifying which variant to use.
+            variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
 
         Returns:

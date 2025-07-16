@@ -20,7 +20,7 @@ from ....config import (
 )
 
 
-class Variant(StrEnum):
+class ModelVariant(StrEnum):
     """Available ALBERT model variants."""
 
     BASE = "albert-base-v2"
@@ -34,46 +34,46 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        Variant.BASE: LLMModelConfig(
+        ModelVariant.BASE: LLMModelConfig(
             pretrained_model_name="albert/albert-base-v2",
             max_length=128,
         ),
-        Variant.LARGE: LLMModelConfig(
+        ModelVariant.LARGE: LLMModelConfig(
             pretrained_model_name="albert/albert-large-v2",
             max_length=128,
         ),
-        Variant.XLARGE: LLMModelConfig(
+        ModelVariant.XLARGE: LLMModelConfig(
             pretrained_model_name="albert/albert-xlarge-v2",
             max_length=128,
         ),
-        Variant.XXLARGE: LLMModelConfig(
+        ModelVariant.XXLARGE: LLMModelConfig(
             pretrained_model_name="albert/albert-xxlarge-v2",
             max_length=128,
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = Variant.BASE
+    DEFAULT_VARIANT = ModelVariant.BASE
 
     # Shared configuration parameters
     sample_text = "The capital of [MASK] is Paris."
 
-    def __init__(self, variant: Optional[StrEnum] = None):
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
-            variant: Optional StrEnum specifying which variant to use.
+            variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
         self.tokenizer = None
 
     @classmethod
-    def _get_model_info(cls, variant: Optional[StrEnum] = None) -> ModelInfo:
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Implementation method for getting model info with validated variant.
 
         Args:
-            variant: Optional StrEnum specifying which variant to use.
+            variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
 
         Returns:
