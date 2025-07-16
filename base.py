@@ -17,7 +17,7 @@ class ForgeModel(ABC):
     """Base class for all TT-Forge model loaders."""
 
     # This is intended to be overridden by subclasses to define available model variants
-    # Format: {Variants.NAME: ModelConfig(...), ...}
+    # Format: {Variant.NAME: ModelConfig(...), ...}
     _VARIANTS: Dict[
         StrEnum, ModelConfig
     ] = {}  # Empty by default for models without variants
