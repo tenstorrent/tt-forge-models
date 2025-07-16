@@ -9,57 +9,73 @@ import onnx
 from PIL import Image
 from torchvision import transforms
 import numpy as np
+from enum import StrEnum
+from typing import Optional
 
 from ...config import (
     ModelInfo,
+    ModelConfig,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
 )
 from ...base import ForgeModel
-from ...config import ModelGroup, ModelTask, ModelSource, Framework
 from ...tools.utils import get_file
 
 
 class ModelLoader(ForgeModel):
     """CenterNet model loader implementation."""
-
-    def __init__(self, variant=None):
+    
+    class Variant(StrEnum):
+        DLA1X_OD = "dla1x_od"  # Default variant for object detection
+        DLA1X_HPE = "dla1x_hpe"  # Human pose estimation
+        DLA1X_3D = "dla1x_3d"  # 3D detection
+    
+    _VARIANTS = {
+        Variant.DLA1X_OD: ModelConfig(
+            pretrained_model_name="",
+        ),
+        Variant.DLA1X_HPE: ModelConfig(
+            pretrained_model_name="",
+        ),
+        Variant.DLA1X_3D: ModelConfig(
+            pretrained_model_name="",
+        ),
+    }
+    
+    DEFAULT_VARIANT = Variant.DLA1X_OD
+    
+    def __init__(self, variant: Optional[StrEnum] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
-            variant: Optional string specifying which variant to use.
+            variant: Optional StrEnum specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[StrEnum] = None):
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant_name: Optional variant name string. If None, uses 'dla1x_od'.
-                The task is determined based on the variant name:
-                - If 'hpe' in variant name: pose estimation
-                - If '3d' in variant name: 3D detection
-                - Else: object detection
+            variant: Optional StrEnum specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
 
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "dla1x_od"  # Default variant is object detection
         # Determine task based on variant name
-        if "hpe" in variant_name:
+        if variant is not None and "hpe" in str(variant).lower():
             task = ModelTask.CV_POSE_ESTIMATION
-        elif "3d" in variant_name.lower():
+        elif variant is not None and "3d" in str(variant).lower():
             task = ModelTask.CV_3D_DETECTION
         else:
             task = ModelTask.CV_OBJECT_DET
         return ModelInfo(
             model="centernet",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.RED,
             task=task,
             source=ModelSource.CUSTOM,

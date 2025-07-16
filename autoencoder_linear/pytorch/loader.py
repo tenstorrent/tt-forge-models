@@ -10,46 +10,63 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
+from typing import Optional
 from datasets import load_dataset
 
 from ...config import (
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
 from ...base import ForgeModel
 from .src.linear_ae import LinearAE
 
 
+class Variant(StrEnum):
+    """Available Autoencoder Linear model variants."""
+
+    BASE = "base"
+
+
 class ModelLoader(ForgeModel):
     """Autoencoder linear model loader implementation."""
 
-    def __init__(self, variant=None):
+    # Dictionary of available model variants
+    _VARIANTS = {
+        Variant.BASE: ModelConfig(
+            pretrained_model_name="",  # No pretrained weights needed
+        )
+    }
+
+    DEFAULT_VARIANT = Variant.BASE
+
+    def __init__(self, variant: Optional[StrEnum] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
-            variant: Optional string specifying which variant to use.
+            variant: Optional StrEnum specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[StrEnum] = None):
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
+            variant: Optional StrEnum specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
 
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
         return ModelInfo(
             model="autoencoder_linear",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMG_TO_IMG,
             source=ModelSource.CUSTOM,

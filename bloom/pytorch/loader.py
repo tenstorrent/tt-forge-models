@@ -5,9 +5,12 @@
 Bloom model loader implementation
 """
 
+from enum import StrEnum
+from typing import Optional
 
 from ...config import (
     ModelInfo,
+    ModelConfig,
     ModelGroup,
     ModelTask,
     ModelSource,
@@ -19,12 +22,23 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 class ModelLoader(ForgeModel):
     """Bloom model loader implementation."""
+    
+    class Variant(StrEnum):
+        BASE = "base"
+    
+    _VARIANTS = {
+        Variant.BASE: ModelConfig(
+            pretrained_model_name="bigscience/bloom-1b1",
+        )
+    }
+    
+    DEFAULT_VARIANT = Variant.BASE
 
-    def __init__(self, variant=None):
+    def __init__(self, variant: Optional[StrEnum] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
-            variant: Optional string specifying which variant to use.
+            variant: Optional StrEnum specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
@@ -35,20 +49,19 @@ class ModelLoader(ForgeModel):
         self.test_input = "This is a sample text from "
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[StrEnum] = None):
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
+            variant: Optional StrEnum specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
 
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
         return ModelInfo(
             model="bloom",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,

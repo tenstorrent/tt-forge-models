@@ -5,9 +5,12 @@
 Clip model loader implementation
 """
 
+from enum import StrEnum
+from typing import Optional
 
 from ...config import (
     ModelInfo,
+    ModelConfig,
     ModelGroup,
     ModelTask,
     ModelSource,
@@ -21,12 +24,23 @@ from ...tools.utils import get_file
 
 class ModelLoader(ForgeModel):
     """CLIP model loader implementation."""
+    
+    class Variant(StrEnum):
+        BASE = "base"
+    
+    _VARIANTS = {
+        Variant.BASE: ModelConfig(
+            pretrained_model_name="openai/clip-vit-base-patch32",
+        )
+    }
+    
+    DEFAULT_VARIANT = Variant.BASE
 
-    def __init__(self, variant=None):
+    def __init__(self, variant: Optional[StrEnum] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
-            variant: Optional string specifying which variant to use.
+            variant: Optional StrEnum specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
@@ -36,20 +50,19 @@ class ModelLoader(ForgeModel):
         self.processor = None
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[StrEnum] = None):
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
+            variant: Optional StrEnum specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
 
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
         return ModelInfo(
             model="clip",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_IMAGE_CAPT,
             source=ModelSource.HUGGING_FACE,
