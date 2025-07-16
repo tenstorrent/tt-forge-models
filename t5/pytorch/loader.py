@@ -5,6 +5,7 @@
 T5 model loader implementation
 """
 
+import torch
 from transformers import AutoTokenizer, T5ForConditionalGeneration
 from ...config import (
     ModelInfo,
@@ -87,5 +88,9 @@ class ModelLoader(ForgeModel):
             self.text,
             return_tensors="pt",
         )
+
+        # T5 requires decoder input ids also an input
+        decoder_input_ids = torch.tensor([[self.tokenizer.pad_token_id]])
+        inputs["decoder_input_ids"] = decoder_input_ids
 
         return inputs
