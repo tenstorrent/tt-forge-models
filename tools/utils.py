@@ -11,6 +11,9 @@ import json
 from pathlib import Path
 import subprocess
 
+# Constants
+LFS_CACHE_URL = "http://large-file-cache.large-file-cache.svc.cluster.local"
+
 
 def get_file(path):
     """Get a file from local filesystem, cache, or URL.
@@ -87,9 +90,7 @@ def get_file(path):
         elif "DOCKER_CACHE_ROOT" in os.environ:
             # try to download from large-file-cache service if we are running in Civ2 environment
             try:
-                large_file_cache_url = (
-                    f"http://large-file-cache.large-file-cache.svc.cluster.local/{path}"
-                )
+                large_file_cache_url = f"{LFS_CACHE_URL}/{path}"
                 print(
                     f"Attempting to download from large-file-cache: {large_file_cache_url} to {file_path}"
                 )
