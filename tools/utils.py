@@ -9,6 +9,7 @@ import torch
 from tabulate import tabulate
 import json
 from pathlib import Path
+import subprocess
 
 
 def get_file(path):
@@ -84,9 +85,24 @@ def get_file(path):
             except Exception as e:
                 raise RuntimeError(f"Failed to download {path}: {str(e)}")
         elif "DOCKER_CACHE_ROOT" in os.environ:
-            raise FileNotFoundError(
-                f"File {file_path} is not available, check file path. If path is correct, DOCKER_CACHE_ROOT syncs automatically with S3 bucket every hour so please wait for the next sync."
-            )
+            # try to download from large-file-cache service if we are running in Civ2 environment
+            try:
+                large_file_cache_url = (
+                    f"http://large-file-cache.large-file-cache.svc.cluster.local/{path}"
+                )
+                print(
+                    f"Attempting to download from large-file-cache: {large_file_cache_url} to {file_path}"
+                )
+                download_file_wget(large_file_cache_url, cache_dir)
+                print(
+                    f"Successfully downloaded file from large-file-cache to {file_path}"
+                )
+                return file_path
+            except Exception as e:
+                print(f"Failed to download from large-file-cache: {str(e)}")
+                raise FileNotFoundError(
+                    f"File {file_path} is not available, check file path. If path is correct, DOCKER_CACHE_ROOT syncs automatically with S3 bucket every hour so please wait for the next sync."
+                )
         else:
             if "IRD_LF_CACHE" not in os.environ:
                 raise ValueError(
@@ -109,6 +125,39 @@ def get_file(path):
                 )
 
     return file_path
+
+
+def download_file_wget(url, download_dir):
+    """
+    Download a file or folder using wget.
+
+    Args:
+        url: URL to download from
+        download_dir: Directory to download to
+    """
+    try:
+        os.makedirs(download_dir, exist_ok=True)
+        subprocess.run(
+            [
+                "wget",
+                "-R",
+                "index.html*",  # reject index.html files
+                "-P",
+                str(download_dir),  # directory prefix
+                url,
+                "--connect-timeout=15",  # connection timeout
+                "--read-timeout=60",  # read timeout
+                "--tries=3",  # number of retries
+            ],
+            check=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"wget failed with exit code {e.returncode} when downloading {url}"
+        )
+    except Exception as e:
+        raise RuntimeError(f"Failed to download {url}: {str(e)}")
 
 
 def load_class_labels(file_path):
