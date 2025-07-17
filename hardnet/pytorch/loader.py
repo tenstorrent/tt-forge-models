@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
             dict: Input tensors and attention masks that can be fed to the model.
         """
 
-        url = "https://github.com/mateuszbuda/brain-segmentation-pytorch/raw/master/assets/TCGA_CS_4944.png"
+        url = "https://github.com/pytorch/hub/raw/master/images/dog.jpg"
         input_image = Image.open(requests.get(url, stream=True).raw)
         preprocess = transforms.Compose(
             [
