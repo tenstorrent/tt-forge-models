@@ -109,15 +109,14 @@ def get_file(path):
                 raise ValueError(
                     "IRD_LF_CACHE environment variable is not set. Please set it to the address of the IRD LF cache."
                 )
-            ird_lf_cache_url = f"{os.environ['IRD_LF_CACHE']}/{path}"
             print(f"Downloading file from path {path} to {cache_dir}/{file_name}")
             exit_code = os.system(
-                f'wget -nH -np -R "indexg.html*" -P {cache_dir} {ird_lf_cache_url} --connect-timeout=15 --read-timeout=60 --tries=3'
+                f"wget -nH -np -R \"indexg.html*\" -P {cache_dir} {os.environ['IRD_LF_CACHE']}/{path} --connect-timeout=15 --read-timeout=60 --tries=3"
             )
             # Check for wget failure
             if exit_code != 0:
                 raise RuntimeError(
-                    f"wget failed with exit code {exit_code} when downloading {ird_lf_cache_url}"
+                    f"wget failed with exit code {exit_code} when downloading {os.environ['IRD_LF_CACHE']}/{path}"
                 )
 
             # Ensure file_path exists after wget command
