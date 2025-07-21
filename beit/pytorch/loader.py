@@ -117,10 +117,11 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the BERT model with this instance's variant settings.
+        """Load and return sample inputs for the BEiT model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
+            batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
             dict: Input tensors and attention masks that can be fed to the model.
@@ -135,5 +136,10 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+
+        # Add batch dimension if batch_size
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
