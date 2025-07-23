@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
             model="flux",
             variant=variant,
             group=ModelGroup.RED,
-            task=ModelTask.MM_IMAGE_TTT,
+            task=ModelTask.MM_IMAGE_TTT,  # FIXME: Update task to Text to Image
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
