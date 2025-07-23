@@ -52,7 +52,7 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
 
-        # Model configuration - same as test
+        # Model configuration
         self.model_config = {
             "rnn_type": self._variant.value.lower(),
             "vocab_size": 30000,
@@ -90,7 +90,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The BiRNN-CRF model instance for sequence tagging.
         """
-        # Create the model with random weights - same as test
+        # Create the model with random weights
         model = BiRnnCrf(
             vocab_size=self.model_config["vocab_size"],
             tagset_size=self.model_config["tagset_size"],
@@ -111,7 +111,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Input tensor (token IDs) that can be fed to the model.
         """
-        # Generate random token ids within vocabulary range - same as test
+        # Generate random token ids within vocabulary range
         seq_length = 16
         input_ids = torch.randint(
             0, self.model_config["vocab_size"], (batch_size, seq_length)
