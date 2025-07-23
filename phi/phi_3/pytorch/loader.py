@@ -2,14 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Mistral model loader implementation for causal language modeling
+Phi 3 model loader implementation for causal language modeling
 """
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import Optional
 
-from ...base import ForgeModel
-from ...config import (
+from ....base import ForgeModel
+from ....config import (
     ModelConfig,
     ModelInfo,
     ModelGroup,
@@ -21,31 +21,27 @@ from ...config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Mistral model variants."""
+    """Available Phi 3 model variants."""
 
-    MISTRAL_7B = "7b"
-    MINISTRAL_8B = "ministral_8b_instruct"
-    MINISTRAL_3B = "ministral_3b_instruct"
+    MINI_128K = "mini_128k_instruct"
+    MINI_4K = "mini_4k_instruct"
 
 
 class ModelLoader(ForgeModel):
-    """Mistral model loader implementation for causal language modeling tasks."""
+    """Phi 3 model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants
     _VARIANTS = {
-        ModelVariant.MISTRAL_7B: ModelConfig(
-            pretrained_model_name="mistralai/Mistral-7B-v0.1",
+        ModelVariant.MINI_128K: ModelConfig(
+            pretrained_model_name="microsoft/Phi-3-mini-128k-instruct",
         ),
-        ModelVariant.MINISTRAL_8B: ModelConfig(
-            pretrained_model_name="mistralai/Ministral-8B-Instruct-2410",
-        ),
-        ModelVariant.MINISTRAL_3B: ModelConfig(
-            pretrained_model_name="ministral/Ministral-3b-instruct",
+        ModelVariant.MINI_4K: ModelConfig(
+            pretrained_model_name="microsoft/Phi-3-mini-4k-instruct",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.MISTRAL_7B
+    DEFAULT_VARIANT = ModelVariant.MINI_128K
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -59,7 +55,7 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Implementation method for getting model info with validated variant.
+        """Get model information for dashboard and metrics reporting.
 
         Args:
             variant: Optional ModelVariant specifying which variant to use.
@@ -69,7 +65,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="mistral",
+            model="phi-3",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -83,11 +79,10 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {
-            "padding_side": "left",
-        }
+        tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+
         # Initialize tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -95,14 +90,14 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, dtype_override=None):
-        """Load and return the Mistral model instance for this instance's variant.
+        """Load and return the Phi 3 model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use bfloat16.
+                           If not provided, the model will use its default dtype.
 
         Returns:
-            torch.nn.Module: The Mistral model instance for causal language modeling.
+            torch.nn.Module: The Phi 3 model instance for causal language modeling.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -111,36 +106,42 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-
         # Load pre-trained model from HuggingFace
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        model = AutoModelForCausalLM.from_pretrained(pretrained_model_name)
 
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Mistral model with this instance's variant settings.
+        """Load and return sample inputs for the Phi 3 model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
-            dict: Input tensors (input_ids, attention_mask) that can be fed to the model.
+            dict: Input tensors that can be fed to the model.
         """
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
 
-        # Set up sample input
-        test_input = "How often does the letter r occur in Mistral?"
+        # Set up sample messages
+        messages = [
+            {"role": "system", "content": "You are a helpful AI assistant."},
+            {
+                "role": "user",
+                "content": "Can you provide ways to eat combinations of bananas and dragonfruits?",
+            },
+        ]
 
-        # Tokenize input
-        inputs = self.tokenizer.encode_plus(test_input, return_tensors="pt")
+        # Apply chat template
+        inputs = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_tensors="pt",
+            return_attention_mask=True,
+        )
 
         # Add batch dimension
         for key in inputs:
@@ -149,19 +150,26 @@ class ModelLoader(ForgeModel):
 
         return inputs
 
-    def decode_output(self, outputs, dtype_override):
+    def decode_output(self, outputs, dtype_override=None):
         """Helper method to decode model outputs into human-readable text.
 
         Args:
-            outputs: Model output from a forward pass
+            outputs: Model output from a forward pass or generated token IDs
 
         Returns:
-            str: Decoded next token text
+            str: Decoded output text
         """
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
 
-        # Get logits for the last token
-        next_token_logits = outputs.logits[:, -1]
-        next_token = next_token_logits.softmax(dim=-1).argmax()
-        return self.tokenizer.decode([next_token])
+        # Check if outputs are token IDs (from generation) or logits
+        if torch.is_tensor(outputs) and outputs.dtype in [torch.long, torch.int]:
+            # Token IDs - decode directly
+            decoded_output = self.tokenizer.decode(outputs)
+        else:
+            # Logits - get next token
+            logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
+            next_token_id = torch.argmax(logits[:, -1, :], dim=-1)
+            decoded_output = self.tokenizer.decode(next_token_id)
+
+        return decoded_output
