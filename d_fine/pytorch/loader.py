@@ -66,6 +66,7 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self.processor = None
+        self.image = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
