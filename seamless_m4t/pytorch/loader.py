@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
             model="seamless-m4t",
             variant=variant,
             group=ModelGroup.RED,
-            task=ModelTask.NLP_SPEECH_TO_TEXT,
+            task=ModelTask.AUDIO_ASR,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )

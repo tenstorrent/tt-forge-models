@@ -24,13 +24,13 @@ from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
-    """Available RGBM model variants."""
+    """Available RMBG model variants."""
 
     RMBG_2_0 = "2_0"
 
 
 class ModelLoader(ForgeModel):
-    """RGBM model loader implementation for image segmentation tasks."""
+    """RMBG model loader implementation for image segmentation tasks."""
 
     # Dictionary of available model variants
     _VARIANTS = {
@@ -65,7 +65,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="rgbm",
+            model="RMBG",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_IMAGE_SEG,
@@ -91,14 +91,14 @@ class ModelLoader(ForgeModel):
         return self.transform_image
 
     def load_model(self, dtype_override=None):
-        """Load and return the RGBM model instance for this instance's variant.
+        """Load and return the RMBG model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use bfloat16.
 
         Returns:
-            torch.nn.Module: The RGBM model instance for image segmentation.
+            torch.nn.Module: The RMBG model instance for image segmentation.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -122,7 +122,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the RGBM model with this instance's variant settings.
+        """Load and return sample inputs for the RMBG model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -175,7 +175,7 @@ class ModelLoader(ForgeModel):
         mask = pred_pil.resize(self.image.size)
 
         result_info = f"""
-        RGBM Segmentation Output:
+        RMBG Segmentation Output:
           - Original image size: {self.image.size}
           - Prediction shape: {predictions.shape}
           - Mask size: {mask.size}

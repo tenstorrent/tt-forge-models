@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-RGBM model implementation for Tenstorrent projects.
+RMBG model implementation for Tenstorrent projects.
 """
 # Import from the PyTorch implementation by default
 from .pytorch import ModelLoader
