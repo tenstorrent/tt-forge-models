@@ -67,6 +67,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.processor = None
         self.image = None
+        self.model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -127,6 +128,7 @@ class ModelLoader(ForgeModel):
         model = DFineForObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        self.model = model  # Store model for later use
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -156,3 +158,52 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
+
+    def decode_output(self, outputs, threshold=0.5):
+        """Helper method to decode model outputs into human-readable object detection results.
+
+        Args:
+            outputs: Model output from a forward pass
+            threshold: Optional confidence threshold for filtering detections (default: 0.5)
+
+        Returns:
+            str: Formatted detection results with labels, scores, and bounding boxes
+        """
+        if self.processor is None:
+            self._load_processor()
+
+        if self.image is None:
+            # Load default image if not already loaded
+            image_file = get_file(
+                "http://images.cocodataset.org/val2017/000000039769.jpg"
+            )
+            self.image = load_image(str(image_file))
+
+        # Post-process the model outputs
+        results = self.processor.post_process_object_detection(
+            outputs,
+            target_sizes=[(self.image.height, self.image.width)],
+            threshold=threshold,
+        )
+
+        # Format the results
+        detection_strings = []
+        for result in results:
+            for score, label_id, box in zip(
+                result["scores"], result["labels"], result["boxes"]
+            ):
+                score, label = score.item(), label_id.item()
+                box = [round(i, 2) for i in box.tolist()]
+
+                # Get model to access id2label mapping
+                if hasattr(self, "model") and self.model is not None:
+                    label_name = self.model.config.id2label[label]
+                else:
+                    # Fallback if model not stored
+                    label_name = f"class_{label}"
+
+                detection_strings.append(f"{label_name}: {score:.2f} {box}")
+
+        return (
+            "\n".join(detection_strings) if detection_strings else "No detections found"
+        )
