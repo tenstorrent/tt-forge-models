@@ -2,14 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Llama 7B model loader implementation for causal language modeling
+Huggy Llama model loader implementation for causal language modeling
 """
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import Optional
 
-from ....base import ForgeModel
-from ....config import (
+from ...base import ForgeModel
+from ...config import (
     ModelConfig,
     ModelInfo,
     ModelGroup,
@@ -21,23 +21,23 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Llama 7B model variants."""
+    """Available Huggy Llama model variants."""
 
-    BASE = "base"
+    LLAMA_7B = "llama-7b"
 
 
 class ModelLoader(ForgeModel):
-    """Llama 7B model loader implementation for causal language modeling tasks."""
+    """Huggy Llama model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants
     _VARIANTS = {
-        ModelVariant.BASE: ModelConfig(
+        ModelVariant.LLAMA_7B: ModelConfig(
             pretrained_model_name="huggyllama/llama-7b",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.BASE
+    DEFAULT_VARIANT = ModelVariant.LLAMA_7B
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -61,7 +61,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="llama-7b",
+            model="huggyllama",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -88,14 +88,14 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, dtype_override=None):
-        """Load and return the Llama 7B model instance for this instance's variant.
+        """Load and return the Huggy Llama model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use bfloat16.
 
         Returns:
-            torch.nn.Module: The Llama 7B model instance for causal language modeling.
+            torch.nn.Module: The Huggy Llama model instance for causal language modeling.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -120,7 +120,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Llama 7B model with this instance's variant settings.
+        """Load and return sample inputs for the Huggy Llama model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.

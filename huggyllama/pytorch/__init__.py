@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Llama_7b PyTorch model implementation for Tenstorrent projects.
+Huggy Llama PyTorch model implementation for Tenstorrent projects.
 """
 from .loader import ModelLoader
