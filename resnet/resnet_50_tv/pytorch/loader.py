@@ -133,12 +133,18 @@ class ModelLoader(ForgeModel):
 
         Args:
             outputs: Model output from a forward pass (logits)
+                    Can be a single tensor or list of tensors (data parallel)
 
         Returns:
             str: Formatted output information with top 5 predictions
         """
-        # Get logits
-        logits = outputs.logits if hasattr(outputs, "logits") else outputs
+        # Handle data parallel case (list of tensors)
+        if isinstance(outputs, list):
+            # Use the first device's output for decoding
+            logits = outputs[0]
+        else:
+            # Handle single device case
+            logits = outputs.logits if hasattr(outputs, "logits") else outputs
 
         # Get top 5 predictions - same as test
         _, indices = torch.topk(logits, 5)
