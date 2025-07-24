@@ -131,12 +131,20 @@ class ModelLoader(ForgeModel):
         ]
 
         # Apply chat template
-        inputs = self.tokenizer.apply_chat_template(
+        result = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
             add_generation_prompt=True,
             return_tensors="pt",
         )
+
+        # Handle both cases: when result is a tensor or a dict
+        if torch.is_tensor(result):
+            # Result is just input_ids tensor, create dict manually
+            inputs = {"input_ids": result, "attention_mask": torch.ones_like(result)}
+        else:
+            # Result is already a dict
+            inputs = result
 
         # Add batch dimension
         for key in inputs:
