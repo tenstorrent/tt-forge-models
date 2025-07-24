@@ -5,12 +5,10 @@
 Phi 3.5 Vision model loader implementation for multimodal visual question answering
 """
 import torch
-import requests
 from transformers import AutoProcessor, AutoModelForCausalLM
 from PIL import Image
-from io import BytesIO
 from typing import Optional
-
+from ....tools.utils import get_file
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
@@ -52,6 +50,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.processor = None
         self.tokenizer = None
+        self.model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -111,13 +110,14 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model = model.to(dtype_override)
 
+        self.model = model
+
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, batch_size=1):
         """Load and return sample inputs for the Phi 3.5 Vision model with this instance's variant settings.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
@@ -128,8 +128,10 @@ class ModelLoader(ForgeModel):
             self._load_processor()
 
         # Load image from URL
-        image_url = "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
-        image = Image.open(BytesIO(requests.get(image_url).content))
+        image_file = get_file(
+            "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
+        )
+        image = Image.open(image_file)
 
         # Set up messages
         messages = [
@@ -142,12 +144,15 @@ class ModelLoader(ForgeModel):
         )
 
         # Process inputs
-        inputs = self.processor(prompt, [image], return_tensors="pt")
+        inputs = self.processor(prompt, [image], return_tensors="pt").to(
+            self.model.device
+        )
 
         # Add batch dimension
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        if batch_size > 1:
+            for key in inputs:
+                if torch.is_tensor(inputs[key]):
+                    inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         # Return arguments dict
         arguments = {
@@ -175,7 +180,7 @@ class ModelLoader(ForgeModel):
 
         # Check if outputs are token IDs (from generation) or logits
         if torch.is_tensor(outputs) and outputs.dtype in [torch.long, torch.int]:
-            # Token IDs - decode with slicing like test
+            # Token IDs
             if input_length is not None:
                 outputs = outputs[:, input_length:]
             decoded_output = self.processor.batch_decode(
