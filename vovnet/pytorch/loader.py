@@ -14,13 +14,38 @@ from ...config import (
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
+    ModelConfig
 )
 from ...base import ForgeModel
 from ...tools.utils import print_compiled_model_results
 from ...tools.utils import get_file
 
+class ModelVariant(StrEnum):
+    """Available WideResnet model variants."""
 
+    VOVNET27S = "vovnet27s"
+    VOVNET39 = "vovnet39"
+    VOVNET57 = "vovnet57"
 class ModelLoader(ForgeModel):
+    """WideResnet model loader implementation."""
+
+    # Dictionary of available model variants using structured configs
+    _VARIANTS = {
+        ModelVariant.VOVNET27S: ModelConfig(
+            pretrained_model_name="vovnet27s",
+        ),
+        ModelVariant.VOVNET39: ModelConfig(
+            pretrained_model_name="vovnet39",
+        ),
+        ModelVariant.VOVNET57: ModelConfig(
+            pretrained_model_name="vovnet57",
+        ),
+    }
+
+    # Default variant to use
+    DEFAULT_VARIANT = ModelVariant.BASE
+    
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
         """Get model information for dashboard and metrics reporting.
@@ -52,12 +77,14 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
 
         # Configuration parameters
-        self.model_name = "vovnet27s"
         self.input_shape = (3, 224, 224)
 
     def load_model(self, dtype_override=None):
         """Load a Vovnet model from Pytorch CV Model Provider."""
-        model = ptcv_get_model(self.model_name, pretrained=True)
+        
+        # Get the pretrained model name from the instance's variant config
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        model = ptcv_get_model(pretrained_model_name, pretrained=True)
         model.eval()
 
         # Only convert dtype if explicitly requested

@@ -6,6 +6,7 @@ WideResnet model loader implementation for question answering
 """
 import torch
 from PIL import Image
+from typing import Optional
 from torchvision import transforms
 from ...config import (
     ModelInfo,
@@ -13,13 +14,34 @@ from ...config import (
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
+    ModelConfig
 )
 from ...base import ForgeModel
 from ...tools.utils import get_file
 from ...tools.utils import print_compiled_model_results
 
+class ModelVariant(StrEnum):
+    """Available WideResnet model variants."""
 
+    WIDE_RESNET50_2 = "wide_resnet50_2"
+    WIDE_RESNET101_2 = "wide_resnet101_2"
 class ModelLoader(ForgeModel):
+    """WideResnet model loader implementation."""
+
+    # Dictionary of available model variants using structured configs
+    _VARIANTS = {
+        ModelVariant.WIDE_RESNET50_2: ModelConfig(
+            pretrained_model_name="wide_resnet50_2",
+        ),
+        ModelVariant.WIDE_RESNET101_2: ModelConfig(
+            pretrained_model_name="wide_resnet101_2",
+        ),
+    }
+
+    # Default variant to use
+    DEFAULT_VARIANT = ModelVariant.BASE
+
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
         """Get model information for dashboard and metrics reporting.
@@ -30,17 +52,17 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
             model="wide_resnet",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
             source=ModelSource.TORCH_HUB,
             framework=Framework.TORCH,
         )
-
+        
     def __init__(self, variant=None):
         """Initialize ModelLoader with specified variant.
 
@@ -52,8 +74,10 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, dtype_override=None):
         """Load a WideResnet model from Torch Hub."""
-        model_name = "wide_resnet50_2"
-        model = torch.hub.load("pytorch/vision:v0.10.0", model_name, pretrained=True)
+        
+        # Get the pretrained model name from the instance's variant config
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        model = torch.hub.load("pytorch/vision:v0.10.0", pretrained_model_name, pretrained=True)
         model.eval()
 
         # Only convert dtype if explicitly requested
