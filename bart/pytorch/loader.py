@@ -2,14 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-ALBERT model loader implementation for masked language modeling.
+BART model loader implementation for Sequence Classification.
 """
-import torch
-from transformers import AlbertForMaskedLM, AutoTokenizer
+from transformers import BartForSequenceClassification, BartTokenizer
 from typing import Optional
 
-from ....base import ForgeModel
-from ....config import (
+from ...base import ForgeModel
+from ...config import (
     LLMModelConfig,
     ModelInfo,
     ModelGroup,
@@ -18,45 +17,32 @@ from ....config import (
     Framework,
     StrEnum,
 )
+from transformers.models.bart.modeling_bart import shift_tokens_right
 
 
 class ModelVariant(StrEnum):
-    """Available ALBERT model variants."""
+    """Available BART model variants."""
 
-    BASE = "albert-base-v2"
-    LARGE = "albert-large-v2"
-    XLARGE = "albert-xlarge-v2"
-    XXLARGE = "albert-xxlarge-v2"
+    LARGE = "large"
 
 
 class ModelLoader(ForgeModel):
-    """ALBERT model loader implementation for masked language modeling tasks."""
+    """BART model loader implementation for sequence classification tasks."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.BASE: LLMModelConfig(
-            pretrained_model_name="albert/albert-base-v2",
-            max_length=128,
-        ),
         ModelVariant.LARGE: LLMModelConfig(
-            pretrained_model_name="albert/albert-large-v2",
-            max_length=128,
-        ),
-        ModelVariant.XLARGE: LLMModelConfig(
-            pretrained_model_name="albert/albert-xlarge-v2",
-            max_length=128,
-        ),
-        ModelVariant.XXLARGE: LLMModelConfig(
-            pretrained_model_name="albert/albert-xxlarge-v2",
-            max_length=128,
+            pretrained_model_name="facebook/bart-large-mnli",
+            max_length=256,
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.BASE
+    DEFAULT_VARIANT = ModelVariant.LARGE
 
     # Shared configuration parameters
-    sample_text = "The capital of [MASK] is Paris."
+    hypothesis = "Most of Mrinal Sen's work can be found in European collections."
+    premise = "Calcutta seems to be the only other production center having any pretensions to artistic creativity at all, but ironically you're actually more likely to see the works of Satyajit Ray or Mrinal Sen shown in Europe or North America than in India itself."
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -80,10 +66,10 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="albert_v2",
+            model="bart",
             variant=variant,
             group=ModelGroup.GENERALITY,
-            task=ModelTask.NLP_MASKED_LM,
+            task=ModelTask.NLP_TEXT_CLS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -104,21 +90,23 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         # Load the tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        self.tokenizer = BartTokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            pad_to_max_length=True,
+            **tokenizer_kwargs
         )
 
         return self.tokenizer
 
     def load_model(self, dtype_override=None):
-        """Load and return the ALBERT model instance for this instance's variant.
+        """Load and return the BART model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The ALBERT model instance for masked language modeling.
+            torch.nn.Module: The BART model instance for sequence classification.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -132,12 +120,14 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model = AlbertForMaskedLM.from_pretrained(pretrained_model_name, **model_kwargs)
+        model = BartForSequenceClassification.from_pretrained(
+            pretrained_model_name, **model_kwargs
+        )
 
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the ALBERT model with this instance's variant settings.
+        """Load and return sample inputs for the BART model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -149,33 +139,25 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        # Create tokenized inputs for the masked language modeling task
-        inputs = self.tokenizer(self.sample_text, return_tensors="pt")
+        # Create tokenized inputs for the sequence classification task
+        inputs_dict = self.tokenizer(
+            self.premise,
+            self.hypothesis,
+            truncation="only_first",
+            padding="max_length",
+            max_length=256,
+            return_tensors="pt",
+        )
+
+        model = self.load_model()
+        decoder_input_ids = shift_tokens_right(
+            inputs_dict["input_ids"],
+            model.config.pad_token_id,
+            model.config.decoder_start_token_id,
+        )
+        inputs = [
+            inputs_dict["input_ids"],
+            inputs_dict["attention_mask"],
+            decoder_input_ids,
+        ]
         return inputs
-
-    def decode_output(self, outputs, inputs=None):
-        """Helper method to decode model outputs into human-readable text.
-
-        Args:
-            outputs: Model output from a forward pass
-            inputs: Optional input tensors used to generate the outputs
-
-        Returns:
-            str: Decoded prediction for the masked token
-        """
-        # Ensure tokenizer is initialized
-        if self.tokenizer is None:
-            self._load_tokenizer()
-
-        if inputs is None:
-            inputs = self.load_inputs()
-
-        # Get the prediction for the masked token
-        logits = outputs[0]
-        mask_token_index = (inputs.input_ids == self.tokenizer.mask_token_id)[
-            0
-        ].nonzero(as_tuple=True)[0]
-        predicted_token_id = logits[0, mask_token_index].argmax(axis=-1)
-        predicted_tokens = self.tokenizer.decode(predicted_token_id)
-
-        return predicted_tokens
