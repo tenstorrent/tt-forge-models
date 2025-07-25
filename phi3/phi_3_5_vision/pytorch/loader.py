@@ -51,6 +51,7 @@ class ModelLoader(ForgeModel):
         self.processor = None
         self.tokenizer = None
         self.model = None
+        self.messages = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -85,12 +86,8 @@ class ModelLoader(ForgeModel):
         self.tokenizer = self.processor.tokenizer
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self):
         """Load and return the Phi 3.5 Vision model instance for this instance's variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype.
 
         Returns:
             torch.nn.Module: The Phi 3.5 Vision model instance for multimodal tasks.
@@ -106,9 +103,6 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, trust_remote_code=True, _attn_implementation="eager"
         )
-
-        if dtype_override is not None:
-            model = model.to(dtype_override)
 
         self.model = model
 
@@ -134,13 +128,13 @@ class ModelLoader(ForgeModel):
         image = Image.open(image_file)
 
         # Set up messages
-        messages = [
+        self.messages = [
             {"role": "user", "content": "<|image_1|>\nWhat is this image about?"},
         ]
 
         # Apply chat template
         prompt = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            self.messages, tokenize=False, add_generation_prompt=True
         )
 
         # Process inputs
