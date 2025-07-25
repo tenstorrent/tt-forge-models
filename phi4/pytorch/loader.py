@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Phi model loader implementation for causal language modeling
+Phi 4 model loader implementation for causal language modeling
 """
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -21,31 +21,23 @@ from ...config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Phi model variants."""
+    """Available Phi 4 model variants."""
 
-    PHI_1 = "1"
-    PHI_1_5 = "1_5"
-    PHI_2 = "2"
+    PHI_4 = "phi_4"
 
 
 class ModelLoader(ForgeModel):
-    """Phi model loader implementation for causal language modeling tasks."""
+    """Phi 4 model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants
     _VARIANTS = {
-        ModelVariant.PHI_1: ModelConfig(
-            pretrained_model_name="microsoft/phi-1",
-        ),
-        ModelVariant.PHI_1_5: ModelConfig(
-            pretrained_model_name="microsoft/phi-1_5",
-        ),
-        ModelVariant.PHI_2: ModelConfig(
-            pretrained_model_name="microsoft/phi-2",
+        ModelVariant.PHI_4: ModelConfig(
+            pretrained_model_name="microsoft/phi-4",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.PHI_1
+    DEFAULT_VARIANT = ModelVariant.PHI_4
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -59,7 +51,7 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Implementation method for getting model info with validated variant.
+        """Get model information for dashboard and metrics reporting.
 
         Args:
             variant: Optional ModelVariant specifying which variant to use.
@@ -69,7 +61,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="phi",
+            model="phi-4",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -94,14 +86,14 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, dtype_override=None):
-        """Load and return the Phi model instance for this instance's variant.
+        """Load and return the Phi 4 model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype.
 
         Returns:
-            torch.nn.Module: The Phi model instance for causal language modeling.
+            torch.nn.Module: The Phi 4 model instance for causal language modeling.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -116,29 +108,43 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Phi model with this instance's variant settings.
+        """Load and return sample inputs for the Phi 4 model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
-            dict: Input tensors (input_ids) that can be fed to the model.
+            dict: Input tensors that can be fed to the model.
         """
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
 
-        # Set up sample input
-        input_str = '''def print_prime(n):
-                        """
-                        Print all primes between 1 and n
-                        """'''
+        # Set up sample messages
+        messages = [
+            {"role": "system", "content": "You are a helpful AI assistant."},
+            {
+                "role": "user",
+                "content": "Can you provide ways to eat combinations of bananas and dragonfruits?",
+            },
+        ]
 
-        # Tokenize input
-        inputs = self.tokenizer(
-            input_str, return_tensors="pt", return_attention_mask=False
+        # Apply chat template
+        result = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_tensors="pt",
         )
+
+        # Handle both cases: when result is a tensor or a dict
+        if torch.is_tensor(result):
+            # Result is just input_ids tensor, create dict manually
+            inputs = {"input_ids": result, "attention_mask": torch.ones_like(result)}
+        else:
+            # Result is already a dict
+            inputs = result
 
         # Add batch dimension
         for key in inputs:
@@ -151,29 +157,22 @@ class ModelLoader(ForgeModel):
         """Helper method to decode model outputs into human-readable text.
 
         Args:
-            outputs: Model output from a forward pass
+            outputs: Model output from a forward pass or generated token IDs
 
         Returns:
-            str: Decoded complete output including input and generated token
+            str: Decoded output text
         """
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
 
-        # Get logits and next token
-        logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
-        next_token_id = torch.argmax(logits[:, -1, :], dim=-1)
-
-        # Get original input_ids
-        input_str = '''def print_prime(n):
-                        """
-                        Print all primes between 1 and n
-                        """'''
-        input_ids = self.tokenizer(
-            input_str, return_tensors="pt", return_attention_mask=False
-        )["input_ids"]
-
-        # Concatenate input and generated token
-        output_ids = torch.cat([input_ids, next_token_id.unsqueeze(-1)], dim=-1)
-        decoded_output = self.tokenizer.decode(output_ids[0])
+        # Check if outputs are token IDs (from generation) or logits
+        if torch.is_tensor(outputs) and outputs.dtype in [torch.long, torch.int]:
+            # Token IDs - decode directly (same as test)
+            decoded_output = self.tokenizer.decode(outputs)
+        else:
+            # Logits - get next token
+            logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
+            next_token_id = torch.argmax(logits[:, -1, :], dim=-1)
+            decoded_output = self.tokenizer.decode(next_token_id)
 
         return decoded_output
