@@ -2,14 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Phi 4 model loader implementation for causal language modeling
+Phi 3 model loader implementation for causal language modeling
 """
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import Optional
 
-from ....base import ForgeModel
-from ....config import (
+from ...base import ForgeModel
+from ...config import (
     ModelConfig,
     ModelInfo,
     ModelGroup,
@@ -21,23 +21,27 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Phi 4 model variants."""
+    """Available Phi 3 model variants."""
 
-    PHI_4 = "phi_4"
+    MINI_128K = "mini_128k_instruct"
+    MINI_4K = "mini_4k_instruct"
 
 
 class ModelLoader(ForgeModel):
-    """Phi 4 model loader implementation for causal language modeling tasks."""
+    """Phi 3 model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants
     _VARIANTS = {
-        ModelVariant.PHI_4: ModelConfig(
-            pretrained_model_name="microsoft/phi-4",
+        ModelVariant.MINI_128K: ModelConfig(
+            pretrained_model_name="microsoft/Phi-3-mini-128k-instruct",
+        ),
+        ModelVariant.MINI_4K: ModelConfig(
+            pretrained_model_name="microsoft/Phi-3-mini-4k-instruct",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.PHI_4
+    DEFAULT_VARIANT = ModelVariant.MINI_128K
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -61,7 +65,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="phi-4",
+            model="phi-3",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -86,14 +90,14 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, dtype_override=None):
-        """Load and return the Phi 4 model instance for this instance's variant.
+        """Load and return the Phi 3 model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype.
 
         Returns:
-            torch.nn.Module: The Phi 4 model instance for causal language modeling.
+            torch.nn.Module: The Phi 3 model instance for causal language modeling.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -108,7 +112,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Phi 4 model with this instance's variant settings.
+        """Load and return sample inputs for the Phi 3 model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -136,6 +140,7 @@ class ModelLoader(ForgeModel):
             tokenize=True,
             add_generation_prompt=True,
             return_tensors="pt",
+            return_attention_mask=True,
         )
 
         # Handle both cases: when result is a tensor or a dict
@@ -167,7 +172,7 @@ class ModelLoader(ForgeModel):
 
         # Check if outputs are token IDs (from generation) or logits
         if torch.is_tensor(outputs) and outputs.dtype in [torch.long, torch.int]:
-            # Token IDs - decode directly (same as test)
+            # Token IDs - decode directly
             decoded_output = self.tokenizer.decode(outputs)
         else:
             # Logits - get next token
