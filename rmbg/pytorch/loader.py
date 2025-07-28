@@ -79,7 +79,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torchvision.transforms.Compose: The image transform pipeline
         """
-        # Same as test - image size and transforms
+        # Image size and transforms
         image_size = (1024, 1024)
         self.transform_image = transforms.Compose(
             [
