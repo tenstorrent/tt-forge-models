@@ -167,10 +167,8 @@ class ModelLoader(ForgeModel):
 
         # Check if outputs are token IDs (from generation) or logits
         if torch.is_tensor(outputs) and outputs.dtype in [torch.long, torch.int]:
-            # Token IDs - decode directly (same as test)
             decoded_output = self.tokenizer.decode(outputs)
         else:
-            # Logits - get next token
             logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
             next_token_id = torch.argmax(logits[:, -1, :], dim=-1)
             decoded_output = self.tokenizer.decode(next_token_id)

@@ -146,7 +146,7 @@ class ModelLoader(ForgeModel):
             # Handle single device case
             logits = outputs.logits if hasattr(outputs, "logits") else outputs
 
-        # Get top 5 predictions - same as test
+        # Get top 5 predictions
         _, indices = torch.topk(logits, 5)
         top5_predictions = indices[0].tolist()
 

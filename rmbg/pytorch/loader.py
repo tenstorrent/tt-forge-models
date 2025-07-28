@@ -135,11 +135,9 @@ class ModelLoader(ForgeModel):
         if self.transform_image is None:
             self._setup_transforms()
 
-        # Load image from URL - same as test
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         self.image = Image.open(str(image_file))
 
-        # Transform image - same as test
         inputs = self.transform_image(self.image).unsqueeze(0)
 
         if dtype_override is not None:
@@ -165,7 +163,7 @@ class ModelLoader(ForgeModel):
         if self.image is None:
             return "Error: No input image loaded for processing"
 
-        # Process predictions - same as test
+        # Process predictions
         predictions = outputs[-1].sigmoid()
         pred = predictions[0].squeeze()
         pred = pred.to(torch.float32)
