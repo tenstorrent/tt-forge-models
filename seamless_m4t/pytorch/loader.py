@@ -68,7 +68,7 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="seamless-m4t",
             variant=variant,
-            group=ModelGroup.RED,
+            group=ModelGroup.GENERALITY,
             task=ModelTask.AUDIO_ASR,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,

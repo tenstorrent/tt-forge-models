@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="RMBG",
             variant=variant,
-            group=ModelGroup.RED,
+            group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_SEG,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
