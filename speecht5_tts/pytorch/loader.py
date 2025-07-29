@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
             self.model_name, torch_dtype=dtype
         )
 
-        # Return the generate_speech method like in the original test
+        # Return the generate_speech method as in the original test
         return model.generate_speech
 
     def load_inputs(self, dtype_override=None):
