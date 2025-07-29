@@ -75,22 +75,6 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name, **model_kwargs)
-
-        class FlanT5(torch.nn.Module):
-            def __init__(self, model):
-                super().__init__()
-                self.model = model
-
-            def forward(self, input_ids, decoder_input_ids, attention_mask=None):
-                inputs = {
-                    "input_ids": input_ids,
-                    "decoder_input_ids": decoder_input_ids,
-                    "attention_mask": attention_mask,
-                }
-                output = self.model(**inputs)
-                return output
-
-        model = FlanT5(model)
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
