@@ -8,18 +8,38 @@ SpeechT5 TTS model loader implementation
 import torch
 from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5HifiGan
 from ...config import (
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
 from ...base import ForgeModel
+from typing import Optional
+
+
+class ModelVariant(StrEnum):
+    """Available SpeechT5 TTS model variants."""
+
+    BASE = "base"
 
 
 class ModelLoader(ForgeModel):
+    """SpeechT5 TTS model loader implementation."""
+
+    # Dictionary of available model variants
+    _VARIANTS = {
+        ModelVariant.BASE: ModelConfig(
+            pretrained_model_name="microsoft/speecht5_tts",
+        )
+    }
+
+    DEFAULT_VARIANT = ModelVariant.BASE
+
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None):
         """Get model information for dashboard and metrics reporting.
 
         Args:
@@ -28,18 +48,17 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
+
         return ModelInfo(
             model="speecht5_tts",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_TTS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
-    def __init__(self, variant=None):
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:

@@ -8,19 +8,39 @@ Segment Anything (SAM2) model loader implementation
 import torch
 from PIL import Image
 from ...config import (
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
 from ...base import ForgeModel
 from ...tools.utils import get_file
+from typing import Optional
+
+
+class ModelVariant(StrEnum):
+    """Available Segment Anything model variants."""
+
+    BASE = "base"
 
 
 class ModelLoader(ForgeModel):
+    """Segment Anything model loader implementation."""
+
+    # Dictionary of available model variants
+    _VARIANTS = {
+        ModelVariant.BASE: ModelConfig(
+            pretrained_model_name="facebook/sam2-hiera-small",
+        )
+    }
+
+    DEFAULT_VARIANT = ModelVariant.BASE
+
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None):
         """Get model information for dashboard and metrics reporting.
 
         Args:
@@ -29,18 +49,17 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
+
         return ModelInfo(
             model="segment_anything",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_MASK_GEN,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
-    def __init__(self, variant=None):
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:

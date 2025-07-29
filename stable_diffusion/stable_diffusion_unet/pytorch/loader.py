@@ -7,11 +7,13 @@ https://huggingface.co/runwayml/stable-diffusion-v1-5
 """
 
 from ....config import (
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
 from ....base import ForgeModel
 import torch
@@ -20,12 +22,28 @@ from diffusers import (
     LMSDiscreteScheduler,
 )
 from transformers import CLIPTextModel, CLIPTokenizer
+from typing import Optional
+
+
+class ModelVariant(StrEnum):
+    """Available Stable Diffusion UNet model variants."""
+
+    BASE = "base"
 
 
 class ModelLoader(ForgeModel):
     """Stable Diffusion UNet model loader implementation."""
 
-    def __init__(self, variant=None):
+    # Dictionary of available model variants
+    _VARIANTS = {
+        ModelVariant.BASE: ModelConfig(
+            pretrained_model_name="CompVis/stable-diffusion-v1-4",
+        )
+    }
+
+    DEFAULT_VARIANT = ModelVariant.BASE
+
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
@@ -38,7 +56,7 @@ class ModelLoader(ForgeModel):
         self.model_name = "CompVis/stable-diffusion-v1-4"
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None):
         """Get model information for dashboard and metrics reporting.
 
         Args:
@@ -47,11 +65,10 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
+
         return ModelInfo(
             model="stable_diffusion_unet",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_IMAGE_TTT,  # FIX ME: Update to text to image
             source=ModelSource.HUGGING_FACE,
@@ -101,14 +118,12 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override or torch.bfloat16
 
         # Prepare the text prompt
-        prompt = "A fantasy landscape with mountains and rivers"
+        prompt = ["A fantasy landscape with mountains and rivers"] * batch_size
         text_input = self.tokenizer(prompt, return_tensors="pt")
         text_embeddings = self.text_encoder(text_input.input_ids)[0]
 
         # Generate noise
-        batch_size = text_embeddings.shape[0]
         height, width = 512, 512  # Output image size
-
         # Use the stored in_channels from the loaded model
         latents = torch.randn((batch_size, self.in_channels, height // 8, width // 8))
 

@@ -7,22 +7,38 @@ https://huggingface.co/runwayml/stable-diffusion-v1-5
 """
 
 from ...config import (
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
 from ...base import ForgeModel
-from PIL import Image
 from diffusers import StableDiffusionPipeline
-from ...tools.utils import get_file
+from typing import Optional
+
+
+class ModelVariant(StrEnum):
+    """Available Stable Diffusion model variants."""
+
+    BASE = "base"
 
 
 class ModelLoader(ForgeModel):
     """Stable Diffusion model loader implementation."""
 
-    def __init__(self, variant=None):
+    # Dictionary of available model variants
+    _VARIANTS = {
+        ModelVariant.BASE: ModelConfig(
+            pretrained_model_name="CompVis/stable-diffusion-v1-4",
+        )
+    }
+
+    DEFAULT_VARIANT = ModelVariant.BASE
+
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
@@ -35,7 +51,7 @@ class ModelLoader(ForgeModel):
         self.model_name = "CompVis/stable-diffusion-v1-4"
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None):
         """Get model information for dashboard and metrics reporting.
 
         Args:
@@ -44,11 +60,10 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
+
         return ModelInfo(
             model="stable_diffusion",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_IMAGE_TTT,  # FIX ME: Update to text to image
             source=ModelSource.HUGGING_FACE,
@@ -84,5 +99,5 @@ class ModelLoader(ForgeModel):
 
         prompt = [
             "a photo of an astronaut riding a horse on mars",
-        ]
+        ] * batch_size
         return prompt
