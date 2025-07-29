@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         # Load pre-trained model from HuggingFace
-        model_kwargs = {"return_dict": False, "use_cache": False}
+        model_kwargs = {"return_dict": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
