@@ -84,10 +84,10 @@ class ModelLoader(ForgeModel):
             StableDiffusion3Pipeline: The pre-trained Stable Diffusion 3.5 pipeline object.
         """
         dtype = dtype_override or torch.bfloat16
-        
+
         # Get the pretrained model name from the instance's variant config
         model_path = self._variant_config.pretrained_model_name
-        
+
         pipe = StableDiffusion3Pipeline.from_pretrained(
             model_path,
             text_encoder_3=None,

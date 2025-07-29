@@ -36,7 +36,6 @@ class ModelLoader(ForgeModel):
 
         # Configuration parameters
         self.model_name = "CompVis/stable-diffusion-v1-4"
-        
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -70,7 +69,7 @@ class ModelLoader(ForgeModel):
             UNet2DConditionModel: The pre-trained UNet model.
         """
         dtype = dtype_override or torch.bfloat16
-        
+
         # Load the pre-trained model and tokenizer
         self.tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
         self.text_encoder = CLIPTextModel.from_pretrained(
@@ -84,7 +83,7 @@ class ModelLoader(ForgeModel):
         self.scheduler = LMSDiscreteScheduler.from_pretrained(
             self.model_name, subfolder="scheduler"
         )
-        
+
         # in_channels is needed in load_inputs so we store it here
         self.in_channels = unet.in_channels
         return unet
@@ -100,7 +99,7 @@ class ModelLoader(ForgeModel):
             dict: Dictionary containing sample, timestep, and encoder_hidden_states.
         """
         dtype = dtype_override or torch.bfloat16
-        
+
         # Prepare the text prompt
         prompt = "A fantasy landscape with mountains and rivers"
         text_input = self.tokenizer(prompt, return_tensors="pt")
@@ -109,11 +108,9 @@ class ModelLoader(ForgeModel):
         # Generate noise
         batch_size = text_embeddings.shape[0]
         height, width = 512, 512  # Output image size
-        
+
         # Use the stored in_channels from the loaded model
-        latents = torch.randn(
-            (batch_size, self.in_channels, height // 8, width // 8)
-        )
+        latents = torch.randn((batch_size, self.in_channels, height // 8, width // 8))
 
         # Set number of diffusion steps
         num_inference_steps = 1
