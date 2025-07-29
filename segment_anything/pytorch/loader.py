@@ -55,25 +55,24 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, dtype_override=None):
         """Load a SAM2 model from Hugging Face."""
-        
+
         # Currently model is skipped for the following reason:
         # Failed to install sam2. sam2 requires Python >=3.10.0 but the default version on Ubuntu 20.04 is 3.8. We found no other pytorch implementation of segment-anything.
         from sam2.sam2_image_predictor import SAM2ImagePredictor
 
         # Create predictor
         self.predictor = SAM2ImagePredictor.from_pretrained(self.model_name)
-        
+
         # Load and set the sample image
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         image = Image.open(str(image_file))
         self.predictor.set_image(image)
-        
+
         return self.predictor
 
     def load_inputs(self, dtype_override=None):
         """Generate sample inputs for SAM2 model."""
-        
+
         # Return the text prompt as in original test
         prompt = "Beautiful thing"
         return prompt
-

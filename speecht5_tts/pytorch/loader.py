@@ -58,12 +58,12 @@ class ModelLoader(ForgeModel):
 
         # Initialize processor
         self.processor = SpeechT5Processor.from_pretrained(self.model_name)
-        
+
         # Load pre-trained model from HuggingFace
         model = SpeechT5ForTextToSpeech.from_pretrained(
             self.model_name, torch_dtype=dtype
         )
-        
+
         # Return the generate_speech method like in the original test
         return model.generate_speech
 
@@ -73,15 +73,15 @@ class ModelLoader(ForgeModel):
 
         # Create tokenized inputs
         inputs = self.processor(text="Hello, my dog is cute.", return_tensors="pt")
-        
+
         # Load speaker embeddings (zeros as in original test)
         speaker_embeddings = torch.zeros((1, 512)).to(dtype)
-        
+
         # Load vocoder
         vocoder = SpeechT5HifiGan.from_pretrained(
             "microsoft/speecht5_hifigan", torch_dtype=dtype
         )
-        
+
         arguments = {
             "input_ids": inputs["input_ids"],
             "speaker_embeddings": speaker_embeddings,

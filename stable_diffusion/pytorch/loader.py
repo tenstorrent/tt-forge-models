@@ -33,7 +33,6 @@ class ModelLoader(ForgeModel):
 
         # Configuration parameters
         self.model_name = "CompVis/stable-diffusion-v1-4"
-        
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -71,7 +70,6 @@ class ModelLoader(ForgeModel):
             self.model_name, torch_dtype=dtype
         )
         return pipe
-
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample text prompts for the Stable Diffusion model.
