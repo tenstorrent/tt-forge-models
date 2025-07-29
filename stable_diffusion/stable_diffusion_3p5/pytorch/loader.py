@@ -121,7 +121,7 @@ class ModelLoader(ForgeModel):
         width = 512
         guidance_scale = 7.0
         arguments = {
-            "prompt": prompt,
+            "prompt": prompt * batch_size,
             "negative_prompt": negative_prompt,
             "height": height,
             "width": width,
