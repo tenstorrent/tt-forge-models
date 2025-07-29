@@ -65,7 +65,7 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="segformer_semantic_segmentation",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=ModelGroup.RED,
             task=ModelTask.CV_IMAGE_SEG,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,

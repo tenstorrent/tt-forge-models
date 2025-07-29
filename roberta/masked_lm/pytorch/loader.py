@@ -148,8 +148,12 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # Get logits from outputs
-        logits = outputs.logits if hasattr(outputs, "logits") else outputs
+        # Handle data parallel case (list of tensors)
+        if isinstance(outputs, list):
+            logits = outputs[0].logits if hasattr(outputs[0], "logits") else outputs[0]
+        else:
+            # Get logits from outputs
+            logits = outputs.logits if hasattr(outputs, "logits") else outputs
 
         # Load inputs to find mask position
         inputs = self.load_inputs()

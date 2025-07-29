@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.LLAMA_3B
+    DEFAULT_VARIANT = ModelVariant.BASE
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
-            source=ModelSource.THIRD_PARTY,
+            source=ModelSource.CUSTOM,
             framework=Framework.TORCH,
         )
 
@@ -107,4 +107,4 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             img = img.to(dtype_override)
 
-        return inputs
+        return img
