@@ -12,7 +12,7 @@ from ...config import (
     ModelGroup,
     ModelTask,
     ModelSource,
-    Framework,s
+    Framework,
 )
 from ...base import ForgeModel
 from ...tools.utils import get_file
