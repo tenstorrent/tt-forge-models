@@ -95,8 +95,8 @@ class ModelLoader(ForgeModel):
 
         # Load dataset
         dataset = load_dataset(
-            "cppe-5", split="test"
-        )  # cppe-5 is a dataset of 5 classes for Combined Personal Protective Equipment
+            "huggingface/cats-image", split="test"
+        )  # cats-image is a dataset of 1000 images of cats
 
         # Get first image from dataset
         image = dataset[0]["image"]
