@@ -7,46 +7,71 @@ YOLOv4 model loader implementation
 import torch
 import cv2
 import numpy as np
+from typing import Optional
+import os
 from ...tools.utils import get_file
 
 from ...config import (
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
 from ...base import ForgeModel
 from .src.yolov4 import Yolov4
+from .src.post_processing import (
+    gen_yolov4_boxes_confs,
+    get_region_boxes,
+    post_processing,
+    plot_boxes_cv2,
+)
+
+
+class ModelVariant(StrEnum):
+    """Available YOLOv4 model variants."""
+
+    BASE = "base"
 
 
 class ModelLoader(ForgeModel):
     """YOLOv4 model loader implementation."""
 
-    def __init__(self, variant=None):
+    # Dictionary of available model variants
+    _VARIANTS = {
+        ModelVariant.BASE: ModelConfig(
+            pretrained_model_name="",  # Not used
+        )
+    }
+
+    DEFAULT_VARIANT = ModelVariant.BASE
+
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
-            variant: Optional string specifying which variant to use.
+            variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None):
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
+            variant: Optional ModelVariant specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
 
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
+
         return ModelInfo(
             model="yolov4",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,
             source=ModelSource.CUSTOM,
@@ -63,9 +88,19 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The YOLOv4 model instance.
         """
+        weights_pth = get_file("test_files/pytorch/yolov4/yolov4.pth")
+
+        # Load weights checkpoint
+        state_dict = torch.load(weights_pth, map_location="cpu")
+
         model = Yolov4()
 
-        # Only convert dtype if explicitly requested
+        # Align keys and load weights
+        new_state_dict = dict(zip(model.state_dict().keys(), state_dict.values()))
+        model.load_state_dict(new_state_dict)
+        model.eval()
+
+        # Apply dtype override if needed
         if dtype_override is not None:
             model = model.to(dtype_override)
 
@@ -96,3 +131,34 @@ class ModelLoader(ForgeModel):
             batch_tensor = batch_tensor.to(dtype_override)
 
         return batch_tensor
+
+    def post_processing(self, co_out):
+        y1, y2, y3 = gen_yolov4_boxes_confs(co_out)
+        output = get_region_boxes([y1, y2, y3])
+        results = post_processing(0.3, 0.4, output)
+        coco_names_path = get_file(
+            "https://raw.githubusercontent.com/AlexeyAB/darknet/master/data/coco.names"
+        )
+        with open(coco_names_path, "r") as f:
+            class_names = [line.strip() for line in f.readlines()]
+
+        # Print detected boxes info
+        print("Detected boxes:")
+        for box in results[0]:
+            if len(box) >= 6:
+                *coords, score, class_id = box[:6]  # in case there are more than 6
+                x1, y1, x2, y2 = coords
+                class_name = class_names[int(class_id)]
+                print(
+                    f"Class: {class_name}, Score: {score:.2f}, Box: [{x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f}]"
+                )
+
+        image_path = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
+        img_cv = cv2.imread(str(image_path))
+        output_dir = "yolov4_predictions"
+        os.makedirs(output_dir, exist_ok=True)
+        output_filename = f"yolov4_predicted.jpg"
+        output_path = os.path.join(output_dir, output_filename)
+        plot_boxes_cv2(img_cv, results[0], output_path, class_names)
+
+        return output_path
