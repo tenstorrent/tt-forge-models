@@ -42,7 +42,7 @@ class ModelLoader(ForgeModel):
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = "deepseek-ai/deepseek-coder-1.3b-instruct"
+    DEFAULT_VARIANT = ModelVariant.DEEPSEEK_1_3B_INSTRUCT
 
     # Sample prompt text
     sample_text = "write a bubble sort algorithm in python."
