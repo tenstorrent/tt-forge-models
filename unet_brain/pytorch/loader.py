@@ -90,8 +90,13 @@ class ModelLoader(ForgeModel):
         model = model.to(dtype)
         return model
 
-    def load_inputs(self, dtype_override=None):
-        """Generate sample inputs for UNet Brain model."""
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        """Generate sample inputs for UNet Brain model.
+
+        Args:
+            dtype_override: Optional dtype override for inputs
+            batch_size: Number of samples in the batch (default: 1)
+        """
         dtype = dtype_override or torch.bfloat16
 
         # Download sample brain MRI image
@@ -114,6 +119,12 @@ class ModelLoader(ForgeModel):
             ]
         )
         input_tensor = preprocess(input_image)
-        input_batch = input_tensor.unsqueeze(0)
+
+        # Create batch with specified batch size
+        if batch_size > 1:
+            input_batch = torch.stack([input_tensor] * batch_size)
+        else:
+            input_batch = input_tensor.unsqueeze(0)
+
         input_batch = input_batch.to(dtype)
         return input_batch
