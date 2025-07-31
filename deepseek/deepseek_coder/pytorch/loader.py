@@ -6,13 +6,13 @@ DeepSeek Coder model loader implementation for causal language modeling.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 from unittest.mock import patch
 import os
-from ...tools.utils import generate_no_cache
-from ...base import ForgeModel
-from ...config import (
+from ....tools.utils import generate_no_cache, pad_inputs
+from ....base import ForgeModel
+from ....config import (
     LLMModelConfig,
     ModelInfo,
     ModelGroup,
@@ -27,7 +27,7 @@ from transformers.dynamic_module_utils import get_imports
 class ModelVariant(StrEnum):
     """Available DeepSeek Coder model variants."""
 
-    DEEPSEEK_1_3B_INSTRUCT = "deepseek_coder_1_3b_instruct"
+    DEEPSEEK_1_3B_INSTRUCT = "1_3b_instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -92,17 +92,16 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, dtype_override=None):
         """Load and return the DeepSeek Coder model instance."""
-        config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-        )
+
         model_kwargs = {
             "trust_remote_code": True,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
+        model = AutoModelForCausalLM.from_pretrained(
+            self._variant_config.pretrained_model_name, **model_kwargs
+        )
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -120,8 +119,9 @@ class ModelLoader(ForgeModel):
             add_generation_prompt=True,
             return_tensors="pt",
         )
+        padded_inputs, seq_len = pad_inputs(inputs)
 
-        return inputs
+        return inputs, seq_len
 
     def decode_output(self, max_new_tokens, model, inputs, seq_len, tokenizer):
         """Generates text .
