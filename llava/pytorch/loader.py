@@ -29,7 +29,7 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available LLaVA model variants."""
 
-    LLAVA_1_5_7B = "llava_1_5_7b"
+    LLAVA_1_5_7B = "1_5_7b"
 
 
 class ModelLoader(ForgeModel):
@@ -41,7 +41,7 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    DEFAULT_VARIANT = "llava-hf/llava-1.5-7b-hf"
+    DEFAULT_VARIANT = ModelVariant.LLAVA_1_5_7B
 
     sample_image = "https://www.ilankelman.org/stopsigns/australia.jpg"
     sample_text = "What’s shown in this image?"

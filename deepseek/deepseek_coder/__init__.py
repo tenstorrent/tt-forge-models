@@ -4,4 +4,4 @@
 """
 Deepseek Coder PyTorch model implementation for Tenstorrent projects.
 """
-from .pytorch import ModelLoader, ModelVariant
+from .pytorch import ModelLoader
