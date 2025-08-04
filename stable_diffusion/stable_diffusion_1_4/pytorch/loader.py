@@ -2,8 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Stable Diffusion model loader implementation
-https://huggingface.co/runwayml/stable-diffusion-v1-5
+Stable Diffusion 1.4 model loader implementation
 """
 
 from ...config import (
@@ -47,9 +46,6 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
 
-        # Configuration parameters
-        self.model_name = "CompVis/stable-diffusion-v1-4"
-
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
         """Get model information for dashboard and metrics reporting.
@@ -65,7 +61,7 @@ class ModelLoader(ForgeModel):
             model="stable_diffusion",
             variant=variant,
             group=ModelGroup.GENERALITY,
-            task=ModelTask.MM_IMAGE_TTT,  # FIX ME: Update to text to image
+            task=ModelTask.MM_IMAGE_TTT,  # FIXME: Update to text to image
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -82,7 +78,7 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override or torch.bfloat16
         pipe = StableDiffusionPipeline.from_pretrained(
-            self.model_name, torch_dtype=dtype
+            self._variant_config.pretrained_model_name, torch_dtype=dtype
         )
         return pipe
 

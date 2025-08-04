@@ -52,9 +52,6 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
 
-        # Configuration parameters
-        self.model_name = "CompVis/stable-diffusion-v1-4"
-
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
         """Get model information for dashboard and metrics reporting.
@@ -70,7 +67,7 @@ class ModelLoader(ForgeModel):
             model="stable_diffusion_unet",
             variant=variant,
             group=ModelGroup.GENERALITY,
-            task=ModelTask.MM_IMAGE_TTT,  # FIX ME: Update to text to image
+            task=ModelTask.MM_IMAGE_TTT,  # FIXME: Update to text to image
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -93,12 +90,12 @@ class ModelLoader(ForgeModel):
             "openai/clip-vit-large-patch14"
         )
         unet = UNet2DConditionModel.from_pretrained(
-            self.model_name,
+            self._variant_config.pretrained_model_name,
             subfolder="unet",
             torch_dtype=dtype,
         )
         self.scheduler = LMSDiscreteScheduler.from_pretrained(
-            self.model_name, subfolder="scheduler"
+            self._variant_config.pretrained_model_name, subfolder="scheduler"
         )
 
         # in_channels is needed in load_inputs so we store it here

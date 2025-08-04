@@ -68,7 +68,7 @@ class ModelLoader(ForgeModel):
             model="stable_diffusion_3_5",
             variant=variant,
             group=ModelGroup.GENERALITY,
-            task=ModelTask.MM_IMAGE_TTT,  # FIX ME: Update to text to image
+            task=ModelTask.MM_IMAGE_TTT,  # FIXME: Update to text to image
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -85,11 +85,8 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override or torch.bfloat16
 
-        # Get the pretrained model name from the instance's variant config
-        model_path = self._variant_config.pretrained_model_name
-
         pipe = StableDiffusion3Pipeline.from_pretrained(
-            model_path,
+            self._variant_config.pretrained_model_name,
             text_encoder_3=None,
             tokenizer_3=None,
             torch_dtype=dtype,
