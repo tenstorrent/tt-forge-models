@@ -58,7 +58,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="stable_diffusion",
+            model="stable_diffusion_1_4",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_IMAGE_TTT,  # FIXME: Update to text to image

@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Stable Diffusion UNET model loader implementation
-https://huggingface.co/runwayml/stable-diffusion-v1-5
 """
 
 from ....config import (
