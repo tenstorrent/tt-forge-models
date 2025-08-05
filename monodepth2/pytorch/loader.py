@@ -7,8 +7,6 @@ Monodepth2 model loader implementation
 import os
 import torch
 import numpy as np
-import matplotlib as mpl
-import matplotlib.cm as cm
 import PIL.Image as pil
 from ...config import (
     ModelInfo,
@@ -152,14 +150,23 @@ class ModelLoader(ForgeModel):
 
         # Saving colormapped depth image
         disp_resized_np = disp_resized.squeeze().cpu().numpy()
-        vmax = np.percentile(disp_resized_np, 95)
-        normalizer = mpl.colors.Normalize(vmin=disp_resized_np.min(), vmax=vmax)
-        mapper = cm.ScalarMappable(norm=normalizer, cmap="magma")
-        colormapped_im = (mapper.to_rgba(disp_resized_np)[:, :, :3] * 255).astype(
-            np.uint8
-        )
-        im = pil.fromarray(colormapped_im)
 
+        # Normalize disparity to [0, 1]
+        vmin = disp_resized_np.min()
+        vmax = np.percentile(disp_resized_np, 95)  # Ignore extreme values
+        disp_normalized = np.clip((disp_resized_np - vmin) / (vmax - vmin + 1e-8), 0, 1)
+
+        # Convert normalized values to [0, 255] indices for LUT lookup
+        indices = (disp_normalized * 255).astype(np.uint8)
+
+        # Load magma LUT from file (pre-generated from matplotlib)
+        lut = np.load("magma_lut.npy")  # Shape: (256, 3)
+
+        # Apply LUT to generate RGB image (float32 * 255 → uint8)
+        colored = lut[indices]
+        colormapped_im = (colored * 255).astype(np.uint8)
+
+        im = pil.fromarray(colormapped_im)
         os.makedirs(save_path, exist_ok=True)
         name_dest_im = f"{save_path}/{self._variant_config.pretrained_model_name}_pred_disp_vis.png"
         im.save(name_dest_im)
