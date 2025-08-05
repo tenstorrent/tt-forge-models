@@ -121,7 +121,7 @@ class ModelLoader(ForgeModel):
         )
         padded_inputs, seq_len = pad_inputs(inputs)
 
-        return inputs, seq_len
+        return padded_inputs, seq_len
 
     def decode_output(self, max_new_tokens, model, inputs, seq_len, tokenizer):
         """Generates text .

@@ -18,6 +18,7 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
+from ....tools.utils import generate_no_cache_llama, pad_inputs
 
 
 class ModelVariant(StrEnum):
@@ -244,5 +245,25 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             for key in inputs:
                 inputs[key] = inputs[key].to(dtype_override)
+        # Pad input_ids and attention_mask
 
-        return inputs
+        padded_input_ids, seq_len = pad_inputs(inputs["input_ids"], 512)
+        padded_attention_mask, _ = pad_inputs(inputs["attention_mask"], 512)
+
+        inputs["input_ids"] = padded_input_ids
+        inputs["attention_mask"] = padded_attention_mask
+        return inputs, seq_len
+
+    def decode_output(self, max_new_tokens, model, inputs, seq_len, tokenizer):
+        """Generates text .
+        Args:
+            max_new_tokens (int): The maximum number of new tokens to generate.
+            model (torch.nn.Module): The language model used for token generation.
+            inputs (torch.Tensor): Input tensor of shape (batch_size, seq_len), representing tokenized text.
+            seq_len (int): The current sequence length before generation starts.
+            tokenizer: The tokenizer used to decode token IDs into text.
+        """
+        generated_text = generate_no_cache_llama(
+            max_new_tokens, model, inputs, seq_len, tokenizer
+        )
+        return generated_text

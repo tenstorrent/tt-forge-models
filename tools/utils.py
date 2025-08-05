@@ -217,3 +217,32 @@ def pad_inputs(inputs, max_new_tokens=512):
     )
     padded_inputs[:, :seq_len] = inputs
     return padded_inputs, seq_len
+
+
+import torch
+
+
+def generate_no_cache_llama(max_new_tokens, model, inputs, seq_len, tokenizer):
+    current_pos = seq_len
+
+    for _ in range(max_new_tokens):
+        logits = model(*inputs)
+
+        if isinstance(logits, (list, tuple)):
+            logits = logits[0]
+
+        next_token_logits = logits[:, current_pos - 1, :]
+        next_token_id = torch.argmax(next_token_logits, dim=-1)
+
+        if next_token_id.item() == tokenizer.eos_token_id:
+            break
+
+        # Update input_ids and attention_mask
+        inputs[0][:, current_pos] = next_token_id
+        inputs[1][:, current_pos] = 1
+
+        current_pos += 1
+
+    valid_tokens = inputs[0][:, seq_len:current_pos].view(-1).tolist()
+    answer = tokenizer.decode(valid_tokens, skip_special_tokens=True)
+    return answer
