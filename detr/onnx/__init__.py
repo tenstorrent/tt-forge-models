@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DETR PyTorch model implementation for Tenstorrent projects.
+DETR ONNX model implementation for Tenstorrent projects.
 """
 from .loader import ModelLoader
