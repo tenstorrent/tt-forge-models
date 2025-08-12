@@ -1,0 +1,4 @@
+!nodeps yolox==0.3.0
+datasets>=2.19.0
+# Optional: onnx and onnxruntime are not needed for running the PyTorch model forward
+# If needed explicitly, pin compatible versions here or rely on global env 
