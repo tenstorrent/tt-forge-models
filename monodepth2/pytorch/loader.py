@@ -161,6 +161,11 @@ class ModelLoader(ForgeModel):
 
         # Load magma LUT from file (pre-generated from matplotlib)
         lut = np.load("magma_lut.npy")  # Shape: (256, 3)
+        import os
+
+        lut_path = "magma_lut.npy"
+        print("Looking for LUT file at:", os.path.abspath(lut_path))
+        lut = np.load(lut_path)
 
         # Apply LUT to generate RGB image (float32 * 255 → uint8)
         colored = lut[indices]
