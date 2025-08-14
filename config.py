@@ -73,6 +73,7 @@ class ModelSource(StrEnum):
     CUSTOM = "custom"
     TORCHVISION = "torchvision"
     TIMM = "timm"
+    OSMR = "osmr"
 
 
 class Framework(StrEnum):
