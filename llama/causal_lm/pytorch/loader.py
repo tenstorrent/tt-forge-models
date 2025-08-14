@@ -221,9 +221,6 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors suitable for causal LM.
         """
-        # Ensure tokenizer is initialized
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
 
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
@@ -240,12 +237,18 @@ class ModelLoader(ForgeModel):
         # Replicate tensors for batch size
         for key in inputs:
             inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
+            # Only cast when the override dtype category matches the tensor's category
+            override_is_float = dtype_override.is_floating_point
             for key in inputs:
-                inputs[key] = inputs[key].to(dtype_override)
-        # Pad input_ids and attention_mask
+                if override_is_float and inputs[key].is_floating_point():
+                    inputs[key] = inputs[key].to(dtype_override)
+                elif (not override_is_float) and (not inputs[key].is_floating_point()):
+                    inputs[key] = inputs[key].to(dtype_override)
 
+        # Pad input_ids and attention_mask
         padded_input_ids, seq_len = pad_inputs(inputs["input_ids"], 512)
         padded_attention_mask, _ = pad_inputs(inputs["attention_mask"], 512)
 
