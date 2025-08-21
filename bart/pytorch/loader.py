@@ -161,3 +161,17 @@ class ModelLoader(ForgeModel):
             decoder_input_ids,
         ]
         return inputs
+
+    def decode_output(self, output):
+        """Decode the output of the BART model.
+
+        Args:
+            output: The output of the BART model.
+
+        Returns:
+            The decoded output.
+        """
+        entail_contradiction_logits = output[:, [0, 2]]
+        probs = entail_contradiction_logits.softmax(dim=1)
+        prob_label_is_true = probs[:, 1]
+        return prob_label_is_true.item()
