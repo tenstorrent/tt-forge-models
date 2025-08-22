@@ -2,11 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Falcon model loader implementation for question answering
+Falcon model loader implementation for causal language modeling
 """
 from typing import Optional
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, FalconForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ...config import (
     ModelInfo,
@@ -21,17 +21,18 @@ from ...base import ForgeModel
 
 
 class ModelVariant(StrEnum):
-    """Available WideResnet model variants."""
+    """Available Falcon model variants."""
 
     FALCON_1B = "tiiuae/Falcon3-1B-Base"
     FALCON_3B = "tiiuae/Falcon3-3B-Base"
     FALCON_7B = "tiiuae/Falcon3-7B-Base"
     FALCON_10B = "tiiuae/Falcon3-10B-Base"
     FALCON_MAMBA_7B = "tiiuae/Falcon3-Mamba-7B-Base"
+    FALCON_7B_INSTRUCT = "tiiuae/falcon-7b-instruct"
 
 
 class ModelLoader(ForgeModel):
-    """WideResnet model loader implementation."""
+    """Falcon model loader implementation for causal LM tasks."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
@@ -50,11 +51,15 @@ class ModelLoader(ForgeModel):
         ModelVariant.FALCON_MAMBA_7B: ModelConfig(
             pretrained_model_name="tiiuae/Falcon3-Mamba-7B-Base",
         ),
+        ModelVariant.FALCON_7B_INSTRUCT: ModelConfig(
+            pretrained_model_name="tiiuae/falcon-7b-instruct",
+        ),
     }
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.FALCON_1B
 
+    @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting.
 
@@ -74,51 +79,40 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    """Falcon model loader implementation for question answering tasks."""
-
     def __init__(self, variant=None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional string specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
         super().__init__(variant)
 
         # Configuration parameters
-        self.input_text = "Write a function to calculate the factorial of a number"
+        self.input_text_1 = "Write a function to calculate the factorial of a number"
         self.max_length = 512
         self.tokenizer = None
+        self.input_text_2 = "Hello, my dog is cute"
 
     def load_model(self, dtype_override=None):
-        """Load and return the Falcon model instance with default settings.
+        """Load and return the Falcon model instance.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The Falcon model instance for question answering.
+            torch.nn.Module: The Falcon model instance for causal LM.
         """
-        # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Initialize tokenizer first with default or overridden dtype
+        # Initialize tokenizer
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name, **tokenizer_kwargs
         )
 
         # Load pre-trained model from HuggingFace
-        model_kwargs = {}
+        model_kwargs = {"return_dict": False, "use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, return_dict=False, use_cache=False, **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
         return model
 
@@ -132,15 +126,16 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self.load_model()  # This will initialize the tokenizer
 
-        # Create tokenized inputs
-        inputs = self.tokenizer.encode(
-            self.input_text,
-            add_special_tokens=True,
-            return_tensors="pt",
-            max_length=self.max_length,
-            truncation=True,
-        )
-
+        if self._variant == ModelVariant.FALCON_7B_INSTRUCT:
+            inputs = self.tokenizer(self.input_text_2, return_tensors="pt")
+        else:
+            inputs = self.tokenizer.encode(
+                self.input_text_1,
+                add_special_tokens=True,
+                return_tensors="pt",
+                max_length=self.max_length,
+                truncation=True,
+            )
         return inputs
 
     def decode_output(self, outputs, inputs=None):
