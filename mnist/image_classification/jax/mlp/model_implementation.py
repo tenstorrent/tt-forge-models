@@ -8,6 +8,7 @@ from flax import linen as nn
 
 class MNISTMLPModel(nn.Module):
     """MNIST MLP model implementation."""
+
     hidden_sizes: tuple[int]
 
     @nn.compact

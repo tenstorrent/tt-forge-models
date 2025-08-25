@@ -9,16 +9,15 @@
 
 # This code is based on google-research/vision_transformer
 
-from typing import Optional
+from typing import Any, Optional
 
+import einops
 import flax.linen as nn
 import jax.numpy as jnp
 import jax
-import ml_collections
 
 
 class MlpBlock(nn.Module):
-    """MLP block for token and channel mixing."""
     mlp_dim: int
 
     @nn.compact
@@ -52,7 +51,7 @@ class MixerBlock(nn.Module):
 class MlpMixer(nn.Module):
     """Mixer architecture."""
 
-    patches: ml_collections.ConfigDict
+    patches: Any
     num_classes: int
     num_blocks: int
     hidden_dim: int
@@ -64,10 +63,10 @@ class MlpMixer(nn.Module):
     def __call__(self, inputs: jax.Array) -> jax.Array:
         x = nn.Conv(
             self.hidden_dim, self.patches.size, strides=self.patches.size, name="stem"
-        )(inputs)  # Patch embedding
-        
-        # Reshape to (batch, num_patches, hidden_dim)
-        x = x.reshape(x.shape[0], -1, x.shape[-1])
+        )(
+            inputs
+        )  # Patch embedding
+        x = einops.rearrange(x, "n h w c -> n (h w) c")
 
         for _ in range(self.num_blocks):
             x = MixerBlock(self.tokens_mlp_dim, self.channels_mlp_dim)(x)

@@ -21,7 +21,7 @@ from ....config import (
     StrEnum,
 )
 from .mlp.model_implementation import MNISTMLPModel
-from .cnn_nodropout.model_implementation import MNISTCNNNoDropoutModel
+from .cnn_batchnorm.model_implementation import MNISTCNNBatchNormModel
 from .cnn_dropout.model_implementation import MNISTCNNDropoutModel
 
 
@@ -29,7 +29,7 @@ class ModelArchitecture(StrEnum):
     """Available MNIST model architectures."""
 
     MLP = "mlp"
-    CNN_NO_DROPOUT = "cnn_no_dropout"
+    CNN_BATCHNORM = "cnn_batchnorm"
     CNN_DROPOUT = "cnn_dropout"
 
 
@@ -41,8 +41,8 @@ class ModelLoader(ForgeModel):
         ModelArchitecture.MLP: ModelConfig(
             pretrained_model_name="mnist_mlp_custom",
         ),
-        ModelArchitecture.CNN_NO_DROPOUT: ModelConfig(
-            pretrained_model_name="mnist_cnn_no_dropout_custom",
+        ModelArchitecture.CNN_BATCHNORM: ModelConfig(
+            pretrained_model_name="mnist_cnn_batchnorm_custom",
         ),
         ModelArchitecture.CNN_DROPOUT: ModelConfig(
             pretrained_model_name="mnist_cnn_dropout_custom",
@@ -53,9 +53,9 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelArchitecture.MLP
 
     def __init__(
-        self, 
+        self,
         variant: Optional[ModelArchitecture] = None,
-        hidden_sizes: Sequence[int] = (256, 128, 64)
+        hidden_sizes: Sequence[int] = (256, 128, 64),
     ):
         """Initialize ModelLoader with specified variant and configuration.
 
@@ -100,8 +100,8 @@ class ModelLoader(ForgeModel):
 
         if self._variant == ModelArchitecture.MLP:
             return MNISTMLPModel(self._hidden_sizes)
-        elif self._variant == ModelArchitecture.CNN_NO_DROPOUT:
-            return MNISTCNNNoDropoutModel()
+        elif self._variant == ModelArchitecture.CNN_BATCHNORM:
+            return MNISTCNNBatchNormModel()
         elif self._variant == ModelArchitecture.CNN_DROPOUT:
             return MNISTCNNDropoutModel()
         else:
@@ -117,34 +117,34 @@ class ModelLoader(ForgeModel):
             inputs: Input tensors that can be fed to the model.
         """
         from datasets import load_dataset
-        
+
         # Load MNIST dataset from Hugging Face
         dataset = load_dataset("mnist", split="test")
         # Get the first image from the dataset
         image = dataset[0]["image"]
-        
+
         # Convert PIL image to numpy array and add batch dimension
         img_array = np.array(image)
         # Convert to float and normalize to [0, 1]
         img_array = img_array.astype(np.float32) / 255.0
         # Add channel dimension (grayscale) and batch dimension
         img_array = img_array[np.newaxis, :, :, np.newaxis]  # (1, 28, 28, 1)
-        
+
         # Convert to JAX array
         return jax.numpy.array(img_array)
-    
+
     def load_parameters(self, dtype_override=None):
         """Load and return model parameters.
-        
+
         Args:
             dtype_override: Optional dtype to override the default dtype.
-            
+
         Returns:
             PyTree: Model parameters initialized with random weights
         """
         model = self.load_model(dtype_override)
         inputs = self.load_inputs(dtype_override)
-        
+
         # Handle different model signatures
         if self._variant == ModelArchitecture.MLP:
             return model.init(jax.random.PRNGKey(42), inputs)

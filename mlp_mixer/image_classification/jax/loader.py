@@ -23,13 +23,13 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from .mixer_b16.model_implementation import MlpMixer
+from .src.model_implementation import MlpMixer
 
 
 class ModelVariant(StrEnum):
     """Available MLP Mixer model variants."""
 
-    MIXER_B16 = "mixer_b16"
+    BASE_16 = "base_16"
 
 
 class ModelLoader(ForgeModel):
@@ -37,13 +37,13 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.MIXER_B16: ModelConfig(
+        ModelVariant.BASE_16: ModelConfig(
             pretrained_model_name="mixer-b16",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.MIXER_B16
+    DEFAULT_VARIANT = ModelVariant.BASE_16
 
     # Hyperparameters for Mixer-B/16
     _MIXER_B16_CONFIG = {
@@ -95,10 +95,12 @@ class ModelLoader(ForgeModel):
             model: The loaded model instance
         """
 
-        if self._variant == ModelVariant.MIXER_B16:
+        if self._variant == ModelVariant.BASE_16:
             config = self._MIXER_B16_CONFIG
-            patch = ml_collections.ConfigDict({"size": (config["patch_size"], config["patch_size"])})
-            
+            patch = ml_collections.ConfigDict(
+                {"size": (config["patch_size"], config["patch_size"])}
+            )
+
             return MlpMixer(
                 patches=patch,
                 num_classes=config["num_classes"],
@@ -121,31 +123,33 @@ class ModelLoader(ForgeModel):
         """
         from datasets import load_dataset
         from PIL import Image
-        
+
         # Load a sample image from a publicly available dataset
         dataset = load_dataset("cifar10", split="test")
         # Get the first image from the dataset
         image = dataset[0]["img"]
-        
+
         # Resize to 224x224 for MLP Mixer
+        # Using Lanczos resampling for high-quality image resizing with better edge preservation
+        # and anti-aliasing, especially important when upscaling from 32x32 to 224x224
         image = image.resize((224, 224), Image.LANCZOS)
-        
+
         # Convert PIL image to numpy array
         img_array = np.array(image)
         # Convert to float and normalize to [0, 1]
         img_array = img_array.astype(np.float32) / 255.0
         # Add batch dimension
         img_array = img_array[np.newaxis, ...]  # (1, 224, 224, 3)
-        
+
         # Convert to JAX array
         return jax.numpy.array(img_array)
-    
+
     def load_parameters(self, dtype_override=None):
         """Load and return model parameters.
-        
+
         Args:
             dtype_override: Optional dtype to override the default dtype.
-            
+
         Returns:
             PyTree: Model parameters loaded from pretrained weights
         """
