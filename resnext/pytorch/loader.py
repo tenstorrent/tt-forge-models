@@ -39,6 +39,7 @@ class ModelVariant(StrEnum):
     # Torch Hub variants
     RESNEXT50_32X4D = "resnext50_32x4d"
     RESNEXT101_32X8D = "resnext101_32x8d"
+    RESNEXT101_64X4D = "resnext101_64x4d"
     RESNEXT101_32X8D_WSL = "resnext101_32x8d_wsl"
 
     # OSMR variants
@@ -61,6 +62,11 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.RESNEXT101_32X8D: ResNeXtConfig(
             pretrained_model_name="resnext101_32x8d",
+            source=ModelSource.TORCH_HUB,
+            hub_source="pytorch/vision:v0.10.0",
+        ),
+        ModelVariant.RESNEXT101_64X4D: ResNeXtConfig(
+            pretrained_model_name="resnext101_64x4d",
             source=ModelSource.TORCH_HUB,
             hub_source="pytorch/vision:v0.10.0",
         ),
