@@ -7,7 +7,7 @@ from flax import linen as nn
 
 class MNISTCNNNoDropoutModel(nn.Module):
     """MNIST CNN model implementation without dropout."""
-    
+
     @nn.compact
     def __call__(self, x, *, train: bool):
         x = nn.Conv(features=32, kernel_size=(3, 3), padding="SAME")(x)

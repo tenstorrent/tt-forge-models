@@ -3,6 +3,4 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .loader import ModelLoader, ModelVariant
-from .mixer_b16.model_implementation import MlpMixer, MlpBlock, MixerBlock
-
-__all__ = ["ModelLoader", "ModelVariant", "MlpMixer", "MlpBlock", "MixerBlock"]
+from .src.model_implementation import MlpMixer, MlpBlock, MixerBlock
