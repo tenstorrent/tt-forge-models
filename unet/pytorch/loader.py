@@ -140,7 +140,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self, dtype_override=None, batch_size=1):
         cfg = self._variant_config
         source = cfg.source
 
@@ -185,5 +185,8 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             inputs = inputs.to(dtype_override)
+
+        # Replicate tensors for batch size
+        inputs = inputs.repeat_interleave(batch_size, dim=0)
 
         return inputs
