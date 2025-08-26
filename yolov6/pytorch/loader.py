@@ -19,6 +19,11 @@ from ...config import (
 )
 from ...base import ForgeModel
 from .src.utils import check_img_size, process_image
+from yolov6.core.inferer import Inferer
+from yolov6.utils.events import load_yaml
+from yolov6.utils.nms import non_max_suppression
+import requests
+import yaml
 
 
 class ModelVariant(StrEnum):
@@ -130,8 +135,9 @@ class ModelLoader(ForgeModel):
         input_size = 640
         img_size = check_img_size(input_size, s=stride)
         img, img_src = process_image(img_size, stride, half=False)
+        self.img_src = img_src
         input_batch = img.unsqueeze(0)
-
+        self.input_batch = input_batch
         # Replicate tensors for batch size
         batch_tensor = input_batch.repeat_interleave(batch_size, dim=0)
 
@@ -140,3 +146,42 @@ class ModelLoader(ForgeModel):
             batch_tensor = batch_tensor.to(dtype_override)
 
         return batch_tensor
+
+    def post_process(self, output):
+        """Post-process the output of the YOLOv6 model.
+        Args:
+            output: The output of the YOLOv6 model.
+        Returns:
+            The decoded output.
+        """
+
+        det = non_max_suppression(output.detach().float())
+
+        response = requests.get(
+            "https://raw.githubusercontent.com/ultralytics/yolov5/master/data/coco.yaml"
+        )
+        coco_yaml = yaml.safe_load(response.text)
+        class_names = coco_yaml["names"]
+
+        if len(det):
+            for sample in range(self.input_batch.shape[0]):
+                print("Sample ID: ", sample)
+                det[sample][:, :4] = Inferer.rescale(
+                    self.input_batch.shape[2:], det[sample][:, :4], self.img_src.shape
+                ).round()
+
+                for *xyxy, conf, cls in reversed(det[sample]):
+                    class_num = int(cls)  # Convert class index to integer
+                    conf_value = conf.item()  # Get the confidence value
+                    coordinates = [
+                        int(x.item()) for x in xyxy
+                    ]  # Convert tensor to list of integers
+
+                    # Get the class label
+                    label = class_names[class_num]
+
+                    # Detections
+                    print(
+                        f"Coordinates: {coordinates}, Class: {label}, Confidence: {conf_value:.2f}"
+                    )
+                print("\n")
