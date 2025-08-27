@@ -6,7 +6,7 @@ Stable Diffusion 3.5 model loader implementation
 https://huggingface.co/stabilityai/stable-diffusion-3.5-medium
 """
 
-from ...config import (
+from ....config import (
     ModelConfig,
     ModelInfo,
     ModelGroup,
@@ -15,7 +15,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...base import ForgeModel
+from ....base import ForgeModel
 import torch
 from diffusers import StableDiffusion3Pipeline
 from typing import Optional
@@ -76,7 +76,7 @@ class ModelLoader(ForgeModel):
             model="stable_diffusion_3_5",
             variant=variant,
             group=ModelGroup.RED,
-            task=ModelTask.CV_IMAGE_ENCODING,
+            task=ModelTask.CV_IMG_TO_IMG,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -105,7 +105,7 @@ class ModelLoader(ForgeModel):
         self.vae = self.pipe.vae
 
         # Test VAE decoder by default (most common use case)
-        if "encoder" in str(self.variant):
+        if "encoder" in str(self._variant):
             return self.vae.encoder
         else:  # decoder
             return self.vae.decoder
@@ -119,7 +119,7 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Dictionary containing sample input.
         """
-        if "encoder" in str(self.variant):
+        if "encoder" in str(self._variant):
             # VAE Encoder: takes RGB images, outputs latents
             channels = self.vae.config.in_channels  # Should be 3 for RGB
             height = 512

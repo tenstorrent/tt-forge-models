@@ -6,7 +6,7 @@ Stable Diffusion 3.5 model loader implementation
 https://huggingface.co/stabilityai/stable-diffusion-3.5-medium
 """
 
-from ...config import (
+from ....config import (
     ModelConfig,
     ModelInfo,
     ModelGroup,
@@ -15,7 +15,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...base import ForgeModel
+from ....base import ForgeModel
 import torch
 from diffusers import StableDiffusion3Pipeline
 from typing import Optional
@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
             model="stable_diffusion_3_5",
             variant=variant,
             group=ModelGroup.RED,
-            task=ModelTask.NLP_TEXT_ENCODING,
+            task=ModelTask.NLP_EMBED_GEN,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -110,13 +110,13 @@ class ModelLoader(ForgeModel):
 
         # Extract encoder type from variant
         if (
-            self.variant == ModelVariant.MEDIUM_1
-            or self.variant == ModelVariant.LARGE_1
+            self._variant == ModelVariant.MEDIUM_1
+            or self._variant == ModelVariant.LARGE_1
         ):
             return self.pipe.text_encoder
         elif (
-            self.variant == ModelVariant.MEDIUM_2
-            or self.variant == ModelVariant.LARGE_2
+            self._variant == ModelVariant.MEDIUM_2
+            or self._variant == ModelVariant.LARGE_2
         ):
             return self.pipe.text_encoder_2
         else:  # default to text_encoder_3
@@ -135,13 +135,13 @@ class ModelLoader(ForgeModel):
 
         # Get the corresponding tokenizer based on variant
         if (
-            self.variant == ModelVariant.MEDIUM_1
-            or self.variant == ModelVariant.LARGE_1
+            self._variant == ModelVariant.MEDIUM_1
+            or self._variant == ModelVariant.LARGE_1
         ):
             tokenizer = self.pipe.tokenizer
         elif (
-            self.variant == ModelVariant.MEDIUM_2
-            or self.variant == ModelVariant.LARGE_2
+            self._variant == ModelVariant.MEDIUM_2
+            or self._variant == ModelVariant.LARGE_2
         ):
             tokenizer = self.pipe.tokenizer_2
         else:  # default to tokenizer_3

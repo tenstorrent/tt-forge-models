@@ -6,7 +6,7 @@ Stable Diffusion 3.5 model loader implementation
 https://huggingface.co/stabilityai/stable-diffusion-3.5-medium
 """
 
-from ...config import (
+from ....config import (
     ModelConfig,
     ModelInfo,
     ModelGroup,
@@ -15,7 +15,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...base import ForgeModel
+from ....base import ForgeModel
 import torch
 from diffusers.models import SD3Transformer2DModel
 from typing import Optional
@@ -90,10 +90,11 @@ class ModelLoader(ForgeModel):
         )
         return transformer.transformer_blocks[0]
 
-    def load_inputs(self, batch_size=1):
+    def load_inputs(self, batch_size=1, dtype_override=None):
         """Load and return sample inputs for the Stable Diffusion 3.5 transformer block.
 
         Args:
+            dtype_override: Optional torch.dtype to override the default dtype of the inputs.
             batch_size: Optional batch size for the inputs.
 
         Returns:
@@ -102,9 +103,10 @@ class ModelLoader(ForgeModel):
         hidden_states = torch.randn(batch_size, 1024, 1536)
         encoder_hidden_states = torch.randn(batch_size, 333, 1536)
         temb = torch.rand(batch_size, 1536)
-        hidden_states = hidden_states.to(torch.bfloat16)
-        encoder_hidden_states = encoder_hidden_states.to(torch.bfloat16)
-        temb = temb.to(torch.bfloat16)
+        if dtype_override is not None:
+            hidden_states = hidden_states.to(dtype_override)
+            encoder_hidden_states = encoder_hidden_states.to(dtype_override)
+            temb = temb.to(dtype_override)
         joint_attention_kwargs = {}
 
         arguments = {
