@@ -22,7 +22,6 @@ class ModelVariant(StrEnum):
     """Available BigBird model variants for question answering."""
 
     BASE = "base"
-    LARGE = "large"
 
 
 class ModelLoader(ForgeModel):
@@ -32,9 +31,6 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: LLMModelConfig(
             pretrained_model_name="google/bigbird-base-trivia-itc",
-        ),
-        ModelVariant.LARGE: LLMModelConfig(
-            pretrained_model_name="google/bigbird-roberta-large",
         ),
     }
 
