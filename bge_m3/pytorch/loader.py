@@ -76,7 +76,9 @@ class ModelLoader(ForgeModel):
         if self.model is None:
             self.load_model()
 
-        tokenized = self.model.tokenizer(texts, return_tensors="pt", padding=True, truncation=True)
+        tokenized = self.model.tokenizer(
+            texts, return_tensors="pt", padding=True, truncation=True
+        )
 
         forward_inputs = {
             "text_input": tokenized,
@@ -101,5 +103,3 @@ class ModelLoader(ForgeModel):
                 f"No tensors found in output dictionary. Keys: {list(outputs.keys())}"
             )
         return outputs
-
-
