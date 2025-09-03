@@ -78,6 +78,7 @@ class ModelSource(StrEnum):
     TORCH_XRAY_VISION = "torchxrayvision"
     OSMR = "osmr"
     GITHUB = "github"
+    FLAG_EMBEDDING = "flag_embedding"
 
 
 class Framework(StrEnum):
