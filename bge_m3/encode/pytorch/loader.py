@@ -31,12 +31,12 @@ class ModelLoader(ForgeModel):
     """Loader for BGE M3 embedding model."""
 
     _VARIANTS = {
-        ModelVariant.BGE_M3: ModelConfig(
+        ModelVariant.BGE_M3_ENCODE: ModelConfig(
             pretrained_model_name="BAAI/bge-m3",
         )
     }
 
-    DEFAULT_VARIANT = ModelVariant.BGE_M3
+    DEFAULT_VARIANT = ModelVariant.BGE_M3_ENCODE
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
