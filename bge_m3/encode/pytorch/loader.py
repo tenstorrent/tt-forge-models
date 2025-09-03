@@ -78,7 +78,6 @@ class ModelLoader(ForgeModel):
 
     def decode_output(self, outputs=None, **kwargs):
         # Extract tensors from encode dict outputs, handling numpy and lists
-       
 
         if isinstance(outputs, dict):
             tensors = []
@@ -103,5 +102,3 @@ class ModelLoader(ForgeModel):
                 )
 
         return outputs
-
-
