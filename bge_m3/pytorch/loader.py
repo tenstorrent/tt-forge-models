@@ -6,7 +6,6 @@ BGE M3 embedding model loader using FlagEmbedding's BGEM3FlagModel.
 """
 import torch
 from typing import Optional
-from FlagEmbedding import BGEM3FlagModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -53,6 +52,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, dtype_override=None):
+        from FlagEmbedding import BGEM3FlagModel
 
         model_name = self._variant_config.pretrained_model_name
         flag_model = BGEM3FlagModel(model_name)
