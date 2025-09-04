@@ -22,19 +22,19 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available BGE M3 variants."""
 
-    BGE_M3 = "bge_m3"
+    BASE = "base"
 
 
 class ModelLoader(ForgeModel):
     """Loader for BGE M3 embedding model."""
 
     _VARIANTS = {
-        ModelVariant.BGE_M3: ModelConfig(
+        ModelVariant.BASE: ModelConfig(
             pretrained_model_name="BAAI/bge-m3",
         )
     }
 
-    DEFAULT_VARIANT = ModelVariant.BGE_M3
+    DEFAULT_VARIANT = ModelVariant.BASE
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_EMBED_GEN,
-            source=ModelSource.FLAG_EMBEDDING,
+            source=ModelSource.CUSTOM,
             framework=Framework.TORCH,
         )
 
