@@ -154,6 +154,7 @@ class ModelLoader(ForgeModel):
             PyTree: Model parameters loaded from pretrained weights
         """
         # Download and load pretrained weights
+        # TODO: update this to download weights from S3
         link = "https://storage.googleapis.com/mixer_models/imagenet21k/Mixer-B_16.npz"
         with fsspec.open("filecache::" + link, cache_storage="/tmp/files/") as f:
             weights = np.load(f, encoding="bytes")
