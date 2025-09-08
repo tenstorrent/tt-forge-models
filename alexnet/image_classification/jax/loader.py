@@ -111,7 +111,7 @@ class ModelLoader(ForgeModel):
 
         # Normalize to [-128, 127] range as per original paper
         image = image.astype(np.float32)
-        image = (image - 128.0) * 2.0 - 1.0  # Scale to [-1, 1] then to [-128, 127]
+        image = image - 128.0
         image = np.clip(image, -128, 127)
 
         # Add batch dimension
