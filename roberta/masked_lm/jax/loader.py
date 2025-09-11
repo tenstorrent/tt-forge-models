@@ -41,7 +41,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.BASE
 
-    sample_text = "The capital of France is [MASK]."
+    sample_text = "Hello <mask>."
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
