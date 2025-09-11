@@ -6,6 +6,7 @@
 
 from typing import Optional
 
+import jax.numpy as jnp
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -125,6 +126,9 @@ class ModelLoader(ForgeModel):
         model = FlaxMT5ForConditionalGeneration.from_pretrained(
             self._model_name, **model_kwargs
         )
+        # Convert to bf16 only if dtype_override is jnp.bfloat16
+        if dtype_override == jnp.bfloat16:
+            model.params = model.to_bf16(model.params)
 
         return model
 
