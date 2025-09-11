@@ -92,7 +92,9 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="segformer",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=ModelGroup.RED
+            if variant == ModelVariant.SWIN_V2_S
+            else ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
