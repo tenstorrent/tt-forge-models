@@ -13,6 +13,7 @@ from .src.model import BEVFormer, img_backbone, pts_bbox_head, img_neck
 from .src.checkpoint import load_checkpoint
 from .src.nuscenes_dataloader import build_dataloader
 from .src.nuscenes_dataset import build_dataset, data_test
+from loguru import logger
 
 
 class ModelVariant(StrEnum):
