@@ -1,0 +1,2 @@
+nuscenes-devkit==1.2.0
+nuscenes==0.9.9
