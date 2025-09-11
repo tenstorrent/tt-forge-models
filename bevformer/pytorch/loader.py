@@ -14,6 +14,7 @@ from .src.checkpoint import load_checkpoint
 from .src.nuscenes_dataloader import build_dataloader
 from .src.nuscenes_dataset import build_dataset, data_test
 from loguru import logger
+from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -70,9 +71,12 @@ class ModelLoader(ForgeModel):
             use_grid_mask=True,
             video_test_mode=True,
         )
+        checkpoint_path = str(
+            get_file("test_files/pytorch/bevformer/bevformer_tiny_epoch_24.pth")
+        )
         checkpoint = load_checkpoint(
             model,
-            "/proj_sw/user_dev/mramanathan/bgdlab19_sep10_xla/tt-xla/third_party/tt_forge_models/bevformer/pytorch/src/bevformer_tiny_epoch_24.pth",
+            checkpoint_path,
             map_location="cpu",
         )
         model.eval()
