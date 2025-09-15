@@ -83,10 +83,14 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
+        group = ModelGroup.GENERALITY
+        if variant == ModelVariant.RESNET_50:
+            group = ModelGroup.RED
+
         return ModelInfo(
             model="resnet_v1.5",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_CLS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.JAX,
