@@ -75,30 +75,3 @@ class ModelLoader(ForgeModel):
             "return_sparse": True,
             "return_colbert_vecs": True,
         }
-
-    def decode_output(self, outputs=None, **kwargs):
-        # Extract tensors from encode dict outputs, handling numpy and lists
-
-        if isinstance(outputs, dict):
-            tensors = []
-            for key, value in outputs.items():
-                if key == "dense_vecs" and isinstance(value, np.ndarray):
-                    tensors.append(torch.from_numpy(value))
-                elif key == "colbert_vecs" and isinstance(value, list):
-                    if value and isinstance(value[0], np.ndarray):
-                        tensors.append(torch.from_numpy(value[0]))
-                elif key == "lexical_weights" and isinstance(value, list):
-                    if value and isinstance(value[0], dict):
-                        weights = list(value[0].values())
-                        tensors.append(torch.tensor(weights))
-                elif isinstance(value, torch.Tensor):
-                    tensors.append(value)
-
-            if tensors:
-                return tuple(tensors)
-            else:
-                raise ValueError(
-                    f"No tensors found in output dictionary. Keys: {list(outputs.keys())}"
-                )
-
-        return outputs
