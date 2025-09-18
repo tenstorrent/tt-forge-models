@@ -89,17 +89,3 @@ class ModelLoader(ForgeModel):
         }
 
         return forward_inputs
-
-    def decode_output(self, outputs=None, **kwargs):
-        # Extract tensors from FlagEmbedding dict outputs
-        if isinstance(outputs, dict):
-            tensors = []
-            for _, value in outputs.items():
-                if isinstance(value, torch.Tensor):
-                    tensors.append(value)
-            if tensors:
-                return tuple(tensors)
-            raise ValueError(
-                f"No tensors found in output dictionary. Keys: {list(outputs.keys())}"
-            )
-        return outputs
