@@ -1,0 +1,78 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+"""
+BEVDepth model loader implementation
+"""
+import torch
+import numpy as np
+from typing import Optional
+from ...base import ForgeModel
+from ...config import ModelGroup, ModelTask, ModelSource, Framework, StrEnum, ModelInfo
+from third_party.tt_forge_models.bevdepth.pytorch.src.model import (
+    BaseBEVDepth,
+    backbone_conf,
+    head_conf,
+    load_checkpoint_if_provided,
+)
+
+
+class ModelVariant(StrEnum):
+    """Available BEVDepth model variants."""
+
+    BEVDEPTH_TINY = "BEVDepth-tiny"
+
+
+class ModelLoader(ForgeModel):
+    """BEVDepth model loader implementation for autonomous driving tasks."""
+
+    # Default variant to use
+    DEFAULT_VARIANT = ModelVariant.BEVDEPTH_TINY
+
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant."""
+        super().__init__(variant)
+        self.processor = None
+
+    @classmethod
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+        """Implementation method for getting model info with validated variant."""
+
+        return ModelInfo(
+            model="bevdepth",
+            variant=variant,
+            group=ModelGroup.RED,
+            task=ModelTask.CV_OBJECT_DET,
+            source=ModelSource.CUSTOM,
+            framework=Framework.TORCH,
+        )
+
+    def load_model(self, **kwargs):
+        """Load and return the BEVDepth model instance with default settings.
+        Returns:
+            Torch model: The BEVDepth model instance.
+        """
+
+        model = BaseBEVDepth(backbone_conf, head_conf, is_train_depth=False)
+
+        load_checkpoint_if_provided(
+            model,
+            "/proj_sw/user_dev/mramanathan/bgdlab19_sep10_xla/tt-xla/third_party/tt_forge_models/bevdepth/bev_depth_lss_r50_256x704_128x128_24e_2key.pth",
+        )
+
+        model.eval()
+        return model
+
+    def load_inputs(self, **kwargs):
+        """Return sample inputs for the BEVDepth model with default settings.
+        Returns:
+            dict: A dictionary of input tensors and metadata suitable for the model.
+        """
+        sweep_imgs = torch.randn(1, 2, 6, 3, 256, 704)
+        mats = {
+            "sensor2ego_mats": torch.randn(1, 2, 6, 4, 4),
+            "intrin_mats": torch.randn(1, 2, 6, 4, 4),
+            "ida_mats": torch.randn(1, 2, 6, 4, 4),
+            "bda_mat": torch.randn(1, 4, 4),
+        }
+        return [sweep_imgs, mats]
