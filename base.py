@@ -6,11 +6,15 @@
 This module provides the ForgeModel base class with common functionality
 for loading models, inputs, etc.
 """
+import re
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, Union, Type, Any
 
 from .config import ModelConfig, ModelInfo, StrEnum
-import torch
+from torch import nn
+from torch_xla.distributed.spmd import Mesh
+import torch_xla.runtime as xr
+import torch_xla.distributed.spmd as xs
 
 
 class ForgeModel(ABC):
@@ -35,6 +39,26 @@ class ForgeModel(ABC):
 
         # Cache the variant configuration for efficiency
         self._variant_config = self.get_variant_config(variant)
+
+    @classmethod
+    def _shard_param_for_tp(
+        cls, param: nn.parameter.Parameter, device_mesh: Mesh, partition_spec: tuple
+    ):
+        if not getattr(param, "_is_sharded", False):
+            xs.mark_sharding(param, device_mesh, partition_spec)
+            param._is_sharded = True
+
+    @classmethod
+    def annotate_tp_sharding(
+        cls, model: nn.Module, device_mesh: Mesh, sharding_spec_map: Dict[str, tuple]
+    ):
+        assert xr.is_spmd(), "SPMD must be enabled to annotate TP sharding"
+
+        for param_name, param in model.named_parameters():
+            generic_param_name = re.sub(r"\d+", "*", param_name)
+            if generic_param_name in sharding_spec_map:
+                partition_spec = sharding_spec_map[generic_param_name]
+                cls._shard_param_for_tp(param, device_mesh, partition_spec)
 
     @classmethod
     def query_available_variants(cls) -> Dict[StrEnum, ModelConfig]:
