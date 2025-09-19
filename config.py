@@ -66,6 +66,7 @@ class ModelTask(StrEnum):
     MM_CAUSAL_LM = "mm_causal_lm"
     CONDITIONAL_GENERATION = "conditional_generation"
     ATOMIC_ML = "atomic_ml"
+    OBJECT_DETECTION = "object_detection"
 
 
 class ModelSource(StrEnum):
