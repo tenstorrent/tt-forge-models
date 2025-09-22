@@ -5,29 +5,62 @@
 BEVDepth model loader implementation
 """
 import torch
-import numpy as np
 from typing import Optional
 from ...base import ForgeModel
-from ...config import ModelGroup, ModelTask, ModelSource, Framework, StrEnum, ModelInfo
-from third_party.tt_forge_models.bevdepth.pytorch.src.model import (
-    BaseBEVDepth,
-    backbone_conf,
-    head_conf,
-    load_checkpoint_if_provided,
+from ...config import (
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+    StrEnum,
+    ModelInfo,
+    ModelConfig,
 )
+from third_party.tt_forge_models.bevdepth.pytorch.src.model import (
+    build_dataloader,
+    load_checkpoint,
+    create_bevdepth_model,
+)
+from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
     """Available BEVDepth model variants."""
 
-    BEVDEPTH_TINY = "BEVDepth-tiny"
+    BEVDEPTH_LSS_R50_256X704_128X128_24E_2KEY = (
+        "bev_depth_lss_r50_256x704_128x128_24e_2key"
+    )
+    BEVDEPTH_LSS_R50_256X704_128X128_24E_2KEY_EMA = (
+        "bev_depth_lss_r50_256x704_128x128_24e_2key_ema"
+    )
+    BEVDEPTH_LSS_R50_256X704_128X128_20E_CBGS_2KEY_DA = (
+        "bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da"
+    )
+    BEVDEPTH_LSS_R50_256X704_128X128_20E_CBGS_2KEY_DA_EMA = (
+        "bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da_ema"
+    )
 
 
 class ModelLoader(ForgeModel):
     """BEVDepth model loader implementation for autonomous driving tasks."""
 
+    _VARIANTS = {
+        ModelVariant.BEVDEPTH_LSS_R50_256X704_128X128_24E_2KEY: ModelConfig(
+            pretrained_model_name="bev_depth_lss_r50_256x704_128x128_24e_2key"
+        ),
+        ModelVariant.BEVDEPTH_LSS_R50_256X704_128X128_24E_2KEY_EMA: ModelConfig(
+            pretrained_model_name="bev_depth_lss_r50_256x704_128x128_24e_2key_ema"
+        ),
+        ModelVariant.BEVDEPTH_LSS_R50_256X704_128X128_20E_CBGS_2KEY_DA: ModelConfig(
+            pretrained_model_name="bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da"
+        ),
+        ModelVariant.BEVDEPTH_LSS_R50_256X704_128X128_20E_CBGS_2KEY_DA_EMA: ModelConfig(
+            pretrained_model_name="bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da_ema"
+        ),
+    }
+
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.BEVDEPTH_TINY
+    DEFAULT_VARIANT = ModelVariant.BEVDEPTH_LSS_R50_256X704_128X128_24E_2KEY
 
     def __init__(self, variant=None):
         """Initialize ModelLoader with specified variant."""
@@ -47,32 +80,61 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _get_checkpoint_path(self, variant: str) -> str:
+        """Get the checkpoint path for a specific variant."""
+        # Map variants to their checkpoint files
+        checkpoint_map = {
+            "bev_depth_lss_r50_256x704_128x128_24e_2key": "test_files/pytorch/bevdepth/bev_depth_lss_r50_256x704_128x128_24e_2key.pth",
+            "bev_depth_lss_r50_256x704_128x128_24e_2key_ema": "test_files/pytorch/bevdepth/bev_depth_lss_r50_256x704_128x128_24e_2key_ema.pth",
+            "bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da": "test_files/pytorch/bevdepth/bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da.pth",
+            "bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da_ema": "test_files/pytorch/bevdepth/bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da_ema.pth",
+        }
+
+        checkpoint_file = checkpoint_map[variant]
+        return str(get_file(checkpoint_file))
+
     def load_model(self, **kwargs):
-        """Load and return the BEVDepth model instance with default settings.
+        """Load and return the BEVDepth model instance with variant-specific settings.
         Returns:
-            Torch model: The BEVDepth model instance.
+            Torch model: The BEVDepth model instance configured for the specified variant.
         """
+        variant_str = str(self._variant) if self._variant else str(self.DEFAULT_VARIANT)
 
-        model = BaseBEVDepth(backbone_conf, head_conf, is_train_depth=False)
-
-        load_checkpoint_if_provided(
-            model,
-            "/proj_sw/user_dev/mramanathan/bgdlab19_sep10_xla/tt-xla/third_party/tt_forge_models/bevdepth/bev_depth_lss_r50_256x704_128x128_24e_2key.pth",
-        )
+        model = create_bevdepth_model(variant_str, is_train_depth=False)
+        # Load checkpoint
+        checkpoint_path = self._get_checkpoint_path(variant_str)
+        load_checkpoint(model, checkpoint_path)
 
         model.eval()
         return model
 
     def load_inputs(self, **kwargs):
-        """Return sample inputs for the BEVDepth model with default settings.
+        """Return sample inputs for the BEVDepth model with variant-specific settings.
         Returns:
             dict: A dictionary of input tensors and metadata suitable for the model.
         """
-        sweep_imgs = torch.randn(1, 2, 6, 3, 256, 704)
-        mats = {
-            "sensor2ego_mats": torch.randn(1, 2, 6, 4, 4),
-            "intrin_mats": torch.randn(1, 2, 6, 4, 4),
-            "ida_mats": torch.randn(1, 2, 6, 4, 4),
-            "bda_mat": torch.randn(1, 4, 4),
-        }
-        return [sweep_imgs, mats]
+        variant_str = str(self._variant) if self._variant else str(self.DEFAULT_VARIANT)
+
+        key_idxes = [-1]
+        use_fusion = False
+        # Build dataloader with variant-specific configuration
+        loader = build_dataloader(
+            "/proj_sw/user_dev/mramanathan/bgdlab19_sep10_xla/tt-xla/tests/jax/single_chip/models/bevdepth/data/nuScenes",
+            1,
+            "val",
+            use_fusion,
+            key_idxes,
+            variant=variant_str,
+        )
+        return loader
+
+    # def load_inputs(self, **kwargs):
+    #     """Return sample inputs for the BEVDepth model with default settings."""
+    #     sweep_imgs = torch.randn(1, 2, 6, 3, 256, 704)
+    #     mats = {
+    #         "sensor2ego_mats": torch.randn(1, 2, 6, 4, 4),
+    #         "intrin_mats": torch.randn(1, 2, 6, 4, 4),
+    #         "ida_mats": torch.randn(1, 2, 6, 4, 4),
+    #         "bda_mat": torch.randn(1, 4, 4),
+    #     }
+    #     return [sweep_imgs, mats]

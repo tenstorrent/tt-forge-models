@@ -1,6 +1,34 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+"""
+BEVDepth model implementation
+
+Apdapted from: https://github.com/Megvii-BaseDetection/BEVDepth
+
+MIT License
+
+Copyright (c) 2022 Megvii-BaseDetection
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software,and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIESOF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERSBE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+"""
 import os
 import re
 import ast
@@ -18,7 +46,12 @@ from torch import nn
 from torch.autograd import Function
 from torch.nn.modules.utils import _pair
 import torchvision
+from third_party.tt_forge_models.bevdepth_nuscenes.nusc_det_dataset import (
+    NuscDetDataset,
+    collate_fn,
+)
 
+# Base configuration parameters
 H = 900
 W = 1600
 final_dim = (256, 704)
@@ -106,6 +139,18 @@ bbox_coder = dict(
     code_size=9,
 )
 
+train_cfg = dict(
+    point_cloud_range=[-51.2, -51.2, -5, 51.2, 51.2, 3],
+    grid_size=[512, 512, 1],
+    voxel_size=[0.2, 0.2, 8],
+    out_size_factor=4,
+    dense_reg=1,
+    gaussian_overlap=0.1,
+    max_objs=500,
+    min_radius=2,
+    code_weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.5],
+)
+
 test_cfg = dict(
     post_center_limit_range=[-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
     max_per_img=500,
@@ -120,12 +165,13 @@ test_cfg = dict(
     nms_thr=0.2,
 )
 
+# Base backbone configuration
 backbone_conf = {
     "x_bound": [-51.2, 51.2, 0.8],
     "y_bound": [-51.2, 51.2, 0.8],
     "z_bound": [-5, 3, 8],
     "d_bound": [2.0, 58.0, 0.5],
-    "final_dim": (256, 704),
+    "final_dim": final_dim,
     "output_channels": 80,
     "downsample_factor": 16,
     "img_backbone_conf": {
@@ -144,63 +190,17 @@ backbone_conf = {
     },
     "depth_net_conf": {"in_channels": 512, "mid_channels": 512},
 }
+
+# # Base head configuration
 head_conf = {
-    "bev_backbone_conf": {
-        "type": "ResNet",
-        "in_channels": 160,
-        "depth": 18,
-        "num_stages": 3,
-        "strides": (1, 2, 2),
-        "dilations": (1, 1, 1),
-        "out_indices": [0, 1, 2],
-        "norm_eval": False,
-        "base_channels": 160,
-    },
-    "bev_neck_conf": {
-        "type": "SECONDFPN",
-        "in_channels": [160, 160, 320, 640],
-        "upsample_strides": [1, 2, 4, 8],
-        "out_channels": [64, 64, 64, 64],
-    },
-    "tasks": [
-        {"num_class": 1, "class_names": ["car"]},
-        {"num_class": 2, "class_names": ["truck", "construction_vehicle"]},
-        {"num_class": 2, "class_names": ["bus", "trailer"]},
-        {"num_class": 1, "class_names": ["barrier"]},
-        {"num_class": 2, "class_names": ["motorcycle", "bicycle"]},
-        {"num_class": 2, "class_names": ["pedestrian", "traffic_cone"]},
-    ],
-    "common_heads": {
-        "reg": (2, 2),
-        "height": (1, 2),
-        "dim": (3, 2),
-        "rot": (2, 2),
-        "vel": (2, 2),
-    },
-    "bbox_coder": {
-        "type": "CenterPointBBoxCoder",
-        "post_center_range": [-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
-        "max_num": 500,
-        "score_threshold": 0.1,
-        "out_size_factor": 4,
-        "voxel_size": [0.2, 0.2, 8],
-        "pc_range": [-51.2, -51.2, -5, 51.2, 51.2, 3],
-        "code_size": 9,
-    },
-    "test_cfg": {
-        "post_center_limit_range": [-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
-        "max_per_img": 500,
-        "max_pool_nms": False,
-        "min_radius": [4, 12, 10, 1, 0.85, 0.175],
-        "score_threshold": 0.1,
-        "out_size_factor": 4,
-        "voxel_size": [0.2, 0.2, 8],
-        "nms_type": "circle",
-        "pre_max_size": 1000,
-        "post_max_size": 83,
-        "nms_thr": 0.2,
-    },
-    "in_channels": 256,
+    "bev_backbone_conf": bev_backbone,
+    "bev_neck_conf": bev_neck,
+    "tasks": TASKS,
+    "common_heads": common_heads,
+    "bbox_coder": bbox_coder,
+    "train_cfg": train_cfg,
+    "test_cfg": test_cfg,
+    "in_channels": 256,  # Equal to bev_neck output_channels.
     "loss_cls": {"type": "GaussianFocalLoss", "reduction": "mean"},
     "loss_bbox": {"type": "L1Loss", "reduction": "mean", "loss_weight": 0.25},
     "gaussian_overlap": 0.1,
@@ -208,21 +208,160 @@ head_conf = {
 }
 
 
-def load_checkpoint_if_provided(model: torch.nn.Module, ckpt_path: str):
-    if not ckpt_path:
-        return
-    ckpt = torch.load(ckpt_path, map_location="cpu")
-    state_dict = ckpt.get("state_dict", ckpt)
-    new_state_dict = {}
-    for k, v in state_dict.items():
-        if k.startswith("model.module."):
-            new_key = k[len("model.module.") :]
-        elif k.startswith("model."):
-            new_key = k[len("model.") :]
-        else:
-            new_key = k
-        new_state_dict[new_key] = v
-    missing, unexpected = model.load_state_dict(new_state_dict, strict=False)
+def get_bevdepth_config(variant: str = "bev_depth_lss_r50_256x704_128x128_24e_2key"):
+    """
+    Get configuration for different BEVDepth variants.
+
+    Args:
+        variant (str): One of the supported BEVDepth variants:
+            - "bev_depth_lss_r50_256x704_128x128_24e_2key" (base)
+            - "bev_depth_lss_r50_256x704_128x128_24e_2key_ema"
+            - "bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da"
+            - "bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da_ema"
+
+    Returns:
+        dict: Configuration with backbone_conf, head_conf, and other parameters
+    """
+    # Deep copy base configurations to avoid mutation
+    config = {
+        "backbone_conf": copy.deepcopy(backbone_conf),
+        "head_conf": copy.deepcopy(head_conf),
+        "ida_aug_conf": copy.deepcopy(ida_aug_conf),
+        "bda_aug_conf": copy.deepcopy(bda_aug_conf),
+        "img_conf": copy.deepcopy(img_conf),
+        "classes": CLASSES,
+        "use_ema": False,
+        "use_da": False,
+        "use_cbgs": False,
+        "basic_lr_per_img": 2e-4 / 64,
+        "weight_decay": 1e-7,
+        "epochs": 24,
+        "lr_schedule_milestones": [19, 23],
+        "key_idxes": [-1],  # Default for 2key variants
+    }
+
+    # Apply variant-specific overrides
+    if variant == "bev_depth_lss_r50_256x704_128x128_24e_2key":
+        # Base configuration - no changes needed
+        pass
+
+    elif variant == "bev_depth_lss_r50_256x704_128x128_24e_2key_ema":
+        # EMA variant
+        config["use_ema"] = True
+
+    elif variant == "bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da":
+        # DA + CBGS variant
+        config["use_da"] = True
+        config["use_cbgs"] = True
+        config["basic_lr_per_img"] = (
+            2e-4 / 64
+        )  # Match upstream depth DA (no LR change from base)
+        config["weight_decay"] = 1e-7  # Different weight decay
+        config["epochs"] = 20
+        config["lr_schedule_milestones"] = [16, 19]
+        config["backbone_conf"]["use_da"] = True
+
+    elif variant == "bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da_ema":
+        # DA + CBGS + EMA variant
+        config["use_ema"] = True
+        config["use_da"] = True
+        config["use_cbgs"] = True
+        config["basic_lr_per_img"] = 2e-4 / 32  # Different learning rate
+        config["weight_decay"] = 1e-7  # Different weight decay
+        config["epochs"] = 20
+        config["lr_schedule_milestones"] = [16, 19]
+        config["backbone_conf"]["use_da"] = True
+
+    else:
+        raise ValueError(
+            f"Unsupported variant: {variant}. Supported variants are: "
+            f"bev_depth_lss_r50_256x704_128x128_24e_2key, "
+            f"bev_depth_lss_r50_256x704_128x128_24e_2key_ema, "
+            f"bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da, "
+            f"bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da_ema"
+        )
+
+    # Apply common 2key modifications to head configuration
+    num_key_frames = len(config["key_idxes"]) + 1  # +1 for current frame
+    config["head_conf"]["bev_backbone_conf"]["in_channels"] = 80 * num_key_frames
+    config["head_conf"]["bev_neck_conf"]["in_channels"] = [
+        80 * num_key_frames,
+        160,
+        320,
+        640,
+    ]
+    config["head_conf"]["train_cfg"]["code_weights"] = [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+    ]
+
+    return config
+
+
+# Keep the original hardcoded configurations for backward compatibility
+# These are now generated from the base config above
+# head_conf = get_bevdepth_config()["head_conf"]
+
+
+def build_dataloader(
+    data_root: str,
+    batch_size: int,
+    split: str,
+    use_fusion: bool,
+    key_idxes,
+    variant: str = "bev_depth_lss_r50_256x704_128x128_24e_2key",
+):
+    """
+    Build dataloader with variant-specific configuration.
+
+    Args:
+        data_root (str): Root directory for the dataset
+        batch_size (int): Batch size for the dataloader
+        split (str): Dataset split ('val' or 'test')
+        use_fusion (bool): Whether to use fusion
+        key_idxes: Key frame indices
+        variant (str): BEVDepth variant name for configuration
+    """
+    if split == "val":
+        info_path = os.path.join(data_root, "nuscenes_infos_val.pkl")
+    elif split == "test":
+        info_path = os.path.join(data_root, "nuscenes_infos_test.pkl")
+
+    # Get variant-specific configuration
+    config = get_bevdepth_config(variant)
+
+    dataset = NuscDetDataset(
+        ida_aug_conf=config["ida_aug_conf"],
+        bda_aug_conf=config["bda_aug_conf"],
+        classes=config["classes"],
+        data_root=data_root,
+        info_paths=info_path,
+        is_train=False,
+        img_conf=config["img_conf"],
+        num_sweeps=1,
+        sweep_idxes=list(),
+        key_idxes=key_idxes or config["key_idxes"],
+        return_depth=use_fusion,
+        use_fusion=use_fusion,
+    )
+
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        collate_fn=lambda x: collate_fn(x, is_return_depth=use_fusion),
+        sampler=None,
+    )
+    return loader
 
 
 def parse_exp_overrides(exp_path: str):
@@ -259,6 +398,23 @@ def parse_exp_overrides(exp_path: str):
     return overrides
 
 
+def load_checkpoint(model: torch.nn.Module, ckpt_path: str):
+    if not ckpt_path:
+        return
+    ckpt = torch.load(ckpt_path, map_location="cpu")
+    state_dict = ckpt.get("state_dict", ckpt)
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        if k.startswith("model.module."):
+            new_key = k[len("model.module.") :]
+        elif k.startswith("model."):
+            new_key = k[len("model.") :]
+        else:
+            new_key = k
+        new_state_dict[new_key] = v
+    missing, unexpected = model.load_state_dict(new_state_dict, strict=False)
+
+
 def build_norm_hardcoded(cfg, num_features, postfix=None):
     cfg = cfg.copy()
     layer_type = cfg.pop("type")
@@ -275,25 +431,6 @@ def build_norm_hardcoded(cfg, num_features, postfix=None):
     return name, module
 
 
-def build_plugin_layer_hardcoded(cfg, in_channels=None, postfix=""):
-    cfg = cfg.copy()
-    layer_type = cfg.pop("type")
-
-    def camel2snack(word):
-        import re
-
-        word = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", word)
-        word = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", word)
-        word = word.replace("-", "_")
-        return word.lower()
-
-    abbr = camel2snack(layer_type)
-    layer = nn.Identity()
-
-    name = f"{abbr}{postfix}"
-    return name, layer
-
-
 class BaseModule(nn.Module, metaclass=ABCMeta):
     def __init__(self, init_cfg=None):
         super(BaseModule, self).__init__()
@@ -306,8 +443,6 @@ class BaseModule(nn.Module, metaclass=ABCMeta):
         return self._is_init
 
     def init_weights(self):
-        """Initialize the weights."""
-
         is_top_level_module = False
         if not hasattr(self, "_params_init_info"):
             self._params_init_info = defaultdict(dict)
@@ -636,12 +771,9 @@ class ResNet(BaseModule):
         self.stem_channels = stem_channels
         self.base_channels = base_channels
         self.num_stages = num_stages
-        assert num_stages >= 1 and num_stages <= 4
         self.strides = strides
         self.dilations = dilations
-        assert len(strides) == len(dilations) == num_stages
         self.out_indices = out_indices
-        assert max(out_indices) < num_stages
         self.style = style
         self.deep_stem = deep_stem
         self.avg_down = avg_down
@@ -957,15 +1089,37 @@ class DeformConv2dPack(nn.Module):
     def forward(self, x):
         offset = self.conv_offset(x)
 
-        return torchvision.ops.deform_conv2d(
-            input=x,
-            offset=offset,
-            weight=self.weight,
-            bias=self.bias,
+        # Cast to float32 for torchvision deform_conv2d (bf16 not supported), then cast back
+        original_dtype = x.dtype
+        input_fp32 = x if original_dtype == torch.float32 else x.to(torch.float32)
+        offset_fp32 = (
+            offset if offset.dtype == torch.float32 else offset.to(torch.float32)
+        )
+        weight_fp32 = (
+            self.weight
+            if self.weight.dtype == torch.float32
+            else self.weight.to(torch.float32)
+        )
+        bias_fp32 = (
+            None
+            if self.bias is None
+            else (
+                self.bias
+                if self.bias.dtype == torch.float32
+                else self.bias.to(torch.float32)
+            )
+        )
+
+        out = torchvision.ops.deform_conv2d(
+            input=input_fp32,
+            offset=offset_fp32,
+            weight=weight_fp32,
+            bias=bias_fp32,
             stride=self.stride,
             padding=self.padding,
             dilation=self.dilation,
         )
+        return out if original_dtype == torch.float32 else out.to(original_dtype)
 
 
 class DepthNet(nn.Module):
@@ -1100,6 +1254,12 @@ class DepthAggregation(nn.Module):
             ),
         )
 
+    def forward(self, x):
+        x = self.reduce_conv(x)
+        x = self.conv(x) + x
+        x = self.out_conv(x)
+        return x
+
 
 def obsolete_torch_version(torch_version, version_threshold) -> bool:
     return torch_version == "parrots" or torch_version <= version_threshold
@@ -1109,10 +1269,6 @@ def build_upsample_layer(cfg, *args, **kwargs) -> nn.Module:
     if cfg is None:
         cfg_ = dict(type="deconv", bias=False)
     else:
-        if not isinstance(cfg, dict):
-            raise TypeError("cfg must be a dict")
-        if "type" not in cfg:
-            raise KeyError('the cfg dict must contain the key "type"')
         cfg_ = cfg.copy()
 
     layer_type = cfg_.pop("type")
@@ -1134,10 +1290,6 @@ def build_conv_layer(cfg, *args, **kwargs) -> nn.Module:
     if cfg is None:
         cfg_ = dict(type="Conv2d", bias=False)
     else:
-        if not isinstance(cfg, dict):
-            raise TypeError("cfg must be a dict")
-        if "type" not in cfg:
-            raise KeyError('the cfg dict must contain the key "type"')
         cfg_ = cfg.copy()
 
     layer_type = cfg_.pop("type")
@@ -1163,8 +1315,6 @@ def build_conv_layer(cfg, *args, **kwargs) -> nn.Module:
             bias=bias,
             padding_mode=padding_mode,
         )
-    else:
-        raise KeyError(f"Unsupported conv layer type: {layer_type}")
 
 
 class NewEmptyTensorOp(torch.autograd.Function):
@@ -1173,15 +1323,10 @@ class NewEmptyTensorOp(torch.autograd.Function):
         ctx.shape = x.shape
         return x.new_empty(new_shape)
 
-    @staticmethod
-    def backward(ctx, grad: torch.Tensor) -> tuple:
-        shape = ctx.shape
-        return NewEmptyTensorOp.apply(grad, shape), None
-
 
 class ConvTranspose2d(nn.ConvTranspose2d):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if x.numel() == 0 and obsolete_torch_version(TORCH_VERSION, (1, 4)):
+        if x.numel() == 0:
             out_shape = [x.shape[0], self.out_channels]
             for i, k, p, s, d, op in zip(
                 x.shape[-2:],
@@ -1211,10 +1356,8 @@ class SECONDFPN(BaseModule):
         init_cfg=None,
     ):
         super(SECONDFPN, self).__init__(init_cfg=init_cfg)
-        assert len(out_channels) == len(upsample_strides) == len(in_channels)
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.fp16_enabled = False
 
         deblocks = []
         for i, out_channel in enumerate(out_channels):
@@ -1249,7 +1392,6 @@ class SECONDFPN(BaseModule):
             ]
 
     def forward(self, x):
-        assert len(x) == len(self.in_channels)
         ups = [deblock(x[i]) for i, deblock in enumerate(self.deblocks)]
 
         if len(ups) > 1:
@@ -1259,13 +1401,12 @@ class SECONDFPN(BaseModule):
         return [out]
 
 
-class VoxelPoolingInference(Function):
+class VoxelPoolingTrain(Function):
     @staticmethod
     def forward(
         ctx,
         geom_xyz: torch.Tensor,
-        depth_features: torch.Tensor,
-        context_features: torch.Tensor,
+        input_features: torch.Tensor,
         voxel_num: torch.Tensor,
     ) -> torch.Tensor:
         """Forward function for `voxel pooling.
@@ -1282,9 +1423,124 @@ class VoxelPoolingInference(Function):
             Tensor: (B, C, H, W) bev feature map.
         """
         assert geom_xyz.is_contiguous()
-        assert depth_features.is_contiguous()
-        assert context_features.is_contiguous()
+        assert input_features.is_contiguous()
         # no gradient for input_features and geom_feats
+        ctx.mark_non_differentiable(geom_xyz)
+        # Guard: CUDA tensors require compiled extension
+        if geom_xyz.is_cuda or input_features.is_cuda:
+            raise RuntimeError(
+                "CUDA path requires voxel_pooling_train_ext; move tensors to CPU or build the extension."
+            )
+
+        # CPU fallback implementation
+        # Shapes after reshape:
+        # - geom_xyz: [B, N, 3] (int)
+        # - input_features: [B, N, C]
+        geom_xyz = geom_xyz.reshape(geom_xyz.shape[0], -1, geom_xyz.shape[-1])
+        input_features = input_features.reshape(
+            (geom_xyz.shape[0], -1, input_features.shape[-1])
+        )
+        assert geom_xyz.shape[1] == input_features.shape[1]
+
+        batch_size = input_features.shape[0]
+        num_points = input_features.shape[1]
+        num_channels = input_features.shape[2]
+
+        voxel_num_x = int(voxel_num[0].detach().cpu().item())
+        voxel_num_y = int(voxel_num[1].detach().cpu().item())
+        voxel_num_z = int(voxel_num[2].detach().cpu().item())
+
+        # Output BEV grid (B, Vy, Vx, C)
+        output_features = input_features.new_zeros(
+            batch_size, voxel_num_y, voxel_num_x, num_channels
+        )
+
+        # Save the position in BEV feature map for each input point. Init to -1 (long dtype for indexing)
+        pos_memo = torch.full(
+            (batch_size, num_points, 3), -1, dtype=torch.long, device=geom_xyz.device
+        )
+
+        # Flatten (B, N, ...) to vectorized form
+        geom_flat = geom_xyz.view(-1, 3)
+        feats_flat = input_features.view(-1, num_channels)
+        total = geom_flat.shape[0]
+
+        # Compute batch indices for each flattened point
+        b_idx = (
+            torch.arange(batch_size, device=geom_xyz.device)
+            .unsqueeze(1)
+            .expand(batch_size, num_points)
+            .reshape(-1)
+        )
+
+        sx_all = geom_flat[:, 0]
+        sy_all = geom_flat[:, 1]
+        sz_all = geom_flat[:, 2]
+
+        # Valid mask within voxel bounds
+        valid = (
+            (sx_all >= 0)
+            & (sx_all < voxel_num_x)
+            & (sy_all >= 0)
+            & (sy_all < voxel_num_y)
+            & (sz_all >= 0)
+            & (sz_all < voxel_num_z)
+        )
+
+        if valid.any():
+            sx_v = sx_all[valid].to(torch.long)
+            sy_v = sy_all[valid].to(torch.long)
+            b_v = b_idx[valid].to(torch.long)
+            feats_v = feats_flat[valid]
+
+            # Accumulate into output grid: flatten BEV to [B*Vy*Vx, C]
+            out_flat = output_features.view(
+                batch_size * voxel_num_y * voxel_num_x, num_channels
+            )
+            lin_idx = b_v * (voxel_num_y * voxel_num_x) + sy_v * voxel_num_x + sx_v
+            out_flat.index_add_(0, lin_idx, feats_v)
+
+            # Populate pos_memo for backward (store [b, y, x])
+            pos_view = pos_memo.view(-1, 3)
+            pos_view[valid, 0] = b_v
+            pos_view[valid, 1] = sy_v
+            pos_view[valid, 2] = sx_v
+
+        # Save zero-initialized grad_input_features and pos_memo for backward
+        grad_input_features = torch.zeros_like(input_features)
+        ctx.save_for_backward(grad_input_features, pos_memo)
+        return output_features.permute(0, 3, 1, 2)
+
+    @staticmethod
+    def backward(ctx, grad_output_features):
+        (grad_input_features, pos_memo) = ctx.saved_tensors
+        kept = (pos_memo != -1)[..., 0]
+        grad_input_features_shape = grad_input_features.shape
+        grad_input_features = grad_input_features.reshape(
+            grad_input_features.shape[0], -1, grad_input_features.shape[-1]
+        )
+        grad_input_features[kept] = grad_output_features[
+            pos_memo[kept][..., 0].long(),
+            :,
+            pos_memo[kept][..., 1].long(),
+            pos_memo[kept][..., 2].long(),
+        ]
+        grad_input_features = grad_input_features.reshape(grad_input_features_shape)
+        return None, grad_input_features, None
+
+
+voxel_pooling_train = VoxelPoolingTrain.apply
+
+
+class VoxelPoolingInference(Function):
+    @staticmethod
+    def forward(
+        ctx,
+        geom_xyz: torch.Tensor,
+        depth_features: torch.Tensor,
+        context_features: torch.Tensor,
+        voxel_num: torch.Tensor,
+    ) -> torch.Tensor:
         ctx.mark_non_differentiable(geom_xyz)
         batch_size = geom_xyz.shape[0]
         num_cams = geom_xyz.shape[1]
@@ -1292,45 +1548,7 @@ class VoxelPoolingInference(Function):
         num_height = geom_xyz.shape[3]
         num_width = geom_xyz.shape[4]
         num_channels = context_features.shape[1]
-        # If tensors are on CUDA, use the optimized extension. Otherwise run a CPU fallback.
-        if geom_xyz.is_cuda and depth_features.is_cuda and context_features.is_cuda:
-            output_features = depth_features.new_zeros(
-                (batch_size, voxel_num[1], voxel_num[0], num_channels)
-            )
-            voxel_pooling_inference_ext.voxel_pooling_inference_forward_wrapper(
-                batch_size,
-                num_cams,
-                num_depth,
-                num_height,
-                num_width,
-                num_channels,
-                voxel_num[0],
-                voxel_num[1],
-                voxel_num[2],
-                geom_xyz,
-                depth_features,
-                context_features,
-                output_features,
-            )
-            return output_features.permute(0, 3, 1, 2)
 
-        # CPU fallback implementation
-        # Shapes:
-        # - geom_xyz: [B, Cams, D, H, W, 3] (int)
-        # - depth_features: [B*Cams, D, H, W]
-        # - context_features: [B*Cams, Cfeat, H, W]
-        # Output: [B, Cfeat, Vy, Vx]
-        assert (
-            not geom_xyz.is_cuda
-            and not depth_features.is_cuda
-            and not context_features.is_cuda
-        ), "CPU fallback expects all inputs on CPU"
-
-        # Ensure dtypes
-        if geom_xyz.dtype != torch.int32 and geom_xyz.dtype != torch.int64:
-            raise RuntimeError("geom_xyz must be integer tensor on CPU path")
-
-        # Allocate output on CPU with same dtype as context features
         voxel_num_x = int(voxel_num[0].detach().cpu().item())
         voxel_num_y = int(voxel_num[1].detach().cpu().item())
         voxel_num_z = int(voxel_num[2].detach().cpu().item())
@@ -1338,7 +1556,6 @@ class VoxelPoolingInference(Function):
             (batch_size, voxel_num_y, voxel_num_x, num_channels)
         )
 
-        # Make local views for speed
         B = batch_size
         Cams = num_cams
         D = num_depth
@@ -1348,16 +1565,12 @@ class VoxelPoolingInference(Function):
         Vx = voxel_num_x
         Vz = voxel_num_z
 
-        # Vectorized accumulation using scatter-add on flattened output
-        # Flatten spatial samples across (B, Cams, D, H, W)
         total_samples = B * Cams * D * H * W
-        # [N, 3] voxel coordinates
         geom_flat = geom_xyz.view(total_samples, 3)
         sx_all = geom_flat[:, 0]
         sy_all = geom_flat[:, 1]
         sz_all = geom_flat[:, 2]
 
-        # Valid mask inside voxel bounds
         valid = (
             (sx_all >= 0)
             & (sx_all < Vx)
@@ -1446,6 +1659,9 @@ class BaseLSSFPN(nn.Module):
         )
         self.register_buffer("frustum", self.create_frustum())
         self.depth_channels, _, _, _ = self.frustum.shape
+        self.use_da = use_da
+        if self.use_da:
+            self.depth_aggregation_net = self._configure_depth_aggregation_net()
 
         if isinstance(img_backbone_conf, dict):
             cfg = img_backbone_conf.copy()
@@ -1459,9 +1675,27 @@ class BaseLSSFPN(nn.Module):
 
         self.img_neck.init_weights()
         self.img_backbone.init_weights()
-        self.use_da = use_da
+
+    def _configure_depth_aggregation_net(self):
+        return DepthAggregation(
+            self.output_channels, self.output_channels, self.output_channels
+        )
+
+    def _forward_voxel_net(self, img_feat_with_depth):
         if self.use_da:
-            self.depth_aggregation_net = self._configure_depth_aggregation_net()
+            # BEVConv2D [n, c, d, h, w] -> [n, h, c, w, d]
+            img_feat_with_depth = img_feat_with_depth.permute(
+                0, 3, 1, 4, 2
+            ).contiguous()  # [n, c, d, h, w] -> [n, h, c, w, d]
+            n, h, c, w, d = img_feat_with_depth.shape
+            img_feat_with_depth = img_feat_with_depth.view(-1, c, w, d)
+            img_feat_with_depth = (
+                self.depth_aggregation_net(img_feat_with_depth)
+                .view(n, h, c, w, d)
+                .permute(0, 2, 4, 1, 3)
+                .contiguous()
+            )
+        return img_feat_with_depth
 
     def _configure_depth_net(self, depth_net_conf):
         return DepthNet(
@@ -1575,16 +1809,37 @@ class BaseLSSFPN(nn.Module):
         geom_xyz = (
             (geom_xyz - (self.voxel_coord - self.voxel_size / 2.0)) / self.voxel_size
         ).int()
+        if self.training or self.use_da:
+            img_feat_with_depth = depth.unsqueeze(1) * depth_feature[
+                :, self.depth_channels : (self.depth_channels + self.output_channels)
+            ].unsqueeze(2)
 
-        feature_map = voxel_pooling_inference(
-            geom_xyz,
-            depth,
-            depth_feature[
-                :,
-                self.depth_channels : (self.depth_channels + self.output_channels),
-            ].contiguous(),
-            self.voxel_num,
-        )
+            img_feat_with_depth = self._forward_voxel_net(img_feat_with_depth)
+
+            img_feat_with_depth = img_feat_with_depth.reshape(
+                batch_size,
+                num_cams,
+                img_feat_with_depth.shape[1],
+                img_feat_with_depth.shape[2],
+                img_feat_with_depth.shape[3],
+                img_feat_with_depth.shape[4],
+            )
+
+            img_feat_with_depth = img_feat_with_depth.permute(0, 1, 3, 4, 5, 2)
+
+            feature_map = voxel_pooling_train(
+                geom_xyz, img_feat_with_depth.contiguous(), self.voxel_num
+            )
+        else:
+            feature_map = voxel_pooling_inference(
+                geom_xyz,
+                depth,
+                depth_feature[
+                    :,
+                    self.depth_channels : (self.depth_channels + self.output_channels),
+                ].contiguous(),
+                self.voxel_num,
+            )
         return feature_map.contiguous()
 
     def forward(self, sweep_imgs, mats_dict, timestamps=None, is_return_depth=False):
@@ -1744,9 +1999,6 @@ class ConvModule(nn.Module):
         order: tuple = ("conv", "norm", "act"),
     ):
         super().__init__()
-        assert conv_cfg is None or isinstance(conv_cfg, dict)
-        assert norm_cfg is None or isinstance(norm_cfg, dict)
-        assert act_cfg is None or isinstance(act_cfg, dict)
         official_padding_mode = ["zeros", "circular"]
         self.conv_cfg = conv_cfg
         self.norm_cfg = norm_cfg
@@ -1755,8 +2007,6 @@ class ConvModule(nn.Module):
         self.with_spectral_norm = with_spectral_norm
         self.with_explicit_padding = padding_mode not in official_padding_mode
         self.order = order
-        assert isinstance(self.order, tuple) and len(self.order) == 3
-        assert set(order) == {"conv", "norm", "act"}
 
         self.with_norm = norm_cfg is not None
         self.with_activation = act_cfg is not None
@@ -1823,7 +2073,6 @@ class ConvModule(nn.Module):
             act_type = cfg.pop("type")
             self.activate = ACTIVATION_MAP[act_type](**cfg)
 
-        # Use msra init by default
         self.init_weights()
 
     @property
@@ -1948,7 +2197,6 @@ class CenterPointBBoxCoder(BaseBBoxCoder):
             xs = xs.view(batch, self.max_num, 1) + 0.5
             ys = ys.view(batch, self.max_num, 1) + 0.5
 
-        # rotation value and direction label
         rot_sine = self._transpose_and_gather_feat(rot_sine, inds)
         rot_sine = rot_sine.view(batch, self.max_num, 1)
 
@@ -1956,15 +2204,12 @@ class CenterPointBBoxCoder(BaseBBoxCoder):
         rot_cosine = rot_cosine.view(batch, self.max_num, 1)
         rot = torch.atan2(rot_sine, rot_cosine)
 
-        # height in the bev
         hei = self._transpose_and_gather_feat(hei, inds)
         hei = hei.view(batch, self.max_num, 1)
 
-        # dim of the box
         dim = self._transpose_and_gather_feat(dim, inds)
         dim = dim.view(batch, self.max_num, 3)
 
-        # class label
         clses = clses.view(batch, self.max_num).float()
         scores = scores.view(batch, self.max_num)
 
@@ -2050,7 +2295,6 @@ class CenterHead(BaseModule):
             cfg.pop("type", None)
             self.bbox_coder = CenterPointBBoxCoder(**cfg)
         self.num_anchor_per_locs = [n for n in num_classes]
-        self.fp16_enabled = False
 
         self.shared_conv = ConvModule(
             in_channels,
@@ -2164,3 +2408,49 @@ class BaseBEVDepth(nn.Module):
         x = self.backbone(x, mats_dict, timestamps)
         preds = self.head(x)
         return preds
+
+
+def create_bevdepth_model(
+    variant: str = "bev_depth_lss_r50_256x704_128x128_24e_2key",
+    is_train_depth: bool = False,
+):
+    """
+    Create a BEVDepth model with variant-specific configuration.
+
+    Args:
+        variant (str): One of the supported BEVDepth variants:
+            - "bev_depth_lss_r50_256x704_128x128_24e_2key" (base)
+            - "bev_depth_lss_r50_256x704_128x128_24e_2key_ema"
+            - "bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da"
+            - "bev_depth_lss_r50_256x704_128x128_20e_cbgs_2key_da_ema"
+        is_train_depth (bool): Whether to enable depth training mode
+
+    Returns:
+        BaseBEVDepth: Configured model instance
+        dict: Complete configuration used for the model
+    """
+    config = get_bevdepth_config(variant)
+    model = BaseBEVDepth(
+        backbone_conf=config["backbone_conf"],
+        head_conf=config["head_conf"],
+        is_train_depth=is_train_depth,
+    )
+    return model
+
+
+def update_dataloader_config(
+    variant: str = "bev_depth_lss_r50_256x704_128x128_24e_2key",
+):
+    """
+    Update global dataloader configuration for a specific variant.
+    This function modifies the global ida_aug_conf, bda_aug_conf, and img_conf
+    variables to match the variant-specific settings.
+
+    Args:
+        variant (str): BEVDepth variant name
+    """
+    global ida_aug_conf, bda_aug_conf, img_conf
+    config = get_bevdepth_config(variant)
+    ida_aug_conf.update(config["ida_aug_conf"])
+    bda_aug_conf.update(config["bda_aug_conf"])
+    img_conf.update(config["img_conf"])
