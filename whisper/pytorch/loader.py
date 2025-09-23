@@ -123,7 +123,7 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name
             )
             model = WhisperModel.from_pretrained(
-                pretrained_model_name, return_dict=False, **model_kwargs
+                pretrained_model_name, **model_kwargs
             )
         else:
             processor_kwargs = {}
@@ -133,7 +133,6 @@ class ModelLoader(ForgeModel):
             self.processor = WhisperProcessor.from_pretrained(
                 pretrained_model_name,
                 use_cache=False,
-                return_dict=False,
                 **processor_kwargs
             )
             model = WhisperForConditionalGeneration.from_pretrained(

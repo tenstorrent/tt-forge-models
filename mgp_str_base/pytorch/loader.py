@@ -58,7 +58,7 @@ class ModelLoader(ForgeModel):
         """Load pretrained MGP-STR model."""
 
         model = MgpstrForSceneTextRecognition.from_pretrained(
-            self.model_name, return_dict=False
+            self.model_name
         )
         model.eval()
 

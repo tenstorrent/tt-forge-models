@@ -103,7 +103,6 @@ class ModelLoader(ForgeModel):
         model = MambaForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name,
             use_cache=False,
-            return_dict=False,
             **model_kwargs
         )
         model.eval()
