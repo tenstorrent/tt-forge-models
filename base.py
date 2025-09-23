@@ -175,16 +175,16 @@ class ForgeModel(ABC):
         # Default implementation just returns outputs if present in kwargs
         return kwargs.get("outputs", None)
 
-    def get_mesh_shape(self, num_devices: int):
+    def get_mesh_config(self, num_devices: int):
         """Get the mesh shape for the model.
 
         Args:
             num_devices: Number of devices to distribute the model across
 
         Returns:
-            tuple: Mesh shape tuple, or None if not applicable for this model
+            tuple: Mesh shape tuple, mesh names tuple, or None if not applicable for this model
         """
-        return None
+        return None, ()
 
     def load_shard_spec(self, model):
         """Load the shard spec of the model. Note: model needs to be on device first.

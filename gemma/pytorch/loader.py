@@ -178,6 +178,9 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
+        if self._variant in [ModelVariant.GEMMA_1_1_2B_IT, ModelVariant.GEMMA_2B, ModelVariant.GEMMA_2_2B_IT]:
+            return None
+
         shard_specs = {}
         for layer in model.model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")

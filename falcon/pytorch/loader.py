@@ -170,3 +170,28 @@ class ModelLoader(ForgeModel):
         response_tokens = inputs.input_ids[0, response_start:response_end]
 
         return self.tokenizer.decode(response_tokens)
+
+    def get_mesh_config(self, num_devices: int):
+        if num_devices == 2:
+            mesh_shape = (1, num_devices)
+        elif num_devices == 8:
+            mesh_shape = (2, 4)
+        else:
+            assert False, "Invalid number of devices"
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        if self._variant in [ModelVariant.FALCON_1B, ModelVariant.FALCON_3B]:
+            return None
+
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", None)
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
+            shard_specs[layer.mlp.down_proj.weight] = (None, "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", None)
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", None)
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", None)
+            shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
+        return shard_specs
