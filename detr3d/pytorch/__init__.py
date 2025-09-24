@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Vadv2 PYTORCH model implementation for Tenstorrent projects.
+Detr3d PYTORCH model implementation for Tenstorrent projects.
 """
 from .loader import ModelLoader
