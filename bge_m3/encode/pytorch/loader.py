@@ -46,7 +46,7 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="bge_m3_encode",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=ModelGroup.RED,
             task=ModelTask.NLP_EMBED_GEN,
             source=ModelSource.CUSTOM,
             framework=Framework.TORCH,
@@ -57,13 +57,11 @@ class ModelLoader(ForgeModel):
 
         model_name = self._variant_config.pretrained_model_name
         flag_model = BGEM3FlagModel(model_name)
-        # Expose callable encode function for forward
         self.model = flag_model
 
-        return self.model.encode
+        return self.model.encode_for_single_device
 
     def load_inputs(self):
-        # Provide sentences and encode flags as in test
         sentences = [
             "BGE M3 is an embedding model supporting dense retrieval, lexical matching and multi-vector interaction.",
             "BM25 is a bag-of-words retrieval function that ranks a set of documents based on the query terms appearing in each document",
