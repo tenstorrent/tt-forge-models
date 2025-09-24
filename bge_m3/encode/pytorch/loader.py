@@ -59,7 +59,7 @@ class ModelLoader(ForgeModel):
         flag_model = BGEM3FlagModel(model_name)
         self.model = flag_model
 
-        return self.model.encode_for_single_device
+        return self.model.encode_single_device
 
     def load_inputs(self):
         sentences = [
