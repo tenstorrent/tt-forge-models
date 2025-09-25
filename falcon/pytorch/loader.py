@@ -185,13 +185,47 @@ class ModelLoader(ForgeModel):
             return None
 
         shard_specs = {}
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", None)
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
-            shard_specs[layer.mlp.down_proj.weight] = (None, "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", None)
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", None)
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", None)
-            shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
+        base = (
+            getattr(model, "model", None)
+            or getattr(model, "backbone", None)
+            or getattr(model, "transformer", None)
+        )
+        if base is None:
+            raise AttributeError(f"Unsupported model type: {type(model).__name__}")
+
+        layers_container = getattr(base, "layers", None) or getattr(base, "h", None)
+        if layers_container is None:
+            raise AttributeError(
+                f"Unsupported base container for {type(base).__name__}; expected `layers` or `h`."
+            )
+
+        for layer in layers_container:
+            # Llama/Falcon-attn style blocks (separate Q/K/V and MLP projections)
+            if hasattr(layer, "mlp") and hasattr(layer, "self_attn"):
+                shard_specs[layer.mlp.up_proj.weight] = ("model", None)
+                shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
+                shard_specs[layer.mlp.down_proj.weight] = (None, "model")
+
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
+            # Falcon classic blocks (fused QKV and FalconMLP naming) : FALCON_7B_INSTRUCT
+            elif hasattr(layer, "mlp") and hasattr(layer, "self_attention"):
+                # MLP
+                if hasattr(layer.mlp, "dense_h_to_4h"):
+                    shard_specs[layer.mlp.dense_h_to_4h.weight] = ("model", None)
+                if hasattr(layer.mlp, "dense_4h_to_h"):
+                    shard_specs[layer.mlp.dense_4h_to_h.weight] = (None, "model")
+            # Falcon Mamba style blocks : FALCON_MAMBA_7B
+            elif hasattr(layer, "mixer"):
+                shard_specs[layer.mixer.in_proj.weight] = ("model", None)
+                shard_specs[layer.mixer.x_proj.weight] = ("model", None)
+                shard_specs[layer.mixer.dt_proj.weight] = ("model", None)
+                shard_specs[layer.mixer.out_proj.weight] = (None, "model")
+            else:
+                # Unknown block type; skip
+                continue
+
         return shard_specs
