@@ -18,6 +18,7 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
+from ....tools.utils import cast_input_to_type
 
 
 class ModelVariant(StrEnum):
@@ -86,6 +87,7 @@ class ModelLoader(ForgeModel):
         input_ids = inputs["input_ids"]
         attn_mask = inputs["attention_mask"]
         if dtype_override is not None:
-            input_ids = input_ids.to(dtype_override)
-            attn_mask = attn_mask.to(dtype_override)
+            input_ids = cast_input_to_type(input_ids, dtype_override)
+            attn_mask = cast_input_to_type(attn_mask, dtype_override)
+
         return [input_ids, attn_mask]
