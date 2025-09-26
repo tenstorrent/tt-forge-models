@@ -136,6 +136,7 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
         self.model = model
+        self.config = model.config
         return model
 
     def load_inputs(
@@ -175,6 +176,14 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
         mesh_shape = (1, num_devices)
+        if self._variant not in [
+            ModelVariant.GEMMA_1_1_2B_IT,
+            ModelVariant.GEMMA_2B,
+            ModelVariant.GEMMA_2_2B_IT,
+        ]:
+            assert (
+                self.config.num_attention_heads % mesh_shape[1] == 0
+            ), "Attention heads must be divisible by the model axis size"
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
