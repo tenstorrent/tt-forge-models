@@ -178,7 +178,11 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
-        if self._variant in [ModelVariant.GEMMA_1_1_2B_IT, ModelVariant.GEMMA_2B, ModelVariant.GEMMA_2_2B_IT]:
+        if self._variant in [
+            ModelVariant.GEMMA_1_1_2B_IT,
+            ModelVariant.GEMMA_2B,
+            ModelVariant.GEMMA_2_2B_IT,
+        ]:
             return None
 
         shard_specs = {}
