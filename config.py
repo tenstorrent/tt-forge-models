@@ -79,6 +79,7 @@ class ModelSource(StrEnum):
     TORCH_XRAY_VISION = "torchxrayvision"
     OSMR = "osmr"
     GITHUB = "github"
+    DETECTRON2 = "detectron2"
 
 
 class Framework(StrEnum):
