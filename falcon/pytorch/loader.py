@@ -178,7 +178,11 @@ class ModelLoader(ForgeModel):
         else:
             assert num_devices % 2 == 0, "Attention heads cannot be evenly distributed"
             mesh_shape = (2, num_devices // 2)
-        if self._variant in [ModelVariant.FALCON_7B, ModelVariant.FALCON_10B]:
+        shard_attention = self._variant in [
+            ModelVariant.FALCON_7B,
+            ModelVariant.FALCON_10B,
+        ]
+        if shard_attention:
             assert (
                 self.config.num_attention_heads % mesh_shape[1] == 0
             ), "Attention heads must be divisible by the model axis size"
