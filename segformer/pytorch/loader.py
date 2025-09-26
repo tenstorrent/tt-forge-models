@@ -92,7 +92,9 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="segformer",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=ModelGroup.RED
+            if variant == ModelVariant.MIT_B0
+            else ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -114,7 +116,6 @@ class ModelLoader(ForgeModel):
         # Load configuration
         config = SegformerConfig.from_pretrained(model_name)
         config_dict = config.to_dict()
-        config_dict["return_dict"] = False
         config = SegformerConfig(**config_dict)
 
         # Load model from HuggingFace
