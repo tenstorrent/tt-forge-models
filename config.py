@@ -69,6 +69,7 @@ class ModelTask(StrEnum):
     MM_CONDITIONAL_GENERATION = "mm_conditional_generation"
     CONDITIONAL_GENERATION = "conditional_generation"
     ATOMIC_ML = "atomic_ml"
+    SENTENCE_SPLITTING = "sentence_splitting"
 
 
 class ModelSource(StrEnum):
