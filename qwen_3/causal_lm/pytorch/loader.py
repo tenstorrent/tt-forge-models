@@ -156,6 +156,8 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
+        self.config = model.config
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -199,7 +201,7 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
         mesh_shape = (1, num_devices)
-        if self._variant in [
+        if self._variant not in [
             ModelVariant.QWEN_3_4B
         ]:
             assert (
