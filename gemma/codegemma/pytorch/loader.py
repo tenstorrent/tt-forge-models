@@ -62,7 +62,7 @@ def calculate_age(birth_year):
         return ModelInfo(
             model="codegemma",
             variant=variant,
-            group=ModelGroup.GENERALITY, # ML training generality
+            group=ModelGroup.GENERALITY,  # ML training generality
             task=ModelTask.NLP_QA,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -81,7 +81,9 @@ def calculate_age(birth_year):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(self._variant_config.pretrained_model_name, **tokenizer_kwargs)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        )
 
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -105,7 +107,9 @@ def calculate_age(birth_year):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model = AutoModelForCausalLM.from_pretrained(self._variant_config.pretrained_model_name, **model_kwargs)
+        model = AutoModelForCausalLM.from_pretrained(
+            self._variant_config.pretrained_model_name, **model_kwargs
+        )
         model.eval()
 
         self.model = model
