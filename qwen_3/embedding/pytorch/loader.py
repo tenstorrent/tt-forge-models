@@ -164,6 +164,7 @@ class ModelLoader(ForgeModel):
             for query in self.sample_queries
         ]
         input_texts = queries + self.sample_documents
+        input_texts = [input_texts[0], ]
 
         # Tokenize the input texts
         inputs = self.tokenizer(
@@ -204,3 +205,20 @@ class ModelLoader(ForgeModel):
         scores = embeddings[:num_queries] @ embeddings[num_queries:].T
 
         return scores.tolist()
+
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        return shard_specs
