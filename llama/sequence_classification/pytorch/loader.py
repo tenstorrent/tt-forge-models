@@ -199,10 +199,6 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        # Resize token embeddings if we added a new pad token
-        if len(self.tokenizer) > model.config.vocab_size:
-            model.resize_token_embeddings(len(self.tokenizer))
-
         # Set pad token id in model config
         model.config.pad_token_id = self.tokenizer.pad_token_id
         self.model = model
