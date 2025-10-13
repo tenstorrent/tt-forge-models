@@ -11,7 +11,8 @@ from copy import deepcopy
 from enum import IntEnum, unique
 from io import BytesIO, StringIO
 from pathlib import Path
-from typing import Optional, Union
+from collections import defaultdict, OrderedDict
+
 import cv2
 import numpy as np
 import torch
@@ -21,9 +22,11 @@ from cv2 import (
     IMREAD_IGNORE_ORIENTATION,
     IMREAD_UNCHANGED,
 )
+from .file_client import FileClient
 from .handlers import JsonHandler, PickleHandler, YamlHandler
 from nuscenes.eval.common.utils import Quaternion, quaternion_yaw
 from .nuscenes_dataloader import DataContainer as DC
+from .registry import DATASETS, PIPELINES, Compose
 from torch.utils.data import Dataset
 
 try:
@@ -77,6 +80,27 @@ if Image is not None:
         "box": Image.BOX,
         "lanczos": Image.LANCZOS,
         "hamming": Image.HAMMING,
+    }
+    img_norm_cfg = {
+        "mean": [103.53, 116.28, 123.675],
+        "std": [1, 1, 1],
+        "to_rgb": False,
+    }
+    ida_aug_conf = {
+        "reisze": [512, 544, 576, 608, 640, 672, 704, 736, 768],  #  (0.8, 1.2)
+        "crop": (0, 260, 1600, 900),
+        "H": 900,
+        "W": 1600,
+        "rand_flip": True,
+    }
+    ida_aug_conf_eval = {
+        "reisze": [
+            640,
+        ],
+        "crop": (0, 260, 1600, 900),
+        "H": 900,
+        "W": 1600,
+        "rand_flip": False,
     }
 
     data_test = {
@@ -141,6 +165,88 @@ if Image is not None:
         "test_mode": True,
         "box_type_3d": "LiDAR",
         "bev_size": (50, 50),
+    }
+
+    data_test_v2 = {
+        "type": "CustomNuScenesDatasetV2",
+        "data_root": "/proj_sw/user_dev/mramanathan/bgdlab08_sep3_forge_new/tt-forge-fe/forge/test/models/pytorch/vision/bevformer/data/nuscenes",
+        "ann_file": "/proj_sw/user_dev/mramanathan/bgdlab08_sep3_forge_new/tt-forge-fe/forge/test/models/pytorch/vision/bevformer/data/nuscenes/nuscenes_infos_temporal_val.pkl",
+        "pipeline": [
+            {"type": "LoadMultiViewImageFromFiles", "to_float32": True},
+            {
+                "type": "CropResizeFlipImage",
+                "data_aug_conf": ida_aug_conf_eval,
+                "training": False,
+                "debug": False,
+            },
+            {
+                "type": "NormalizeMultiviewImage",
+                "mean": [
+                    103.53,
+                    116.28,
+                    123.675,
+                ],  # replace with values in img_norm_cfg if different
+                "std": [1, 1, 1],
+                "to_rgb": False,  # add if applicable from img_norm_cfg
+            },
+            {"type": "PadMultiViewImage", "size_divisor": 32},
+            {
+                "type": "MultiScaleFlipAug3D",
+                "img_scale": (1600, 640),
+                "pts_scale_ratio": 1,
+                "flip": False,
+                "transforms": [
+                    {
+                        "type": "DefaultFormatBundle3D",
+                        "class_names": [
+                            "car",
+                            "truck",
+                            "construction_vehicle",
+                            "bus",
+                            "trailer",
+                            "barrier",
+                            "motorcycle",
+                            "bicycle",
+                            "pedestrian",
+                            "traffic_cone",
+                        ],
+                        "with_label": False,
+                    },
+                    {
+                        "type": "CustomCollect3D",
+                        "keys": [
+                            "img",
+                            "ego2global_translation",
+                            "ego2global_rotation",
+                            "lidar2ego_translation",
+                            "lidar2ego_rotation",
+                            "timestamp",
+                        ],
+                    },
+                ],
+            },
+        ],
+        "classes": [
+            "car",
+            "truck",
+            "construction_vehicle",
+            "bus",
+            "trailer",
+            "barrier",
+            "motorcycle",
+            "bicycle",
+            "pedestrian",
+            "traffic_cone",
+        ],
+        "modality": {
+            "use_lidar": False,
+            "use_camera": True,
+            "use_radar": False,
+            "use_map": False,
+            "use_external": True,
+        },
+        "test_mode": True,
+        "box_type_3d": "LiDAR",
     }
 
 
@@ -222,6 +328,8 @@ def build_dataset(cfg):
     ds_type = args.pop("type")
     if ds_type == "CustomNuScenesDataset":
         return CustomNuScenesDataset(**args)
+    if ds_type == "CustomNuScenesDatasetV2":
+        return CustomNuScenesDatasetV2(**args)
     if ds_type == "ConcatDataset":
         datasets = [build_dataset(c) for c in args["datasets"]]
         from torch.utils.data import ConcatDataset as TorchConcatDataset
@@ -247,65 +355,16 @@ def build_dataset(cfg):
     raise KeyError(f"Unsupported dataset type: {ds_type}")
 
 
-class HardDiskBackend:
-    def get(self, filepath: Union[str, Path]) -> bytes:
-        with open(filepath, "rb") as f:
-            return f.read()
-
-    def get_text(self, filepath: Union[str, Path], encoding: str = "utf-8") -> str:
-        with open(filepath, "r", encoding=encoding) as f:
-            return f.read()
-
-
-class FileClient:
-
-    _backends = {
-        "disk": HardDiskBackend,
-    }
-
-    _instances = {}
-
-    def __new__(cls, backend: Optional[str] = None, **kwargs):
-        backend = backend or "disk"
-        if backend not in cls._backends:
-            raise ValueError(
-                f"Backend {backend} is not supported. Currently supported ones are {list(cls._backends.keys())}"
-            )
-
-        # use a simple instance cache keyed by backend and kwargs
-        arg_key = backend
-        for key, value in kwargs.items():
-            arg_key += f":{key}:{value}"
-
-        if arg_key in cls._instances:
-            return cls._instances[arg_key]
-
-        instance = super().__new__(cls)
-        instance.client = cls._backends[backend](**kwargs)
-        cls._instances[arg_key] = instance
-        return instance
-
-    @classmethod
-    def infer_client(
-        cls,
-        file_client_args: Optional[dict] = None,
-        uri: Optional[Union[str, Path]] = None,
-    ) -> "FileClient":
-        # Only disk backend is supported; ignore uri and default to disk when args are not provided
-        return (
-            cls(**file_client_args)
-            if file_client_args is not None
-            else cls(backend="disk")
-        )
-
-    def get(self, filepath: Union[str, Path]) -> bytes:
-        return self.client.get(filepath)
-
-    def get_text(self, filepath: Union[str, Path], encoding: str = "utf-8") -> str:
-        return self.client.get_text(filepath, encoding)
-
-
 def to_tensor(data):
+    """Convert objects of various python types to :obj:`torch.Tensor`.
+
+    Supported types are: :class:`numpy.ndarray`, :class:`torch.Tensor`,
+    :class:`Sequence`, :class:`int` and :class:`float`.
+
+    Args:
+        data (torch.Tensor | numpy.ndarray | Sequence | int | float): Data to
+            be converted.
+    """
 
     if isinstance(data, torch.Tensor):
         return data
@@ -391,7 +450,19 @@ def check_file_exist(filename, msg_tmpl='file "{}" does not exist'):
 
 
 def _pillow2array(img, flag="color", channel_order="bgr"):
+    """Convert a pillow image to numpy array.
 
+    Args:
+        img (:obj:`PIL.Image.Image`): The image loaded using PIL
+        flag (str): Flags specifying the color type of a loaded image,
+            candidates are 'color', 'grayscale' and 'unchanged'.
+            Default to 'color'.
+        channel_order (str): The channel order of the output image array,
+            candidates are 'bgr' and 'rgb'. Default to 'bgr'.
+
+    Returns:
+        np.ndarray: The converted numpy array
+    """
     channel_order = channel_order.lower()
     if channel_order not in ["rgb", "bgr"]:
         raise ValueError('channel order must be either "rgb" or "bgr"')
@@ -465,10 +536,6 @@ def imread(img_or_path, flag="color", channel_order="bgr", backend=None):
     if isinstance(img_or_path, np.ndarray):
         return img_or_path
     elif is_str(img_or_path):
-        # Remap relative './data' path to absolute dataset path
-        if img_or_path.startswith("./data"):
-            base_data_root = "/proj_sw/user_dev/mramanathan/bgdlab19_sep10_xla/tt-xla/tests/jax/single_chip/models/bevformer/data"
-            img_or_path = base_data_root + img_or_path[len("./data") :]
         check_file_exist(img_or_path, f"img file does not exist: {img_or_path}")
         if backend == "turbojpeg":
             with open(img_or_path, "rb") as in_file:
@@ -549,6 +616,7 @@ def impad_to_multiple(img, divisor, pad_val=0):
     return impad(img, shape=(pad_h, pad_w), pad_val=pad_val)
 
 
+@PIPELINES.register_module()
 class CustomCollect3D(object):
     def __init__(
         self,
@@ -601,12 +669,13 @@ class CustomCollect3D(object):
         return data
 
     def __repr__(self):
-
+        """str: Return a string that describes the module."""
         return (
             self.__class__.__name__ + f"(keys={self.keys}, meta_keys={self.meta_keys})"
         )
 
 
+@PIPELINES.register_module()
 class DefaultFormatBundle(object):
     def __init__(
         self,
@@ -614,7 +683,15 @@ class DefaultFormatBundle(object):
         return
 
     def __call__(self, results):
+        """Call function to transform and format common fields in results.
 
+        Args:
+            results (dict): Result dict contains the data to convert.
+
+        Returns:
+            dict: The result dict contains the data that is formatted with
+                default bundle.
+        """
         if "img" in results:
             if isinstance(results["img"], list):
                 # process multiple imgs in single frame
@@ -661,14 +738,100 @@ class DefaultFormatBundle(object):
         return self.__class__.__name__
 
 
+@PIPELINES.register_module()
 class DefaultFormatBundle3D(DefaultFormatBundle):
+    """Default formatting bundle.
+
+    It simplifies the pipeline of formatting common fields for voxels,
+    including "proposals", "gt_bboxes", "gt_labels", "gt_masks" and
+    "gt_semantic_seg".
+    These fields are formatted as follows.
+
+    - img: (1)transpose, (2)to tensor, (3)to DataContainer (stack=True)
+    - proposals: (1)to tensor, (2)to DataContainer
+    - gt_bboxes: (1)to tensor, (2)to DataContainer
+    - gt_bboxes_ignore: (1)to tensor, (2)to DataContainer
+    - gt_labels: (1)to tensor, (2)to DataContainer
+    """
+
     def __init__(self, class_names, with_gt=True, with_label=True):
         super(DefaultFormatBundle3D, self).__init__()
         self.class_names = class_names
         self.with_gt = with_gt
         self.with_label = with_label
 
+    def __call__(self, results):
+        """Call function to transform and format common fields in results.
 
+        Args:
+            results (dict): Result dict contains the data to convert.
+
+        Returns:
+            dict: The result dict contains the data that is formatted with
+                default bundle.
+        """
+        # Format 3D data
+        if "points" in results:
+            assert isinstance(results["points"], BasePoints)
+            results["points"] = DC(results["points"].tensor)
+
+        for key in ["voxels", "coors", "voxel_centers", "num_points"]:
+            if key not in results:
+                continue
+            results[key] = DC(to_tensor(results[key]), stack=False)
+
+        if self.with_gt:
+            # Clean GT bboxes in the final
+            if "gt_bboxes_3d_mask" in results:
+                gt_bboxes_3d_mask = results["gt_bboxes_3d_mask"]
+                results["gt_bboxes_3d"] = results["gt_bboxes_3d"][gt_bboxes_3d_mask]
+                if "gt_names_3d" in results:
+                    results["gt_names_3d"] = results["gt_names_3d"][gt_bboxes_3d_mask]
+                if "centers2d" in results:
+                    results["centers2d"] = results["centers2d"][gt_bboxes_3d_mask]
+                if "depths" in results:
+                    results["depths"] = results["depths"][gt_bboxes_3d_mask]
+            if "gt_bboxes_mask" in results:
+                gt_bboxes_mask = results["gt_bboxes_mask"]
+                if "gt_bboxes" in results:
+                    results["gt_bboxes"] = results["gt_bboxes"][gt_bboxes_mask]
+                results["gt_names"] = results["gt_names"][gt_bboxes_mask]
+            if self.with_label:
+                if "gt_names" in results and len(results["gt_names"]) == 0:
+                    results["gt_labels"] = np.array([], dtype=np.int64)
+                    results["attr_labels"] = np.array([], dtype=np.int64)
+                elif "gt_names" in results and isinstance(results["gt_names"][0], list):
+                    # gt_labels might be a list of list in multi-view setting
+                    results["gt_labels"] = [
+                        np.array(
+                            [self.class_names.index(n) for n in res], dtype=np.int64
+                        )
+                        for res in results["gt_names"]
+                    ]
+                elif "gt_names" in results:
+                    results["gt_labels"] = np.array(
+                        [self.class_names.index(n) for n in results["gt_names"]],
+                        dtype=np.int64,
+                    )
+                # we still assume one pipeline for one frame LiDAR
+                # thus, the 3D name is list[string]
+                if "gt_names_3d" in results:
+                    results["gt_labels_3d"] = np.array(
+                        [self.class_names.index(n) for n in results["gt_names_3d"]],
+                        dtype=np.int64,
+                    )
+        results = super(DefaultFormatBundle3D, self).__call__(results)
+        return results
+
+    def __repr__(self):
+        """str: Return a string that describes the module."""
+        repr_str = self.__class__.__name__
+        repr_str += f"(class_names={self.class_names}, "
+        repr_str += f"with_gt={self.with_gt}, with_label={self.with_label})"
+        return repr_str
+
+
+@PIPELINES.register_module()
 class PadMultiViewImage(object):
     def __init__(self, size=None, size_divisor=None, pad_val=0):
         self.size = size
@@ -679,7 +842,7 @@ class PadMultiViewImage(object):
         assert size is None or size_divisor is None
 
     def _pad_img(self, results):
-
+        """Pad images according to ``self.size``."""
         if self.size is not None:
             padded_img = [
                 impad(img, shape=self.size, pad_val=self.pad_val)
@@ -699,7 +862,12 @@ class PadMultiViewImage(object):
         results["pad_size_divisor"] = self.size_divisor
 
     def __call__(self, results):
-
+        """Call function to pad images, masks, semantic segmentation maps.
+        Args:
+            results (dict): Result dict from loading pipeline.
+        Returns:
+            dict: Updated result dict.
+        """
         self._pad_img(results)
         return results
 
@@ -711,13 +879,24 @@ class PadMultiViewImage(object):
         return repr_str
 
 
+@PIPELINES.register_module()
 class RandomScaleImageMultiViewImage(object):
+    """Random scale the image
+    Args:
+        scales
+    """
+
     def __init__(self, scales=[]):
         self.scales = scales
         assert len(self.scales) == 1
 
     def __call__(self, results):
-
+        """Call function to pad images, masks, semantic segmentation maps.
+        Args:
+            results (dict): Result dict from loading pipeline.
+        Returns:
+            dict: Updated result dict.
+        """
         rand_ind = np.random.permutation(range(len(self.scales)))[0]
         rand_scale = self.scales[rand_ind]
 
@@ -743,41 +922,7 @@ class RandomScaleImageMultiViewImage(object):
         return repr_str
 
 
-class Compose:
-    def __init__(self, transforms):
-        assert isinstance(transforms, (list, tuple))
-        self.transforms = []
-        for t in transforms:
-            # If already a callable (class instance), keep it; dicts are supported by instantiating from globals
-            if callable(t):
-                self.transforms.append(t)
-            elif isinstance(t, dict):
-                cfg = t.copy()
-                if "type" not in cfg:
-                    raise KeyError('transform cfg must contain key "type"')
-                t_type = cfg.pop("type")
-                cls = globals().get(t_type)
-                if cls is None:
-                    raise KeyError(f"Unknown transform type: {t_type}")
-                self.transforms.append(cls(**cfg))
-            else:
-                raise TypeError("transform must be callable or a dict")
-
-    def __call__(self, data):
-        for t in self.transforms:
-            data = t(data)
-            if data is None:
-                return None
-        return data
-
-    def __repr__(self):
-        parts = [self.__class__.__name__ + "("]
-        for t in self.transforms:
-            parts.append(f"    {t}")
-        parts.append(")")
-        return "\n".join(parts)
-
-
+@PIPELINES.register_module()
 class MultiScaleFlipAug3D(object):
     def __init__(
         self,
@@ -819,7 +964,15 @@ class MultiScaleFlipAug3D(object):
             warnings.warn("flip has no effect when RandomFlip is not in transforms")
 
     def __call__(self, results):
+        """Call function to augment common fields in results.
 
+        Args:
+            results (dict): Result dict contains the data to augment.
+
+        Returns:
+            dict: The result dict contains the data that is augmented with \
+                different scales and flips.
+        """
         aug_data = []
 
         # modified from `flip_aug = [False, True] if self.flip else [False]`
@@ -857,7 +1010,7 @@ class MultiScaleFlipAug3D(object):
         return aug_data_dict
 
     def __repr__(self):
-
+        """str: Return a string that describes the module."""
         repr_str = self.__class__.__name__
         repr_str += f"(transforms={self.transforms}, "
         repr_str += f"img_scale={self.img_scale}, flip={self.flip}, "
@@ -866,13 +1019,30 @@ class MultiScaleFlipAug3D(object):
         return repr_str
 
 
+@PIPELINES.register_module()
 class NormalizeMultiviewImage(object):
+    """Normalize the image.
+    Added key is "img_norm_cfg".
+    Args:
+        mean (sequence): Mean values of 3 channels.
+        std (sequence): Std values of 3 channels.
+        to_rgb (bool): Whether to convert the image from BGR to RGB,
+            default is true.
+    """
+
     def __init__(self, mean, std, to_rgb=True):
         self.mean = np.array(mean, dtype=np.float32)
         self.std = np.array(std, dtype=np.float32)
         self.to_rgb = to_rgb
 
     def __call__(self, results):
+        """Call function to normalize images.
+        Args:
+            results (dict): Result dict from loading pipeline.
+        Returns:
+            dict: Normalized results, 'img_norm_cfg' key is added into
+                result dict.
+        """
 
         results["img"] = [
             imnormalize(img, self.mean, self.std, self.to_rgb) for img in results["img"]
@@ -886,13 +1056,40 @@ class NormalizeMultiviewImage(object):
         return repr_str
 
 
+@PIPELINES.register_module()
 class LoadMultiViewImageFromFiles(object):
+    """Load multi channel images from a list of separate channel files.
+
+    Expects results['img_filename'] to be a list of filenames.
+
+    Args:
+        to_float32 (bool): Whether to convert the img to float32.
+            Defaults to False.
+        color_type (str): Color type of the file. Defaults to 'unchanged'.
+    """
+
     def __init__(self, to_float32=False, color_type="unchanged"):
         self.to_float32 = to_float32
         self.color_type = color_type
 
     def __call__(self, results):
+        """Call function to load multi-view image from files.
 
+        Args:
+            results (dict): Result dict containing multi-view image filenames.
+
+        Returns:
+            dict: The result dict containing the multi-view image data. \
+                Added keys and values are described below.
+
+                - filename (str): Multi-view image filenames.
+                - img (np.ndarray): Multi-view image arrays.
+                - img_shape (tuple[int]): Shape of multi-view image arrays.
+                - ori_shape (tuple[int]): Shape of original image arrays.
+                - pad_shape (tuple[int]): Shape of padded image arrays.
+                - scale_factor (float): Scale factor.
+                - img_norm_cfg (dict): Normalization configuration of images.
+        """
         filename = results["img_filename"]
         # img is of shape (h, w, c, num_views)
         img = np.stack([imread(name, self.color_type) for name in filename], axis=-1)
@@ -916,7 +1113,7 @@ class LoadMultiViewImageFromFiles(object):
         return results
 
     def __repr__(self):
-
+        """str: Return a string that describes the module."""
         repr_str = self.__class__.__name__
         repr_str += f"(to_float32={self.to_float32}, "
         repr_str += f"color_type='{self.color_type}')"
@@ -924,7 +1121,10 @@ class LoadMultiViewImageFromFiles(object):
 
 
 def is_str(x):
+    """Whether the input is an string instance.
 
+    Note: This method is deprecated since python 2 is no longer supported.
+    """
     return isinstance(x, str)
 
 
@@ -953,6 +1153,32 @@ def load(file, file_format=None, file_client_args=None, **kwargs):
 
 
 class BaseInstance3DBoxes(object):
+    """Base class for 3D Boxes.
+
+    Note:
+        The box is bottom centered, i.e. the relative position of origin in
+        the box is (0.5, 0.5, 0).
+
+    Args:
+        tensor (torch.Tensor | np.ndarray | list): a N x box_dim matrix.
+        box_dim (int): Number of the dimension of a box.
+            Each row is (x, y, z, x_size, y_size, z_size, yaw).
+            Default to 7.
+        with_yaw (bool): Whether the box is with yaw rotation.
+            If False, the value of yaw will be set to 0 as minmax boxes.
+            Default to True.
+        origin (tuple[float]): The relative position of origin in the box.
+            Default to (0.5, 0.5, 0). This will guide the box be converted to
+            (0.5, 0.5, 0) mode.
+
+    Attributes:
+        tensor (torch.Tensor): Float matrix of N x box_dim.
+        box_dim (int): Integer indicating the dimension of a box.
+            Each row is (x, y, z, x_size, y_size, z_size, yaw, ...).
+        with_yaw (bool): If True, the value of yaw will be set to 0 as minmax
+            boxes.
+    """
+
     def __init__(self, tensor, box_dim=7, with_yaw=True, origin=(0.5, 0.5, 0)):
         if isinstance(tensor, torch.Tensor):
             device = tensor.device
@@ -985,72 +1211,112 @@ class BaseInstance3DBoxes(object):
 
     @property
     def volume(self):
-
+        """torch.Tensor: A vector with volume of each box."""
         return self.tensor[:, 3] * self.tensor[:, 4] * self.tensor[:, 5]
 
     @property
     def dims(self):
-
+        """torch.Tensor: Corners of each box with size (N, 8, 3)."""
         return self.tensor[:, 3:6]
 
     @property
     def yaw(self):
-
+        """torch.Tensor: A vector with yaw of each box."""
         return self.tensor[:, 6]
 
     @property
     def height(self):
-
+        """torch.Tensor: A vector with height of each box."""
         return self.tensor[:, 5]
 
     @property
     def top_height(self):
-
+        """torch.Tensor: A vector with the top height of each box."""
         return self.bottom_height + self.height
 
     @property
     def bottom_height(self):
-
+        """torch.Tensor: A vector with bottom's height of each box."""
         return self.tensor[:, 2]
 
     @property
     def center(self):
+        """Calculate the center of all the boxes.
 
+        Note:
+            In the MMDetection3D's convention, the bottom center is
+            usually taken as the default center.
+
+            The relative position of the centers in different kinds of
+            boxes are different, e.g., the relative center of a boxes is
+            (0.5, 1.0, 0.5) in camera and (0.5, 0.5, 0) in lidar.
+            It is recommended to use ``bottom_center`` or ``gravity_center``
+            for more clear usage.
+
+        Returns:
+            torch.Tensor: A tensor with center of each box.
+        """
         return self.bottom_center
 
     @property
     def bottom_center(self):
-
+        """torch.Tensor: A tensor with center of each box."""
         return self.tensor[:, :3]
 
     @property
     def gravity_center(self):
-
+        """torch.Tensor: A tensor with center of each box."""
         pass
 
     @property
     def corners(self):
-
+        """torch.Tensor: a tensor with 8 corners of each box."""
         pass
 
     @abstractmethod
     def rotate(self, angle, points=None):
+        """Rotate boxes with points (optional) with the given angle or \
+        rotation matrix.
 
+        Args:
+            angle (float | torch.Tensor | np.ndarray):
+                Rotation angle or rotation matrix.
+            points (torch.Tensor, numpy.ndarray, :obj:`BasePoints`, optional):
+                Points to rotate. Defaults to None.
+        """
         pass
 
     @abstractmethod
     def flip(self, bev_direction="horizontal"):
-
+        """Flip the boxes in BEV along given BEV direction."""
         pass
 
     def translate(self, trans_vector):
+        """Translate boxes with the given translation vector.
 
+        Args:
+            trans_vector (torch.Tensor): Translation vector of size 1x3.
+        """
         if not isinstance(trans_vector, torch.Tensor):
             trans_vector = self.tensor.new_tensor(trans_vector)
         self.tensor[:, :3] += trans_vector
 
     def in_range_3d(self, box_range):
+        """Check whether the boxes are in the given range.
 
+        Args:
+            box_range (list | torch.Tensor): The range of box
+                (x_min, y_min, z_min, x_max, y_max, z_max)
+
+        Note:
+            In the original implementation of SECOND, checking whether
+            a box in the range checks whether the points are in a convex
+            polygon, we try to reduce the burden for simpler cases.
+
+        Returns:
+            torch.Tensor: A binary vector indicating whether each box is \
+                inside the reference range.
+        """
         in_range_flags = (
             (self.tensor[:, 0] > box_range[0])
             & (self.tensor[:, 1] > box_range[1])
@@ -1063,25 +1329,67 @@ class BaseInstance3DBoxes(object):
 
     @abstractmethod
     def in_range_bev(self, box_range):
+        """Check whether the boxes are in the given range.
 
+        Args:
+            box_range (list | torch.Tensor): The range of box
+                in order of (x_min, y_min, x_max, y_max).
+
+        Returns:
+            torch.Tensor: Indicating whether each box is inside \
+                the reference range.
+        """
         pass
 
     @abstractmethod
     def convert_to(self, dst, rt_mat=None):
+        """Convert self to ``dst`` mode.
 
+        Args:
+            dst (:obj:`Box3DMode`): The target Box mode.
+            rt_mat (np.ndarray | torch.Tensor): The rotation and translation
+                matrix between different coordinates. Defaults to None.
+                The conversion from `src` coordinates to `dst` coordinates
+                usually comes along the change of sensors, e.g., from camera
+                to LiDAR. This requires a transformation matrix.
+
+        Returns:
+            :obj:`BaseInstance3DBoxes`: The converted box of the same type \
+                in the `dst` mode.
+        """
         pass
 
     def scale(self, scale_factor):
+        """Scale the box with horizontal and vertical scaling factors.
 
+        Args:
+            scale_factors (float): Scale factors to scale the boxes.
+        """
         self.tensor[:, :6] *= scale_factor
         self.tensor[:, 7:] *= scale_factor
 
     def limit_yaw(self, offset=0.5, period=np.pi):
+        """Limit the yaw to a given period and offset.
 
+        Args:
+            offset (float): The offset of the yaw.
+            period (float): The expected period.
+        """
         self.tensor[:, 6] = limit_period(self.tensor[:, 6], offset, period)
 
     def nonempty(self, threshold: float = 0.0):
+        """Find boxes that are non-empty.
 
+        A box is considered empty,
+        if either of its side is no larger than threshold.
+
+        Args:
+            threshold (float): The threshold of minimal sizes.
+
+        Returns:
+            torch.Tensor: A binary vector which represents whether each \
+                box is empty (False) or non-empty (True).
+        """
         box = self.tensor
         size_x = box[..., 3]
         size_y = box[..., 4]
@@ -1090,7 +1398,23 @@ class BaseInstance3DBoxes(object):
         return keep
 
     def __getitem__(self, item):
+        """
+        Note:
+            The following usage are allowed:
+            1. `new_boxes = boxes[3]`:
+                return a `Boxes` that contains only one box.
+            2. `new_boxes = boxes[2:10]`:
+                return a slice of boxes.
+            3. `new_boxes = boxes[vector]`:
+                where vector is a torch.BoolTensor with `length = len(boxes)`.
+                Nonzero elements in the vector will be selected.
+            Note that the returned Boxes might share storage with this Boxes,
+            subject to Pytorch's indexing semantics.
 
+        Returns:
+            :obj:`BaseInstance3DBoxes`: A new object of  \
+                :class:`BaseInstances3DBoxes` after indexing.
+        """
         original_type = type(self)
         if isinstance(item, int):
             return original_type(
@@ -1103,15 +1427,23 @@ class BaseInstance3DBoxes(object):
         return original_type(b, box_dim=self.box_dim, with_yaw=self.with_yaw)
 
     def __len__(self):
-
+        """int: Number of boxes in the current object."""
         return self.tensor.shape[0]
 
     def __repr__(self):
-
+        """str: Return a strings that describes the object."""
         return self.__class__.__name__ + "(\n    " + str(self.tensor) + ")"
 
     @classmethod
     def cat(cls, boxes_list):
+        """Concatenate a list of Boxes into a single Boxes.
+
+        Args:
+            boxes_list (list[:obj:`BaseInstance3DBoxes`]): List of boxes.
+
+        Returns:
+            :obj:`BaseInstance3DBoxes`: The concatenated Boxes.
+        """
         assert isinstance(boxes_list, (list, tuple))
         if len(boxes_list) == 0:
             return cls(torch.empty(0))
@@ -1127,13 +1459,27 @@ class BaseInstance3DBoxes(object):
         return cat_boxes
 
     def to(self, device):
+        """Convert current boxes to a specific device.
+
+        Args:
+            device (str | :obj:`torch.device`): The name of the device.
+
+        Returns:
+            :obj:`BaseInstance3DBoxes`: A new boxes object on the \
+                specific device.
+        """
         original_type = type(self)
         return original_type(
             self.tensor.to(device), box_dim=self.box_dim, with_yaw=self.with_yaw
         )
 
     def clone(self):
+        """Clone the Boxes.
 
+        Returns:
+            :obj:`BaseInstance3DBoxes`: Box object with the same properties \
+                as self.
+        """
         original_type = type(self)
         return original_type(
             self.tensor.clone(), box_dim=self.box_dim, with_yaw=self.with_yaw
@@ -1141,15 +1487,33 @@ class BaseInstance3DBoxes(object):
 
     @property
     def device(self):
-
+        """str: The device of the boxes are on."""
         return self.tensor.device
 
     def __iter__(self):
+        """Yield a box as a Tensor of shape (4,) at a time.
 
+        Returns:
+            torch.Tensor: A box of shape (4,).
+        """
         yield from self.tensor
 
     @classmethod
     def height_overlaps(cls, boxes1, boxes2, mode="iou"):
+        """Calculate height overlaps of two boxes.
+
+        Note:
+            This function calculates the height overlaps between boxes1 and
+            boxes2,  boxes1 and boxes2 should be in the same type.
+
+        Args:
+            boxes1 (:obj:`BaseInstance3DBoxes`): Boxes 1 contain N boxes.
+            boxes2 (:obj:`BaseInstance3DBoxes`): Boxes 2 contain M boxes.
+            mode (str, optional): Mode of iou calculation. Defaults to 'iou'.
+
+        Returns:
+            torch.Tensor: Calculated iou of boxes.
+        """
         assert isinstance(boxes1, BaseInstance3DBoxes)
         assert isinstance(boxes2, BaseInstance3DBoxes)
         assert type(boxes1) == type(boxes2), (
@@ -1169,6 +1533,20 @@ class BaseInstance3DBoxes(object):
 
     @classmethod
     def overlaps(cls, boxes1, boxes2, mode="iou"):
+        """Calculate 3D overlaps of two boxes.
+
+        Note:
+            This function calculates the overlaps between ``boxes1`` and
+            ``boxes2``, ``boxes1`` and ``boxes2`` should be in the same type.
+
+        Args:
+            boxes1 (:obj:`BaseInstance3DBoxes`): Boxes 1 contain N boxes.
+            boxes2 (:obj:`BaseInstance3DBoxes`): Boxes 2 contain M boxes.
+            mode (str, optional): Mode of iou calculation. Defaults to 'iou'.
+
+        Returns:
+            torch.Tensor: Calculated iou of boxes' heights.
+        """
         assert isinstance(boxes1, BaseInstance3DBoxes)
         assert isinstance(boxes2, BaseInstance3DBoxes)
         assert type(boxes1) == type(boxes2), (
@@ -1213,6 +1591,18 @@ class BaseInstance3DBoxes(object):
         return iou3d
 
     def new_box(self, data):
+        """Create a new box object with data.
+
+        The new box and its tensor has the similar properties \
+            as self and self.tensor, respectively.
+
+        Args:
+            data (torch.Tensor | numpy.array | list): Data to be copied.
+
+        Returns:
+            :obj:`BaseInstance3DBoxes`: A new bbox object with ``data``, \
+                the object's other properties are similar to ``self``.
+        """
         new_tensor = (
             self.tensor.new_tensor(data)
             if not isinstance(data, torch.Tensor)
@@ -1223,9 +1613,37 @@ class BaseInstance3DBoxes(object):
 
 
 class LiDARInstance3DBoxes(BaseInstance3DBoxes):
+    """3D boxes of instances in LIDAR coordinates.
+
+    Coordinates in LiDAR:
+
+    .. code-block:: none
+
+                            up z    x front (yaw=-0.5*pi)
+                               ^   ^
+                               |  /
+                               | /
+      (yaw=-pi) left y <------ 0 -------- (yaw=0)
+
+    The relative coordinate of bottom center in a LiDAR box is (0.5, 0.5, 0),
+    and the yaw is around the z axis, thus the rotation axis=2.
+    The yaw is 0 at the negative direction of y axis, and decreases from
+    the negative direction of y to the positive direction of x.
+
+    A refactor is ongoing to make the three coordinate systems
+    easier to understand and convert between each other.
+
+    Attributes:
+        tensor (torch.Tensor): Float matrix of N x box_dim.
+        box_dim (int): Integer indicating the dimension of a box.
+            Each row is (x, y, z, x_size, y_size, z_size, yaw, ...).
+        with_yaw (bool): If True, the value of yaw will be set to 0 as minmax
+            boxes.
+    """
+
     @property
     def gravity_center(self):
-
+        """torch.Tensor: A tensor with center of each box."""
         bottom_center = self.bottom_center
         gravity_center = torch.zeros_like(bottom_center)
         gravity_center[:, :2] = bottom_center[:, :2]
@@ -1234,6 +1652,27 @@ class LiDARInstance3DBoxes(BaseInstance3DBoxes):
 
     @property
     def corners(self):
+        """torch.Tensor: Coordinates of corners of all the boxes
+        in shape (N, 8, 3).
+
+        Convert the boxes to corners in clockwise order, in form of
+        ``(x0y0z0, x0y0z1, x0y1z1, x0y1z0, x1y0z0, x1y0z1, x1y1z1, x1y1z0)``
+
+        .. code-block:: none
+
+                                           up z
+                            front x           ^
+                                 /            |
+                                /             |
+                  (x1, y0, z1) + -----------  + (x1, y1, z1)
+                              /|            / |
+                             / |           /  |
+               (x0, y0, z1) + ----------- +   + (x1, y1, z0)
+                            |  /      .   |  /
+                            | / origin    | /
+            left y<-------- + ----------- + (x0, y1, z0)
+                (x0, y0, z0)
+        """
         # TODO: rotation_3d_in_axis function do not support
         #  empty tensor currently.
         assert len(self.tensor) != 0
@@ -1254,12 +1693,14 @@ class LiDARInstance3DBoxes(BaseInstance3DBoxes):
 
     @property
     def bev(self):
-
+        """torch.Tensor: 2D BEV box of each box with rotation
+        in XYWHR format."""
         return self.tensor[:, [0, 1, 3, 4, 6]]
 
     @property
     def nearest_bev(self):
-
+        """torch.Tensor: A tensor of 2D BEV box of each box
+        without rotation."""
         # Obtain BEV boxes with rotation in XYWHR format
         bev_rotated_boxes = self.bev
         # convert the rotation to a valid range
@@ -1278,6 +1719,20 @@ class LiDARInstance3DBoxes(BaseInstance3DBoxes):
         return bev_boxes
 
     def rotate(self, angle, points=None):
+        """Rotate boxes with points (optional) with the given angle or \
+        rotation matrix.
+
+        Args:
+            angles (float | torch.Tensor | np.ndarray):
+                Rotation angle or rotation matrix.
+            points (torch.Tensor, numpy.ndarray, :obj:`BasePoints`, optional):
+                Points to rotate. Defaults to None.
+
+        Returns:
+            tuple or None: When ``points`` is None, the function returns \
+                None, otherwise it returns the rotated points and the \
+                rotation matrix ``rot_mat_T``.
+        """
         if not isinstance(angle, torch.Tensor):
             angle = self.tensor.new_tensor(angle)
         assert (
@@ -1317,6 +1772,18 @@ class LiDARInstance3DBoxes(BaseInstance3DBoxes):
             return points, rot_mat_T
 
     def flip(self, bev_direction="horizontal", points=None):
+        """Flip the boxes in BEV along given BEV direction.
+
+        In LIDAR coordinates, it flips the y (horizontal) or x (vertical) axis.
+
+        Args:
+            bev_direction (str): Flip direction (horizontal or vertical).
+            points (torch.Tensor, numpy.ndarray, :obj:`BasePoints`, None):
+                Points to flip. Defaults to None.
+
+        Returns:
+            torch.Tensor, numpy.ndarray or None: Flipped points.
+        """
         assert bev_direction in ("horizontal", "vertical")
         if bev_direction == "horizontal":
             self.tensor[:, 1::7] = -self.tensor[:, 1::7]
@@ -1339,6 +1806,20 @@ class LiDARInstance3DBoxes(BaseInstance3DBoxes):
             return points
 
     def in_range_bev(self, box_range):
+        """Check whether the boxes are in the given range.
+
+        Args:
+            box_range (list | torch.Tensor): the range of box
+                (x_min, y_min, x_max, y_max)
+
+        Note:
+            The original implementation of SECOND checks whether boxes in
+            a range by checking whether the points are in a convex
+            polygon, we reduce the burden for simpler cases.
+
+        Returns:
+            torch.Tensor: Whether each box is inside the reference range.
+        """
         in_range_flags = (
             (self.tensor[:, 0] > box_range[0])
             & (self.tensor[:, 1] > box_range[1])
@@ -1348,10 +1829,32 @@ class LiDARInstance3DBoxes(BaseInstance3DBoxes):
         return in_range_flags
 
     def convert_to(self, dst, rt_mat=None):
+        """Convert self to ``dst`` mode.
+
+        Args:
+            dst (:obj:`Box3DMode`): the target Box mode
+            rt_mat (np.ndarray | torch.Tensor): The rotation and translation
+                matrix between different coordinates. Defaults to None.
+                The conversion from ``src`` coordinates to ``dst`` coordinates
+                usually comes along the change of sensors, e.g., from camera
+                to LiDAR. This requires a transformation matrix.
+
+        Returns:
+            :obj:`BaseInstance3DBoxes`: \
+                The converted box of the same type in the ``dst`` mode.
+        """
         # from .box_3d_mode import Box3DMode
         return Box3DMode.convert(box=self, src=Box3DMode.LIDAR, dst=dst, rt_mat=rt_mat)
 
     def enlarged_box(self, extra_width):
+        """Enlarge the length, width and height boxes.
+
+        Args:
+            extra_width (float | torch.Tensor): Extra width to enlarge the box.
+
+        Returns:
+            :obj:`LiDARInstance3DBoxes`: Enlarged boxes.
+        """
         enlarged_boxes = self.tensor.clone()
         enlarged_boxes[:, 3:6] += extra_width * 2
         # bottom center z minus extra_width
@@ -1359,6 +1862,14 @@ class LiDARInstance3DBoxes(BaseInstance3DBoxes):
         return self.new_box(enlarged_boxes)
 
     def points_in_boxes(self, points):
+        """Find the box which the points are in.
+
+        Args:
+            points (torch.Tensor): Points in shape (N, 3).
+
+        Returns:
+            torch.Tensor: The index of box where each point are in.
+        """
         box_idx = points_in_boxes_gpu(
             points.unsqueeze(0), self.tensor.unsqueeze(0).to(points.device)
         ).squeeze(0)
@@ -1367,6 +1878,50 @@ class LiDARInstance3DBoxes(BaseInstance3DBoxes):
 
 @unique
 class Box3DMode(IntEnum):
+    r"""Enum of different ways to represent a box.
+
+    Coordinates in LiDAR:
+
+    .. code-block:: none
+
+                    up z
+                       ^   x front
+                       |  /
+                       | /
+        left y <------ 0
+
+    The relative coordinate of bottom center in a LiDAR box is (0.5, 0.5, 0),
+    and the yaw is around the z axis, thus the rotation axis=2.
+
+    Coordinates in camera:
+
+    .. code-block:: none
+
+                z front
+               /
+              /
+             0 ------> x right
+             |
+             |
+             v
+        down y
+
+    The relative coordinate of bottom center in a CAM box is [0.5, 1.0, 0.5],
+    and the yaw is around the y axis, thus the rotation axis=1.
+
+    Coordinates in Depth mode:
+
+    .. code-block:: none
+
+        up z
+           ^   y front
+           |  /
+           | /
+           0 ------> x right
+
+    The relative coordinate of bottom center in a DEPTH box is (0.5, 0.5, 0),
+    and the yaw is around the z axis, thus the rotation axis=2.
+    """
 
     LIDAR = 0
     CAM = 1
@@ -1374,6 +1929,24 @@ class Box3DMode(IntEnum):
 
     @staticmethod
     def convert(box, src, dst, rt_mat=None):
+        """Convert boxes from `src` mode to `dst` mode.
+
+        Args:
+            box (tuple | list | np.ndarray |
+                torch.Tensor | BaseInstance3DBoxes):
+                Can be a k-tuple, k-list or an Nxk array/tensor, where k = 7.
+            src (:obj:`Box3DMode`): The src Box mode.
+            dst (:obj:`Box3DMode`): The target Box mode.
+            rt_mat (np.ndarray | torch.Tensor): The rotation and translation
+                matrix between different coordinates. Defaults to None.
+                The conversion from `src` coordinates to `dst` coordinates
+                usually comes along the change of sensors, e.g., from camera
+                to LiDAR. This requires a transformation matrix.
+
+        Returns:
+            (tuple | list | np.ndarray | torch.Tensor | BaseInstance3DBoxes): \
+                The converted box of the same type.
+        """
         if src == dst:
             return box
 
@@ -1461,7 +2034,15 @@ class Box3DMode(IntEnum):
 
 
 def get_box_type(box_type):
+    """Get the type and mode of box structure.
 
+    Args:
+        box_type (str): The type of box structure.
+            The valid value are "LiDAR", "Camera", or "Depth".
+
+    Returns:
+        tuple: Box type and box mode.
+    """
     # import Box3DMode, CameraInstance3DBoxes,
     #                           DepthInstance3DBoxes, LiDARInstance3DBoxes)
     box_type_lower = box_type.lower()
@@ -1483,8 +2064,36 @@ def get_box_type(box_type):
     return box_type_3d, box_mode_3d
 
 
-# @DATASETS.register_module()
+@DATASETS.register_module()
 class Custom3DDataset(Dataset):
+    """Customized 3D dataset.
+
+    This is the base dataset of SUNRGB-D, ScanNet, nuScenes, and KITTI
+    dataset.
+
+    Args:
+        data_root (str): Path of dataset root.
+        ann_file (str): Path of annotation file.
+        pipeline (list[dict], optional): Pipeline used for data processing.
+            Defaults to None.
+        classes (tuple[str], optional): Classes used in the dataset.
+            Defaults to None.
+        modality (dict, optional): Modality to specify the sensor data used
+            as input. Defaults to None.
+        box_type_3d (str, optional): Type of 3D box of this dataset.
+            Based on the `box_type_3d`, the dataset will encapsulate the box
+            to its original format then converted them to `box_type_3d`.
+            Defaults to 'LiDAR'. Available options includes
+
+            - 'LiDAR': Box in LiDAR coordinates.
+            - 'Depth': Box in depth coordinates, usually for indoor dataset.
+            - 'Camera': Box in camera coordinates.
+        filter_empty_gt (bool, optional): Whether to filter empty GT.
+            Defaults to True.
+        test_mode (bool, optional): Whether the dataset is in test mode.
+            Defaults to False.
+    """
+
     def __init__(
         self,
         data_root,
@@ -1516,9 +2125,31 @@ class Custom3DDataset(Dataset):
             self._set_group_flag()
 
     def load_annotations(self, ann_file):
+        """Load annotations from ann_file.
+
+        Args:
+            ann_file (str): Path of the annotation file.
+
+        Returns:
+            list[dict]: List of annotations.
+        """
         return load(ann_file)
 
     def get_data_info(self, index):
+        """Get data info according to the given index.
+
+        Args:
+            index (int): Index of the sample data to get.
+
+        Returns:
+            dict: Data information that will be passed to the data \
+                preprocessing pipelines. It includes the following keys:
+
+                - sample_idx (str): Sample index.
+                - pts_filename (str): Filename of point clouds.
+                - file_name (str): Filename of point clouds.
+                - ann_info (dict): Annotation info.
+        """
         info = self.data_infos[index]
         sample_idx = info["point_cloud"]["lidar_idx"]
         pts_filename = osp.join(self.data_root, info["pts_path"])
@@ -1535,6 +2166,21 @@ class Custom3DDataset(Dataset):
         return input_dict
 
     def pre_pipeline(self, results):
+        """Initialization before data preparation.
+
+        Args:
+            results (dict): Dict before data preprocessing.
+
+                - img_fields (list): Image fields.
+                - bbox3d_fields (list): 3D bounding boxes fields.
+                - pts_mask_fields (list): Mask fields of points.
+                - pts_seg_fields (list): Mask fields of point segments.
+                - bbox_fields (list): Fields of bounding boxes.
+                - mask_fields (list): Fields of masks.
+                - seg_fields (list): Segment fields.
+                - box_type_3d (str): 3D box type.
+                - box_mode_3d (str): 3D box mode.
+        """
         results["img_fields"] = []
         results["bbox3d_fields"] = []
         results["pts_mask_fields"] = []
@@ -1545,8 +2191,35 @@ class Custom3DDataset(Dataset):
         results["box_type_3d"] = self.box_type_3d
         results["box_mode_3d"] = self.box_mode_3d
 
-    def prepare_test_data(self, index):
+    def prepare_train_data(self, index):
+        """Training data preparation.
 
+        Args:
+            index (int): Index for accessing the target data.
+
+        Returns:
+            dict: Training data dict of the corresponding index.
+        """
+        input_dict = self.get_data_info(index)
+        if input_dict is None:
+            return None
+        self.pre_pipeline(input_dict)
+        example = self.pipeline(input_dict)
+        if self.filter_empty_gt and (
+            example is None or ~(example["gt_labels_3d"]._data != -1).any()
+        ):
+            return None
+        return example
+
+    def prepare_test_data(self, index):
+        """Prepare data for testing.
+
+        Args:
+            index (int): Index for accessing the target data.
+
+        Returns:
+            dict: Testing data dict of the corresponding index.
+        """
         input_dict = self.get_data_info(index)
         self.pre_pipeline(input_dict)
         example = self.pipeline(input_dict)
@@ -1554,7 +2227,18 @@ class Custom3DDataset(Dataset):
 
     @classmethod
     def get_classes(cls, classes=None):
+        """Get class names of current dataset.
 
+        Args:
+            classes (Sequence[str] | str | None): If classes is None, use
+                default CLASSES defined by builtin dataset. If classes is a
+                string, take it as a file name. The file contains the name of
+                classes where each line contains one class name. If classes is
+                a tuple or list, override the CLASSES defined by the dataset.
+
+        Return:
+            list[str]: A list of class names.
+        """
         if classes is None:
             return cls.CLASSES
 
@@ -1568,11 +2252,474 @@ class Custom3DDataset(Dataset):
 
         return class_names
 
+    def format_results(self, outputs, pklfile_prefix=None, submission_prefix=None):
+        """Format the results to pkl file.
+
+        Args:
+            outputs (list[dict]): Testing results of the dataset.
+            pklfile_prefix (str | None): The prefix of pkl files. It includes
+                the file path and the prefix of filename, e.g., "a/b/prefix".
+                If not specified, a temp file will be created. Default: None.
+
+        Returns:
+            tuple: (outputs, tmp_dir), outputs is the detection results, \
+                tmp_dir is the temporal directory created for saving json \
+                files when ``jsonfile_prefix`` is not specified.
+        """
+        if pklfile_prefix is None:
+            tmp_dir = tempfile.TemporaryDirectory()
+            pklfile_prefix = osp.join(tmp_dir.name, "results")
+            out = f"{pklfile_prefix}.pkl"
+        dump(outputs, out)
+        return outputs, tmp_dir
+
+    def evaluate(
+        self,
+        results,
+        metric=None,
+        iou_thr=(0.25, 0.5),
+        logger=None,
+        show=False,
+        out_dir=None,
+        pipeline=None,
+    ):
+        """Evaluate.
+
+        Evaluation in indoor protocol.
+
+        Args:
+            results (list[dict]): List of results.
+            metric (str | list[str]): Metrics to be evaluated.
+            iou_thr (list[float]): AP IoU thresholds.
+            show (bool): Whether to visualize.
+                Default: False.
+            out_dir (str): Path to save the visualization results.
+                Default: None.
+            pipeline (list[dict], optional): raw data loading for showing.
+                Default: None.
+
+        Returns:
+            dict: Evaluation results.
+        """
+        from mmdet3d.core.evaluation import indoor_eval
+
+        assert isinstance(
+            results, list
+        ), f"Expect results to be list, got {type(results)}."
+        assert len(results) > 0, "Expect length of results > 0."
+        assert len(results) == len(self.data_infos)
+        assert isinstance(
+            results[0], dict
+        ), f"Expect elements in results to be dict, got {type(results[0])}."
+        gt_annos = [info["annos"] for info in self.data_infos]
+        label2cat = {i: cat_id for i, cat_id in enumerate(self.CLASSES)}
+        ret_dict = indoor_eval(
+            gt_annos,
+            results,
+            iou_thr,
+            label2cat,
+            logger=logger,
+            box_type_3d=self.box_type_3d,
+            box_mode_3d=self.box_mode_3d,
+        )
+        if show:
+            self.show(results, out_dir, pipeline=pipeline)
+
+        return ret_dict
+
+    def _build_default_pipeline(self):
+        """Build the default pipeline for this dataset."""
+        raise NotImplementedError(
+            "_build_default_pipeline is not implemented "
+            f"for dataset {self.__class__.__name__}"
+        )
+
+    def _get_pipeline(self, pipeline):
+        """Get data loading pipeline in self.show/evaluate function.
+
+        Args:
+            pipeline (list[dict] | None): Input pipeline. If None is given, \
+                get from self.pipeline.
+        """
+        if pipeline is None:
+            if not hasattr(self, "pipeline") or self.pipeline is None:
+                warnings.warn(
+                    "Use default pipeline for data loading, this may cause "
+                    "errors when data is on ceph"
+                )
+                return self._build_default_pipeline()
+            loading_pipeline = get_loading_pipeline(self.pipeline.transforms)
+            return Compose(loading_pipeline)
+        return Compose(pipeline)
+
+    def _extract_data(self, index, pipeline, key, load_annos=False):
+        """Load data using input pipeline and extract data according to key.
+
+        Args:
+            index (int): Index for accessing the target data.
+            pipeline (:obj:`Compose`): Composed data loading pipeline.
+            key (str | list[str]): One single or a list of data key.
+            load_annos (bool): Whether to load data annotations.
+                If True, need to set self.test_mode as False before loading.
+
+        Returns:
+            np.ndarray | torch.Tensor | list[np.ndarray | torch.Tensor]:
+                A single or a list of loaded data.
+        """
+        assert pipeline is not None, "data loading pipeline is not provided"
+        # when we want to load ground-truth via pipeline (e.g. bbox, seg mask)
+        # we need to set self.test_mode as False so that we have 'annos'
+        if load_annos:
+            original_test_mode = self.test_mode
+            self.test_mode = False
+        input_dict = self.get_data_info(index)
+        self.pre_pipeline(input_dict)
+        example = pipeline(input_dict)
+
+        # extract data items according to keys
+        if isinstance(key, str):
+            data = extract_result_dict(example, key)
+        else:
+            data = [extract_result_dict(example, k) for k in key]
+        if load_annos:
+            self.test_mode = original_test_mode
+
+        return data
+
     def __len__(self):
+        """Return the length of data infos.
+
+        Returns:
+            int: Length of data infos.
+        """
         return len(self.data_infos)
 
+    def _rand_another(self, idx):
+        """Randomly get another item with the same flag.
 
+        Returns:
+            int: Another index of item with the same flag.
+        """
+        pool = np.where(self.flag == self.flag[idx])[0]
+        return np.random.choice(pool)
+
+    def __getitem__(self, idx):
+        """Get item from infos according to the given index.
+
+        Returns:
+            dict: Data dictionary of the corresponding index.
+        """
+        if self.test_mode:
+            return self.prepare_test_data(idx)
+        while True:
+            data = self.prepare_train_data(idx)
+            if data is None:
+                idx = self._rand_another(idx)
+                continue
+            return data
+
+    def _set_group_flag(self):
+        """Set flag according to image aspect ratio.
+
+        Images with aspect ratio greater than 1 will be set as group 1,
+        otherwise group 0. In 3D datasets, they are all the same, thus are all
+        zeros.
+        """
+        self.flag = np.zeros(len(self), dtype=np.uint8)
+
+
+@PIPELINES.register_module()
+class CropResizeFlipImage(object):
+    """Fixed Crop and then randim resize and flip the image. Note the flip requires to flip the feature in the network
+        ida_aug_conf = {
+            "reisze": [576, 608, 640, 672, 704]  # stride of 32 based on 640 (0.9, 1.1)
+            "reisze": [512, 544, 576, 608, 640, 672, 704, 736, 768]  #  (0.8, 1.2)
+            "reisze": [448, 480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800, 832]  #  (0.7, 1.3)
+            "crop": (0, 260, 1600, 900),
+            "H": 900,
+            "W": 1600,
+            "rand_flip": True,
+    }
+        Args:
+            size (tuple, optional): Fixed padding size.
+    """
+
+    def __init__(self, data_aug_conf=None, training=True, debug=False):
+        self.data_aug_conf = data_aug_conf
+        self.training = training
+        self.debug = debug
+
+    def __call__(self, results):
+        """Call function to pad images, masks, semantic segmentation maps.
+        Args:
+            results (dict): Result dict from loading pipeline.
+        Returns:
+            dict: Updated result dict.
+        """
+        if not "aug_param" in results.keys():
+            results["aug_param"] = {}
+        imgs = results["img"]
+        N = len(imgs)
+        new_imgs = []
+        resize, resize_dims, crop, flip = self._sample_augmentation(results)
+
+        if self.debug:
+            # unique id per img
+            from uuid import uuid4
+
+            uid = uuid4()
+            # lidar is RFU in nuscenes
+            lidar_pts = np.array(
+                [
+                    [10, 30, -2, 1],
+                    [-10, 30, -2, 1],
+                    [5, 15, -2, 1],
+                    [-5, 15, -2, 1],
+                    [30, 0, -2, 1],
+                    [-30, 0, -2, 1],
+                    [10, -30, -2, 1],
+                    [-10, -30, -2, 1],
+                ],
+                dtype=np.float32,
+            ).T
+
+        for i in range(N):
+            img = Image.fromarray(np.uint8(imgs[i]))
+
+            if self.debug:
+                pts_to_img_pre_aug = results["lidar2img"][i] @ lidar_pts
+                pts_to_img_pre_aug = (
+                    pts_to_img_pre_aug / pts_to_img_pre_aug[2:3, :]
+                )  # div by the depth component in homogenous vector
+
+                img_copy = Image.fromarray(np.uint8(imgs[i]))
+                for j in range(pts_to_img_pre_aug.shape[1]):
+                    x, y = int(pts_to_img_pre_aug[0, j]), int(pts_to_img_pre_aug[1, j])
+                    if (0 < x < img_copy.width) and (0 < y < img_copy.height):
+                        img_copy.putpixel((x - 1, y - 1), (255, 0, 0))
+                        img_copy.putpixel((x - 1, y), (255, 0, 0))
+                        img_copy.putpixel((x - 1, y + 1), (255, 0, 0))
+                        img_copy.putpixel((x, y - 1), (0, 255, 0))
+                        img_copy.putpixel((x, y), (0, 255, 0))
+                        img_copy.putpixel((x, y + 1), (0, 255, 0))
+                        img_copy.putpixel((x + 1, y - 1), (0, 0, 255))
+                        img_copy.putpixel((x + 1, y), (0, 0, 255))
+                        img_copy.putpixel((x + 1, y + 1), (0, 0, 255))
+                img_copy.save(f"pre_aug_{uid}_{i}.png")
+
+            # augmentation (resize, crop, horizontal flip, rotate)
+            # resize, resize_dims, crop, flip, rotate = self._sample_augmentation()  ###different view use different aug (BEV Det)
+            img, ida_mat = self._img_transform(
+                img,
+                resize=resize,
+                resize_dims=resize_dims,
+                crop=crop,
+                flip=flip,
+            )
+            new_imgs.append(np.array(img).astype(np.float32))
+            results["cam2img"][i][:3, :3] = np.matmul(
+                ida_mat, results["cam2img"][i][:3, :3]
+            )
+
+            if self.debug:
+                pts_to_img_post_aug = (
+                    np.matmul(results["cam2img"][i], results["lidar2cam"][i])
+                    @ lidar_pts
+                )
+                pts_to_img_post_aug = (
+                    pts_to_img_post_aug / pts_to_img_post_aug[2:3, :]
+                )  # div by the depth component in homogenous vector
+                for j in range(pts_to_img_post_aug.shape[1]):
+                    x, y = int(pts_to_img_post_aug[0, j]), int(
+                        pts_to_img_post_aug[1, j]
+                    )
+                    if (0 < x < img.width) and (0 < y < img.height):
+                        img.putpixel((x - 1, y - 1), (255, 0, 0))
+                        img.putpixel((x - 1, y), (255, 0, 0))
+                        img.putpixel((x - 1, y + 1), (255, 0, 0))
+                        img.putpixel((x, y - 1), (0, 255, 0))
+                        img.putpixel((x, y), (0, 255, 0))
+                        img.putpixel((x, y + 1), (0, 255, 0))
+                        img.putpixel((x + 1, y - 1), (0, 0, 255))
+                        img.putpixel((x + 1, y), (0, 0, 255))
+                        img.putpixel((x + 1, y + 1), (0, 0, 255))
+                img.save(f"post_aug_{uid}_{i}.png")
+
+            if "mono_ann_idx" in results.keys():
+                # apply transform to dd3d intrinsics
+                if i in results["mono_ann_idx"].data:
+                    mono_index = results["mono_ann_idx"].data.index(i)
+                    intrinsics = results["mono_input_dict"][mono_index]["intrinsics"]
+                    if torch.is_tensor(intrinsics):
+                        intrinsics = intrinsics.numpy().reshape(3, 3).astype(np.float32)
+                    elif isinstance(intrinsics, np.ndarray):
+                        intrinsics = intrinsics.reshape(3, 3).astype(np.float32)
+                    else:
+                        intrinsics = np.array(intrinsics, dtype=np.float32).reshape(
+                            3, 3
+                        )
+                    results["mono_input_dict"][mono_index]["intrinsics"] = np.matmul(
+                        ida_mat, intrinsics
+                    )
+                    results["mono_input_dict"][mono_index]["height"] = img.size[1]
+                    results["mono_input_dict"][mono_index]["width"] = img.size[0]
+
+                    # apply transform to dd3d box
+                    for ann in results["mono_input_dict"][mono_index]["annotations"]:
+                        # bbox_mode = BoxMode.XYXY_ABS
+                        box = self._box_transform(
+                            ann["bbox"], resize, crop, flip, img.size[0]
+                        )[0]
+                        box = box.clip(min=0)
+                        box = np.minimum(box, list(img.size + img.size))
+                        ann["bbox"] = box
+
+        results["img"] = new_imgs
+        results["lidar2img"] = [
+            np.matmul(results["cam2img"][i], results["lidar2cam"][i])
+            for i in range(len(results["lidar2cam"]))
+        ]
+
+        return results
+
+    def _box_transform(self, box, resize, crop, flip, img_width):
+        box = np.array([box])
+        idxs = np.array([(0, 1), (2, 1), (0, 3), (2, 3)]).flatten()
+        coords = np.asarray(box).reshape(-1, 4)[:, idxs].reshape(-1, 2)
+
+        # crop
+        coords[:, 0] -= crop[0]
+        coords[:, 1] -= crop[1]
+
+        # resize
+        coords[:, 0] = coords[:, 0] * resize
+        coords[:, 1] = coords[:, 1] * resize
+
+        coords = coords.reshape((-1, 4, 2))
+        minxy = coords.min(axis=1)
+        maxxy = coords.max(axis=1)
+        trans_box = np.concatenate((minxy, maxxy), axis=1)
+
+        return trans_box
+
+    def _img_transform(self, img, resize, resize_dims, crop, flip):
+        ida_rot = np.eye(2)
+        ida_tran = np.zeros(2)
+        # adjust image
+        img = img.crop(crop)
+        img = img.resize(resize_dims)
+        if flip:
+            img = img.transpose(method=Image.FLIP_LEFT_RIGHT)
+
+        # post-homography transformation
+        ida_rot *= resize
+        ida_tran -= np.array(crop[:2]) * resize
+        ida_mat = np.eye(3)
+        ida_mat[:2, :2] = ida_rot
+        ida_mat[:2, 2] = ida_tran
+        return img, ida_mat
+
+    def _sample_augmentation(self, results):
+        if "CropResizeFlipImage_param" in results["aug_param"].keys():
+            return results["aug_param"]["CropResizeFlipImage_param"]
+        crop = self.data_aug_conf["crop"]
+
+        if self.training:
+            resized_h = random.choice(self.data_aug_conf["reisze"])
+            resized_w = resized_h / (crop[3] - crop[1]) * (crop[2] - crop[0])
+            resize = resized_h / (crop[3] - crop[1])
+            resize_dims = (int(resized_w), int(resized_h))
+            flip = False
+            if self.data_aug_conf["rand_flip"] and np.random.choice([0, 1]):
+                flip = True
+        else:
+            resized_h = random.choice(self.data_aug_conf["reisze"])
+            assert len(self.data_aug_conf["reisze"]) == 1
+            resized_w = resized_h / (crop[3] - crop[1]) * (crop[2] - crop[0])
+            resize = resized_h / (crop[3] - crop[1])
+            resize_dims = (int(resized_w), int(resized_h))
+            flip = False
+        results["aug_param"]["CropResizeFlipImage_param"] = (
+            resize,
+            resize_dims,
+            crop,
+            flip,
+        )
+
+        return resize, resize_dims, crop, flip
+
+
+@DATASETS.register_module()
 class NuScenesDataset(Custom3DDataset):
+    NameMapping = {
+        "movable_object.barrier": "barrier",
+        "vehicle.bicycle": "bicycle",
+        "vehicle.bus.bendy": "bus",
+        "vehicle.bus.rigid": "bus",
+        "vehicle.car": "car",
+        "vehicle.construction": "construction_vehicle",
+        "vehicle.motorcycle": "motorcycle",
+        "human.pedestrian.adult": "pedestrian",
+        "human.pedestrian.child": "pedestrian",
+        "human.pedestrian.construction_worker": "pedestrian",
+        "human.pedestrian.police_officer": "pedestrian",
+        "movable_object.trafficcone": "traffic_cone",
+        "vehicle.trailer": "trailer",
+        "vehicle.truck": "truck",
+    }
+    DefaultAttribute = {
+        "car": "vehicle.parked",
+        "pedestrian": "pedestrian.moving",
+        "trailer": "vehicle.parked",
+        "truck": "vehicle.parked",
+        "bus": "vehicle.moving",
+        "motorcycle": "cycle.without_rider",
+        "construction_vehicle": "vehicle.parked",
+        "bicycle": "cycle.without_rider",
+        "barrier": "",
+        "traffic_cone": "",
+    }
+    AttrMapping = {
+        "cycle.with_rider": 0,
+        "cycle.without_rider": 1,
+        "pedestrian.moving": 2,
+        "pedestrian.standing": 3,
+        "pedestrian.sitting_lying_down": 4,
+        "vehicle.moving": 5,
+        "vehicle.parked": 6,
+        "vehicle.stopped": 7,
+    }
+    AttrMapping_rev = [
+        "cycle.with_rider",
+        "cycle.without_rider",
+        "pedestrian.moving",
+        "pedestrian.standing",
+        "pedestrian.sitting_lying_down",
+        "vehicle.moving",
+        "vehicle.parked",
+        "vehicle.stopped",
+    ]
+    # https://github.com/nutonomy/nuscenes-devkit/blob/57889ff20678577025326cfc24e57424a829be0a/python-sdk/nuscenes/eval/detection/evaluate.py#L222 # noqa
+    ErrNameMapping = {
+        "trans_err": "mATE",
+        "scale_err": "mASE",
+        "orient_err": "mAOE",
+        "vel_err": "mAVE",
+        "attr_err": "mAAE",
+    }
+    CLASSES = (
+        "car",
+        "truck",
+        "trailer",
+        "bus",
+        "construction_vehicle",
+        "bicycle",
+        "motorcycle",
+        "pedestrian",
+        "traffic_cone",
+        "barrier",
+    )
+
     def __init__(
         self,
         ann_file,
@@ -1615,8 +2762,39 @@ class NuScenesDataset(Custom3DDataset):
                 use_external=False,
             )
 
-    def load_annotations(self, ann_file):
+    def get_cat_ids(self, idx):
+        """Get category distribution of single scene.
 
+        Args:
+            idx (int): Index of the data_info.
+
+        Returns:
+            dict[list]: for each category, if the current scene
+                contains such boxes, store a list containing idx,
+                otherwise, store empty list.
+        """
+        info = self.data_infos[idx]
+        if self.use_valid_flag:
+            mask = info["valid_flag"]
+            gt_names = set(info["gt_names"][mask])
+        else:
+            gt_names = set(info["gt_names"])
+
+        cat_ids = []
+        for name in gt_names:
+            if name in self.CLASSES:
+                cat_ids.append(self.cat2id[name])
+        return cat_ids
+
+    def load_annotations(self, ann_file):
+        """Load annotations from ann_file.
+
+        Args:
+            ann_file (str): Path of the annotation file.
+
+        Returns:
+            list[dict]: List of annotations sorted by timestamps.
+        """
         data = load(ann_file)
         data_infos = list(sorted(data["infos"], key=lambda e: e["timestamp"]))
         data_infos = data_infos[:: self.load_interval]
@@ -1624,8 +2802,721 @@ class NuScenesDataset(Custom3DDataset):
         self.version = self.metadata["version"]
         return data_infos
 
+    def get_data_info(self, index):
+        """Get data info according to the given index.
 
+        Args:
+            index (int): Index of the sample data to get.
+
+        Returns:
+            dict: Data information that will be passed to the data \
+                preprocessing pipelines. It includes the following keys:
+
+                - sample_idx (str): Sample index.
+                - pts_filename (str): Filename of point clouds.
+                - sweeps (list[dict]): Infos of sweeps.
+                - timestamp (float): Sample timestamp.
+                - img_filename (str, optional): Image filename.
+                - lidar2img (list[np.ndarray], optional): Transformations \
+                    from lidar to different cameras.
+                - ann_info (dict): Annotation info.
+        """
+        info = self.data_infos[index]
+        # standard protocal modified from SECOND.Pytorch
+        input_dict = dict(
+            sample_idx=info["token"],
+            pts_filename=info["lidar_path"],
+            sweeps=info["sweeps"],
+            timestamp=info["timestamp"] / 1e6,
+        )
+
+        if self.modality["use_camera"]:
+            image_paths = []
+            lidar2img_rts = []
+            for cam_type, cam_info in info["cams"].items():
+                _img_path = cam_info["data_path"]
+                if not osp.isabs(_img_path):
+                    _norm = _img_path.replace("\\", "/")
+                    _norm = _norm.lstrip("./")
+                    marker = "data/nuscenes/"
+                    if marker in _norm:
+                        _norm = _norm.split(marker, 1)[1]
+                    _img_path = osp.join(self.data_root, _norm)
+                image_paths.append(_img_path)
+                # obtain lidar to image transformation matrix
+                lidar2cam_r = np.linalg.inv(cam_info["sensor2lidar_rotation"])
+                lidar2cam_t = cam_info["sensor2lidar_translation"] @ lidar2cam_r.T
+                lidar2cam_rt = np.eye(4)
+                lidar2cam_rt[:3, :3] = lidar2cam_r.T
+                lidar2cam_rt[3, :3] = -lidar2cam_t
+                intrinsic = cam_info["cam_intrinsic"]
+                viewpad = np.eye(4)
+                viewpad[: intrinsic.shape[0], : intrinsic.shape[1]] = intrinsic
+                lidar2img_rt = viewpad @ lidar2cam_rt.T
+                lidar2img_rts.append(lidar2img_rt)
+
+            input_dict.update(
+                dict(
+                    img_filename=image_paths,
+                    lidar2img=lidar2img_rts,
+                )
+            )
+
+        if not self.test_mode:
+            annos = self.get_ann_info(index)
+            input_dict["ann_info"] = annos
+
+        return input_dict
+
+    def get_ann_info(self, index):
+        """Get annotation info according to the given index.
+
+        Args:
+            index (int): Index of the annotation data to get.
+
+        Returns:
+            dict: Annotation information consists of the following keys:
+
+                - gt_bboxes_3d (:obj:`LiDARInstance3DBoxes`): \
+                    3D ground truth bboxes
+                - gt_labels_3d (np.ndarray): Labels of ground truths.
+                - gt_names (list[str]): Class names of ground truths.
+        """
+        info = self.data_infos[index]
+        # filter out bbox containing no points
+        if self.use_valid_flag:
+            mask = info["valid_flag"]
+        else:
+            mask = info["num_lidar_pts"] > 0
+        gt_bboxes_3d = info["gt_boxes"][mask]
+        gt_names_3d = info["gt_names"][mask]
+        gt_labels_3d = []
+        for cat in gt_names_3d:
+            if cat in self.CLASSES:
+                gt_labels_3d.append(self.CLASSES.index(cat))
+            else:
+                gt_labels_3d.append(-1)
+        gt_labels_3d = np.array(gt_labels_3d)
+
+        if self.with_velocity:
+            gt_velocity = info["gt_velocity"][mask]
+            nan_mask = np.isnan(gt_velocity[:, 0])
+            gt_velocity[nan_mask] = [0.0, 0.0]
+            gt_bboxes_3d = np.concatenate([gt_bboxes_3d, gt_velocity], axis=-1)
+
+        # the nuscenes box center is [0.5, 0.5, 0.5], we change it to be
+        # the same as KITTI (0.5, 0.5, 0)
+        gt_bboxes_3d = LiDARInstance3DBoxes(
+            gt_bboxes_3d, box_dim=gt_bboxes_3d.shape[-1], origin=(0.5, 0.5, 0.5)
+        ).convert_to(self.box_mode_3d)
+
+        anns_results = dict(
+            gt_bboxes_3d=gt_bboxes_3d, gt_labels_3d=gt_labels_3d, gt_names=gt_names_3d
+        )
+        return anns_results
+
+    def _format_bbox(self, results, jsonfile_prefix=None):
+        """Convert the results to the standard format.
+
+        Args:
+            results (list[dict]): Testing results of the dataset.
+            jsonfile_prefix (str): The prefix of the output jsonfile.
+                You can specify the output directory/filename by
+                modifying the jsonfile_prefix. Default: None.
+
+        Returns:
+            str: Path of the output json file.
+        """
+        nusc_annos = {}
+        mapped_class_names = self.CLASSES
+
+        print("Start to convert detection format...")
+        for sample_id, det in enumerate(track_iter_progress(results)):
+            annos = []
+            boxes = output_to_nusc_box(det)
+            sample_token = self.data_infos[sample_id]["token"]
+            boxes = lidar_nusc_box_to_global(
+                self.data_infos[sample_id],
+                boxes,
+                mapped_class_names,
+                self.eval_detection_configs,
+                self.eval_version,
+            )
+            for i, box in enumerate(boxes):
+                name = mapped_class_names[box.label]
+                if np.sqrt(box.velocity[0] ** 2 + box.velocity[1] ** 2) > 0.2:
+                    if name in [
+                        "car",
+                        "construction_vehicle",
+                        "bus",
+                        "truck",
+                        "trailer",
+                    ]:
+                        attr = "vehicle.moving"
+                    elif name in ["bicycle", "motorcycle"]:
+                        attr = "cycle.with_rider"
+                    else:
+                        attr = NuScenesDataset.DefaultAttribute[name]
+                else:
+                    if name in ["pedestrian"]:
+                        attr = "pedestrian.standing"
+                    elif name in ["bus"]:
+                        attr = "vehicle.stopped"
+                    else:
+                        attr = NuScenesDataset.DefaultAttribute[name]
+
+                nusc_anno = dict(
+                    sample_token=sample_token,
+                    translation=box.center.tolist(),
+                    size=box.wlh.tolist(),
+                    rotation=box.orientation.elements.tolist(),
+                    velocity=box.velocity[:2].tolist(),
+                    detection_name=name,
+                    detection_score=box.score,
+                    attribute_name=attr,
+                )
+                annos.append(nusc_anno)
+            nusc_annos[sample_token] = annos
+        nusc_submissions = {
+            "meta": self.modality,
+            "results": nusc_annos,
+        }
+
+        mkdir_or_exist(jsonfile_prefix)
+        res_path = osp.join(jsonfile_prefix, "results_nusc.json")
+        print("Results writes to", res_path)
+        dump(nusc_submissions, res_path)
+        return res_path
+
+    def _evaluate_single(
+        self, result_path, logger=None, metric="bbox", result_name="pts_bbox"
+    ):
+        """Evaluation for a single model in nuScenes protocol.
+
+        Args:
+            result_path (str): Path of the result file.
+            logger (logging.Logger | str | None): Logger used for printing
+                related information during evaluation. Default: None.
+            metric (str): Metric name used for evaluation. Default: 'bbox'.
+            result_name (str): Result name in the metric prefix.
+                Default: 'pts_bbox'.
+
+        Returns:
+            dict: Dictionary of evaluation details.
+        """
+        from nuscenes import NuScenes
+        from nuscenes.eval.detection.evaluate import NuScenesEval
+
+        output_dir = osp.join(*osp.split(result_path)[:-1])
+        nusc = NuScenes(version=self.version, dataroot=self.data_root, verbose=False)
+        eval_set_map = {
+            "v1.0-mini": "mini_val",
+            "v1.0-trainval": "val",
+        }
+        nusc_eval = NuScenesEval(
+            nusc,
+            config=self.eval_detection_configs,
+            result_path=result_path,
+            eval_set=eval_set_map[self.version],
+            output_dir=output_dir,
+            verbose=False,
+        )
+        nusc_eval.main(render_curves=False)
+
+        # record metrics
+        metrics = load(osp.join(output_dir, "metrics_summary.json"))
+        detail = dict()
+        metric_prefix = f"{result_name}_NuScenes"
+        for name in self.CLASSES:
+            for k, v in metrics["label_aps"][name].items():
+                val = float("{:.4f}".format(v))
+                detail["{}/{}_AP_dist_{}".format(metric_prefix, name, k)] = val
+            for k, v in metrics["label_tp_errors"][name].items():
+                val = float("{:.4f}".format(v))
+                detail["{}/{}_{}".format(metric_prefix, name, k)] = val
+            for k, v in metrics["tp_errors"].items():
+                val = float("{:.4f}".format(v))
+                detail["{}/{}".format(metric_prefix, self.ErrNameMapping[k])] = val
+
+        detail["{}/NDS".format(metric_prefix)] = metrics["nd_score"]
+        detail["{}/mAP".format(metric_prefix)] = metrics["mean_ap"]
+        return detail
+
+    def format_results(self, results, jsonfile_prefix=None):
+        """Format the results to json (standard format for COCO evaluation).
+
+        Args:
+            results (list[dict]): Testing results of the dataset.
+            jsonfile_prefix (str | None): The prefix of json files. It includes
+                the file path and the prefix of filename, e.g., "a/b/prefix".
+                If not specified, a temp file will be created. Default: None.
+
+        Returns:
+            tuple: Returns (result_files, tmp_dir), where `result_files` is a \
+                dict containing the json filepaths, `tmp_dir` is the temporal \
+                directory created for saving json files when \
+                `jsonfile_prefix` is not specified.
+        """
+        assert isinstance(results, list), "results must be a list"
+        assert len(results) == len(
+            self
+        ), "The length of results is not equal to the dataset len: {} != {}".format(
+            len(results), len(self)
+        )
+
+        if jsonfile_prefix is None:
+            tmp_dir = tempfile.TemporaryDirectory()
+            jsonfile_prefix = osp.join(tmp_dir.name, "results")
+        else:
+            tmp_dir = None
+
+        # currently the output prediction results could be in two formats
+        # 1. list of dict('boxes_3d': ..., 'scores_3d': ..., 'labels_3d': ...)
+        # 2. list of dict('pts_bbox' or 'img_bbox':
+        #     dict('boxes_3d': ..., 'scores_3d': ..., 'labels_3d': ...))
+        # this is a workaround to enable evaluation of both formats on nuScenes
+        # refer to https://github.com/open-mmlab/mmdetection3d/issues/449
+        if not ("pts_bbox" in results[0] or "img_bbox" in results[0]):
+            result_files = self._format_bbox(results, jsonfile_prefix)
+        else:
+            # should take the inner dict out of 'pts_bbox' or 'img_bbox' dict
+            result_files = dict()
+            for name in results[0]:
+                print(f"\nFormating bboxes of {name}")
+                results_ = [out[name] for out in results]
+                tmp_file_ = osp.join(jsonfile_prefix, name)
+                result_files.update({name: self._format_bbox(results_, tmp_file_)})
+        return result_files, tmp_dir
+
+    def evaluate(
+        self,
+        results,
+        metric="bbox",
+        logger=None,
+        jsonfile_prefix=None,
+        result_names=["pts_bbox"],
+        show=False,
+        out_dir=None,
+        pipeline=None,
+    ):
+        """Evaluation in nuScenes protocol.
+
+        Args:
+            results (list[dict]): Testing results of the dataset.
+            metric (str | list[str]): Metrics to be evaluated.
+            logger (logging.Logger | str | None): Logger used for printing
+                related information during evaluation. Default: None.
+            jsonfile_prefix (str | None): The prefix of json files. It includes
+                the file path and the prefix of filename, e.g., "a/b/prefix".
+                If not specified, a temp file will be created. Default: None.
+            show (bool): Whether to visualize.
+                Default: False.
+            out_dir (str): Path to save the visualization results.
+                Default: None.
+            pipeline (list[dict], optional): raw data loading for showing.
+                Default: None.
+
+        Returns:
+            dict[str, float]: Results of each evaluation metric.
+        """
+        result_files, tmp_dir = self.format_results(results, jsonfile_prefix)
+
+        if isinstance(result_files, dict):
+            results_dict = dict()
+            for name in result_names:
+                print("Evaluating bboxes of {}".format(name))
+                ret_dict = self._evaluate_single(result_files[name])
+            results_dict.update(ret_dict)
+        elif isinstance(result_files, str):
+            results_dict = self._evaluate_single(result_files)
+
+        if tmp_dir is not None:
+            tmp_dir.cleanup()
+
+        if show:
+            self.show(results, out_dir, pipeline=pipeline)
+        return results_dict
+
+    def _build_default_pipeline(self):
+        """Build the default pipeline for this dataset."""
+        pipeline = [
+            dict(
+                type="LoadPointsFromFile",
+                coord_type="LIDAR",
+                load_dim=5,
+                use_dim=5,
+                file_client_args=dict(backend="disk"),
+            ),
+            dict(
+                type="LoadPointsFromMultiSweeps",
+                sweeps_num=10,
+                file_client_args=dict(backend="disk"),
+            ),
+            dict(
+                type="DefaultFormatBundle3D", class_names=self.CLASSES, with_label=False
+            ),
+            dict(type="Collect3D", keys=["points"]),
+        ]
+        return Compose(pipeline)
+
+    def show(self, results, out_dir, show=True, pipeline=None):
+        """Results visualization.
+
+        Args:
+            results (list[dict]): List of bounding boxes results.
+            out_dir (str): Output directory of visualization result.
+            show (bool): Visualize the results online.
+            pipeline (list[dict], optional): raw data loading for showing.
+                Default: None.
+        """
+        assert out_dir is not None, "Expect out_dir, got none."
+        pipeline = self._get_pipeline(pipeline)
+        for i, result in enumerate(results):
+            if "pts_bbox" in result.keys():
+                result = result["pts_bbox"]
+            data_info = self.data_infos[i]
+            pts_path = data_info["lidar_path"]
+            file_name = osp.split(pts_path)[-1].split(".")[0]
+            points = self._extract_data(i, pipeline, "points").numpy()
+            # for now we convert points into depth mode
+            points = Coord3DMode.convert_point(
+                points, Coord3DMode.LIDAR, Coord3DMode.DEPTH
+            )
+            inds = result["scores_3d"] > 0.1
+            gt_bboxes = self.get_ann_info(i)["gt_bboxes_3d"].tensor.numpy()
+            show_gt_bboxes = Box3DMode.convert(
+                gt_bboxes, Box3DMode.LIDAR, Box3DMode.DEPTH
+            )
+            pred_bboxes = result["boxes_3d"][inds].tensor.numpy()
+            show_pred_bboxes = Box3DMode.convert(
+                pred_bboxes, Box3DMode.LIDAR, Box3DMode.DEPTH
+            )
+            show_result(
+                points, show_gt_bboxes, show_pred_bboxes, out_dir, file_name, show
+            )
+
+
+@DATASETS.register_module()
+class CustomNuScenesDatasetV2(NuScenesDataset):
+    def __init__(self, frames=(), mono_cfg=None, overlap_test=False, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.frames = frames
+        self.queue_length = len(frames)
+        self.overlap_test = overlap_test
+        self.mono_cfg = mono_cfg
+        if not self.test_mode and mono_cfg is not None:
+            self.mono_dataset = DD3DNuscenesDataset(**mono_cfg)
+
+    def prepare_test_data(self, index):
+        """Prepare data for testing.
+
+        Args:
+            index (int): Index for accessing the target data.
+
+        Returns:
+            dict: Testing data dict of the corresponding index.
+        """
+        data_queue = OrderedDict()
+        input_dict = self.get_data_info(index)
+        cur_scene_token = input_dict["scene_token"]
+        self.pre_pipeline(input_dict)
+        example = self.pipeline(input_dict)
+        data_queue[0] = example
+
+        for frame_idx in self.frames:
+            chosen_idx = index + frame_idx
+            if frame_idx == 0 or chosen_idx < 0 or chosen_idx >= len(self.data_infos):
+                continue
+            info = self.data_infos[chosen_idx]
+            input_dict = self.prepare_input_dict(info)
+            if input_dict["scene_token"] == cur_scene_token:
+                self.pre_pipeline(input_dict)
+                example = self.pipeline(input_dict)
+                data_queue[frame_idx] = example
+
+        data_queue = OrderedDict(sorted(data_queue.items()))
+        ret = defaultdict(list)
+        for i in range(len(data_queue[0]["img"])):
+            single_aug_data_queue = {}
+            for t in data_queue.keys():
+                single_example = {}
+                for key, value in data_queue[t].items():
+                    single_example[key] = value[i]
+                single_aug_data_queue[t] = single_example
+            single_aug_data_queue = OrderedDict(sorted(single_aug_data_queue.items()))
+            single_aug_sample = self.union2one(single_aug_data_queue)
+
+            for key, value in single_aug_sample.items():
+                ret[key].append(value)
+        return ret
+
+    def prepare_train_data(self, index):
+        """
+        Training data preparation.
+        Args:
+            index (int): Index for accessing the target data.
+        Returns:
+            dict: Training data dict of the corresponding index.
+        """
+        data_queue = OrderedDict()
+        input_dict = self.get_data_info(index)
+        if input_dict is None:
+            return None
+        cur_scene_token = input_dict["scene_token"]
+        # cur_frame_idx = input_dict['frame_idx']
+        ann_info = copy.deepcopy(input_dict["ann_info"])
+        self.pre_pipeline(input_dict)
+        example = self.pipeline(input_dict)
+        if self.filter_empty_gt and (
+            example is None or ~(example["gt_labels_3d"]._data != -1).any()
+        ):
+            return None
+        data_queue[0] = example
+        aug_param = (
+            copy.deepcopy(example["aug_param"]) if "aug_param" in example else {}
+        )
+
+        # frame_idx_to_idx = self.scene_to_frame_idx_to_idx[cur_scene_token]
+        for frame_idx in self.frames:
+            chosen_idx = index + frame_idx
+            if frame_idx == 0 or chosen_idx < 0 or chosen_idx >= len(self.data_infos):
+                continue
+            info = self.data_infos[chosen_idx]
+            input_dict = self.prepare_input_dict(info)
+            if input_dict["scene_token"] == cur_scene_token:
+                input_dict["ann_info"] = copy.deepcopy(
+                    ann_info
+                )  # only for pipeline, should never be used
+                self.pre_pipeline(input_dict)
+                input_dict["aug_param"] = copy.deepcopy(aug_param)
+                example = self.pipeline(input_dict)
+                data_queue[frame_idx] = example
+
+        data_queue = OrderedDict(sorted(data_queue.items()))
+        return self.union2one(data_queue)
+
+    def union2one(self, queue: dict):
+        """
+        convert sample queue into one single sample.
+        """
+        imgs_list = [each["img"].data for each in queue.values()]
+        lidar2ego = np.eye(4, dtype=np.float32)
+        lidar2ego[:3, :3] = Quaternion(queue[0]["lidar2ego_rotation"]).rotation_matrix
+        lidar2ego[:3, 3] = queue[0]["lidar2ego_translation"]
+
+        egocurr2global = np.eye(4, dtype=np.float32)
+        egocurr2global[:3, :3] = Quaternion(
+            queue[0]["ego2global_rotation"]
+        ).rotation_matrix
+        egocurr2global[:3, 3] = queue[0]["ego2global_translation"]
+        metas_map = {}
+        for i, each in queue.items():
+            metas_map[i] = each["img_metas"].data
+            metas_map[i]["timestamp"] = each["timestamp"]
+            if "aug_param" in each:
+                metas_map[i]["aug_param"] = each["aug_param"]
+            if i == 0:
+                metas_map[i]["lidaradj2lidarcurr"] = None
+            else:
+                egoadj2global = np.eye(4, dtype=np.float32)
+                egoadj2global[:3, :3] = Quaternion(
+                    each["ego2global_rotation"]
+                ).rotation_matrix
+                egoadj2global[:3, 3] = each["ego2global_translation"]
+
+                lidaradj2lidarcurr = (
+                    np.linalg.inv(lidar2ego)
+                    @ np.linalg.inv(egocurr2global)
+                    @ egoadj2global
+                    @ lidar2ego
+                )
+                metas_map[i]["lidaradj2lidarcurr"] = lidaradj2lidarcurr
+                for i_cam in range(len(metas_map[i]["lidar2img"])):
+                    metas_map[i]["lidar2img"][i_cam] = metas_map[i]["lidar2img"][
+                        i_cam
+                    ] @ np.linalg.inv(lidaradj2lidarcurr)
+        queue[0]["img"] = DC(torch.stack(imgs_list), cpu_only=False, stack=True)
+        queue[0]["img_metas"] = DC(metas_map, cpu_only=True)
+        queue = queue[0]
+        return queue
+
+    def prepare_input_dict(self, info):
+        # standard protocal modified from SECOND.Pytorch
+        input_dict = dict(
+            sample_idx=info["token"],
+            pts_filename=info["lidar_path"],
+            sweeps=info["sweeps"],
+            ego2global_translation=info["ego2global_translation"],
+            ego2global_rotation=info["ego2global_rotation"],
+            lidar2ego_translation=info["lidar2ego_translation"],
+            lidar2ego_rotation=info["lidar2ego_rotation"],
+            prev=info["prev"],
+            next=info["next"],
+            scene_token=info["scene_token"],
+            frame_idx=info["frame_idx"],
+            timestamp=info["timestamp"] / 1e6,
+        )
+
+        if self.modality["use_camera"]:
+            image_paths = []
+            lidar2img_rts = []
+            lidar2cam_rts = []
+            cam_intrinsics = []
+            for cam_type, cam_info in info["cams"].items():
+                _img_path = cam_info["data_path"]
+                if not osp.isabs(_img_path):
+                    _norm = _img_path.replace("\\", "/")
+                    _norm = _norm.lstrip("./")
+                    marker = "data/nuscenes/"
+                    if marker in _norm:
+                        _norm = _norm.split(marker, 1)[1]
+                    _img_path = osp.join(self.data_root, _norm)
+                image_paths.append(_img_path)
+                # obtain lidar to image transformation matrix
+                lidar2cam_r = np.linalg.inv(cam_info["sensor2lidar_rotation"])
+                lidar2cam_t = cam_info["sensor2lidar_translation"] @ lidar2cam_r.T
+                lidar2cam_rt = np.eye(4)
+                lidar2cam_rt[:3, :3] = lidar2cam_r.T
+                lidar2cam_rt[3, :3] = -lidar2cam_t
+                intrinsic = cam_info["cam_intrinsic"]
+                viewpad = np.eye(4)
+                viewpad[: intrinsic.shape[0], : intrinsic.shape[1]] = intrinsic
+                lidar2img_rt = viewpad @ lidar2cam_rt.T
+                lidar2img_rts.append(lidar2img_rt)
+
+                cam_intrinsics.append(viewpad)
+                lidar2cam_rts.append(lidar2cam_rt.T)
+
+            input_dict.update(
+                dict(
+                    img_filename=image_paths,
+                    lidar2img=lidar2img_rts,
+                    cam2img=cam_intrinsics,
+                    lidar2cam=lidar2cam_rts,
+                )
+            )
+
+        return input_dict
+
+    def filter_crowd_annotations(self, data_dict):
+        for ann in data_dict["annotations"]:
+            if ann.get("iscrowd", 0) == 0:
+                return True
+        return False
+
+    def get_data_info(self, index):
+        info = self.data_infos[index]
+        input_dict = self.prepare_input_dict(info)
+        if not self.test_mode:
+            annos = self.get_ann_info(index)
+            input_dict["ann_info"] = annos
+
+        if not self.test_mode and self.mono_cfg is not None:
+            if input_dict is None:
+                return None
+            info = self.data_infos[index]
+            img_ids = []
+            for cam_type, cam_info in info["cams"].items():
+                img_ids.append(cam_info["sample_data_token"])
+
+            mono_input_dict = []
+            mono_ann_index = []
+            for i, img_id in enumerate(img_ids):
+                tmp_dict = self.mono_dataset.getitem_by_datumtoken(img_id)
+                if tmp_dict is not None:
+                    if self.filter_crowd_annotations(tmp_dict):
+                        mono_input_dict.append(tmp_dict)
+                        mono_ann_index.append(i)
+
+            # filter empth annotation
+            if len(mono_ann_index) == 0:
+                return None
+
+            mono_ann_index = DC(mono_ann_index, cpu_only=True)
+            input_dict["mono_input_dict"] = mono_input_dict
+            input_dict["mono_ann_idx"] = mono_ann_index
+        return input_dict
+
+    def __getitem__(self, idx):
+        """Get item from infos according to the given index.
+        Returns:
+            dict: Data dictionary of the corresponding index.
+        """
+        if self.test_mode:
+            return self.prepare_test_data(idx)
+        while True:
+
+            data = self.prepare_train_data(idx)
+            if data is None:
+                idx = self._rand_another(idx)
+                continue
+            return data
+
+    def _evaluate_single(
+        self, result_path, logger=None, metric="bbox", result_name="pts_bbox"
+    ):
+        """Evaluation for a single model in nuScenes protocol.
+
+        Args:
+            result_path (str): Path of the result file.
+            logger (logging.Logger | str | None): Logger used for printing
+                related information during evaluation. Default: None.
+            metric (str): Metric name used for evaluation. Default: 'bbox'.
+            result_name (str): Result name in the metric prefix.
+                Default: 'pts_bbox'.
+
+        Returns:
+            dict: Dictionary of evaluation details.
+        """
+        from nuscenes import NuScenes
+
+        self.nusc = NuScenes(
+            version=self.version, dataroot=self.data_root, verbose=True
+        )
+
+        output_dir = osp.join(*osp.split(result_path)[:-1])
+
+        eval_set_map = {
+            "v1.0-mini": "mini_val",
+            "v1.0-trainval": "val",
+        }
+        self.nusc_eval = NuScenesEval_custom(
+            self.nusc,
+            config=self.eval_detection_configs,
+            result_path=result_path,
+            eval_set=eval_set_map[self.version],
+            output_dir=output_dir,
+            verbose=True,
+            overlap_test=self.overlap_test,
+            data_infos=self.data_infos,
+        )
+        self.nusc_eval.main(plot_examples=0, render_curves=False)
+        # record metrics
+        metrics = mmcv.load(osp.join(output_dir, "metrics_summary.json"))
+        detail = dict()
+        metric_prefix = f"{result_name}_NuScenes"
+        for name in self.CLASSES:
+            for k, v in metrics["label_aps"][name].items():
+                val = float("{:.4f}".format(v))
+                detail["{}/{}_AP_dist_{}".format(metric_prefix, name, k)] = val
+            for k, v in metrics["label_tp_errors"][name].items():
+                val = float("{:.4f}".format(v))
+                detail["{}/{}_{}".format(metric_prefix, name, k)] = val
+            for k, v in metrics["tp_errors"].items():
+                val = float("{:.4f}".format(v))
+                detail["{}/{}".format(metric_prefix, self.ErrNameMapping[k])] = val
+        detail["{}/NDS".format(metric_prefix)] = metrics["nd_score"]
+        detail["{}/mAP".format(metric_prefix)] = metrics["mean_ap"]
+        return detail
+
+
+@DATASETS.register_module()
 class CustomNuScenesDataset(NuScenesDataset):
+    r"""NuScenes Dataset.
+
+    This datset only add camera intrinsics and extrinsics to the results.
+    """
+
     def __init__(
         self, queue_length=4, bev_size=(200, 200), overlap_test=False, *args, **kwargs
     ):
@@ -1634,7 +3525,80 @@ class CustomNuScenesDataset(NuScenesDataset):
         self.overlap_test = overlap_test
         self.bev_size = bev_size
 
+    def prepare_train_data(self, index):
+        """
+        Training data preparation.
+        Args:
+            index (int): Index for accessing the target data.
+        Returns:
+            dict: Training data dict of the corresponding index.
+        """
+        queue = []
+        index_list = list(range(index - self.queue_length, index))
+        random.shuffle(index_list)
+        index_list = sorted(index_list[1:])
+        index_list.append(index)
+        for i in index_list:
+            i = max(0, i)
+            input_dict = self.get_data_info(i)
+            if input_dict is None:
+                return None
+            self.pre_pipeline(input_dict)
+            example = self.pipeline(input_dict)
+            if self.filter_empty_gt and (
+                example is None or ~(example["gt_labels_3d"]._data != -1).any()
+            ):
+                return None
+            queue.append(example)
+        return self.union2one(queue)
+
+    def union2one(self, queue):
+        imgs_list = [each["img"].data for each in queue]
+        metas_map = {}
+        prev_scene_token = None
+        prev_pos = None
+        prev_angle = None
+        for i, each in enumerate(queue):
+            metas_map[i] = each["img_metas"].data
+            if metas_map[i]["scene_token"] != prev_scene_token:
+                metas_map[i]["prev_bev_exists"] = False
+                prev_scene_token = metas_map[i]["scene_token"]
+                prev_pos = copy.deepcopy(metas_map[i]["can_bus"][:3])
+                prev_angle = copy.deepcopy(metas_map[i]["can_bus"][-1])
+                metas_map[i]["can_bus"][:3] = 0
+                metas_map[i]["can_bus"][-1] = 0
+            else:
+                metas_map[i]["prev_bev_exists"] = True
+                tmp_pos = copy.deepcopy(metas_map[i]["can_bus"][:3])
+                tmp_angle = copy.deepcopy(metas_map[i]["can_bus"][-1])
+                metas_map[i]["can_bus"][:3] -= prev_pos
+                metas_map[i]["can_bus"][-1] -= prev_angle
+                prev_pos = copy.deepcopy(tmp_pos)
+                prev_angle = copy.deepcopy(tmp_angle)
+        queue[-1]["img"] = DC(torch.stack(imgs_list), cpu_only=False, stack=True)
+        queue[-1]["img_metas"] = DC(metas_map, cpu_only=True)
+        queue = queue[-1]
+        return queue
+
     def get_data_info(self, index):
+        """Get data info according to the given index.
+
+        Args:
+            index (int): Index of the sample data to get.
+
+        Returns:
+            dict: Data information that will be passed to the data \
+                preprocessing pipelines. It includes the following keys:
+
+                - sample_idx (str): Sample index.
+                - pts_filename (str): Filename of point clouds.
+                - sweeps (list[dict]): Infos of sweeps.
+                - timestamp (float): Sample timestamp.
+                - img_filename (str, optional): Image filename.
+                - lidar2img (list[np.ndarray], optional): Transformations \
+                    from lidar to different cameras.
+                - ann_info (dict): Annotation info.
+        """
         info = self.data_infos[index]
         # standard protocal modified from SECOND.Pytorch
         input_dict = dict(
@@ -1657,7 +3621,15 @@ class CustomNuScenesDataset(NuScenesDataset):
             lidar2cam_rts = []
             cam_intrinsics = []
             for cam_type, cam_info in info["cams"].items():
-                image_paths.append(cam_info["data_path"])
+                _img_path = cam_info["data_path"]
+                if not osp.isabs(_img_path):
+                    _norm = _img_path.replace("\\", "/")
+                    _norm = _norm.lstrip("./")
+                    marker = "data/nuscenes/"
+                    if marker in _norm:
+                        _norm = _norm.split(marker, 1)[1]
+                    _img_path = osp.join(self.data_root, _norm)
+                image_paths.append(_img_path)
                 # obtain lidar to image transformation matrix
                 lidar2cam_r = np.linalg.inv(cam_info["sensor2lidar_rotation"])
                 lidar2cam_t = cam_info["sensor2lidar_translation"] @ lidar2cam_r.T
@@ -1700,7 +3672,10 @@ class CustomNuScenesDataset(NuScenesDataset):
         return input_dict
 
     def __getitem__(self, idx):
-
+        """Get item from infos according to the given index.
+        Returns:
+            dict: Data dictionary of the corresponding index.
+        """
         if self.test_mode:
             return self.prepare_test_data(idx)
         while True:
@@ -1710,3 +3685,60 @@ class CustomNuScenesDataset(NuScenesDataset):
                 idx = self._rand_another(idx)
                 continue
             return data
+
+    def _evaluate_single(
+        self, result_path, logger=None, metric="bbox", result_name="pts_bbox"
+    ):
+        """Evaluation for a single model in nuScenes protocol.
+
+        Args:
+            result_path (str): Path of the result file.
+            logger (logging.Logger | str | None): Logger used for printing
+                related information during evaluation. Default: None.
+            metric (str): Metric name used for evaluation. Default: 'bbox'.
+            result_name (str): Result name in the metric prefix.
+                Default: 'pts_bbox'.
+
+        Returns:
+            dict: Dictionary of evaluation details.
+        """
+        from nuscenes import NuScenes
+
+        self.nusc = NuScenes(
+            version=self.version, dataroot=self.data_root, verbose=True
+        )
+
+        output_dir = osp.join(*osp.split(result_path)[:-1])
+
+        eval_set_map = {
+            "v1.0-mini": "mini_val",
+            "v1.0-trainval": "val",
+        }
+        self.nusc_eval = NuScenesEval_custom(
+            self.nusc,
+            config=self.eval_detection_configs,
+            result_path=result_path,
+            eval_set=eval_set_map[self.version],
+            output_dir=output_dir,
+            verbose=True,
+            overlap_test=self.overlap_test,
+            data_infos=self.data_infos,
+        )
+        self.nusc_eval.main(plot_examples=0, render_curves=False)
+        # record metrics
+        metrics = load(osp.join(output_dir, "metrics_summary.json"))
+        detail = dict()
+        metric_prefix = f"{result_name}_NuScenes"
+        for name in self.CLASSES:
+            for k, v in metrics["label_aps"][name].items():
+                val = float("{:.4f}".format(v))
+                detail["{}/{}_AP_dist_{}".format(metric_prefix, name, k)] = val
+            for k, v in metrics["label_tp_errors"][name].items():
+                val = float("{:.4f}".format(v))
+                detail["{}/{}_{}".format(metric_prefix, name, k)] = val
+            for k, v in metrics["tp_errors"].items():
+                val = float("{:.4f}".format(v))
+                detail["{}/{}".format(metric_prefix, self.ErrNameMapping[k])] = val
+        detail["{}/NDS".format(metric_prefix)] = metrics["nd_score"]
+        detail["{}/mAP".format(metric_prefix)] = metrics["mean_ap"]
+        return detail

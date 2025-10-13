@@ -10,517 +10,376 @@ import torch
 import torch.nn as nn
 from .backbone import ResNet
 from .common_imports import BaseModule, Linear, auto_fp16, force_fp32
-from .detr_head import DETRHead
+from .detr_head import DETRHead, NuscenesDD3D
 from .neck import FPN
 from .nms_freecoder import NMSFreeCoder
 from PIL import Image
 from .transformer import PerceptionTransformer
-
-# ### small ###
-# _base_ = [
-#     '../datasets/custom_nus-3d.py',
-#     '../_base_/default_runtime.py'
-# ]
-# #
-# plugin = True
-# plugin_dir = 'projects/mmdet3d_plugin/'
-
-# # If point cloud range is changed, the models should also change their point
-# # cloud range accordingly
-# point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
-# voxel_size = [0.2, 0.2, 8]
+from collections import OrderedDict
 
 
-# img_norm_cfg = dict(
-#     mean=[103.530, 116.280, 123.675], std=[1.0, 1.0, 1.0], to_rgb=False)
-# # For nuScenes we usually do 10-class detection
-# class_names = [
-#     'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
-#     'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
-# ]
+def get_bevformer_v2_model(variant_str):
+    """
+    Get BEVFormerV2 model components based on variant string
 
-# input_modality = dict(
-#     use_lidar=False,
-#     use_camera=True,
-#     use_radar=False,
-#     use_map=False,
-#     use_external=True)
+    Args:
+        variant_str: One of ['bevformerv2-r50-t1-base', 'bevformerv2-r50-t1', 'bevformerv2-r50-t2', 'bevformerv2-r50-t8']
 
-# _dim_ = 256
-# _pos_dim_ = _dim_//2
-# _ffn_dim_ = _dim_*2
-# _num_levels_ = 1
-# bev_h_ = 150
-# bev_w_ = 150
-# queue_length = 3 # each sequence contains `queue_length` frames.
-
-# img_backbone = {
-#     "type": "ResNet",
-#     "depth": 101,
-#     "num_stages": 4,
-#     "out_indices": (3,),
-#     "frozen_stages": 1,
-#     "norm_cfg": {"type": "BN2d", "requires_grad": False},
-#     "norm_eval": True,
-#     "style": "caffe",
-#     "with_cp": True,
-#     "dcn": {
-#         "type": "DCNv2",
-#         "deform_groups": 1,
-#         "fallback_on_stride": False
-#     },
-#     "stage_with_dcn": (False, False, True, True)
-# }
-# img_neck = {
-#     "type": "FPN",
-#     "in_channels": [2048],
-#     "out_channels": _dim_,
-#     "start_level": 0,
-#     "add_extra_convs": "on_output",
-#     "num_outs": _num_levels_,
-#     "relu_before_extra_convs": True
-# }
-# pts_bbox_head = {
-#     "type": "BEVFormerHead",
-#     "bev_h": bev_h_,
-#     "bev_w": bev_w_,
-#     "num_query": 900,
-#     "num_classes": 10,
-#     "in_channels": _dim_,
-#     "sync_cls_avg_factor": True,
-#     "with_box_refine": True,
-#     "as_two_stage": False,
-#     "transformer": {
-#         "type": "PerceptionTransformer",
-#         "rotate_prev_bev": True,
-#         "use_shift": True,
-#         "use_can_bus": True,
-#         "embed_dims": _dim_,
-#         "encoder": {
-#             "type": "BEVFormerEncoder",
-#             "num_layers": 3,
-#             "pc_range": point_cloud_range,
-#             "num_points_in_pillar": 4,
-#             "return_intermediate": False,
-#             "transformerlayers": {
-#                 "type": "BEVFormerLayer",
-#                 "attn_cfgs": [
-#                     {
-#                         "type": "TemporalSelfAttention",
-#                         "embed_dims": _dim_,
-#                         "num_levels": 1
-#                     },
-#                     {
-#                         "type": "SpatialCrossAttention",
-#                         "pc_range": point_cloud_range,
-#                         "deformable_attention": {
-#                             "type": "MSDeformableAttention3D",
-#                             "embed_dims": _dim_,
-#                             "num_points": 8,
-#                             "num_levels": _num_levels_
-#                         },
-#                         "embed_dims": _dim_
-#                     }
-#                 ],
-#                 "feedforward_channels": _ffn_dim_,
-#                 "ffn_dropout": 0.1,
-#                 "operation_order": (
-#                     "self_attn", "norm", "cross_attn", "norm", "ffn", "norm"
-#                 )
-#             }
-#         },
-#         "decoder": {
-#             "type": "DetectionTransformerDecoder",
-#             "num_layers": 6,
-#             "return_intermediate": True,
-#             "transformerlayers": {
-#                 "type": "DetrTransformerDecoderLayer",
-#                 "attn_cfgs": [
-#                     {
-#                         "type": "MultiheadAttention",
-#                         "embed_dims": _dim_,
-#                         "num_heads": 8,
-#                         "dropout": 0.1
-#                     },
-#                     {
-#                         "type": "CustomMSDeformableAttention",
-#                         "embed_dims": _dim_,
-#                         "num_levels": 1
-#                     }
-#                 ],
-#                 "feedforward_channels": _ffn_dim_,
-#                 "ffn_dropout": 0.1,
-#                 "operation_order": (
-#                     "self_attn", "norm", "cross_attn", "norm", "ffn", "norm"
-#                 )
-#             }
-#         }
-#     },
-#     "bbox_coder": {
-#         "type": "NMSFreeCoder",
-#         "post_center_range": [-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
-#         "pc_range": point_cloud_range,
-#         "max_num": 300,
-#         "voxel_size": voxel_size,
-#         "num_classes": 10
-#     },
-#     "positional_encoding": {
-#         "type": "LearnedPositionalEncoding",
-#         "num_feats": _pos_dim_,
-#         "row_num_embed": bev_h_,
-#         "col_num_embed": bev_w_
-#     },
-#     "loss_cls": {
-#         "type": "FocalLoss",
-#         "use_sigmoid": True,
-#         "gamma": 2.0,
-#         "alpha": 0.25,
-#         "loss_weight": 2.0
-#     },
-#     "loss_bbox": {
-#         "type": "L1Loss",
-#         "loss_weight": 0.25
-#     },
-#     "loss_iou": {
-#         "type": "GIoULoss",
-#         "loss_weight": 0.0
-#     }
-# }
-
-# #### base ####
-# _base_ = [
-#     '../datasets/custom_nus-3d.py',
-#     '../_base_/default_runtime.py'
-# ]
-# #
-# plugin = True
-# plugin_dir = 'projects/mmdet3d_plugin/'
-
-# # If point cloud range is changed, the models should also change their point
-# # cloud range accordingly
-# point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
-# voxel_size = [0.2, 0.2, 8]
-
-
-# img_norm_cfg = dict(
-#     mean=[103.530, 116.280, 123.675], std=[1.0, 1.0, 1.0], to_rgb=False)
-# # For nuScenes we usually do 10-class detection
-# class_names = [
-#     'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
-#     'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
-# ]
-
-# input_modality = dict(
-#     use_lidar=False,
-#     use_camera=True,
-#     use_radar=False,
-#     use_map=False,
-#     use_external=True)
-
-# _dim_ = 256
-# _pos_dim_ = _dim_//2
-# _ffn_dim_ = _dim_*2
-# _num_levels_ = 4
-# bev_h_ = 200
-# bev_w_ = 200
-# queue_length = 4 # each sequence contains `queue_length` frames.
-# img_backbone = {
-#     "type": "ResNet",
-#     "depth": 101,
-#     "num_stages": 4,
-#     "out_indices": (1, 2, 3),
-#     "frozen_stages": 1,
-#     "norm_cfg": {"type": "BN2d", "requires_grad": False},
-#     "norm_eval": True,
-#     "style": "caffe",
-#     "dcn": {
-#         "type": "DCNv2",
-#         "deform_groups": 1,
-#         "fallback_on_stride": False
-#     },
-#     "stage_with_dcn": (False, False, True, True)
-# }
-
-# img_neck = {
-#     "type": "FPN",
-#     "in_channels": [512, 1024, 2048],
-#     "out_channels": _dim_,
-#     "start_level": 0,
-#     "add_extra_convs": "on_output",
-#     "num_outs": 4,
-#     "relu_before_extra_convs": True
-# }
-# pts_bbox_head = {
-#     "type": "BEVFormerHead",
-#     "bev_h": bev_h_,
-#     "bev_w": bev_w_,
-#     "num_query": 900,
-#     "num_classes": 10,
-#     "in_channels": _dim_,
-#     "sync_cls_avg_factor": True,
-#     "with_box_refine": True,
-#     "as_two_stage": False,
-#     "transformer": {
-#         "type": "PerceptionTransformer",
-#         "rotate_prev_bev": True,
-#         "use_shift": True,
-#         "use_can_bus": True,
-#         "embed_dims": _dim_,
-#         "encoder": {
-#             "type": "BEVFormerEncoder",
-#             "num_layers": 6,
-#             "pc_range": point_cloud_range,
-#             "num_points_in_pillar": 4,
-#             "return_intermediate": False,
-#             "transformerlayers": {
-#                 "type": "BEVFormerLayer",
-#                 "attn_cfgs": [
-#                     {
-#                         "type": "TemporalSelfAttention",
-#                         "embed_dims": _dim_,
-#                         "num_levels": 1
-#                     },
-#                     {
-#                         "type": "SpatialCrossAttention",
-#                         "pc_range": point_cloud_range,
-#                         "deformable_attention": {
-#                             "type": "MSDeformableAttention3D",
-#                             "embed_dims": _dim_,
-#                             "num_points": 8,
-#                             "num_levels": _num_levels_
-#                         },
-#                         "embed_dims": _dim_
-#                     }
-#                 ],
-#                 "feedforward_channels": _ffn_dim_,
-#                 "ffn_dropout": 0.1,
-#                 "operation_order": (
-#                     "self_attn", "norm", "cross_attn", "norm", "ffn", "norm"
-#                 )
-#             }
-#         },
-#         "decoder": {
-#             "type": "DetectionTransformerDecoder",
-#             "num_layers": 6,
-#             "return_intermediate": True,
-#             "transformerlayers": {
-#                 "type": "DetrTransformerDecoderLayer",
-#                 "attn_cfgs": [
-#                     {
-#                         "type": "MultiheadAttention",
-#                         "embed_dims": _dim_,
-#                         "num_heads": 8,
-#                         "dropout": 0.1
-#                     },
-#                     {
-#                         "type": "CustomMSDeformableAttention",
-#                         "embed_dims": _dim_,
-#                         "num_levels": 1
-#                     }
-#                 ],
-#                 "feedforward_channels": _ffn_dim_,
-#                 "ffn_dropout": 0.1,
-#                 "operation_order": (
-#                     "self_attn", "norm", "cross_attn", "norm", "ffn", "norm"
-#                 )
-#             }
-#         }
-#     },
-#     "bbox_coder": {
-#         "type": "NMSFreeCoder",
-#         "post_center_range": [-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
-#         "pc_range": point_cloud_range,
-#         "max_num": 300,
-#         "voxel_size": voxel_size,
-#         "num_classes": 10
-#     },
-#     "positional_encoding": {
-#         "type": "LearnedPositionalEncoding",
-#         "num_feats": _pos_dim_,
-#         "row_num_embed": bev_h_,
-#         "col_num_embed": bev_w_
-#     },
-#     "loss_cls": {
-#         "type": "FocalLoss",
-#         "use_sigmoid": True,
-#         "gamma": 2.0,
-#         "alpha": 0.25,
-#         "loss_weight": 2.0
-#     },
-#     "loss_bbox": {
-#         "type": "L1Loss",
-#         "loss_weight": 0.25
-#     },
-#     "loss_iou": {
-#         "type": "GIoULoss",
-#         "loss_weight": 0.0
-#     }
-# }
-
-### tiny ###
-point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
-voxel_size = [0.2, 0.2, 8]
-
-
-img_norm_cfg = dict(
-    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True
-)
-
-# For nuScenes we usually do 10-class detection
-class_names = [
-    "car",
-    "truck",
-    "construction_vehicle",
-    "bus",
-    "trailer",
-    "barrier",
-    "motorcycle",
-    "bicycle",
-    "pedestrian",
-    "traffic_cone",
-]
-
-input_modality = dict(
-    use_lidar=False, use_camera=True, use_radar=False, use_map=False, use_external=True
-)
-
-_dim_ = 256
-_pos_dim_ = _dim_ // 2
-_ffn_dim_ = _dim_ * 2
-_num_levels_ = 1
-bev_h_ = 50
-bev_w_ = 50
-queue_length = 3  # each sequence contains `queue_length` frames.
-img_backbone = {
-    "type": "ResNet",
-    "depth": 50,
-    "num_stages": 4,
-    "out_indices": (3,),
-    "frozen_stages": 1,
-    "norm_cfg": {"type": "BN", "requires_grad": False},
-    "norm_eval": True,
-    "style": "pytorch",
-}
-
-img_neck = {
-    "type": "FPN",
-    "in_channels": [2048],
-    "out_channels": _dim_,
-    "start_level": 0,
-    "add_extra_convs": "on_output",
-    "num_outs": _num_levels_,
-    "relu_before_extra_convs": True,
-}
-pts_bbox_head = {
-    "type": "BEVFormerHead",
-    "bev_h": bev_h_,
-    "bev_w": bev_w_,
-    "num_query": 900,
-    "num_classes": 10,
-    "in_channels": _dim_,
-    "sync_cls_avg_factor": True,
-    "with_box_refine": True,
-    "as_two_stage": False,
-    "transformer": {
-        "type": "PerceptionTransformer",
-        "rotate_prev_bev": True,
-        "use_shift": True,
-        "use_can_bus": True,
-        "embed_dims": _dim_,
-        "encoder": {
-            "type": "BEVFormerEncoder",
-            "num_layers": 3,
-            "pc_range": point_cloud_range,
-            "num_points_in_pillar": 4,
-            "return_intermediate": False,
-            "transformerlayers": {
-                "type": "BEVFormerLayer",
-                "attn_cfgs": [
-                    {
-                        "type": "TemporalSelfAttention",
-                        "embed_dims": _dim_,
-                        "num_levels": 1,
-                    },
-                    {
-                        "type": "SpatialCrossAttention",
-                        "pc_range": point_cloud_range,
-                        "deformable_attention": {
-                            "type": "MSDeformableAttention3D",
-                            "embed_dims": _dim_,
-                            "num_points": 8,
-                            "num_levels": _num_levels_,
-                        },
-                        "embed_dims": _dim_,
-                    },
-                ],
-                "feedforward_channels": _ffn_dim_,
-                "ffn_dropout": 0.1,
-                "operation_order": (
-                    "self_attn",
-                    "norm",
-                    "cross_attn",
-                    "norm",
-                    "ffn",
-                    "norm",
-                ),
-            },
+    Returns:
+        img_backbone, pts_bbox_head, img_neck, fcos3d_bbox_head, frames
+    """
+    # Base configuration
+    base_config = {
+        "point_cloud_range": [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0],
+        "class_names": [
+            "barrier",
+            "bicycle",
+            "bus",
+            "car",
+            "construction_vehicle",
+            "motorcycle",
+            "pedestrian",
+            "traffic_cone",
+            "trailer",
+            "truck",
+        ],
+        "bev_h_": 200,
+        "bev_w_": 200,
+        "frames": (0,),
+        "voxel_size": [102.4 / 200, 102.4 / 200, 8],
+        "img_norm_cfg": dict(
+            mean=[103.53, 116.28, 123.675], std=[1, 1, 1], to_rgb=False
+        ),
+        "_dim_": 256,
+        "_pos_dim_": 128,
+        "_ffn_dim_": 512,
+        "_num_levels_": 4,
+        "_num_mono_levels_": 5,
+        "ida_aug_conf": {
+            "reisze": [
+                640,
+            ],
+            "crop": (0, 260, 1600, 900),
+            "H": 900,
+            "W": 1600,
+            "rand_flip": False,
         },
-        "decoder": {
-            "type": "DetectionTransformerDecoder",
-            "num_layers": 6,
-            "return_intermediate": True,
-            "transformerlayers": {
-                "type": "DetrTransformerDecoderLayer",
-                "attn_cfgs": [
-                    {
-                        "type": "MultiheadAttention",
-                        "embed_dims": _dim_,
-                        "num_heads": 8,
-                        "dropout": 0.1,
-                    },
-                    {
-                        "type": "CustomMSDeformableAttention",
-                        "embed_dims": _dim_,
-                        "num_levels": 1,
-                    },
-                ],
-                "feedforward_channels": _ffn_dim_,
-                "ffn_dropout": 0.1,
-                "operation_order": (
-                    "self_attn",
-                    "norm",
-                    "cross_attn",
-                    "norm",
-                    "ffn",
-                    "norm",
-                ),
-            },
+        "ida_aug_conf_eval": {
+            "reisze": [
+                640,
+            ],
+            "crop": (0, 260, 1600, 900),
+            "H": 900,
+            "W": 1600,
+            "rand_flip": False,
         },
-    },
-    "bbox_coder": {
-        "type": "NMSFreeCoder",
-        "post_center_range": [-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
-        "pc_range": point_cloud_range,
-        "max_num": 300,
-        "voxel_size": voxel_size,
+    }
+
+    # Apply variant-specific modifications
+    if variant_str == "bevformerv2-r50-t1-base":
+        # Use base config as-is
+        frames = base_config["frames"]
+        group_detr = None
+        pts_bbox_head_type = "BEVFormerHead"
+        self_attn_type = "MultiheadAttention"
+
+    elif variant_str == "bevformerv2-r50-t1":
+        base_config["frames"] = (0,)
+        base_config["group_detr"] = 11
+        # Enhanced data augmentation for training
+        base_config["ida_aug_conf"] = {
+            "reisze": [512, 544, 576, 608, 640, 672, 704, 736, 768],
+            "crop": (0, 260, 1600, 900),
+            "H": 900,
+            "W": 1600,
+            "rand_flip": True,
+        }
+        frames = base_config["frames"]
+        group_detr = base_config["group_detr"]
+        pts_bbox_head_type = "BEVFormerHead_GroupDETR"
+        self_attn_type = "GroupMultiheadAttention"
+
+    elif variant_str == "bevformerv2-r50-t2":
+        base_config["frames"] = (
+            -1,
+            0,
+        )
+        base_config["group_detr"] = 11
+        base_config["ida_aug_conf"] = {
+            "reisze": [512, 544, 576, 608, 640, 672, 704, 736, 768],
+            "crop": (0, 260, 1600, 900),
+            "H": 900,
+            "W": 1600,
+            "rand_flip": True,
+        }
+        frames = base_config["frames"]
+        group_detr = base_config["group_detr"]
+        pts_bbox_head_type = "BEVFormerHead_GroupDETR"
+        self_attn_type = "GroupMultiheadAttention"
+
+    elif variant_str == "bevformerv2-r50-t8":
+        base_config["frames"] = (-7, -6, -5, -4, -3, -2, -1, 0)
+        base_config["group_detr"] = 11
+        base_config["ida_aug_conf"] = {
+            "reisze": [512, 544, 576, 608, 640, 672, 704, 736, 768],
+            "crop": (0, 260, 1600, 900),
+            "H": 900,
+            "W": 1600,
+            "rand_flip": True,
+        }
+        frames = base_config["frames"]
+        group_detr = base_config["group_detr"]
+        pts_bbox_head_type = "BEVFormerHead_GroupDETR"
+        self_attn_type = "GroupMultiheadAttention"
+
+    else:
+        raise ValueError(
+            f"Unknown variant: {variant_str}. Supported variants: 'bevformerv2-r50-t1-base', 'bevformerv2-r50-t1', 'bevformerv2-r50-t2', 'bevformerv2-r50-t8'"
+        )
+
+    # Common components
+    img_backbone = {
+        "type": "ResNet",
+        "depth": 50,
+        "num_stages": 4,
+        "out_indices": (1, 2, 3),
+        "frozen_stages": -1,
+        "norm_cfg": {"type": "SyncBN"},
+        "norm_eval": False,
+        "style": "caffe",
+    }
+
+    img_neck = {
+        "type": "FPN",
+        "in_channels": [512, 1024, 2048],
+        "out_channels": base_config["_dim_"],
+        "start_level": 0,
+        "add_extra_convs": "on_output",
+        "num_outs": base_config["_num_mono_levels_"],
+        "relu_before_extra_convs": True,
+    }
+
+    # Build pts_bbox_head based on variant
+    if pts_bbox_head_type == "BEVFormerHead":
+        pts_bbox_head = _get_base_pts_bbox_head(base_config)
+    else:
+        pts_bbox_head = _get_group_detr_pts_bbox_head(
+            base_config, group_detr, self_attn_type
+        )
+
+    # FCOS3D bbox head (common across variants with minor adjustments)
+    fcos3d_bbox_head = _get_fcos3d_bbox_head(base_config)
+
+    return img_backbone, pts_bbox_head, img_neck, fcos3d_bbox_head, frames
+
+
+def _get_base_pts_bbox_head(config):
+    """Get base BEVFormerHead configuration"""
+    return {
+        "type": "BEVFormerHead",
+        "bev_h": config["bev_h_"],
+        "bev_w": config["bev_w_"],
+        "num_query": 900,
         "num_classes": 10,
-    },
-    "positional_encoding": {
-        "type": "LearnedPositionalEncoding",
-        "num_feats": _pos_dim_,
-        "row_num_embed": bev_h_,
-        "col_num_embed": bev_w_,
-    },
-    "loss_cls": {
-        "type": "FocalLoss",
-        "use_sigmoid": True,
-        "gamma": 2.0,
-        "alpha": 0.25,
-        "loss_weight": 2.0,
-    },
-    "loss_bbox": {"type": "L1Loss", "loss_weight": 0.25},
-    "loss_iou": {"type": "GIoULoss", "loss_weight": 0.0},
-}
+        "in_channels": config["_dim_"],
+        "sync_cls_avg_factor": True,
+        "with_box_refine": True,
+        "as_two_stage": False,
+        "transformer": {
+            "type": "PerceptionTransformerV2",
+            "embed_dims": config["_dim_"],
+            "frames": config["frames"],
+            "encoder": {
+                "type": "BEVFormerEncoder",
+                "num_layers": 6,
+                "pc_range": config["point_cloud_range"],
+                "num_points_in_pillar": 4,
+                "return_intermediate": False,
+                "transformerlayers": {
+                    "type": "BEVFormerLayer",
+                    "attn_cfgs": [
+                        {
+                            "type": "TemporalSelfAttention",
+                            "embed_dims": config["_dim_"],
+                            "num_levels": 1,
+                        },
+                        {
+                            "type": "SpatialCrossAttention",
+                            "pc_range": config["point_cloud_range"],
+                            "deformable_attention": {
+                                "type": "MSDeformableAttention3D",
+                                "embed_dims": config["_dim_"],
+                                "num_points": 8,
+                                "num_levels": 4,
+                            },
+                            "embed_dims": config["_dim_"],
+                        },
+                    ],
+                    "feedforward_channels": config["_ffn_dim_"],
+                    "ffn_dropout": 0.1,
+                    "operation_order": (
+                        "self_attn",
+                        "norm",
+                        "cross_attn",
+                        "norm",
+                        "ffn",
+                        "norm",
+                    ),
+                },
+            },
+            "decoder": {
+                "type": "DetectionTransformerDecoder",
+                "num_layers": 6,
+                "return_intermediate": True,
+                "transformerlayers": {
+                    "type": "DetrTransformerDecoderLayer",
+                    "attn_cfgs": [
+                        {
+                            "type": "MultiheadAttention",
+                            "embed_dims": config["_dim_"],
+                            "num_heads": 8,
+                            "dropout": 0.1,
+                        },
+                        {
+                            "type": "CustomMSDeformableAttention",
+                            "embed_dims": config["_dim_"],
+                            "num_levels": 1,
+                        },
+                    ],
+                    "feedforward_channels": config["_ffn_dim_"],
+                    "ffn_dropout": 0.1,
+                    "operation_order": (
+                        "self_attn",
+                        "norm",
+                        "cross_attn",
+                        "norm",
+                        "ffn",
+                        "norm",
+                    ),
+                },
+            },
+        },
+        "bbox_coder": {
+            "type": "NMSFreeCoder",
+            "post_center_range": [-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
+            "pc_range": config["point_cloud_range"],
+            "max_num": 300,
+            "voxel_size": config["voxel_size"],
+            "num_classes": 10,
+        },
+        "positional_encoding": {
+            "type": "LearnedPositionalEncoding",
+            "num_feats": config["_pos_dim_"],
+            "row_num_embed": config["bev_h_"],
+            "col_num_embed": config["bev_w_"],
+        },
+        "loss_cls": {
+            "type": "FocalLoss",
+            "use_sigmoid": True,
+            "gamma": 2.0,
+            "alpha": 0.25,
+            "loss_weight": 2.0,
+        },
+        "loss_bbox": {"type": "SmoothL1Loss", "loss_weight": 0.75, "beta": 1.0},
+        "loss_iou": {"type": "GIoULoss", "loss_weight": 0.0},
+    }
+
+
+def _get_group_detr_pts_bbox_head(config, group_detr, self_attn_type):
+    """Get GroupDETR variant of BEVFormerHead"""
+    pts_bbox_head = _get_base_pts_bbox_head(config)
+    pts_bbox_head["type"] = "BEVFormerHead_GroupDETR"
+    pts_bbox_head["group_detr"] = group_detr
+
+    # Update decoder self-attention to GroupMultiheadAttention
+    pts_bbox_head["transformer"]["decoder"]["transformerlayers"]["attn_cfgs"][0] = {
+        "type": self_attn_type,
+        "group": group_detr,
+        "embed_dims": config["_dim_"],
+        "num_heads": 8,
+        "dropout": 0.1,
+    }
+
+    # For t8 variant, add inter_channels
+    if len(config["frames"]) > 2:
+        pts_bbox_head["transformer"]["inter_channels"] = config["_dim_"] * 2
+
+    return pts_bbox_head
+
+
+def _get_fcos3d_bbox_head(config):
+    """Get FCOS3D bbox head configuration"""
+    return {
+        "type": "NuscenesDD3D",
+        "num_classes": 10,
+        "in_channels": config["_dim_"],
+        "strides": [8, 16, 32, 64, 128],
+        "box3d_on": True,
+        "feature_locations_offset": "none",
+        "fcos2d_cfg": {
+            "num_cls_convs": 4,
+            "num_box_convs": 4,
+            "norm": "SyncBN",
+            "use_deformable": False,
+            "use_scale": True,
+            "box2d_scale_init_factor": 1.0,
+        },
+        "fcos2d_loss_cfg": {
+            "focal_loss_alpha": 0.25,
+            "focal_loss_gamma": 2.0,
+            "loc_loss_type": "giou",
+        },
+        "fcos3d_cfg": {
+            "num_convs": 4,
+            "norm": "SyncBN",
+            "use_scale": True,
+            "depth_scale_init_factor": 0.3,
+            "proj_ctr_scale_init_factor": 1.0,
+            "use_per_level_predictors": False,
+            "class_agnostic": False,
+            "use_deformable": False,
+            "mean_depth_per_level": [44.921, 20.252, 11.712, 7.166, 8.548],
+            "std_depth_per_level": [24.331, 9.833, 6.223, 4.611, 8.275],
+        },
+        "fcos3d_loss_cfg": {
+            "min_depth": 0.1,
+            "max_depth": 80.0,
+            "box3d_loss_weight": 2.0,
+            "conf3d_loss_weight": 1.0,
+            "conf_3d_temperature": 1.0,
+            "smooth_l1_loss_beta": 0.05,
+            "max_loss_per_group": 20,
+            "predict_allocentric_rot": True,
+            "scale_depth_by_focal_lengths": True,
+            "scale_depth_by_focal_lengths_factor": 500.0,
+            "class_agnostic": False,
+            "predict_distance": False,
+            "canon_box_sizes": [
+                [2.3524184, 0.5062202, 1.0413622],
+                [0.61416006, 1.7016163, 1.3054738],
+                [2.9139307, 10.725025, 3.2832346],
+                [1.9751819, 4.641267, 1.74352],
+                [2.772134, 6.565072, 3.2474296],
+                [0.7800532, 2.138673, 1.4437162],
+                [0.6667362, 0.7181772, 1.7616143],
+                [0.40246472, 0.4027083, 1.0084083],
+                [3.0059454, 12.8197, 4.1213827],
+                [2.4986045, 6.9310856, 2.8382742],
+            ],
+        },
+        "target_assign_cfg": {
+            "center_sample": True,
+            "pos_radius": 1.5,
+            "sizes_of_interest": [
+                (-1, 64),
+                (64, 128),
+                (128, 256),
+                (256, 512),
+                (512, 1e8),
+            ],
+        },
+        "nusc_loss_weight": {"attr_loss_weight": 0.2, "speed_loss_weight": 0.2},
+    }
 
 
 class BEVFormerBaseConfig:
@@ -792,7 +651,7 @@ class BEVFormerBaseConfig:
             return cls.img_norm_cfg
 
 
-def get_bevformer_model(variant="base"):
+def get_bevformer_model(variant="BEVFormer-tiny"):
     """
     Get BEVFormer model components for the specified variant
 
@@ -802,7 +661,12 @@ def get_bevformer_model(variant="base"):
     Returns:
         tuple: (img_backbone, pts_bbox_head, img_neck) configurations
     """
-    valid_variants = ["BEVFormer-tiny", "BEVFormer-small", "BEVFormer-base"]
+    valid_variants = [
+        "BEVFormer-tiny",
+        "BEVFormer-small",
+        "BEVFormer-base",
+        "BEVFormerV2-r50-t1-base",
+    ]
     if variant not in valid_variants:
         raise ValueError(f"Variant must be one of {valid_variants}, got {variant}")
 
@@ -990,16 +854,27 @@ class MVXTwoStageDetector(Base3DDetector):
             pts_bbox_head.update(train_cfg=pts_train_cfg)
             pts_test_cfg = test_cfg.pts if test_cfg else None
             pts_bbox_head.update(test_cfg=pts_test_cfg)
-            if isinstance(pts_bbox_head, dict):
+            trans_type = pts_bbox_head.get("type", None)
+            if trans_type == "BEVFormerHead_GroupDETR":
                 cfg = pts_bbox_head.copy()
-                cfg.pop("type", None)
-                self.pts_bbox_head = BEVFormerHead(**cfg)
-            elif isinstance(pts_bbox_head, BEVFormerHead):
-                self.pts_bbox_head = pts_bbox_head
+                self.pts_bbox_head = BEVFormerHead_GroupDETR(**cfg)
             else:
-                raise TypeError(
-                    "pts_bbox_head must be a dict config or a BEVFormerHead instance"
-                )
+                cfg = pts_bbox_head.copy()
+                self.pts_bbox_head = BEVFormerHead(**cfg)
+            # if isinstance(pts_bbox_head, dict):
+            #     cfg = pts_bbox_head.copy()
+            #     head_type = cfg.pop("type", None)
+            #     # Both BEVFormerHead and BEVFormerHead_GroupDETR map to BEVFormerHead implementation
+            #     self.pts_bbox_head = BEVFormerHead(**cfg)
+            # elif isinstance(pts_bbox_head, BEVFormerHead_GroupDETR):
+            #     # Treat BEVFormerHead_GroupDETR the same as BEVFormerHead
+            #     self.pts_bbox_head = pts_bbox_head
+            # elif isinstance(pts_bbox_head, BEVFormerHead):
+            #     self.pts_bbox_head = pts_bbox_head
+            # else:
+            #     raise TypeError(
+            #         "pts_bbox_head must be a dict config or a BEVFormerHead instance"
+            #     )
         if img_backbone:
             if isinstance(img_backbone, dict):
                 cfg = img_backbone.copy()
@@ -1377,6 +1252,494 @@ class BEVFormerHead(DETRHead):
             ret_list.append([bboxes, scores, labels])
 
         return ret_list
+
+
+class BEVFormerHead_GroupDETR(BEVFormerHead):
+    def __init__(self, *args, group_detr=1, **kwargs):
+        self.group_detr = group_detr
+        assert "num_query" in kwargs
+        kwargs["num_query"] = group_detr * kwargs["num_query"]
+        super().__init__(*args, **kwargs)
+
+    def forward(self, mlvl_feats, img_metas, prev_bev=None, only_bev=False):
+        bs, num_cam, _, _, _ = mlvl_feats[0].shape
+        dtype = mlvl_feats[0].dtype
+        object_query_embeds = self.query_embedding.weight.to(dtype)
+        if not self.training:  # NOTE: Only difference to bevformer head
+            object_query_embeds = object_query_embeds[
+                : self.num_query // self.group_detr
+            ]
+        bev_queries = self.bev_embedding.weight.to(dtype)
+
+        bev_mask = torch.zeros(
+            (bs, self.bev_h, self.bev_w), device=bev_queries.device
+        ).to(dtype)
+        bev_pos = self.positional_encoding(bev_mask).to(dtype)
+
+        if only_bev:
+            return self.transformer.get_bev_features(
+                mlvl_feats,
+                bev_queries,
+                self.bev_h,
+                self.bev_w,
+                grid_length=(self.real_h / self.bev_h, self.real_w / self.bev_w),
+                bev_pos=bev_pos,
+                img_metas=img_metas,
+                prev_bev=prev_bev,
+            )
+        else:
+            outputs = self.transformer(
+                mlvl_feats,
+                bev_queries,
+                object_query_embeds,
+                self.bev_h,
+                self.bev_w,
+                grid_length=(self.real_h / self.bev_h, self.real_w / self.bev_w),
+                bev_pos=bev_pos,
+                reg_branches=self.reg_branches
+                if self.with_box_refine
+                else None,  # noqa:E501
+                cls_branches=self.cls_branches if self.as_two_stage else None,
+                img_metas=img_metas,
+                prev_bev=prev_bev,
+            )
+
+        bev_embed, hs, init_reference, inter_references = outputs
+        hs = hs.permute(0, 2, 1, 3)
+        outputs_classes = []
+        outputs_coords = []
+        for lvl in range(hs.shape[0]):
+            if lvl == 0:
+                reference = init_reference
+            else:
+                reference = inter_references[lvl - 1]
+            reference = inverse_sigmoid(reference)
+            outputs_class = self.cls_branches[lvl](hs[lvl])
+            tmp = self.reg_branches[lvl](hs[lvl])
+            assert reference.shape[-1] == 3
+            tmp[..., 0:2] += reference[..., 0:2]
+            tmp[..., 0:2] = tmp[..., 0:2].sigmoid()
+            tmp[..., 4:5] += reference[..., 2:3]
+            tmp[..., 4:5] = tmp[..., 4:5].sigmoid()
+            tmp[..., 0:1] = (
+                tmp[..., 0:1] * (self.pc_range[3] - self.pc_range[0]) + self.pc_range[0]
+            )
+            tmp[..., 1:2] = (
+                tmp[..., 1:2] * (self.pc_range[4] - self.pc_range[1]) + self.pc_range[1]
+            )
+            tmp[..., 4:5] = (
+                tmp[..., 4:5] * (self.pc_range[5] - self.pc_range[2]) + self.pc_range[2]
+            )
+            outputs_coord = tmp
+            outputs_classes.append(outputs_class)
+            outputs_coords.append(outputs_coord)
+
+        outputs_classes = torch.stack(outputs_classes)
+        outputs_coords = torch.stack(outputs_coords)
+
+        outs = {
+            "bev_embed": bev_embed,
+            "all_cls_scores": outputs_classes,
+            "all_bbox_preds": outputs_coords,
+            "enc_cls_scores": None,
+            "enc_bbox_preds": None,
+        }
+
+        return outs
+
+    def loss(
+        self,
+        gt_bboxes_list,
+        gt_labels_list,
+        preds_dicts,
+        gt_bboxes_ignore=None,
+        img_metas=None,
+    ):
+        """ "Loss function.
+        Args:
+
+            gt_bboxes_list (list[Tensor]): Ground truth bboxes for each image
+                with shape (num_gts, 4) in [tl_x, tl_y, br_x, br_y] format.
+            gt_labels_list (list[Tensor]): Ground truth class indices for each
+                image with shape (num_gts, ).
+            preds_dicts:
+                all_cls_scores (Tensor): Classification score of all
+                    decoder layers, has shape
+                    [nb_dec, bs, num_query, cls_out_channels].
+                all_bbox_preds (Tensor): Sigmoid regression
+                    outputs of all decode layers. Each is a 4D-tensor with
+                    normalized coordinate format (cx, cy, w, h) and shape
+                    [nb_dec, bs, num_query, 4].
+                enc_cls_scores (Tensor): Classification scores of
+                    points on encode feature map , has shape
+                    (N, h*w, num_classes). Only be passed when as_two_stage is
+                    True, otherwise is None.
+                enc_bbox_preds (Tensor): Regression results of each points
+                    on the encode feature map, has shape (N, h*w, 4). Only be
+                    passed when as_two_stage is True, otherwise is None.
+            gt_bboxes_ignore (list[Tensor], optional): Bounding boxes
+                which can be ignored for each image. Default None.
+        Returns:
+            dict[str, Tensor]: A dictionary of loss components.
+        """
+        assert gt_bboxes_ignore is None, (
+            f"{self.__class__.__name__} only supports "
+            f"for gt_bboxes_ignore setting to None."
+        )
+
+        all_cls_scores = preds_dicts["all_cls_scores"]
+        all_bbox_preds = preds_dicts["all_bbox_preds"]
+        enc_cls_scores = preds_dicts["enc_cls_scores"]
+        enc_bbox_preds = preds_dicts["enc_bbox_preds"]
+        assert enc_cls_scores is None and enc_bbox_preds is None
+
+        num_dec_layers = len(all_cls_scores)
+        device = gt_labels_list[0].device
+
+        gt_bboxes_list = [
+            torch.cat((gt_bboxes.gravity_center, gt_bboxes.tensor[:, 3:]), dim=1).to(
+                device
+            )
+            for gt_bboxes in gt_bboxes_list
+        ]
+
+        all_gt_bboxes_list = [gt_bboxes_list for _ in range(num_dec_layers)]
+        all_gt_labels_list = [gt_labels_list for _ in range(num_dec_layers)]
+        all_gt_bboxes_ignore_list = [gt_bboxes_ignore for _ in range(num_dec_layers)]
+
+        loss_dict = dict()
+        loss_dict["loss_cls"] = 0
+        loss_dict["loss_bbox"] = 0
+        for num_dec_layer in range(all_cls_scores.shape[0] - 1):
+            loss_dict[f"d{num_dec_layer}.loss_cls"] = 0
+            loss_dict[f"d{num_dec_layer}.loss_bbox"] = 0
+        num_query_per_group = self.num_query // self.group_detr
+        for group_index in range(self.group_detr):
+            group_query_start = group_index * num_query_per_group
+            group_query_end = (group_index + 1) * num_query_per_group
+            group_cls_scores = all_cls_scores[
+                :, :, group_query_start:group_query_end, :
+            ]
+            group_bbox_preds = all_bbox_preds[
+                :, :, group_query_start:group_query_end, :
+            ]
+            losses_cls, losses_bbox = multi_apply(
+                self.loss_single,
+                group_cls_scores,
+                group_bbox_preds,
+                all_gt_bboxes_list,
+                all_gt_labels_list,
+                all_gt_bboxes_ignore_list,
+            )
+            loss_dict["loss_cls"] += losses_cls[-1] / self.group_detr
+            loss_dict["loss_bbox"] += losses_bbox[-1] / self.group_detr
+            # loss from other decoder layers
+            num_dec_layer = 0
+            for loss_cls_i, loss_bbox_i in zip(losses_cls[:-1], losses_bbox[:-1]):
+                loss_dict[f"d{num_dec_layer}.loss_cls"] += loss_cls_i / self.group_detr
+                loss_dict[f"d{num_dec_layer}.loss_bbox"] += (
+                    loss_bbox_i / self.group_detr
+                )
+                num_dec_layer += 1
+        return loss_dict
+
+
+class BEVFormerV2(MVXTwoStageDetector):
+    """BEVFormer.
+    Args:
+        video_test_mode (bool): Decide whether to use temporal information during inference.
+    """
+
+    def __init__(
+        self,
+        use_grid_mask=False,
+        pts_voxel_layer=None,
+        pts_voxel_encoder=None,
+        pts_middle_encoder=None,
+        pts_fusion_layer=None,
+        img_backbone=None,
+        pts_backbone=None,
+        img_neck=None,
+        pts_neck=None,
+        pts_bbox_head=None,
+        fcos3d_bbox_head=None,
+        img_roi_head=None,
+        img_rpn_head=None,
+        train_cfg=None,
+        test_cfg=None,
+        pretrained=None,
+        video_test_mode=False,
+        num_levels=None,
+        num_mono_levels=None,
+        mono_loss_weight=1.0,
+        frames=(0,),
+    ):
+
+        super(BEVFormerV2, self).__init__(
+            pts_voxel_layer,
+            pts_voxel_encoder,
+            pts_middle_encoder,
+            pts_fusion_layer,
+            img_backbone,
+            pts_backbone,
+            img_neck,
+            pts_neck,
+            pts_bbox_head,
+            img_roi_head,
+            img_rpn_head,
+            train_cfg,
+            test_cfg,
+            pretrained,
+        )
+        self.grid_mask = GridMask(
+            True, True, rotate=1, offset=False, ratio=0.5, mode=1, prob=0.7
+        )
+        self.use_grid_mask = use_grid_mask
+        self.fp16_enabled = False
+        assert not self.fp16_enabled  # not support fp16 yet
+        # temporal
+        self.video_test_mode = video_test_mode
+        assert not self.video_test_mode  # not support video_test_mode yet
+
+        # fcos3d head
+        if isinstance(fcos3d_bbox_head, dict):
+            cfg = fcos3d_bbox_head.copy()
+            cfg.pop("type", None)
+            self.fcos3d_bbox_head = NuscenesDD3D(**cfg)
+        # self.fcos3d_bbox_head = build_head(fcos3d_bbox_head) if fcos3d_bbox_head else None
+        # loss weight
+        self.mono_loss_weight = mono_loss_weight
+
+        # levels of features
+        self.num_levels = num_levels
+        self.num_mono_levels = num_mono_levels
+        self.frames = frames
+
+    def extract_img_feat(self, img):
+        """Extract features of images."""
+        B = img.size(0)
+        if img is not None:
+            if img.dim() == 5 and img.size(0) == 1:
+                img.squeeze_()
+            elif img.dim() == 5 and img.size(0) > 1:
+                B, N, C, H, W = img.size()
+                img = img.reshape(B * N, C, H, W)
+            if self.use_grid_mask:
+                img = self.grid_mask(img)
+
+            img_feats = self.img_backbone(img)
+            if isinstance(img_feats, dict):
+                img_feats = list(img_feats.values())
+        else:
+            return None
+        if self.with_img_neck:
+            img_feats = self.img_neck(img_feats)
+
+        img_feats_reshaped = []
+        for img_feat in img_feats:
+            BN, C, H, W = img_feat.size()
+            img_feats_reshaped.append(img_feat.view(B, int(BN / B), C, H, W))
+        return img_feats_reshaped
+
+    def extract_feat(self, img, img_metas, len_queue=None):
+        """Extract features from images and points."""
+
+        img_feats = self.extract_img_feat(img)
+        if (
+            "aug_param" in img_metas[0]
+            and img_metas[0]["aug_param"]["CropResizeFlipImage_param"][-1] is True
+        ):
+            # flip feature
+            img_feats = [
+                torch.flip(
+                    x,
+                    dims=[
+                        -1,
+                    ],
+                )
+                for x in img_feats
+            ]
+        return img_feats
+
+    def forward_pts_train(
+        self,
+        pts_feats,
+        gt_bboxes_3d,
+        gt_labels_3d,
+        img_metas,
+        gt_bboxes_ignore=None,
+        prev_bev=None,
+    ):
+        outs = self.pts_bbox_head(pts_feats, img_metas, prev_bev)
+        loss_inputs = [gt_bboxes_3d, gt_labels_3d, outs]
+        losses = self.pts_bbox_head.loss(*loss_inputs, img_metas=img_metas)
+        return losses
+
+    def forward_mono_train(self, img_feats, mono_input_dict):
+        """
+        img_feats (list[Tensor]): 5-D tensor for each level, (B, N, C, H, W)
+        gt_bboxes (list[list[Tensor]]): Ground truth bboxes for each image with
+                shape (num_gts, 4) in [tl_x, tl_y, br_x, br_y] format.
+        gt_labels (list[list[Tensor]]): class indices corresponding to each box
+        gt_bboxes_3d (list[list[[Tensor]]): 3D boxes ground truth with shape of
+                (num_gts, code_size).
+        gt_labels_3d (list[list[Tensor]]): same as gt_labels
+        centers2d (list[list[Tensor]]): 2D centers on the image with shape of
+                (num_gts, 2).
+        depths (list[list[Tensor]]): Depth ground truth with shape of
+                (num_gts, ).
+        attr_labels (list[list[Tensor]]): Attributes indices of each box.
+        img_metas (list[list[dict]]): Meta information of each image, e.g.,
+                image size, scaling factor, etc.
+        ann_idx (list[list[idx]]): indicate which image has mono annotation.
+        """
+        bsz = img_feats[0].shape[0]
+        num_lvls = len(img_feats)
+
+        img_feats_select = [[] for lvl in range(num_lvls)]
+        for lvl, img_feat in enumerate(img_feats):
+            for i in range(bsz):
+                img_feats_select[lvl].append(
+                    img_feat[i, mono_input_dict["mono_ann_idx"][i]]
+                )
+            img_feats_select[lvl] = torch.cat(img_feats_select[lvl], dim=0)
+        bsz_new = img_feats_select[0].shape[0]
+        assert bsz == len(mono_input_dict["mono_input_dict"])
+        input_dict = []
+        for i in range(bsz):
+            input_dict.extend(mono_input_dict["mono_input_dict"][i])
+        assert bsz_new == len(input_dict)
+        losses = self.fcos3d_bbox_head.forward_train(img_feats_select, input_dict)
+        return losses
+
+    def forward_dummy(self, img):
+        dummy_metas = None
+        return self.forward_test(img=img, img_metas=[[dummy_metas]])
+
+    def forward(self, return_loss=True, **kwargs):
+        if return_loss:
+            return self.forward_train(**kwargs)
+        else:
+            return self.forward_test(**kwargs)
+
+    def obtain_history_bev(self, img_dict, img_metas_dict):
+        """Obtain history BEV features iteratively. To save GPU memory, gradients are not calculated."""
+        # Modify: roll back to previous version for single frame
+        is_training = self.training
+        self.eval()
+        prev_bev = OrderedDict({i: None for i in self.frames})
+        with torch.no_grad():
+            for t in img_dict.keys():
+                img = img_dict[t]
+                img_metas = [
+                    img_metas_dict[t],
+                ]
+                img_feats = self.extract_feat(img=img, img_metas=img_metas)
+                if self.num_levels:
+                    img_feats = img_feats[: self.num_levels]
+                bev = self.pts_bbox_head(img_feats, img_metas, None, only_bev=True)
+                prev_bev[t] = bev.detach()
+        if is_training:
+            self.train()
+        return list(prev_bev.values())
+
+    def forward_train(
+        self,
+        points=None,
+        img_metas=None,
+        gt_bboxes_3d=None,
+        gt_labels_3d=None,
+        img=None,
+        gt_bboxes_ignore=None,
+        **mono_input_dict,
+    ):
+        img_metas = OrderedDict(sorted(img_metas[0].items()))
+        img_dict = {}
+        for ind, t in enumerate(img_metas.keys()):
+            img_dict[t] = img[:, ind, ...]
+
+        img = img_dict[0]
+        img_dict.pop(0)
+
+        prev_img_metas = copy.deepcopy(img_metas)
+        prev_img_metas.pop(0)
+        prev_bev = self.obtain_history_bev(img_dict, prev_img_metas)
+
+        img_metas = [
+            img_metas[0],
+        ]
+
+        img_feats = self.extract_feat(img=img, img_metas=img_metas)
+        losses = dict()
+        losses_pts = self.forward_pts_train(
+            img_feats if self.num_levels is None else img_feats[: self.num_levels],
+            gt_bboxes_3d,
+            gt_labels_3d,
+            img_metas,
+            gt_bboxes_ignore,
+            prev_bev,
+        )
+        losses.update(losses_pts)
+
+        if self.fcos3d_bbox_head:
+            losses_mono = self.forward_mono_train(
+                img_feats=img_feats
+                if self.num_mono_levels is None
+                else img_feats[: self.num_mono_levels],
+                mono_input_dict=mono_input_dict,
+            )
+            for k, v in losses_mono.items():
+                losses[f"{k}_mono"] = v * self.mono_loss_weight
+
+        return losses
+
+    def forward_test(self, img_metas, img=None, **kwargs):
+        for var, name in [(img_metas, "img_metas")]:
+            if not isinstance(var, list):
+                raise TypeError("{} must be a list, but got {}".format(name, type(var)))
+        img = [img] if img is None else img
+        new_prev_bev, bbox_results = self.simple_test(
+            img_metas[0], img[0], prev_bev=None, **kwargs
+        )
+        return bbox_results
+
+    def simple_test_pts(self, x, img_metas, prev_bev=None, rescale=False):
+        """Test function"""
+        outs = self.pts_bbox_head(x, img_metas, prev_bev=prev_bev)
+
+        bbox_list = self.pts_bbox_head.get_bboxes(outs, img_metas, rescale=rescale)
+        bbox_results = [
+            bbox3d2result(bboxes, scores, labels)
+            for bboxes, scores, labels in bbox_list
+        ]
+        return outs["bev_embed"], bbox_results
+
+    def simple_test(self, img_metas, img=None, prev_bev=None, rescale=False, **kwargs):
+        """Test function without augmentaiton."""
+        img_metas = OrderedDict(sorted(img_metas[0].items()))
+        img_dict = {}
+        for ind, t in enumerate(img_metas.keys()):
+            img_dict[t] = img[:, ind, ...]
+        img = img_dict[0]
+        img_dict.pop(0)
+
+        prev_img_metas = copy.deepcopy(img_metas)
+        prev_bev = self.obtain_history_bev(img_dict, prev_img_metas)
+
+        img_metas = [
+            img_metas[0],
+        ]
+        img_feats = self.extract_feat(img=img, img_metas=img_metas)
+        if self.num_levels:
+            img_feats = img_feats[: self.num_levels]
+
+        bbox_list = [dict() for i in range(len(img_metas))]
+        new_prev_bev, bbox_pts = self.simple_test_pts(
+            img_feats, img_metas, prev_bev, rescale=rescale
+        )
+        for result_dict, pts_bbox in zip(bbox_list, bbox_pts):
+            result_dict["pts_bbox"] = pts_bbox
+        return new_prev_bev, bbox_list
 
 
 class BEVFormer(MVXTwoStageDetector):

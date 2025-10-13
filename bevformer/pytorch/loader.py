@@ -15,10 +15,16 @@ from ...config import (
     ModelInfo,
     ModelConfig,
 )
-from .src.model import BEVFormer, get_bevformer_model
+
+from .src.model import (
+    BEVFormer,
+    BEVFormerV2,
+    get_bevformer_model,
+    get_bevformer_v2_model,
+)
 from .src.checkpoint import load_checkpoint
 from .src.nuscenes_dataloader import build_dataloader
-from .src.nuscenes_dataset import build_dataset, get_test_dataset_cfg
+from .src.nuscenes_dataset import build_dataset, data_test_v2, get_test_dataset_cfg
 from ...tools.utils import get_file
 
 
@@ -28,6 +34,10 @@ class ModelVariant(StrEnum):
     BEVFORMER_TINY = "BEVFormer-tiny"
     BEVFORMER_SMALL = "BEVFormer-small"
     BEVFORMER_BASE = "BEVFormer-base"
+    BEVFORMER_V2_R50_T1_BASE = "bevformerv2-r50-t1-base"
+    BEVFORMER_V2_R50_T1 = "bevformerv2-r50-t1"
+    BEVFORMER_V2_R50_T2 = "bevformerv2-r50-t2"
+    BEVFORMER_V2_R50_T8 = "bevformerv2-r50-t8"
 
 
 class ModelLoader(ForgeModel):
@@ -42,6 +52,18 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.BEVFORMER_BASE: ModelConfig(
             pretrained_model_name="BEVFormer-base"
+        ),
+        ModelVariant.BEVFORMER_V2_R50_T1_BASE: ModelConfig(
+            pretrained_model_name="bevformerv2-r50-t1-base"
+        ),
+        ModelVariant.BEVFORMER_V2_R50_T1: ModelConfig(
+            pretrained_model_name="bevformerv2-r50-t1"
+        ),
+        ModelVariant.BEVFORMER_V2_R50_T2: ModelConfig(
+            pretrained_model_name="bevformerv2-r50-t2"
+        ),
+        ModelVariant.BEVFORMER_V2_R50_T8: ModelConfig(
+            pretrained_model_name="bevformerv2-r50-t8"
         ),
     }
     # Default variant to use
@@ -82,14 +104,39 @@ class ModelLoader(ForgeModel):
             Torch model: The BEVFormer model instance.
         """
         variant_str = str(self._variant) if self._variant else str(self.DEFAULT_VARIANT)
-        img_backbone, pts_bbox_head, img_neck = get_bevformer_model(variant_str)
-        model = BEVFormer(
-            img_backbone=img_backbone,
-            pts_bbox_head=pts_bbox_head,
-            img_neck=img_neck,
-            use_grid_mask=True,
-            video_test_mode=True,
-        )
+        if (
+            variant_str == ModelVariant.BEVFORMER_V2_R50_T1_BASE.value
+            or variant_str == ModelVariant.BEVFORMER_V2_R50_T1.value
+            or variant_str == ModelVariant.BEVFORMER_V2_R50_T2.value
+            or variant_str == ModelVariant.BEVFORMER_V2_R50_T8.value
+        ):
+            (
+                img_backbone,
+                pts_bbox_head,
+                img_neck,
+                fcos3d_bbox_head,
+                frames,
+            ) = get_bevformer_v2_model(variant_str)
+            model = BEVFormerV2(
+                img_backbone=img_backbone,
+                pts_bbox_head=pts_bbox_head,
+                img_neck=img_neck,
+                fcos3d_bbox_head=fcos3d_bbox_head,
+                frames=frames,
+                use_grid_mask=True,
+                video_test_mode=False,
+                num_levels=4,
+                num_mono_levels=5,
+            )
+        else:
+            img_backbone, pts_bbox_head, img_neck = get_bevformer_model(variant_str)
+            model = BEVFormer(
+                img_backbone=img_backbone,
+                pts_bbox_head=pts_bbox_head,
+                img_neck=img_neck,
+                use_grid_mask=True,
+                video_test_mode=True,
+            )
         if variant_str == ModelVariant.BEVFORMER_SMALL.value:
             checkpoint_path = str(
                 get_file("test_files/pytorch/bevformer/bevformer_small_epoch_24.pth")
@@ -97,6 +144,24 @@ class ModelLoader(ForgeModel):
         elif variant_str == ModelVariant.BEVFORMER_BASE.value:
             checkpoint_path = str(
                 get_file("test_files/pytorch/bevformer/bevformer_r101_dcn_24ep.pth")
+            )
+        elif variant_str == ModelVariant.BEVFORMER_V2_R50_T1_BASE.value:
+            checkpoint_path = str(
+                get_file(
+                    "test_files/pytorch/bevformer/bevformerv2_t1_base_epoch_24.pth"
+                )
+            )
+        elif variant_str == ModelVariant.BEVFORMER_V2_R50_T1.value:
+            checkpoint_path = str(
+                get_file("test_files/pytorch/bevformer/bevformerv2_r50_t1_epoch_24.pth")
+            )
+        elif variant_str == ModelVariant.BEVFORMER_V2_R50_T2.value:
+            checkpoint_path = str(
+                get_file("test_files/pytorch/bevformer/bevformerv2_r50_t2_epoch_24.pth")
+            )
+        elif variant_str == ModelVariant.BEVFORMER_V2_R50_T8.value:
+            checkpoint_path = str(
+                get_file("test_files/pytorch/bevformer/bevformerv2_r50_t8_epoch_24.pth")
             )
         else:
             checkpoint_path = str(
@@ -115,8 +180,19 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: A dictionary of input tensors and metadata suitable for the model.
         """
-        variant_str = str(self._variant) if self._variant else str(self.DEFAULT_VARIANT)
-        dataset = build_dataset(get_test_dataset_cfg(variant_str))
+
+        if (
+            self._variant == ModelVariant.BEVFORMER_V2_R50_T1_BASE
+            or self._variant == ModelVariant.BEVFORMER_V2_R50_T1
+            or self._variant == ModelVariant.BEVFORMER_V2_R50_T2
+            or self._variant == ModelVariant.BEVFORMER_V2_R50_T8
+        ):
+            dataset = build_dataset(data_test_v2)
+        else:
+            variant_str = (
+                str(self._variant) if self._variant else str(self.DEFAULT_VARIANT)
+            )
+            dataset = build_dataset(get_test_dataset_cfg(variant_str))
 
         data_loader = build_dataloader(
             dataset,

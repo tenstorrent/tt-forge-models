@@ -12,14 +12,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from addict import Dict
+import torch.utils.checkpoint as checkpoint
 
-from .common_imports import (
+from .neck import build_norm_hardcoded
+from .backbone import (
     BaseModule,
     Linear,
     ModuleList,
     Sequential,
-    auto_fp16,
-    force_fp32,
 )
 from torchvision.transforms.functional import rotate
 
@@ -188,22 +188,12 @@ class CustomMSDeformableAttention(BaseModule):
         self.batch_first = batch_first
         self.fp16_enabled = False
 
-        # you'd better set dim_per_head to a power of 2
-        # which is more efficient in the CUDA implementation
         def _is_power_of_2(n):
             if (not isinstance(n, int)) or (n < 0):
                 raise ValueError(
                     "invalid input for _is_power_of_2: {} (type: {})".format(n, type(n))
                 )
             return (n & (n - 1) == 0) and n != 0
-
-        if not _is_power_of_2(dim_per_head):
-            warnings.warn(
-                "You'd better set embed_dims in "
-                "MultiScaleDeformAttention to make "
-                "the dimension of each attention head a power of 2 "
-                "which is more efficient in our CUDA implementation."
-            )
 
         self.im2col_step = im2col_step
         self.embed_dims = embed_dims
@@ -256,9 +246,6 @@ class CustomMSDeformableAttention(BaseModule):
         **kwargs,
     ):
 
-        if value is None:
-            value = query
-
         if identity is None:
             identity = query
         if query_pos is not None:
@@ -273,8 +260,6 @@ class CustomMSDeformableAttention(BaseModule):
         assert (spatial_shapes[:, 0] * spatial_shapes[:, 1]).sum() == num_value
 
         value = self.value_proj(value)
-        if key_padding_mask is not None:
-            value = value.masked_fill(key_padding_mask[..., None], 0.0)
         value = value.view(bs, num_value, self.num_heads, -1)
 
         sampling_offsets = self.sampling_offsets(query).view(
@@ -296,39 +281,9 @@ class CustomMSDeformableAttention(BaseModule):
                 reference_points[:, :, None, :, None, :]
                 + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
             )
-        elif reference_points.shape[-1] == 4:
-            sampling_locations = (
-                reference_points[:, :, None, :, None, :2]
-                + sampling_offsets
-                / self.num_points
-                * reference_points[:, :, None, :, None, 2:]
-                * 0.5
-            )
-        else:
-            raise ValueError(
-                f"Last dim of reference_points must be"
-                f" 2 or 4, but get {reference_points.shape[-1]} instead."
-            )
-        # return (value, spatial_shapes, sampling_locations, attention_weights)
-        if torch.cuda.is_available() and value.is_cuda:
-
-            # using fp16 deformable attention is unstable because it performs many sum operations
-            if value.dtype == torch.float16:
-                MultiScaleDeformableAttnFunction = MultiScaleDeformableAttnFunction_fp32
-            else:
-                MultiScaleDeformableAttnFunction = MultiScaleDeformableAttnFunction_fp32
-            output = MultiScaleDeformableAttnFunction.apply(
-                value,
-                spatial_shapes,
-                level_start_index,
-                sampling_locations,
-                attention_weights,
-                self.im2col_step,
-            )
-        else:
-            output = multi_scale_deformable_attn_pytorch(
-                value, spatial_shapes, sampling_locations, attention_weights
-            )
+        output = multi_scale_deformable_attn_pytorch(
+            value, spatial_shapes, sampling_locations, attention_weights
+        )
 
         output = self.output_proj(output)
 
@@ -386,22 +341,11 @@ class FFN(BaseModule):
         layers.append(Linear(feedforward_channels, embed_dims))
         layers.append(nn.Dropout(ffn_drop))
         self.layers = Sequential(*layers)
-        if dropout_layer:
-            cfg = dropout_layer.copy()
-            drop_type = cfg.pop("type")
-            if drop_type == "Dropout":
-                p = cfg.pop("drop_prob", 0.5)
-                self.dropout_layer = nn.Dropout(p=p, **cfg)
-            else:
-                self.dropout_layer = torch.nn.Identity()
-        else:
-            self.dropout_layer = torch.nn.Identity()
+        self.dropout_layer = torch.nn.Identity()
         self.add_identity = add_identity
 
     def forward(self, x, identity=None):
         out = self.layers(x)
-        if not self.add_identity:
-            return self.dropout_layer(out)
         if identity is None:
             identity = x
         return identity + self.dropout_layer(out)
@@ -440,7 +384,6 @@ class SpatialCrossAttention(BaseModule):
         """Default initialization for Parameters of Module."""
         xavier_init(self.output_proj, distribution="uniform", bias=0.0)
 
-    @force_fp32(apply_to=("query", "key", "value", "query_pos", "reference_points_cam"))
     def forward(
         self,
         query,
@@ -458,16 +401,9 @@ class SpatialCrossAttention(BaseModule):
         **kwargs,
     ):
 
-        if key is None:
-            key = query
-        if value is None:
-            value = key
-
         if residual is None:
             inp_residual = query
             slots = torch.zeros_like(query)
-        if query_pos is not None:
-            query = query + query_pos
 
         bs, num_query, _ = query.size()
 
@@ -560,14 +496,6 @@ class MSDeformableAttention3D(BaseModule):
                 )
             return (n & (n - 1) == 0) and n != 0
 
-        if not _is_power_of_2(dim_per_head):
-            warnings.warn(
-                "You'd better set embed_dims in "
-                "MultiScaleDeformAttention to make "
-                "the dimension of each attention head a power of 2 "
-                "which is more efficient in our CUDA implementation."
-            )
-
         self.im2col_step = im2col_step
         self.embed_dims = embed_dims
         self.num_levels = num_levels
@@ -617,25 +545,14 @@ class MSDeformableAttention3D(BaseModule):
         level_start_index=None,
         **kwargs,
     ):
-        if value is None:
-            value = query
         if identity is None:
             identity = query
-        if query_pos is not None:
-            query = query + query_pos
-
-        if not self.batch_first:
-            # change to (bs, num_query ,embed_dims)
-            query = query.permute(1, 0, 2)
-            value = value.permute(1, 0, 2)
 
         bs, num_query, _ = query.shape
         bs, num_value, _ = value.shape
         assert (spatial_shapes[:, 0] * spatial_shapes[:, 1]).sum() == num_value
 
         value = self.value_proj(value)
-        if key_padding_mask is not None:
-            value = value.masked_fill(key_padding_mask[..., None], 0.0)
         value = value.view(bs, num_value, self.num_heads, -1)
 
         sampling_offsets = self.sampling_offsets(query).view(
@@ -707,27 +624,9 @@ class MSDeformableAttention3D(BaseModule):
                 f" 2 or 4, but get {reference_points.shape[-1]} instead."
             )
 
-        #  sampling_locations.shape: bs, num_query, num_heads, num_levels, num_all_points, 2
-        #  attention_weights.shape: bs, num_query, num_heads, num_levels, num_all_points
-        if torch.cuda.is_available() and value.is_cuda:
-            if value.dtype == torch.float16:
-                MultiScaleDeformableAttnFunction = MultiScaleDeformableAttnFunction_fp32
-            else:
-                MultiScaleDeformableAttnFunction = MultiScaleDeformableAttnFunction_fp32
-            output = MultiScaleDeformableAttnFunction.apply(
-                value,
-                spatial_shapes,
-                level_start_index,
-                sampling_locations,
-                attention_weights,
-                self.im2col_step,
-            )
-        else:
-            output = multi_scale_deformable_attn_pytorch(
-                value, spatial_shapes, sampling_locations, attention_weights
-            )
-        if not self.batch_first:
-            output = output.permute(1, 0, 2)
+        output = multi_scale_deformable_attn_pytorch(
+            value, spatial_shapes, sampling_locations, attention_weights
+        )
 
         return output
 
@@ -767,14 +666,6 @@ class TemporalSelfAttention(BaseModule):
                     "invalid input for _is_power_of_2: {} (type: {})".format(n, type(n))
                 )
             return (n & (n - 1) == 0) and n != 0
-
-        if not _is_power_of_2(dim_per_head):
-            warnings.warn(
-                "You'd better set embed_dims in "
-                "MultiScaleDeformAttention to make "
-                "the dimension of each attention head a power of 2 "
-                "which is more efficient in our CUDA implementation."
-            )
 
         self.im2col_step = im2col_step
         self.embed_dims = embed_dims
@@ -836,18 +727,13 @@ class TemporalSelfAttention(BaseModule):
             bs, len_bev, c = query.shape
             value = torch.stack([query, query], 1).reshape(bs * 2, len_bev, c)
 
-            # value = torch.cat([query, query], 0)
-
         if identity is None:
             identity = query
         if query_pos is not None:
             query = query + query_pos
-        if not self.batch_first:
-            # change to (bs, num_query ,embed_dims)
-            query = query.permute(1, 0, 2)
-            value = value.permute(1, 0, 2)
         bs, num_query, embed_dims = query.shape
         _, num_value, _ = value.shape
+
         assert (spatial_shapes[:, 0] * spatial_shapes[:, 1]).sum() == num_value
         assert self.num_bev_queue == 2
 
@@ -916,46 +802,10 @@ class TemporalSelfAttention(BaseModule):
                 + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
             )
 
-        elif reference_points.shape[-1] == 4:
-            sampling_locations = (
-                reference_points[:, :, None, :, None, :2]
-                + sampling_offsets
-                / self.num_points
-                * reference_points[:, :, None, :, None, 2:]
-                * 0.5
-            )
-        else:
-            raise ValueError(
-                f"Last dim of reference_points must be"
-                f" 2 or 4, but get {reference_points.shape[-1]} instead."
-            )
-        if torch.cuda.is_available() and value.is_cuda:
-
-            # using fp16 deformable attention is unstable because it performs many sum operations
-            if value.dtype == torch.float16:
-                MultiScaleDeformableAttnFunction = MultiScaleDeformableAttnFunction_fp32
-            else:
-                MultiScaleDeformableAttnFunction = MultiScaleDeformableAttnFunction_fp32
-            output = MultiScaleDeformableAttnFunction.apply(
-                value,
-                spatial_shapes,
-                level_start_index,
-                sampling_locations,
-                attention_weights,
-                self.im2col_step,
-            )
-        else:
-
-            output = multi_scale_deformable_attn_pytorch(
-                value, spatial_shapes, sampling_locations, attention_weights
-            )
-
-        # output shape (bs*num_bev_queue, num_query, embed_dims)
-        # (bs*num_bev_queue, num_query, embed_dims)-> (num_query, embed_dims, bs*num_bev_queue)
+        output = multi_scale_deformable_attn_pytorch(
+            value, spatial_shapes, sampling_locations, attention_weights
+        )
         output = output.permute(1, 2, 0)
-
-        # fuse history value and current value
-        # (num_query, embed_dims, bs*num_bev_queue)-> (num_query, embed_dims, bs, num_bev_queue)
         output = output.view(num_query, embed_dims, bs, self.num_bev_queue)
         output = output.mean(-1)
 
@@ -963,9 +813,6 @@ class TemporalSelfAttention(BaseModule):
         output = output.permute(2, 0, 1)
 
         output = self.output_proj(output)
-
-        if not self.batch_first:
-            output = output.permute(1, 0, 2)
 
         return self.dropout(output) + identity
 
@@ -977,11 +824,6 @@ class TransformerLayerSequence(BaseModule):
             transformerlayers = [
                 copy.deepcopy(transformerlayers) for _ in range(num_layers)
             ]
-        else:
-            assert (
-                isinstance(transformerlayers, list)
-                and len(transformerlayers) == num_layers
-            )
         self.num_layers = num_layers
         self.layers = ModuleList()
         for i in range(num_layers):
@@ -991,31 +833,172 @@ class TransformerLayerSequence(BaseModule):
         self.embed_dims = self.layers[0].embed_dims
         self.pre_norm = self.layers[0].pre_norm
 
+
+class GroupMultiheadAttention(BaseModule):
+    """A wrapper for ``torch.nn.MultiheadAttention``.
+    This module implements MultiheadAttention with identity connection,
+    and positional encoding  is also passed as input.
+    Args:
+        embed_dims (int): The embedding dimension.
+        num_heads (int): Parallel attention heads.
+        attn_drop (float): A Dropout layer on attn_output_weights.
+            Default: 0.0.
+        proj_drop (float): A Dropout layer after `nn.MultiheadAttention`.
+            Default: 0.0.
+        dropout_layer (obj:`ConfigDict`): The dropout_layer used
+            when adding the shortcut.
+        init_cfg (obj:`mmcv.ConfigDict`): The Config for initialization.
+            Default: None.
+        batch_first (bool): When it is True,  Key, Query and Value are shape of
+            (batch, n, embed_dim), otherwise (n, batch, embed_dim).
+             Default to False.
+    """
+
+    def __init__(
+        self,
+        embed_dims,
+        num_heads,
+        attn_drop=0.0,
+        proj_drop=0.0,
+        group=1,
+        dropout_layer=dict(type="Dropout", drop_prob=0.0),
+        init_cfg=None,
+        batch_first=False,
+        **kwargs,
+    ):
+        super().__init__(init_cfg)
+        if "dropout" in kwargs:
+            warnings.warn(
+                "The arguments `dropout` in MultiheadAttention "
+                "has been deprecated, now you can separately "
+                "set `attn_drop`(float), proj_drop(float), "
+                "and `dropout_layer`(dict) ",
+                DeprecationWarning,
+            )
+            attn_drop = kwargs["dropout"]
+            dropout_layer["drop_prob"] = kwargs.pop("dropout")
+
+        self.embed_dims = embed_dims
+        self.num_heads = num_heads
+        self.group = group
+        self.batch_first = batch_first
+
+        self.attn = nn.MultiheadAttention(embed_dims, num_heads, attn_drop, **kwargs)
+
+        self.proj_drop = nn.Dropout(proj_drop)
+        # self.dropout_layer = build_dropout(dropout_layer) if dropout_layer else nn.Identity()
+        if dropout_layer:
+            cfg = dropout_layer.copy()
+            drop_type = cfg.pop("type")
+            if drop_type == "Dropout":
+                p = cfg.pop("drop_prob", 0.5)
+                self.dropout_layer = nn.Dropout(p=p, **cfg)
+            else:
+                self.dropout_layer = nn.Identity()
+
     def forward(
         self,
         query,
-        key,
-        value,
+        key=None,
+        value=None,
+        identity=None,
         query_pos=None,
         key_pos=None,
-        attn_masks=None,
-        query_key_padding_mask=None,
+        attn_mask=None,
         key_padding_mask=None,
         **kwargs,
     ):
-        for layer in self.layers:
-            query = layer(
-                query,
-                key,
-                value,
-                query_pos=query_pos,
-                key_pos=key_pos,
-                attn_masks=attn_masks,
-                query_key_padding_mask=query_key_padding_mask,
-                key_padding_mask=key_padding_mask,
-                **kwargs,
-            )
-        return query
+        """Forward function for `MultiheadAttention`.
+        **kwargs allow passing a more general data flow when combining
+        with other operations in `transformerlayer`.
+        Args:
+            query (Tensor): The input query with shape [num_queries, bs,
+                embed_dims] if self.batch_first is False, else
+                [bs, num_queries embed_dims].
+            key (Tensor): The key tensor with shape [num_keys, bs,
+                embed_dims] if self.batch_first is False, else
+                [bs, num_keys, embed_dims] .
+                If None, the ``query`` will be used. Defaults to None.
+            value (Tensor): The value tensor with same shape as `key`.
+                Same in `nn.MultiheadAttention.forward`. Defaults to None.
+                If None, the `key` will be used.
+            identity (Tensor): This tensor, with the same shape as x,
+                will be used for the identity link.
+                If None, `x` will be used. Defaults to None.
+            query_pos (Tensor): The positional encoding for query, with
+                the same shape as `x`. If not None, it will
+                be added to `x` before forward function. Defaults to None.
+            key_pos (Tensor): The positional encoding for `key`, with the
+                same shape as `key`. Defaults to None. If not None, it will
+                be added to `key` before forward function. If None, and
+                `query_pos` has the same shape as `key`, then `query_pos`
+                will be used for `key_pos`. Defaults to None.
+            attn_mask (Tensor): ByteTensor mask with shape [num_queries,
+                num_keys]. Same in `nn.MultiheadAttention.forward`.
+                Defaults to None.
+            key_padding_mask (Tensor): ByteTensor with shape [bs, num_keys].
+                Defaults to None.
+        Returns:
+            Tensor: forwarded results with shape
+            [num_queries, bs, embed_dims]
+            if self.batch_first is False, else
+            [bs, num_queries embed_dims].
+        """
+
+        if key is None:
+            key = query
+        if value is None:
+            value = key
+        if identity is None:
+            identity = query
+        if key_pos is None:
+            if query_pos is not None:
+                # use query_pos if key_pos is not available
+                if query_pos.shape == key.shape:
+                    key_pos = query_pos
+                else:
+                    warnings.warn(
+                        f"position encoding of key is"
+                        f"missing in {self.__class__.__name__}."
+                    )
+        if query_pos is not None:
+            query = query + query_pos
+        if key_pos is not None:
+            key = key + key_pos
+
+        # Because the dataflow('key', 'query', 'value') of
+        # ``torch.nn.MultiheadAttention`` is (num_query, batch,
+        # embed_dims), We should adjust the shape of dataflow from
+        # batch_first (batch, num_query, embed_dims) to num_query_first
+        # (num_query ,batch, embed_dims), and recover ``attn_output``
+        # from num_query_first to batch_first.
+        if self.batch_first:
+            query = query.transpose(0, 1)
+            key = key.transpose(0, 1)
+            value = value.transpose(0, 1)
+
+        num_queries = query.shape[0]
+        bs = query.shape[1]
+        if self.training:
+            query = torch.cat(query.split(num_queries // self.group, dim=0), dim=1)
+            key = torch.cat(key.split(num_queries // self.group, dim=0), dim=1)
+            value = torch.cat(value.split(num_queries // self.group, dim=0), dim=1)
+
+        out = self.attn(
+            query=query,
+            key=key,
+            value=value,
+            attn_mask=attn_mask,
+            key_padding_mask=key_padding_mask,
+        )[0]
+
+        if self.training:
+            out = torch.cat(out.split(bs, dim=1), dim=0)  # shape
+
+        if self.batch_first:
+            out = out.transpose(0, 1)
+
+        return identity + self.dropout_layer(self.proj_drop(out))
 
 
 class MultiheadAttention(BaseModule):
@@ -1056,8 +1039,6 @@ class MultiheadAttention(BaseModule):
                 self.dropout_layer = nn.Dropout(p=p, **cfg)
             else:
                 self.dropout_layer = nn.Identity()
-        else:
-            self.dropout_layer = nn.Identity()
 
     def forward(
         self,
@@ -1071,34 +1052,13 @@ class MultiheadAttention(BaseModule):
         key_padding_mask=None,
         **kwargs,
     ):
-
-        if key is None:
-            key = query
-        if value is None:
-            value = key
         if identity is None:
             identity = query
-        if key_pos is None:
-            if query_pos is not None:
-                # use query_pos if key_pos is not available
-                if query_pos.shape == key.shape:
-                    key_pos = query_pos
-                else:
-                    warnings.warn(
-                        f"position encoding of key is"
-                        f"missing in {self.__class__.__name__}."
-                    )
         if query_pos is not None:
             query = query + query_pos
         if key_pos is not None:
             key = key + key_pos
 
-        # Because the dataflow('key', 'query', 'value') of
-        # ``torch.nn.MultiheadAttention`` is (num_query, batch,
-        # embed_dims), We should adjust the shape of dataflow from
-        # batch_first (batch, num_query, embed_dims) to num_query_first
-        # (num_query ,batch, embed_dims), and recover ``attn_output``
-        # from num_query_first to batch_first.
         if self.batch_first:
             query = query.transpose(0, 1)
             key = key.transpose(0, 1)
@@ -1168,15 +1128,12 @@ class BaseTransformerLayer(BaseModule):
         num_attn = operation_order.count("self_attn") + operation_order.count(
             "cross_attn"
         )
-        if isinstance(attn_cfgs, dict):
-            attn_cfgs = [copy.deepcopy(attn_cfgs) for _ in range(num_attn)]
-        else:
-            assert num_attn == len(attn_cfgs), (
-                f"The length "
-                f"of attn_cfg {num_attn} is "
-                f"not consistent with the number of attention"
-                f"in operation_order {operation_order}."
-            )
+        assert num_attn == len(attn_cfgs), (
+            f"The length "
+            f"of attn_cfg {num_attn} is "
+            f"not consistent with the number of attention"
+            f"in operation_order {operation_order}."
+        )
 
         self.num_attn = num_attn
         self.operation_order = operation_order
@@ -1189,8 +1146,6 @@ class BaseTransformerLayer(BaseModule):
             if operation_name in ["self_attn", "cross_attn"]:
                 if "batch_first" in attn_cfgs[index]:
                     assert self.batch_first == attn_cfgs[index]["batch_first"]
-                else:
-                    attn_cfgs[index]["batch_first"] = self.batch_first
                 cfg = attn_cfgs[index].copy()
                 attn_type = cfg.pop("type")
                 attention = globals()[attn_type](**cfg)
@@ -1242,12 +1197,6 @@ class BaseTransformerLayer(BaseModule):
         identity = query
         if attn_masks is None:
             attn_masks = [None for _ in range(self.num_attn)]
-        elif isinstance(attn_masks, torch.Tensor):
-            attn_masks = [copy.deepcopy(attn_masks) for _ in range(self.num_attn)]
-            warnings.warn(
-                f"Use same attn_mask in all attentions in "
-                f"{self.__class__.__name__} "
-            )
         else:
             assert len(attn_masks) == self.num_attn, (
                 f"The length of "
@@ -1454,8 +1403,6 @@ class BEVFormerEncoder(TransformerLayerSequence):
             ref_2d = ref_2d.repeat(bs, 1, 1).unsqueeze(2)
             return ref_2d
 
-    # This function must use fp32!!!
-    @force_fp32(apply_to=("reference_points", "img_metas"))
     def point_sampling(self, reference_points, pc_range, img_metas):
         # NOTE: close tf32 here.
         allow_tf32 = torch.backends.cuda.matmul.allow_tf32
@@ -1531,7 +1478,6 @@ class BEVFormerEncoder(TransformerLayerSequence):
 
         return reference_points_cam, bev_mask
 
-    @auto_fp16()
     def forward(
         self,
         bev_query,
@@ -1580,18 +1526,9 @@ class BEVFormerEncoder(TransformerLayerSequence):
         # return key
         bev_pos = bev_pos.permute(1, 0, 2)
         bs, len_bev, num_bev_level, _ = ref_2d.shape
-        if prev_bev is not None:
-            prev_bev = prev_bev.permute(1, 0, 2)
-            prev_bev = torch.stack([prev_bev, bev_query], 1).reshape(
-                bs * 2, len_bev, -1
-            )
-            hybird_ref_2d = torch.stack([shift_ref_2d, ref_2d], 1).reshape(
-                bs * 2, len_bev, num_bev_level, 2
-            )
-        else:
-            hybird_ref_2d = torch.stack([ref_2d, ref_2d], 1).reshape(
-                bs * 2, len_bev, num_bev_level, 2
-            )
+        hybird_ref_2d = torch.stack([ref_2d, ref_2d], 1).reshape(
+            bs * 2, len_bev, num_bev_level, 2
+        )
         for lid, layer in enumerate(self.layers):
             output = layer(
                 bev_query,
@@ -1670,15 +1607,12 @@ class MyCustomBaseTransformerLayer(BaseModule):
         num_attn = operation_order.count("self_attn") + operation_order.count(
             "cross_attn"
         )
-        if isinstance(attn_cfgs, dict):
-            attn_cfgs = [copy.deepcopy(attn_cfgs) for _ in range(num_attn)]
-        else:
-            assert num_attn == len(attn_cfgs), (
-                f"The length "
-                f"of attn_cfg {num_attn} is "
-                f"not consistent with the number of attention"
-                f"in operation_order {operation_order}."
-            )
+        assert num_attn == len(attn_cfgs), (
+            f"The length "
+            f"of attn_cfg {num_attn} is "
+            f"not consistent with the number of attention"
+            f"in operation_order {operation_order}."
+        )
 
         self.num_attn = num_attn
         self.operation_order = operation_order
@@ -1689,10 +1623,7 @@ class MyCustomBaseTransformerLayer(BaseModule):
         index = 0
         for operation_name in operation_order:
             if operation_name in ["self_attn", "cross_attn"]:
-                if "batch_first" in attn_cfgs[index]:
-                    assert self.batch_first == attn_cfgs[index]["batch_first"]
-                else:
-                    attn_cfgs[index]["batch_first"] = self.batch_first
+                attn_cfgs[index]["batch_first"] = self.batch_first
                 cfg = attn_cfgs[index].copy()
                 attn_type = cfg.pop("type")
                 attention = globals()[attn_type](**cfg)
@@ -1725,81 +1656,6 @@ class MyCustomBaseTransformerLayer(BaseModule):
         num_norms = operation_order.count("norm")
         for _ in range(num_norms):
             self.norms.append(build_norm_hardcoded(norm_cfg, self.embed_dims))
-
-    def forward(
-        self,
-        query,
-        key=None,
-        value=None,
-        query_pos=None,
-        key_pos=None,
-        attn_masks=None,
-        query_key_padding_mask=None,
-        key_padding_mask=None,
-        **kwargs,
-    ):
-
-        norm_index = 0
-        attn_index = 0
-        ffn_index = 0
-        identity = query
-        if attn_masks is None:
-            attn_masks = [None for _ in range(self.num_attn)]
-        elif isinstance(attn_masks, torch.Tensor):
-            attn_masks = [copy.deepcopy(attn_masks) for _ in range(self.num_attn)]
-            warnings.warn(
-                f"Use same attn_mask in all attentions in "
-                f"{self.__class__.__name__} "
-            )
-        else:
-            assert len(attn_masks) == self.num_attn, (
-                f"The length of "
-                f"attn_masks {len(attn_masks)} must be equal "
-                f"to the number of attention in "
-                f"operation_order {self.num_attn}"
-            )
-
-        for layer in self.operation_order:
-            if layer == "self_attn":
-                temp_key = temp_value = query
-                query = self.attentions[attn_index](
-                    query,
-                    temp_key,
-                    temp_value,
-                    identity if self.pre_norm else None,
-                    query_pos=query_pos,
-                    key_pos=query_pos,
-                    attn_mask=attn_masks[attn_index],
-                    key_padding_mask=query_key_padding_mask,
-                    **kwargs,
-                )
-                attn_index += 1
-                identity = query
-
-            elif layer == "norm":
-                query = self.norms[norm_index](query)
-                norm_index += 1
-
-            elif layer == "cross_attn":
-                query = self.attentions[attn_index](
-                    query,
-                    key,
-                    value,
-                    identity if self.pre_norm else None,
-                    query_pos=query_pos,
-                    key_pos=key_pos,
-                    attn_mask=attn_masks[attn_index],
-                    key_padding_mask=key_padding_mask,
-                    **kwargs,
-                )
-                attn_index += 1
-                identity = query
-
-            elif layer == "ffn":
-                query = self.ffns[ffn_index](query, identity if self.pre_norm else None)
-                ffn_index += 1
-
-        return query
 
 
 class BEVFormerLayer(MyCustomBaseTransformerLayer):
@@ -1857,12 +1713,6 @@ class BEVFormerLayer(MyCustomBaseTransformerLayer):
         identity = query
         if attn_masks is None:
             attn_masks = [None for _ in range(self.num_attn)]
-        elif isinstance(attn_masks, torch.Tensor):
-            attn_masks = [copy.deepcopy(attn_masks) for _ in range(self.num_attn)]
-            warnings.warn(
-                f"Use same attn_mask in all attentions in "
-                f"{self.__class__.__name__} "
-            )
         else:
             assert len(attn_masks) == self.num_attn, (
                 f"The length of "
@@ -1922,6 +1772,539 @@ class BEVFormerLayer(MyCustomBaseTransformerLayer):
         return query
 
 
+class PerceptionTransformerBEVEncoder(BaseModule):
+    def __init__(
+        self,
+        num_feature_levels=4,
+        num_cams=6,
+        two_stage_num_proposals=300,
+        encoder=None,
+        embed_dims=256,
+        use_cams_embeds=True,
+        rotate_center=[100, 100],
+        **kwargs,
+    ):
+        super(PerceptionTransformerBEVEncoder, self).__init__(**kwargs)
+        # self.encoder = build_transformer_layer_sequence(encoder)
+        enc_cfg = encoder.copy()
+        enc_type = enc_cfg.pop("type")
+        self.encoder = globals()[enc_type](**enc_cfg)
+        self.embed_dims = embed_dims
+        self.num_feature_levels = num_feature_levels
+        self.num_cams = num_cams
+        self.fp16_enabled = False
+
+        self.use_cams_embeds = use_cams_embeds
+
+        self.two_stage_num_proposals = two_stage_num_proposals
+        self.rotate_center = rotate_center
+        """Initialize layers of the Detr3DTransformer."""
+        self.level_embeds = nn.Parameter(
+            torch.Tensor(self.num_feature_levels, self.embed_dims)
+        )
+        if self.use_cams_embeds:
+            self.cams_embeds = nn.Parameter(
+                torch.Tensor(self.num_cams, self.embed_dims)
+            )
+
+    def init_weights(self):
+        """Initialize the transformer weights."""
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+        for m in self.modules():
+            if (
+                isinstance(m, MSDeformableAttention3D)
+                or isinstance(m, TemporalSelfAttention)
+                or isinstance(m, CustomMSDeformableAttention)
+            ):
+                try:
+                    m.init_weight()
+                except AttributeError:
+                    m.init_weights()
+        normal_(self.level_embeds)
+        if self.use_cams_embeds:
+            normal_(self.cams_embeds)
+
+    def forward(
+        self,
+        mlvl_feats,
+        bev_queries,
+        bev_h,
+        bev_w,
+        grid_length=[0.512, 0.512],
+        bev_pos=None,
+        prev_bev=None,
+        **kwargs,
+    ):
+        """
+        obtain bev features.
+        """
+        bs = mlvl_feats[0].size(0)
+        bev_queries = bev_queries.unsqueeze(1).repeat(1, bs, 1)
+        bev_pos = bev_pos.flatten(2).permute(2, 0, 1)
+
+        feat_flatten = []
+        spatial_shapes = []
+        for lvl, feat in enumerate(mlvl_feats):
+            bs, num_cam, c, h, w = feat.shape
+            spatial_shape = (h, w)
+            feat = feat.flatten(3).permute(1, 0, 3, 2)
+            if self.use_cams_embeds:
+                feat = feat + self.cams_embeds[:, None, None, :].to(feat.dtype)
+            feat = feat + self.level_embeds[None, None, lvl : lvl + 1, :].to(feat.dtype)
+            spatial_shapes.append(spatial_shape)
+            feat_flatten.append(feat)
+
+        feat_flatten = torch.cat(feat_flatten, 2)
+        spatial_shapes = torch.as_tensor(
+            spatial_shapes, dtype=torch.long, device=bev_pos.device
+        )
+        level_start_index = torch.cat(
+            (spatial_shapes.new_zeros((1,)), spatial_shapes.prod(1).cumsum(0)[:-1])
+        )
+
+        feat_flatten = feat_flatten.permute(
+            0, 2, 1, 3
+        )  # (num_cam, H*W, bs, embed_dims)
+
+        bev_embed = self.encoder(
+            bev_queries,
+            feat_flatten,
+            feat_flatten,
+            bev_h=bev_h,
+            bev_w=bev_w,
+            bev_pos=bev_pos,
+            spatial_shapes=spatial_shapes,
+            level_start_index=level_start_index,
+            prev_bev=None,
+            shift=bev_queries.new_tensor([0, 0]).unsqueeze(0),
+            **kwargs,
+        )
+        # rotate current bev to final aligned
+        prev_bev = bev_embed
+        if (
+            "aug_param" in kwargs["img_metas"][0]
+            and "GlobalRotScaleTransImage_param" in kwargs["img_metas"][0]["aug_param"]
+        ):
+            rot_angle, scale_ratio, flip_dx, flip_dy, bda_mat, only_gt = kwargs[
+                "img_metas"
+            ][0]["aug_param"]["GlobalRotScaleTransImage_param"]
+            prev_bev = prev_bev.reshape(bs, bev_h, bev_w, -1).permute(
+                0, 3, 1, 2
+            )  # bchw
+            if only_gt:
+                # rot angle
+                # prev_bev = torchvision.transforms.functional.rotate(prev_bev, -30, InterpolationMode.BILINEAR)
+                ref_y, ref_x = torch.meshgrid(
+                    torch.linspace(
+                        0.5,
+                        bev_h - 0.5,
+                        bev_h,
+                        dtype=bev_queries.dtype,
+                        device=bev_queries.device,
+                    ),
+                    torch.linspace(
+                        0.5,
+                        bev_w - 0.5,
+                        bev_w,
+                        dtype=bev_queries.dtype,
+                        device=bev_queries.device,
+                    ),
+                )
+                ref_y = ref_y / bev_h
+                ref_x = ref_x / bev_w
+                grid = torch.stack((ref_x, ref_y), -1)
+                grid_shift = grid * 2.0 - 1.0
+                grid_shift = grid_shift.unsqueeze(0).unsqueeze(-1)
+                # bda_mat = ( bda_mat[:2, :2] / scale_ratio).to(grid_shift).view(1, 1, 1, 2,2).repeat(grid_shift.shape[0], grid_shift.shape[1], grid_shift.shape[2], 1, 1)
+                bda_mat = (
+                    bda_mat[:2, :2]
+                    .to(grid_shift)
+                    .view(1, 1, 1, 2, 2)
+                    .repeat(
+                        grid_shift.shape[0],
+                        grid_shift.shape[1],
+                        grid_shift.shape[2],
+                        1,
+                        1,
+                    )
+                )
+                grid_shift = torch.matmul(bda_mat, grid_shift).squeeze(-1)
+                # grid_shift = grid_shift / scale_ratio
+                prev_bev = torch.nn.functional.grid_sample(
+                    prev_bev, grid_shift, align_corners=False
+                )
+                # if flip_dx:
+                #     prev_bev = torch.flip(prev_bev, dims=[-1])
+                # if flip_dy:
+                #     prev_bev = torch.flip(prev_bev, dims=[-2])
+            prev_bev = prev_bev.reshape(bs, -1, bev_h * bev_w)
+            prev_bev = prev_bev.permute(0, 2, 1)
+        return prev_bev
+
+
+class BasicBlock_resfusion(BaseModule):
+    expansion = 1
+
+    def __init__(
+        self,
+        inplanes,
+        planes,
+        stride=1,
+        dilation=1,
+        downsample=None,
+        style="pytorch",
+        with_cp=False,
+        conv_cfg=None,
+        norm_cfg=dict(type="BN"),
+        dcn=None,
+        plugins=None,
+        init_cfg=None,
+    ):
+        super(BasicBlock_resfusion, self).__init__(init_cfg)
+        assert dcn is None, "Not implemented yet."
+        assert plugins is None, "Not implemented yet."
+
+        self.norm1_name, norm1 = build_norm_hardcoded(norm_cfg, planes, postfix=1)
+        self.norm2_name, norm2 = build_norm_hardcoded(norm_cfg, planes, postfix=2)
+
+        self.conv1 = nn.Conv2d(
+            inplanes,
+            planes,
+            3,
+            stride=stride,
+            padding=dilation,
+            dilation=dilation,
+            bias=False,
+        )
+        self.add_module(self.norm1_name, norm1)
+        self.conv2 = nn.Conv2d(planes, planes, 3, padding=1, bias=False)
+        self.add_module(self.norm2_name, norm2)
+
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+        self.dilation = dilation
+        self.with_cp = with_cp
+
+    @property
+    def norm1(self):
+        """nn.Module: normalization layer after the first convolution layer"""
+        return getattr(self, self.norm1_name)
+
+    @property
+    def norm2(self):
+        """nn.Module: normalization layer after the second convolution layer"""
+        return getattr(self, self.norm2_name)
+
+    def forward(self, x):
+        """Forward function."""
+
+        def _inner_forward(x):
+            identity = x
+
+            out = self.conv1(x)
+            out = self.norm1(out)
+            out = self.relu(out)
+
+            out = self.conv2(out)
+            out = self.norm2(out)
+
+            if self.downsample is not None:
+                identity = self.downsample(x)
+
+            out += identity
+
+            return out
+
+        if self.with_cp and x.requires_grad:
+            out = cp.checkpoint(_inner_forward, x)
+        else:
+            out = _inner_forward(x)
+
+        out = self.relu(out)
+
+        return out
+
+
+class ResNetFusion(BaseModule):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        inter_channels,
+        num_layer,
+        norm_cfg=dict(type="SyncBN"),
+        with_cp=False,
+    ):
+        super(ResNetFusion, self).__init__()
+        layers = []
+        self.inter_channels = inter_channels
+        for i in range(num_layer):
+            if i == 0:
+                if inter_channels == in_channels:
+                    layers.append(
+                        BasicBlock_resfusion(
+                            in_channels, inter_channels, stride=1, norm_cfg=norm_cfg
+                        )
+                    )
+                else:
+                    norm_layer = build_norm_hardcoded(norm_cfg, inter_channels)
+                    if isinstance(norm_layer, tuple):
+                        norm_layer = norm_layer[1]
+                    downsample = nn.Sequential(
+                        nn.Conv2d(
+                            in_channels,
+                            inter_channels,
+                            3,
+                            stride=1,
+                            padding=1,
+                            dilation=1,
+                            bias=False,
+                        ),
+                        norm_layer,
+                    )
+                    layers.append(
+                        BasicBlock_resfusion(
+                            in_channels,
+                            inter_channels,
+                            stride=1,
+                            norm_cfg=norm_cfg,
+                            downsample=downsample,
+                        )
+                    )
+            else:
+                layers.append(
+                    BasicBlock_resfusion(
+                        inter_channels, inter_channels, stride=1, norm_cfg=norm_cfg
+                    )
+                )
+        self.layers = nn.Sequential(*layers)
+        self.layer_norm = nn.Sequential(
+            nn.Linear(inter_channels, out_channels), nn.LayerNorm(out_channels)
+        )
+        self.with_cp = with_cp
+
+    def forward(self, x):
+        x = torch.cat(x, 1).contiguous()
+        # x should be [1, in_channels, bev_h, bev_w]
+        for lid, layer in enumerate(self.layers):
+            if self.with_cp and x.requires_grad:
+                x = checkpoint.checkpoint(layer, x)
+            else:
+                x = layer(x)
+        x = x.reshape(x.shape[0], x.shape[1], -1).permute(0, 2, 1)  # nchw -> n(hw)c
+        x = self.layer_norm(x)
+        return x
+
+
+class PerceptionTransformerV2(PerceptionTransformerBEVEncoder):
+    """Implements the Detr3D transformer.
+    Args:
+        as_two_stage (bool): Generate query from encoder features.
+            Default: False.
+        num_feature_levels (int): Number of feature maps from FPN:
+            Default: 4.
+        two_stage_num_proposals (int): Number of proposals when set
+            `as_two_stage` as True. Default: 300.
+    """
+
+    def __init__(
+        self,
+        num_feature_levels=4,
+        num_cams=6,
+        two_stage_num_proposals=300,
+        encoder=None,
+        embed_dims=256,
+        use_cams_embeds=True,
+        rotate_center=[100, 100],
+        frames=(0,),
+        decoder=None,
+        num_fusion=3,
+        inter_channels=None,
+        **kwargs,
+    ):
+        super(PerceptionTransformerV2, self).__init__(
+            num_feature_levels,
+            num_cams,
+            two_stage_num_proposals,
+            encoder,
+            embed_dims,
+            use_cams_embeds,
+            rotate_center,
+            **kwargs,
+        )
+        # self.decoder = build_transformer_layer_sequence(decoder)
+        dec_cfg = decoder.copy()
+        dec_type = dec_cfg.pop("type")
+        self.decoder = globals()[dec_type](**dec_cfg)
+        """Initialize layers of the Detr3DTransformer."""
+        self.reference_points = nn.Linear(self.embed_dims, 3)
+        self.frames = frames
+        if len(self.frames) > 1:
+            self.fusion = ResNetFusion(
+                len(self.frames) * self.embed_dims,
+                self.embed_dims,
+                inter_channels
+                if inter_channels is not None
+                else len(self.frames) * self.embed_dims,
+                num_fusion,
+            )
+
+    def init_weights(self):
+        """Initialize the transformer weights."""
+        super().init_weights()
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+        for m in self.modules():
+            if (
+                isinstance(m, MSDeformableAttention3D)
+                or isinstance(m, TemporalSelfAttention)
+                or isinstance(m, CustomMSDeformableAttention)
+            ):
+                try:
+                    m.init_weight()
+                except AttributeError:
+                    m.init_weights()
+        xavier_init(self.reference_points, distribution="uniform", bias=0.0)
+
+    def get_bev_features(
+        self,
+        mlvl_feats,
+        bev_queries,
+        bev_h,
+        bev_w,
+        grid_length=[0.512, 0.512],
+        bev_pos=None,
+        prev_bev=None,
+        **kwargs,
+    ):
+        return super().forward(
+            mlvl_feats,
+            bev_queries,
+            bev_h,
+            bev_w,
+            grid_length,
+            bev_pos,
+            prev_bev,
+            **kwargs,
+        )
+
+    def forward(
+        self,
+        mlvl_feats,
+        bev_queries,
+        object_query_embed,
+        bev_h,
+        bev_w,
+        grid_length=[0.512, 0.512],
+        bev_pos=None,
+        reg_branches=None,
+        cls_branches=None,
+        prev_bev=None,
+        **kwargs,
+    ):
+        """Forward function for `Detr3DTransformer`.
+        Args:
+            mlvl_feats (list(Tensor)): Input queries from
+                different level. Each element has shape
+                [bs, num_cams, embed_dims, h, w].
+            bev_queries (Tensor): (bev_h*bev_w, c)
+            bev_pos (Tensor): (bs, embed_dims, bev_h, bev_w)
+            object_query_embed (Tensor): The query embedding for decoder,
+                with shape [num_query, c].
+            reg_branches (obj:`nn.ModuleList`): Regression heads for
+                feature maps from each decoder layer. Only would
+                be passed when `with_box_refine` is True. Default to None.
+        Returns:
+            tuple[Tensor]: results of decoder containing the following tensor.
+                - bev_embed: BEV features
+                - inter_states: Outputs from decoder. If
+                    return_intermediate_dec is True output has shape \
+                      (num_dec_layers, bs, num_query, embed_dims), else has \
+                      shape (1, bs, num_query, embed_dims).
+                - init_reference_out: The initial value of reference \
+                    points, has shape (bs, num_queries, 4).
+                - inter_references_out: The internal value of reference \
+                    points in decoder, has shape \
+                    (num_dec_layers, bs,num_query, embed_dims)
+                - enc_outputs_class: The classification score of \
+                    proposals generated from \
+                    encoder's feature maps, has shape \
+                    (batch, h*w, num_classes). \
+                    Only would be returned when `as_two_stage` is True, \
+                    otherwise None.
+                - enc_outputs_coord_unact: The regression results \
+                    generated from encoder's feature maps., has shape \
+                    (batch, h*w, 4). Only would \
+                    be returned when `as_two_stage` is True, \
+                    otherwise None.
+        """
+        bev_embed = self.get_bev_features(
+            mlvl_feats,
+            bev_queries,
+            bev_h,
+            bev_w,
+            grid_length=grid_length,
+            bev_pos=bev_pos,
+            prev_bev=None,
+            **kwargs,
+        )  # bev_embed shape: bs, bev_h*bev_w, embed_dims
+
+        if len(self.frames) > 1:
+            cur_ind = list(self.frames).index(0)
+            assert prev_bev[cur_ind] is None and len(prev_bev) == len(self.frames)
+            prev_bev[cur_ind] = bev_embed
+
+            # fill prev frame feature
+            for i in range(1, cur_ind + 1):
+                if prev_bev[cur_ind - i] is None:
+                    prev_bev[cur_ind - i] = prev_bev[cur_ind - i + 1].detach()
+
+            # fill next frame feature
+            for i in range(cur_ind + 1, len(self.frames)):
+                if prev_bev[i] is None:
+                    prev_bev[i] = prev_bev[i - 1].detach()
+            bev_embed = [
+                x.reshape(x.shape[0], bev_h, bev_w, x.shape[-1])
+                .permute(0, 3, 1, 2)
+                .contiguous()
+                for x in prev_bev
+            ]
+            bev_embed = self.fusion(bev_embed)
+
+        bs = mlvl_feats[0].size(0)
+        query_pos, query = torch.split(object_query_embed, self.embed_dims, dim=1)
+        query_pos = query_pos.unsqueeze(0).expand(bs, -1, -1)
+        query = query.unsqueeze(0).expand(bs, -1, -1)
+        reference_points = self.reference_points(query_pos)
+        reference_points = reference_points.sigmoid()
+        init_reference_out = reference_points
+
+        query = query.permute(1, 0, 2)
+        query_pos = query_pos.permute(1, 0, 2)
+        bev_embed = bev_embed.permute(1, 0, 2)
+
+        inter_states, inter_references = self.decoder(
+            query=query,
+            key=None,
+            value=bev_embed,
+            query_pos=query_pos,
+            reference_points=reference_points,
+            reg_branches=reg_branches,
+            cls_branches=cls_branches,
+            spatial_shapes=torch.tensor([[bev_h, bev_w]], device=query.device),
+            level_start_index=torch.tensor([0], device=query.device),
+            **kwargs,
+        )
+
+        inter_references_out = inter_references
+
+        return bev_embed, inter_states, init_reference_out, inter_references_out
+
+
 class PerceptionTransformer(BaseModule):
     def __init__(
         self,
@@ -1977,27 +2360,6 @@ class PerceptionTransformer(BaseModule):
         if self.can_bus_norm:
             self.can_bus_mlp.add_module("norm", nn.LayerNorm(self.embed_dims))
 
-    def init_weights(self):
-        """Initialize the transformer weights."""
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
-        for m in self.modules():
-            if (
-                isinstance(m, MSDeformableAttention3D)
-                or isinstance(m, TemporalSelfAttention)
-                or isinstance(m, CustomMSDeformableAttention)
-            ):
-                try:
-                    m.init_weight()
-                except AttributeError:
-                    m.init_weights()
-        normal_(self.level_embeds)
-        normal_(self.cams_embeds)
-        xavier_init(self.reference_points, distribution="uniform", bias=0.0)
-        xavier_init(self.can_bus_mlp, distribution="uniform", bias=0.0)
-
-    @auto_fp16(apply_to=("mlvl_feats", "bev_queries", "prev_bev", "bev_pos"))
     def get_bev_features(
         self,
         mlvl_feats,
@@ -2104,15 +2466,6 @@ class PerceptionTransformer(BaseModule):
 
         return bev_embed
 
-    @auto_fp16(
-        apply_to=(
-            "mlvl_feats",
-            "bev_queries",
-            "object_query_embed",
-            "prev_bev",
-            "bev_pos",
-        )
-    )
     def forward(
         self,
         mlvl_feats,
@@ -2137,7 +2490,7 @@ class PerceptionTransformer(BaseModule):
             bev_pos=bev_pos,
             prev_bev=prev_bev,
             **kwargs,
-        )  # bev_embed shape: bs, bev_h*bev_w, embed_dims
+        )
         bs = mlvl_feats[0].size(0)
         query_pos, query = torch.split(object_query_embed, self.embed_dims, dim=1)
         query_pos = query_pos.unsqueeze(0).expand(bs, -1, -1)
@@ -2167,31 +2520,15 @@ class PerceptionTransformer(BaseModule):
         return bev_embed, inter_states, init_reference_out, inter_references_out
 
 
-def build_norm_hardcoded(cfg, num_features):
-    cfg = cfg.copy()
-    layer_type = cfg.pop("type")
-    if layer_type in ("LN", "LayerNorm"):
-        eps = cfg.pop("eps", 1e-5)
-        elementwise_affine = cfg.pop("elementwise_affine", True)
-        return nn.LayerNorm(
-            num_features, eps=eps, elementwise_affine=elementwise_affine
-        )
-    if layer_type in ("BN", "BN2d"):
-        return nn.BatchNorm2d(num_features, **cfg)
-    if layer_type == "BN1d":
-        return nn.BatchNorm1d(num_features, **cfg)
-    if layer_type == "BN3d":
-        return nn.BatchNorm3d(num_features, **cfg)
-    if layer_type == "SyncBN":
-        return nn.SyncBatchNorm(num_features, **cfg)
-    if layer_type in ("IN", "IN2d"):
-        return nn.InstanceNorm2d(num_features, **cfg)
-    if layer_type == "IN1d":
-        return nn.InstanceNorm1d(num_features, **cfg)
-    if layer_type == "IN3d":
-        return nn.InstanceNorm3d(num_features, **cfg)
-    if layer_type in ("GN", "GroupNorm"):
-        assert "num_groups" in cfg
-        num_groups = cfg.pop("num_groups")
-        return nn.GroupNorm(num_groups=num_groups, num_channels=num_features, **cfg)
-    raise KeyError(layer_type)
+# def build_norm_hardcoded(cfg, num_features):
+#     cfg = cfg.copy()
+#     layer_type = cfg.pop("type")
+#     if layer_type in ("LN", "LayerNorm"):
+#         eps = cfg.pop("eps", 1e-5)
+#         elementwise_affine = cfg.pop("elementwise_affine", True)
+#         return nn.LayerNorm(
+#             num_features, eps=eps, elementwise_affine=elementwise_affine
+#         )
+#     if layer_type in ("BN", "BN2d"):
+#         return nn.BatchNorm2d(num_features, **cfg)
+#     raise KeyError(layer_type)

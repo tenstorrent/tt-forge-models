@@ -11,7 +11,7 @@ import torchvision
 from typing import Optional, Tuple, Union
 from torch.autograd.function import once_differentiable
 from torch.nn.modules.utils import _pair, _single
-from .registry import build_conv_layer, CONV_LAYERS
+from .registry import build_conv_layer, CONV_LAYERS, build_norm_layer
 
 # from mmcv.cnn import build_conv_layer, build_norm_layer, build_plugin_layer
 from mmcv.utils import deprecated_api_warning
@@ -704,30 +704,33 @@ class Sequential(BaseModule, nn.Sequential):
         nn.Sequential.__init__(self, *args)
 
 
-def build_norm_hardcoded(cfg, num_features, postfix=None):
-    cfg = cfg.copy()
-    layer_type = cfg.pop("type")
-    requires_grad = cfg.pop("requires_grad", None)
-    # Build module
-    if layer_type in ("LN", "LayerNorm"):
-        eps = cfg.pop("eps", 1e-5)
-        elementwise_affine = cfg.pop("elementwise_affine", True)
-        module = nn.LayerNorm(
-            num_features, eps=eps, elementwise_affine=elementwise_affine
-        )
-        abbr = "ln"
-    elif layer_type in ("BN", "BN2d"):
-        module = nn.BatchNorm2d(num_features, **cfg)
-        abbr = "bn"
-    else:
-        raise KeyError(layer_type)
-    if requires_grad is not None:
-        for p in module.parameters():
-            p.requires_grad = requires_grad
-    if postfix is None:
-        return module
-    name = f"{abbr}{postfix}"
-    return name, module
+# def build_norm_layer(cfg, num_features, postfix=None):
+#     cfg = cfg.copy()
+#     layer_type = cfg.pop("type")
+#     requires_grad = cfg.pop("requires_grad", None)
+#     # Build module
+#     if layer_type in ("LN", "LayerNorm"):
+#         eps = cfg.pop("eps", 1e-5)
+#         elementwise_affine = cfg.pop("elementwise_affine", True)
+#         module = nn.LayerNorm(
+#             num_features, eps=eps, elementwise_affine=elementwise_affine
+#         )
+#         abbr = "ln"
+#     elif layer_type in ("BN", "BN2d"):
+#         module = nn.BatchNorm2d(num_features, **cfg)
+#         abbr = "bn"
+#     elif layer_type in ("SyncBN", "SyncBatchNorm"):
+#         module = nn.SyncBatchNorm(num_features, **cfg)
+#         abbr = "syncbn"
+#     else:
+#         raise KeyError(layer_type)
+#     if requires_grad is not None:
+#         for p in module.parameters():
+#             p.requires_grad = requires_grad
+#     if postfix is None:
+#         return module
+#     name = f"{abbr}{postfix}"
+#     return name, module
 
 
 def build_plugin_layer_hardcoded(cfg, in_channels=None, postfix=""):
@@ -780,6 +783,9 @@ class ResLayer(Sequential):
         if stride != 1 or inplanes != planes * block.expansion:
             downsample = []
             conv_stride = stride
+            norm_layer = build_norm_layer(norm_cfg, planes * block.expansion)
+            if isinstance(norm_layer, tuple):
+                norm_layer = norm_layer[1]
             downsample.extend(
                 [
                     nn.Conv2d(
@@ -789,7 +795,7 @@ class ResLayer(Sequential):
                         stride=conv_stride,
                         bias=False,
                     ),
-                    build_norm_hardcoded(norm_cfg, planes * block.expansion),
+                    norm_layer,
                 ]
             )
             downsample = nn.Sequential(*downsample)
@@ -844,8 +850,8 @@ class BasicBlock(BaseModule):
         assert dcn is None, "Not implemented yet."
         assert plugins is None, "Not implemented yet."
 
-        self.norm1_name, norm1 = build_norm_hardcoded(norm_cfg, planes, postfix=1)
-        self.norm2_name, norm2 = build_norm_hardcoded(norm_cfg, planes, postfix=2)
+        self.norm1_name, norm1 = build_norm_layer(norm_cfg, planes, postfix=1)
+        self.norm2_name, norm2 = build_norm_layer(norm_cfg, planes, postfix=2)
 
         self.conv1 = nn.Conv2d(
             in_channels=inplanes,
@@ -942,9 +948,9 @@ class BasicBlock(BaseModule):
 #             self.conv1_stride = stride
 #             self.conv2_stride = 1
 
-#         self.norm1_name, norm1 = build_norm_hardcoded(norm_cfg, planes, postfix=1)
-#         self.norm2_name, norm2 = build_norm_hardcoded(norm_cfg, planes, postfix=2)
-#         self.norm3_name, norm3 = build_norm_hardcoded(
+#         self.norm1_name, norm1 = build_norm_layer(norm_cfg, planes, postfix=1)
+#         self.norm2_name, norm2 = build_norm_layer(norm_cfg, planes, postfix=2)
+#         self.norm3_name, norm3 = build_norm_layer(
 #             norm_cfg, planes * self.expansion, postfix=3
 #         )
 
@@ -1105,9 +1111,9 @@ class Bottleneck(BaseModule):
             self.conv1_stride = stride
             self.conv2_stride = 1
 
-        self.norm1_name, norm1 = build_norm_hardcoded(norm_cfg, planes, postfix=1)
-        self.norm2_name, norm2 = build_norm_hardcoded(norm_cfg, planes, postfix=2)
-        self.norm3_name, norm3 = build_norm_hardcoded(
+        self.norm1_name, norm1 = build_norm_layer(norm_cfg, planes, postfix=1)
+        self.norm2_name, norm2 = build_norm_layer(norm_cfg, planes, postfix=2)
+        self.norm3_name, norm3 = build_norm_layer(
             norm_cfg, planes * self.expansion, postfix=3
         )
 
@@ -1401,7 +1407,7 @@ class ResNet(BaseModule):
             padding=3,
             bias=False,
         )
-        self.norm1_name, norm1 = build_norm_hardcoded(
+        self.norm1_name, norm1 = build_norm_layer(
             self.norm_cfg, stem_channels, postfix=1
         )
         self.add_module(self.norm1_name, norm1)
@@ -1443,5 +1449,5 @@ class ResNet(BaseModule):
                 outs.append(x)
         return tuple(outs)
 
-    def build_norm_hardcoded(self, cfg, num_features, postfix=None):
-        return build_norm_hardcoded(cfg, num_features, postfix)
+    def build_norm_layer(self, cfg, num_features, postfix=None):
+        return build_norm_layer(cfg, num_features, postfix)
