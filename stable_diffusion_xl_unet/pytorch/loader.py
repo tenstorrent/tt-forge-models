@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 from ...config import ModelConfig, StrEnum
 from ...base import ForgeModel
 from typing import Optional
@@ -63,7 +66,7 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name,
             subfolder="unet",
             torch_dtype=dtype,
-            variant="fp16"
+            variant="fp16",
         )
 
         self.in_channels = model.in_channels
@@ -77,17 +80,19 @@ class ModelLoader(ForgeModel):
             batch_size: Optional batch size for the inputs.
         """
         dtype = dtype_override or torch.bfloat16
-        
+
         sample = torch.rand((1, 4, 64, 64), dtype=torch.bfloat16)
         timestep = torch.randint(0, 1000, (1,))
         encoder_hidden_states = torch.rand((1, 77, 2048), dtype=torch.bfloat16)
         added_cond_kwargs = {
-            "text_embeds": torch.rand((1, 1280), dtype=torch.bfloat16),  # Pooled text embeddings
-            "time_ids": torch.rand((1, 6), dtype=torch.bfloat16)  # Time conditioning
+            "text_embeds": torch.rand(
+                (1, 1280), dtype=torch.bfloat16
+            ),  # Pooled text embeddings
+            "time_ids": torch.rand((1, 6), dtype=torch.bfloat16),  # Time conditioning
         }
         return {
             "sample": sample,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
-            "added_cond_kwargs": added_cond_kwargs
+            "added_cond_kwargs": added_cond_kwargs,
         }
