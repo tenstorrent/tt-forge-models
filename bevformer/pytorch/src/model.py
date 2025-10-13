@@ -16,13 +16,408 @@ from .nms_freecoder import NMSFreeCoder
 from PIL import Image
 from .transformer import PerceptionTransformer
 
+# ### small ###
+# _base_ = [
+#     '../datasets/custom_nus-3d.py',
+#     '../_base_/default_runtime.py'
+# ]
+# #
+# plugin = True
+# plugin_dir = 'projects/mmdet3d_plugin/'
+
+# # If point cloud range is changed, the models should also change their point
+# # cloud range accordingly
+# point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+# voxel_size = [0.2, 0.2, 8]
+
+
+# img_norm_cfg = dict(
+#     mean=[103.530, 116.280, 123.675], std=[1.0, 1.0, 1.0], to_rgb=False)
+# # For nuScenes we usually do 10-class detection
+# class_names = [
+#     'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
+#     'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
+# ]
+
+# input_modality = dict(
+#     use_lidar=False,
+#     use_camera=True,
+#     use_radar=False,
+#     use_map=False,
+#     use_external=True)
+
+# _dim_ = 256
+# _pos_dim_ = _dim_//2
+# _ffn_dim_ = _dim_*2
+# _num_levels_ = 1
+# bev_h_ = 150
+# bev_w_ = 150
+# queue_length = 3 # each sequence contains `queue_length` frames.
+
+# img_backbone = {
+#     "type": "ResNet",
+#     "depth": 101,
+#     "num_stages": 4,
+#     "out_indices": (3,),
+#     "frozen_stages": 1,
+#     "norm_cfg": {"type": "BN2d", "requires_grad": False},
+#     "norm_eval": True,
+#     "style": "caffe",
+#     "with_cp": True,
+#     "dcn": {
+#         "type": "DCNv2",
+#         "deform_groups": 1,
+#         "fallback_on_stride": False
+#     },
+#     "stage_with_dcn": (False, False, True, True)
+# }
+# img_neck = {
+#     "type": "FPN",
+#     "in_channels": [2048],
+#     "out_channels": _dim_,
+#     "start_level": 0,
+#     "add_extra_convs": "on_output",
+#     "num_outs": _num_levels_,
+#     "relu_before_extra_convs": True
+# }
+# pts_bbox_head = {
+#     "type": "BEVFormerHead",
+#     "bev_h": bev_h_,
+#     "bev_w": bev_w_,
+#     "num_query": 900,
+#     "num_classes": 10,
+#     "in_channels": _dim_,
+#     "sync_cls_avg_factor": True,
+#     "with_box_refine": True,
+#     "as_two_stage": False,
+#     "transformer": {
+#         "type": "PerceptionTransformer",
+#         "rotate_prev_bev": True,
+#         "use_shift": True,
+#         "use_can_bus": True,
+#         "embed_dims": _dim_,
+#         "encoder": {
+#             "type": "BEVFormerEncoder",
+#             "num_layers": 3,
+#             "pc_range": point_cloud_range,
+#             "num_points_in_pillar": 4,
+#             "return_intermediate": False,
+#             "transformerlayers": {
+#                 "type": "BEVFormerLayer",
+#                 "attn_cfgs": [
+#                     {
+#                         "type": "TemporalSelfAttention",
+#                         "embed_dims": _dim_,
+#                         "num_levels": 1
+#                     },
+#                     {
+#                         "type": "SpatialCrossAttention",
+#                         "pc_range": point_cloud_range,
+#                         "deformable_attention": {
+#                             "type": "MSDeformableAttention3D",
+#                             "embed_dims": _dim_,
+#                             "num_points": 8,
+#                             "num_levels": _num_levels_
+#                         },
+#                         "embed_dims": _dim_
+#                     }
+#                 ],
+#                 "feedforward_channels": _ffn_dim_,
+#                 "ffn_dropout": 0.1,
+#                 "operation_order": (
+#                     "self_attn", "norm", "cross_attn", "norm", "ffn", "norm"
+#                 )
+#             }
+#         },
+#         "decoder": {
+#             "type": "DetectionTransformerDecoder",
+#             "num_layers": 6,
+#             "return_intermediate": True,
+#             "transformerlayers": {
+#                 "type": "DetrTransformerDecoderLayer",
+#                 "attn_cfgs": [
+#                     {
+#                         "type": "MultiheadAttention",
+#                         "embed_dims": _dim_,
+#                         "num_heads": 8,
+#                         "dropout": 0.1
+#                     },
+#                     {
+#                         "type": "CustomMSDeformableAttention",
+#                         "embed_dims": _dim_,
+#                         "num_levels": 1
+#                     }
+#                 ],
+#                 "feedforward_channels": _ffn_dim_,
+#                 "ffn_dropout": 0.1,
+#                 "operation_order": (
+#                     "self_attn", "norm", "cross_attn", "norm", "ffn", "norm"
+#                 )
+#             }
+#         }
+#     },
+#     "bbox_coder": {
+#         "type": "NMSFreeCoder",
+#         "post_center_range": [-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
+#         "pc_range": point_cloud_range,
+#         "max_num": 300,
+#         "voxel_size": voxel_size,
+#         "num_classes": 10
+#     },
+#     "positional_encoding": {
+#         "type": "LearnedPositionalEncoding",
+#         "num_feats": _pos_dim_,
+#         "row_num_embed": bev_h_,
+#         "col_num_embed": bev_w_
+#     },
+#     "loss_cls": {
+#         "type": "FocalLoss",
+#         "use_sigmoid": True,
+#         "gamma": 2.0,
+#         "alpha": 0.25,
+#         "loss_weight": 2.0
+#     },
+#     "loss_bbox": {
+#         "type": "L1Loss",
+#         "loss_weight": 0.25
+#     },
+#     "loss_iou": {
+#         "type": "GIoULoss",
+#         "loss_weight": 0.0
+#     }
+# }
+
+# #### base ####
+# _base_ = [
+#     '../datasets/custom_nus-3d.py',
+#     '../_base_/default_runtime.py'
+# ]
+# #
+# plugin = True
+# plugin_dir = 'projects/mmdet3d_plugin/'
+
+# # If point cloud range is changed, the models should also change their point
+# # cloud range accordingly
+# point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+# voxel_size = [0.2, 0.2, 8]
+
+
+# img_norm_cfg = dict(
+#     mean=[103.530, 116.280, 123.675], std=[1.0, 1.0, 1.0], to_rgb=False)
+# # For nuScenes we usually do 10-class detection
+# class_names = [
+#     'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
+#     'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
+# ]
+
+# input_modality = dict(
+#     use_lidar=False,
+#     use_camera=True,
+#     use_radar=False,
+#     use_map=False,
+#     use_external=True)
+
+# _dim_ = 256
+# _pos_dim_ = _dim_//2
+# _ffn_dim_ = _dim_*2
+# _num_levels_ = 4
+# bev_h_ = 200
+# bev_w_ = 200
+# queue_length = 4 # each sequence contains `queue_length` frames.
+# img_backbone = {
+#     "type": "ResNet",
+#     "depth": 101,
+#     "num_stages": 4,
+#     "out_indices": (1, 2, 3),
+#     "frozen_stages": 1,
+#     "norm_cfg": {"type": "BN2d", "requires_grad": False},
+#     "norm_eval": True,
+#     "style": "caffe",
+#     "dcn": {
+#         "type": "DCNv2",
+#         "deform_groups": 1,
+#         "fallback_on_stride": False
+#     },
+#     "stage_with_dcn": (False, False, True, True)
+# }
+
+# img_neck = {
+#     "type": "FPN",
+#     "in_channels": [512, 1024, 2048],
+#     "out_channels": _dim_,
+#     "start_level": 0,
+#     "add_extra_convs": "on_output",
+#     "num_outs": 4,
+#     "relu_before_extra_convs": True
+# }
+# pts_bbox_head = {
+#     "type": "BEVFormerHead",
+#     "bev_h": bev_h_,
+#     "bev_w": bev_w_,
+#     "num_query": 900,
+#     "num_classes": 10,
+#     "in_channels": _dim_,
+#     "sync_cls_avg_factor": True,
+#     "with_box_refine": True,
+#     "as_two_stage": False,
+#     "transformer": {
+#         "type": "PerceptionTransformer",
+#         "rotate_prev_bev": True,
+#         "use_shift": True,
+#         "use_can_bus": True,
+#         "embed_dims": _dim_,
+#         "encoder": {
+#             "type": "BEVFormerEncoder",
+#             "num_layers": 6,
+#             "pc_range": point_cloud_range,
+#             "num_points_in_pillar": 4,
+#             "return_intermediate": False,
+#             "transformerlayers": {
+#                 "type": "BEVFormerLayer",
+#                 "attn_cfgs": [
+#                     {
+#                         "type": "TemporalSelfAttention",
+#                         "embed_dims": _dim_,
+#                         "num_levels": 1
+#                     },
+#                     {
+#                         "type": "SpatialCrossAttention",
+#                         "pc_range": point_cloud_range,
+#                         "deformable_attention": {
+#                             "type": "MSDeformableAttention3D",
+#                             "embed_dims": _dim_,
+#                             "num_points": 8,
+#                             "num_levels": _num_levels_
+#                         },
+#                         "embed_dims": _dim_
+#                     }
+#                 ],
+#                 "feedforward_channels": _ffn_dim_,
+#                 "ffn_dropout": 0.1,
+#                 "operation_order": (
+#                     "self_attn", "norm", "cross_attn", "norm", "ffn", "norm"
+#                 )
+#             }
+#         },
+#         "decoder": {
+#             "type": "DetectionTransformerDecoder",
+#             "num_layers": 6,
+#             "return_intermediate": True,
+#             "transformerlayers": {
+#                 "type": "DetrTransformerDecoderLayer",
+#                 "attn_cfgs": [
+#                     {
+#                         "type": "MultiheadAttention",
+#                         "embed_dims": _dim_,
+#                         "num_heads": 8,
+#                         "dropout": 0.1
+#                     },
+#                     {
+#                         "type": "CustomMSDeformableAttention",
+#                         "embed_dims": _dim_,
+#                         "num_levels": 1
+#                     }
+#                 ],
+#                 "feedforward_channels": _ffn_dim_,
+#                 "ffn_dropout": 0.1,
+#                 "operation_order": (
+#                     "self_attn", "norm", "cross_attn", "norm", "ffn", "norm"
+#                 )
+#             }
+#         }
+#     },
+#     "bbox_coder": {
+#         "type": "NMSFreeCoder",
+#         "post_center_range": [-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
+#         "pc_range": point_cloud_range,
+#         "max_num": 300,
+#         "voxel_size": voxel_size,
+#         "num_classes": 10
+#     },
+#     "positional_encoding": {
+#         "type": "LearnedPositionalEncoding",
+#         "num_feats": _pos_dim_,
+#         "row_num_embed": bev_h_,
+#         "col_num_embed": bev_w_
+#     },
+#     "loss_cls": {
+#         "type": "FocalLoss",
+#         "use_sigmoid": True,
+#         "gamma": 2.0,
+#         "alpha": 0.25,
+#         "loss_weight": 2.0
+#     },
+#     "loss_bbox": {
+#         "type": "L1Loss",
+#         "loss_weight": 0.25
+#     },
+#     "loss_iou": {
+#         "type": "GIoULoss",
+#         "loss_weight": 0.0
+#     }
+# }
+
+### tiny ###
+point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+voxel_size = [0.2, 0.2, 8]
+
+
+img_norm_cfg = dict(
+    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True
+)
+
+# For nuScenes we usually do 10-class detection
+class_names = [
+    "car",
+    "truck",
+    "construction_vehicle",
+    "bus",
+    "trailer",
+    "barrier",
+    "motorcycle",
+    "bicycle",
+    "pedestrian",
+    "traffic_cone",
+]
+
+input_modality = dict(
+    use_lidar=False, use_camera=True, use_radar=False, use_map=False, use_external=True
+)
+
+_dim_ = 256
+_pos_dim_ = _dim_ // 2
+_ffn_dim_ = _dim_ * 2
+_num_levels_ = 1
+bev_h_ = 50
+bev_w_ = 50
+queue_length = 3  # each sequence contains `queue_length` frames.
+img_backbone = {
+    "type": "ResNet",
+    "depth": 50,
+    "num_stages": 4,
+    "out_indices": (3,),
+    "frozen_stages": 1,
+    "norm_cfg": {"type": "BN", "requires_grad": False},
+    "norm_eval": True,
+    "style": "pytorch",
+}
+
+img_neck = {
+    "type": "FPN",
+    "in_channels": [2048],
+    "out_channels": _dim_,
+    "start_level": 0,
+    "add_extra_convs": "on_output",
+    "num_outs": _num_levels_,
+    "relu_before_extra_convs": True,
+}
 pts_bbox_head = {
     "type": "BEVFormerHead",
-    "bev_h": 50,
-    "bev_w": 50,
+    "bev_h": bev_h_,
+    "bev_w": bev_w_,
     "num_query": 900,
     "num_classes": 10,
-    "in_channels": 256,
+    "in_channels": _dim_,
     "sync_cls_avg_factor": True,
     "with_box_refine": True,
     "as_two_stage": False,
@@ -31,11 +426,11 @@ pts_bbox_head = {
         "rotate_prev_bev": True,
         "use_shift": True,
         "use_can_bus": True,
-        "embed_dims": 256,
+        "embed_dims": _dim_,
         "encoder": {
             "type": "BEVFormerEncoder",
             "num_layers": 3,
-            "pc_range": [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0],
+            "pc_range": point_cloud_range,
             "num_points_in_pillar": 4,
             "return_intermediate": False,
             "transformerlayers": {
@@ -43,22 +438,22 @@ pts_bbox_head = {
                 "attn_cfgs": [
                     {
                         "type": "TemporalSelfAttention",
-                        "embed_dims": 256,
+                        "embed_dims": _dim_,
                         "num_levels": 1,
                     },
                     {
                         "type": "SpatialCrossAttention",
-                        "pc_range": [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0],
+                        "pc_range": point_cloud_range,
                         "deformable_attention": {
                             "type": "MSDeformableAttention3D",
-                            "embed_dims": 256,
+                            "embed_dims": _dim_,
                             "num_points": 8,
-                            "num_levels": 1,
+                            "num_levels": _num_levels_,
                         },
-                        "embed_dims": 256,
+                        "embed_dims": _dim_,
                     },
                 ],
-                "feedforward_channels": 512,
+                "feedforward_channels": _ffn_dim_,
                 "ffn_dropout": 0.1,
                 "operation_order": (
                     "self_attn",
@@ -79,17 +474,17 @@ pts_bbox_head = {
                 "attn_cfgs": [
                     {
                         "type": "MultiheadAttention",
-                        "embed_dims": 256,
+                        "embed_dims": _dim_,
                         "num_heads": 8,
                         "dropout": 0.1,
                     },
                     {
                         "type": "CustomMSDeformableAttention",
-                        "embed_dims": 256,
+                        "embed_dims": _dim_,
                         "num_levels": 1,
                     },
                 ],
-                "feedforward_channels": 512,
+                "feedforward_channels": _ffn_dim_,
                 "ffn_dropout": 0.1,
                 "operation_order": (
                     "self_attn",
@@ -105,16 +500,16 @@ pts_bbox_head = {
     "bbox_coder": {
         "type": "NMSFreeCoder",
         "post_center_range": [-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
-        "pc_range": [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0],
+        "pc_range": point_cloud_range,
         "max_num": 300,
-        "voxel_size": [0.2, 0.2, 8],
+        "voxel_size": voxel_size,
         "num_classes": 10,
     },
     "positional_encoding": {
         "type": "LearnedPositionalEncoding",
-        "num_feats": 128,
-        "row_num_embed": 50,
-        "col_num_embed": 50,
+        "num_feats": _pos_dim_,
+        "row_num_embed": bev_h_,
+        "col_num_embed": bev_w_,
     },
     "loss_cls": {
         "type": "FocalLoss",
@@ -125,70 +520,17 @@ pts_bbox_head = {
     },
     "loss_bbox": {"type": "L1Loss", "loss_weight": 0.25},
     "loss_iou": {"type": "GIoULoss", "loss_weight": 0.0},
-    "train_cfg": None,
-    "test_cfg": None,
-}
-img_backbone = {
-    "type": "ResNet",
-    "depth": 50,
-    "num_stages": 4,
-    "out_indices": (3,),
-    "frozen_stages": 1,
-    "norm_cfg": {"type": "BN", "requires_grad": False},
-    "norm_eval": True,
-    "style": "pytorch",
-}
-img_neck = {
-    "type": "FPN",
-    "in_channels": [2048],
-    "out_channels": 256,
-    "start_level": 0,
-    "add_extra_convs": "on_output",
-    "num_outs": 1,
-    "relu_before_extra_convs": True,
 }
 
-data_test = {
-    "type": "CustomNuScenesDataset",
-    "data_root": "/proj_sw/user_dev/mramanathan/bgdlab08_sep3_forge_new/tt-forge-fe/forge/test/models/pytorch/vision/bevformer/data/nuscenes",
-    "ann_file": "/proj_sw/user_dev/mramanathan/bgdlab08_sep3_forge_new/tt-forge-fe/forge/test/models/pytorch/vision/bevformer/data/nuscenes/nuscenes_infos_temporal_val.pkl",
-    "pipeline": [
-        {"type": "LoadMultiViewImageFromFiles", "to_float32": True},
-        {
-            "type": "NormalizeMultiviewImage",
-            "mean": [123.675, 116.28, 103.53],
-            "std": [58.395, 57.12, 57.375],
-            "to_rgb": True,
-        },
-        {
-            "type": "MultiScaleFlipAug3D",
-            "img_scale": (1600, 900),
-            "pts_scale_ratio": 1,
-            "flip": False,
-            "transforms": [
-                {"type": "RandomScaleImageMultiViewImage", "scales": [0.5]},
-                {"type": "PadMultiViewImage", "size_divisor": 32},
-                {
-                    "type": "DefaultFormatBundle3D",
-                    "class_names": [
-                        "car",
-                        "truck",
-                        "construction_vehicle",
-                        "bus",
-                        "trailer",
-                        "barrier",
-                        "motorcycle",
-                        "bicycle",
-                        "pedestrian",
-                        "traffic_cone",
-                    ],
-                    "with_label": False,
-                },
-                {"type": "CustomCollect3D", "keys": ["img"]},
-            ],
-        },
-    ],
-    "classes": [
+
+class BEVFormerBaseConfig:
+    """Base configuration for BEVFormer model components"""
+
+    # Common parameters
+    point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+    voxel_size = [0.2, 0.2, 8]
+
+    class_names = [
         "car",
         "truck",
         "construction_vehicle",
@@ -199,18 +541,277 @@ data_test = {
         "bicycle",
         "pedestrian",
         "traffic_cone",
-    ],
-    "modality": {
-        "use_lidar": False,
-        "use_camera": True,
-        "use_radar": False,
-        "use_map": False,
-        "use_external": True,
-    },
-    "test_mode": True,
-    "box_type_3d": "LiDAR",
-    "bev_size": (50, 50),
-}
+    ]
+
+    # Default parameters (will be overridden by variants)
+    _dim_ = 256
+    _pos_dim_ = _dim_ // 2
+    _ffn_dim_ = _dim_ * 2
+    _num_levels_ = 4
+    bev_h_ = 200
+    bev_w_ = 200
+    queue_length = 4
+
+    # Base image normalization config
+    img_norm_cfg = dict(
+        mean=[103.530, 116.280, 123.675], std=[1.0, 1.0, 1.0], to_rgb=False
+    )
+
+    @classmethod
+    def get_img_backbone(cls, variant="base"):
+        """Get image backbone configuration"""
+        if variant == "BEVFormer-tiny":
+            return dict(
+                type="ResNet",
+                depth=50,
+                num_stages=4,
+                out_indices=(3,),
+                frozen_stages=1,
+                norm_cfg=dict(type="BN", requires_grad=False),
+                norm_eval=True,
+                style="pytorch",
+            )
+        elif variant == "BEVFormer-small":
+            return dict(
+                type="ResNet",
+                depth=101,
+                num_stages=4,
+                out_indices=(3,),
+                frozen_stages=1,
+                norm_cfg=dict(type="BN2d", requires_grad=False),
+                norm_eval=True,
+                style="caffe",
+                with_cp=True,
+                dcn=dict(type="DCNv2", deform_groups=1, fallback_on_stride=False),
+                stage_with_dcn=(False, False, True, True),
+            )
+        else:  # base
+            return dict(
+                type="ResNet",
+                depth=101,
+                num_stages=4,
+                out_indices=(1, 2, 3),
+                frozen_stages=1,
+                norm_cfg=dict(type="BN2d", requires_grad=False),
+                norm_eval=True,
+                style="caffe",
+                dcn=dict(type="DCNv2", deform_groups=1, fallback_on_stride=False),
+                stage_with_dcn=(False, False, True, True),
+            )
+
+    @classmethod
+    def get_img_neck(cls, variant="base"):
+        """Get image neck configuration"""
+        if variant == "BEVFormer-tiny":
+            return dict(
+                type="FPN",
+                in_channels=[2048],
+                out_channels=cls._dim_,
+                start_level=0,
+                add_extra_convs="on_output",
+                num_outs=1,
+                relu_before_extra_convs=True,
+            )
+        elif variant == "BEVFormer-small":
+            return dict(
+                type="FPN",
+                in_channels=[2048],
+                out_channels=cls._dim_,
+                start_level=0,
+                add_extra_convs="on_output",
+                num_outs=1,
+                relu_before_extra_convs=True,
+            )
+        else:  # base
+            return dict(
+                type="FPN",
+                in_channels=[512, 1024, 2048],
+                out_channels=cls._dim_,
+                start_level=0,
+                add_extra_convs="on_output",
+                num_outs=4,
+                relu_before_extra_convs=True,
+            )
+
+    @classmethod
+    def get_pts_bbox_head(cls, variant="base"):
+        """Get BEVFormer head configuration"""
+        # Get variant-specific parameters
+        params = cls._get_variant_params(variant)
+
+        # Base bbox head configuration
+        bbox_head = dict(
+            type="BEVFormerHead",
+            bev_h=params["bev_h"],
+            bev_w=params["bev_w"],
+            num_query=900,
+            num_classes=10,
+            in_channels=cls._dim_,
+            sync_cls_avg_factor=True,
+            with_box_refine=True,
+            as_two_stage=False,
+            transformer=dict(
+                type="PerceptionTransformer",
+                rotate_prev_bev=True,
+                use_shift=True,
+                use_can_bus=True,
+                embed_dims=cls._dim_,
+                encoder=dict(
+                    type="BEVFormerEncoder",
+                    num_layers=params["encoder_layers"],
+                    pc_range=cls.point_cloud_range,
+                    num_points_in_pillar=4,
+                    return_intermediate=False,
+                    transformerlayers=dict(
+                        type="BEVFormerLayer",
+                        attn_cfgs=[
+                            dict(
+                                type="TemporalSelfAttention",
+                                embed_dims=cls._dim_,
+                                num_levels=1,
+                            ),
+                            dict(
+                                type="SpatialCrossAttention",
+                                pc_range=cls.point_cloud_range,
+                                deformable_attention=dict(
+                                    type="MSDeformableAttention3D",
+                                    embed_dims=cls._dim_,
+                                    num_points=8,
+                                    num_levels=params["num_levels"],
+                                ),
+                                embed_dims=cls._dim_,
+                            ),
+                        ],
+                        feedforward_channels=cls._ffn_dim_,
+                        ffn_dropout=0.1,
+                        operation_order=(
+                            "self_attn",
+                            "norm",
+                            "cross_attn",
+                            "norm",
+                            "ffn",
+                            "norm",
+                        ),
+                    ),
+                ),
+                decoder=dict(
+                    type="DetectionTransformerDecoder",
+                    num_layers=6,
+                    return_intermediate=True,
+                    transformerlayers=dict(
+                        type="DetrTransformerDecoderLayer",
+                        attn_cfgs=[
+                            dict(
+                                type="MultiheadAttention",
+                                embed_dims=cls._dim_,
+                                num_heads=8,
+                                dropout=0.1,
+                            ),
+                            dict(
+                                type="CustomMSDeformableAttention",
+                                embed_dims=cls._dim_,
+                                num_levels=1,
+                            ),
+                        ],
+                        feedforward_channels=cls._ffn_dim_,
+                        ffn_dropout=0.1,
+                        operation_order=(
+                            "self_attn",
+                            "norm",
+                            "cross_attn",
+                            "norm",
+                            "ffn",
+                            "norm",
+                        ),
+                    ),
+                ),
+            ),
+            bbox_coder=dict(
+                type="NMSFreeCoder",
+                post_center_range=[-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
+                pc_range=cls.point_cloud_range,
+                max_num=300,
+                voxel_size=cls.voxel_size,
+                num_classes=10,
+            ),
+            positional_encoding=dict(
+                type="LearnedPositionalEncoding",
+                num_feats=cls._pos_dim_,
+                row_num_embed=params["bev_h"],
+                col_num_embed=params["bev_w"],
+            ),
+            loss_cls=dict(
+                type="FocalLoss",
+                use_sigmoid=True,
+                gamma=2.0,
+                alpha=0.25,
+                loss_weight=2.0,
+            ),
+            loss_bbox=dict(type="L1Loss", loss_weight=0.25),
+            loss_iou=dict(type="GIoULoss", loss_weight=0.0),
+        )
+
+        return bbox_head
+
+    @classmethod
+    def _get_variant_params(cls, variant):
+        """Get variant-specific parameters"""
+        if variant == "BEVFormer-tiny":
+            return {
+                "bev_h": 50,
+                "bev_w": 50,
+                "encoder_layers": 3,
+                "num_levels": 1,
+                "queue_length": 3,
+            }
+        elif variant == "BEVFormer-small":
+            return {
+                "bev_h": 150,
+                "bev_w": 150,
+                "encoder_layers": 3,
+                "num_levels": 1,
+                "queue_length": 3,
+            }
+        else:  # base
+            return {
+                "bev_h": 200,
+                "bev_w": 200,
+                "encoder_layers": 6,
+                "num_levels": 4,
+                "queue_length": 4,
+            }
+
+    @classmethod
+    def get_img_norm_cfg(cls, variant="base"):
+        """Get image normalization configuration"""
+        if variant == "BEVFormer-tiny":
+            return dict(
+                mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True
+            )
+        else:  # BEVFormer-small and BEVFormer-base
+            return cls.img_norm_cfg
+
+
+def get_bevformer_model(variant="base"):
+    """
+    Get BEVFormer model components for the specified variant
+
+    Args:
+        variant (str): Model variant - 'BEVFormer-tiny', 'BEVFormer-small', or 'BEVFormer-base'
+
+    Returns:
+        tuple: (img_backbone, pts_bbox_head, img_neck) configurations
+    """
+    valid_variants = ["BEVFormer-tiny", "BEVFormer-small", "BEVFormer-base"]
+    if variant not in valid_variants:
+        raise ValueError(f"Variant must be one of {valid_variants}, got {variant}")
+
+    # Get configurations for the specified variant
+    img_backbone = BEVFormerBaseConfig.get_img_backbone(variant)
+    img_neck = BEVFormerBaseConfig.get_img_neck(variant)
+    pts_bbox_head = BEVFormerBaseConfig.get_pts_bbox_head(variant)
+
+    return img_backbone, pts_bbox_head, img_neck
 
 
 def bbox3d2result(bboxes, scores, labels, attrs=None):

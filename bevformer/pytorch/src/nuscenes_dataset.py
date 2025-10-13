@@ -89,7 +89,7 @@ if Image is not None:
                 "type": "NormalizeMultiviewImage",
                 "mean": [123.675, 116.28, 103.53],
                 "std": [58.395, 57.12, 57.375],
-                "to_rgb": True,
+                "to_rgb": False,
             },
             {
                 "type": "MultiScaleFlipAug3D",
@@ -142,6 +142,77 @@ if Image is not None:
         "box_type_3d": "LiDAR",
         "bev_size": (50, 50),
     }
+
+
+def get_test_dataset_cfg(variant: str):
+    """Return test dataset config tuned per variant: tiny/small/base."""
+    if variant == "BEVFormer-small":
+        bev_h = 150
+        bev_w = 150
+        norm = {
+            "mean": [103.530, 116.280, 123.675],
+            "std": [1.0, 1.0, 1.0],
+            "to_rgb": False,
+        }
+        scale = 0.8
+        use_random_scale = True
+    elif variant == "BEVFormer-base":
+        bev_h = 200
+        bev_w = 200
+        norm = {
+            "mean": [103.530, 116.280, 123.675],
+            "std": [1.0, 1.0, 1.0],
+            "to_rgb": False,
+        }
+        scale = 0.8
+        use_random_scale = False
+    else:
+        bev_h = 50
+        bev_w = 50
+        norm = {
+            "mean": [123.675, 116.28, 103.53],
+            "std": [58.395, 57.12, 57.375],
+            "to_rgb": True,
+        }
+        scale = 0.5
+        use_random_scale = True
+
+    cfg = data_test.copy()
+
+    pipeline = []
+    for p in cfg["pipeline"]:
+        p = p.copy()
+
+        if p.get("type") == "NormalizeMultiviewImage":
+            p.update(
+                {"mean": norm["mean"], "std": norm["std"], "to_rgb": norm["to_rgb"]}
+            )
+
+        if p.get("type") == "MultiScaleFlipAug3D":
+            inner = []
+            for t in p.get("transforms", []):
+                t = t.copy()
+
+                if (
+                    t.get("type") == "RandomScaleImageMultiViewImage"
+                    and not use_random_scale
+                ):
+                    continue
+
+                if (
+                    t.get("type") == "RandomScaleImageMultiViewImage"
+                    and use_random_scale
+                ):
+                    t["scales"] = [scale]
+
+                inner.append(t)
+            p["transforms"] = inner
+
+        pipeline.append(p)
+
+    cfg["pipeline"] = pipeline
+    cfg["bev_size"] = (bev_h, bev_w)
+    return cfg
 
 
 def build_dataset(cfg):

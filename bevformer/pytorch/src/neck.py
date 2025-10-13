@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import torch.nn as nn
 from .common_imports import BaseModule, auto_fp16
+from torch.nn import functional as F
 
 
 def build_norm_hardcoded(cfg, num_features, postfix=None):

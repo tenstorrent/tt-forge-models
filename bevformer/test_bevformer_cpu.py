@@ -2,7 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from third_party.tt_forge_models.bevformer.pytorch.loader import ModelLoader
+from third_party.tt_forge_models.bevformer.pytorch.loader import (
+    ModelLoader,
+    ModelVariant,
+)
 from tests.jax.single_chip.models.bevformer.model_utils.model_utils import (
     BEV_wrapper,
     build_from_input_image,
@@ -12,7 +15,7 @@ from tests.jax.single_chip.models.bevformer.model_utils.model_utils import (
 def test_bevformer():
 
     # Load model and inputs
-    loader = ModelLoader()
+    loader = ModelLoader(ModelVariant.BEVFORMER_BASE)
     framework_model = loader.load_model()
     inputs_dict = loader.load_inputs()
     print("model = ", framework_model)
