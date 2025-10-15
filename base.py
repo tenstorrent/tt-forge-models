@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Optional, Union, Type, Any
 
 from .config import ModelConfig, ModelInfo, StrEnum
+from .training_utils import unpack_output_training
 import torch
 
 
@@ -158,6 +159,18 @@ class ForgeModel(ABC):
             Any: Sample inputs that can be fed to the model
         """
         pass
+
+    def unpack_output_training(self, fwd_output: Any):
+        """Prepare output for backward pass
+        This function is called after the forward pass and before the backward pass.
+
+        Args:
+            fwd_output: Output from the forward pass
+
+        Returns:
+            Any: Tensor that can be fed to the backward pass
+        """
+        return unpack_output_training(fwd_output)
 
     @classmethod
     def decode_output(cls, **kwargs):
