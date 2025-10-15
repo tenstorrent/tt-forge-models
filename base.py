@@ -160,7 +160,7 @@ class ForgeModel(ABC):
         """
         pass
 
-    def unpack_output_training(self, fwd_output: Any):
+    def unpack_output_training(self, fwd_output: Any) -> torch.Tensor:
         """Unpack forward pass output for further analysis.
         
         Currently this method is only called in training mode, after the forward pass and before the backward pass.
@@ -169,7 +169,7 @@ class ForgeModel(ABC):
             fwd_output: Output from the forward pass
 
         Returns:
-            Any: Tensor that can be fed to the backward pass
+            torch.Tensor: Tensor that can be fed to the backward pass
         """
         return unpack_output_training(fwd_output)
 
