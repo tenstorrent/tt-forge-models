@@ -11,6 +11,7 @@ from diffusers import UNet2DConditionModel
 
 class ModelVariant(StrEnum):
     """Available UNet for Conditional Generation model variants."""
+
     BASE = "base"
 
 
