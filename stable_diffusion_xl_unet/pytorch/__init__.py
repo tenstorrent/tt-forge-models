@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Stable Diffusion XL UNet PyTorch model implementation for Tenstorrent projects.
+UNet for Conditional Generation PyTorch model implementation for Tenstorrent projects.
 """
 from .loader import ModelLoader, ModelVariant

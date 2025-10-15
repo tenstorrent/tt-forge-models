@@ -10,13 +10,12 @@ from diffusers import UNet2DConditionModel
 
 
 class ModelVariant(StrEnum):
-    """Available Stable Diffusion XL UNet model variants."""
-
+    """Available UNet for Conditional Generation model variants."""
     BASE = "base"
 
 
 class ModelLoader(ForgeModel):
-    """Stable Diffusion XL UNet model loader implementation."""
+    """UNet for Conditional Generation model loader implementation."""
 
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
@@ -45,7 +44,7 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         return ModelInfo(
-            model="stable_diffusion_xl_unet",
+            model="unet_for_conditional_generation",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CONDITIONAL_GENERATION,
@@ -54,7 +53,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, dtype_override=None):
-        """Load and return the Stable Diffusion XL UNet model instance for this instance's variant.
+        """Load and return the UNet for Conditional Generation model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
@@ -73,7 +72,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Stable Diffusion XL UNet model with this instance's variant settings.
+        """Load and return sample inputs for the UNet for Conditional Generation model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
