@@ -5,8 +5,6 @@
 YOLOv10 model loader implementation
 """
 import torch
-from torchvision import transforms
-from datasets import load_dataset
 from typing import Optional
 
 from ...config import (
@@ -19,9 +17,17 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from torch.hub import load_state_dict_from_url
-from ultralytics.nn.tasks import DetectionModel
 from ...tools.utils import yolo_postprocess
+from loguru import logger
+
+
+class Wrapper(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, ip):
+        x = ip.topk(300)[1]
+        return x
 
 
 class ModelVariant(StrEnum):
@@ -94,19 +100,9 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The YOLOv10 model instance.
         """
-        # Get the model name from the instance's variant config
-        variant = self._variant_config.pretrained_model_name
-        weights = load_state_dict_from_url(
-            f"https://github.com/ultralytics/assets/releases/download/v8.2.0/{variant}.pt",
-            map_location="cpu",
-        )
-        model = DetectionModel(cfg=weights["model"].yaml)
-        model.load_state_dict(weights["model"].float().state_dict())
-        model.eval()
 
-        # Only convert dtype if explicitly requested
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        model = Wrapper()
+        model.eval()
 
         return model
 
@@ -121,25 +117,20 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Sample input tensor that can be fed to the model.
         """
+        torch.set_printoptions(edgeitems=100, threshold=10000, linewidth=200)
 
-        dataset = load_dataset("huggingface/cats-image", split="test[:1]")
-        image = dataset[0]["image"]
-        preprocess = transforms.Compose(
-            [
-                transforms.Resize((640, 640)),
-                transforms.ToTensor(),
-            ]
-        )
-        image_tensor = preprocess(image).unsqueeze(0)
+        variant = self._variant_config.pretrained_model_name
 
-        # Replicate tensors for batch size
-        batch_tensor = image_tensor.repeat_interleave(batch_size, dim=0)
+        if variant == "yolov10n":
+            s = torch.load("yolov10n_scores.pt")
+        elif variant == "yolov10x":
+            s = torch.load("yolov10x_scores.pt")
 
-        # Only convert dtype if explicitly requested
-        if dtype_override is not None:
-            batch_tensor = batch_tensor.to(dtype_override)
+        logger.info("s={}", s)
+        logger.info("s.dtype={}", s.dtype)
+        logger.info("s.shape={}", s.shape)
 
-        return batch_tensor
+        return s
 
     def post_process(self, co_out):
         """Post-process YOLOv10 model outputs to extract detection results.
