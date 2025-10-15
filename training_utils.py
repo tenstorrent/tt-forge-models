@@ -39,7 +39,6 @@ def unpack_output_training(output: Any) -> torch.Tensor:
         f"Use register_attr('{cls_name}', '<attr>') or register_func('{cls_name}', fn)."
     )
 
-# Example defaults
 _register_attr("BaseModelOutputWithPast", "last_hidden_state")
 _register_attr("BaseModelOutputWithPastAndCrossAttentions", "last_hidden_state")
 _register_attr("CausalLMOutputWithCrossAttentions", "logits")
