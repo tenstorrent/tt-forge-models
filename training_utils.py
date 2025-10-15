@@ -10,7 +10,7 @@ def _register_attr(cls_name: str, attr: str) -> None:
 def _register_func(cls_name: str, fn: Callable[[Any], torch.Tensor]) -> None:
     _FUNC_REGISTRY[cls_name] = fn
 
-def unpack_output_training(output: Any) -> torch.Tensor:
+def unpack_forward_output(output: Any) -> torch.Tensor:
     if isinstance(output, (tuple, list, dict)):
         raise ValueError(
             "Tuples/lists/dicts are not handled. "
