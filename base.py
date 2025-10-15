@@ -161,8 +161,9 @@ class ForgeModel(ABC):
         pass
 
     def unpack_output_training(self, fwd_output: Any):
-        """Prepare output for backward pass
-        This function is called after the forward pass and before the backward pass.
+        """Unpack forward pass output for further analysis.
+        
+        Currently this method is only called in training mode, after the forward pass and before the backward pass.
 
         Args:
             fwd_output: Output from the forward pass
