@@ -106,6 +106,7 @@ class ModelLoader(ForgeModel):
         # Configuration parameters
         self.processor = None
         self.feature_extractor = None
+        self._cached_model = None
 
     def load_model(self, dtype_override=None):
         """Load a Whisper model from Hugging Face."""
@@ -136,15 +137,25 @@ class ModelLoader(ForgeModel):
             )
 
         model.eval()
+        self._cached_model = model
         return model
 
-    def load_inputs(self):
-        """Generate sample inputs for Whisper model."""
+    def load_inputs(self, dtype_override=None):
+        """Generate sample inputs for Whisper model.
+        
+        Args:
+            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
+            
+        Returns:
+            dict: Input tensors that can be fed to the model, including:
+                - input_features: Encoded audio features
+                - decoder_input_ids: Starting token IDs for the decoder
+        """
+
+        if self._cached_model is None:
+            self.load_model(dtype_override=dtype_override)
 
         if self._variant == ModelVariant.WHISPER_LARGE_V3:
-
-            if self.feature_extractor is None:
-                self.load_model()  # This will initialize the feature_extractor
 
             ds = load_dataset(
                 "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
@@ -154,11 +165,18 @@ class ModelLoader(ForgeModel):
             )
             input_features = input_audio.input_features
 
-            return input_features
-        else:
+            if dtype_override is not None:
+                input_features = input_features.to(dtype_override)
 
-            if self.processor is None:
-                self.load_model()  # This will initialize the processor
+            # For encoder-decoder models, we need decoder_input_ids
+            decoder_start_token_id = self._cached_model.generation_config.decoder_start_token_id
+            decoder_input_ids = torch.ones((1, 1), dtype=torch.long) * decoder_start_token_id
+
+            return {
+                "input_features": input_features,
+                "decoder_input_ids": decoder_input_ids
+            }
+        else:
 
             weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
             sample = torch.load(weights_pth, weights_only=False)
@@ -167,4 +185,14 @@ class ModelLoader(ForgeModel):
             inputs = self.processor(sample_audio, return_tensors="pt")
             input_features = inputs.input_features
 
-            return input_features
+            if dtype_override is not None:
+                input_features = input_features.to(dtype_override)
+
+            # For encoder-decoder models, we need decoder_input_ids
+            decoder_start_token_id = self._cached_model.generation_config.decoder_start_token_id
+            decoder_input_ids = torch.ones((1, 1), dtype=torch.long) * decoder_start_token_id
+
+            return {
+                "input_features": input_features,
+                "decoder_input_ids": decoder_input_ids
+            }
