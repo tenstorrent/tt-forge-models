@@ -4,6 +4,7 @@
 import torch
 from tabulate import tabulate
 from transformers import AutoImageProcessor
+from loguru import logger
 
 
 def run_and_print_results(framework_model, compiled_model, inputs, dtype_override=None):
@@ -20,26 +21,41 @@ def run_and_print_results(framework_model, compiled_model, inputs, dtype_overrid
     label_dict = framework_model.config.id2label
     processor = AutoImageProcessor.from_pretrained("microsoft/resnet-50")
 
-    results = []
-    for i, image in enumerate(inputs):
-        processed_inputs = processor(image, return_tensors="pt")["pixel_values"]
+    # Get device from compiled model
+    device = next(compiled_model.parameters()).device
+    
+    # Only print results for non-CPU execution
+    if device.type != "cpu":
 
-        # Apply dtype override if provided
-        if dtype_override is not None:
-            processed_inputs = processed_inputs.to(dtype_override)
+        # Ensure framework model is on CPU for reference inference
+        framework_model = framework_model.cpu()
 
-        cpu_logits = framework_model(processed_inputs)[0]
-        cpu_conf, cpu_idx = cpu_logits.softmax(-1).max(-1)
-        cpu_pred = label_dict.get(cpu_idx.item(), "Unknown")
+        results = []
+        for i, image in enumerate(inputs):
+            processed_inputs = processor(image, return_tensors="pt")["pixel_values"]
 
-        tt_logits = compiled_model(processed_inputs)[0]
-        tt_conf, tt_idx = tt_logits.softmax(-1).max(-1)
-        tt_pred = label_dict.get(tt_idx.item(), "Unknown")
+            # Apply dtype override if provided
+            if dtype_override is not None:
+                processed_inputs = processed_inputs.to(dtype_override)
 
-        results.append([i + 1, cpu_pred, cpu_conf.item(), tt_pred, tt_conf.item()])
+            # Run framework model on CPU with inputs on CPU
+            cpu_inputs = processed_inputs.cpu()
+            cpu_logits = framework_model(cpu_inputs)[0]
+            cpu_conf, cpu_idx = cpu_logits.softmax(-1).max(-1)
+            cpu_pred = label_dict.get(cpu_idx.item(), "Unknown")
 
-    print(
-        tabulate(
+            # Run compiled model on XLA device with inputs on XLA device
+            xla_inputs = processed_inputs.to(device)
+            tt_logits = compiled_model(xla_inputs)[0]
+            tt_conf, tt_idx = tt_logits.softmax(-1).max(-1)
+            tt_pred = label_dict.get(tt_idx.item(), "Unknown")
+
+            results.append([i + 1, cpu_pred, cpu_conf.item(), tt_pred, tt_conf.item()])
+
+        
+        logger.info("=========== cpu vs {} results =================",device)
+        logger.info(
+        "\n" + tabulate(
             results,
             headers=[
                 "Example",
@@ -50,4 +66,5 @@ def run_and_print_results(framework_model, compiled_model, inputs, dtype_overrid
             ],
             tablefmt="grid",
         )
-    )
+        )
+    
