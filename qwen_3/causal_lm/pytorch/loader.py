@@ -30,7 +30,6 @@ class ModelVariant(StrEnum):
     QWEN_3_14B = "14b"
     QWEN_3_32B = "32b"
     QWEN_3_30B_A3B = "30b_a3b"
-    QWQ_32B = "qwq_32b"
 
 
 class ModelLoader(ForgeModel):
@@ -64,10 +63,6 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_30B_A3B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-30B-A3B",
-            max_length=128,
-        ),
-        ModelVariant.QWQ_32B: LLMModelConfig(
-            pretrained_model_name="Qwen/QwQ-32B",
             max_length=128,
         ),
     }
@@ -175,7 +170,7 @@ class ModelLoader(ForgeModel):
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
-        # Use chat template as in the test file
+        # Use chat template for Qwen 3 models
         messages = [{"role": "user", "content": self.sample_text}]
         text = self.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True, enable_thinking=True

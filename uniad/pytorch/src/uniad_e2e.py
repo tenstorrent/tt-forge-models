@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-import torch
-import copy
 from third_party.tt_forge_models.uniad.pytorch.src.uniad_track import UniADTrack
 from third_party.tt_forge_models.uniad.pytorch.src.planning_head import (
     PlanningHeadSingleMode,
@@ -25,7 +23,6 @@ class UniAD(UniADTrack):
         motion_head=True,
         occ_head=True,
         planning_head=True,
-        task_loss_weight=dict(track=1.0, map=1.0, motion=1.0, occ=1.0, planning=1.0),
         filter_score_thresh=0.35,
         freeze_bev_encoder=True,
         freeze_bn=True,
@@ -80,15 +77,6 @@ class UniAD(UniADTrack):
         if planning_head:
             self.planning_head = PlanningHeadSingleMode()
 
-        self.task_loss_weight = task_loss_weight
-        assert set(task_loss_weight.keys()) == {
-            "track",
-            "occ",
-            "motion",
-            "map",
-            "planning",
-        }
-
     @property
     def with_planning_head(self):
         return hasattr(self, "planning_head") and self.planning_head is not None
@@ -105,10 +93,6 @@ class UniAD(UniADTrack):
     def with_seg_head(self):
         return hasattr(self, "seg_head") and self.seg_head is not None
 
-    def forward_dummy(self, img):
-        dummy_metas = None
-        return self.forward_test(img=img, img_metas=[[dummy_metas]])
-
     def forward(self, return_loss=True, **kwargs):
         """Calls either forward_train or forward_test depending on whether
         return_loss=True.
@@ -119,19 +103,7 @@ class UniAD(UniADTrack):
         list[list[dict]]), with the outer list indicating test time
         augmentations.
         """
-        for k, v in kwargs.items():
-            if isinstance(v, torch.Tensor):
-                kwargs[k] = v.to("cpu")
-            elif isinstance(v, list):
-                kwargs[k] = [
-                    x.to("cpu") if isinstance(x, torch.Tensor) else x for x in v
-                ]
         return self.forward_test(**kwargs)
-
-    def loss_weighted_and_prefixed(self, loss_dict, prefix=""):
-        loss_factor = self.task_loss_weight[prefix]
-        loss_dict = {f"{prefix}.{k}": v * loss_factor for k, v in loss_dict.items()}
-        return loss_dict
 
     def forward_test(
         self,
@@ -156,20 +128,6 @@ class UniAD(UniADTrack):
             if not isinstance(var, list):
                 raise TypeError("{} must be a list, but got {}".format(name, type(var)))
         img = [img] if img is None else img
-
-        if img_metas[0][0]["scene_token"] != self.prev_frame_info["scene_token"]:
-            self.prev_frame_info["prev_bev"] = None
-        self.prev_frame_info["scene_token"] = img_metas[0][0]["scene_token"]
-
-        self.prev_frame_info["prev_bev"] = None
-
-        tmp_pos = copy.deepcopy(img_metas[0][0]["can_bus"][:3])
-        tmp_angle = copy.deepcopy(img_metas[0][0]["can_bus"][-1])
-        img_metas[0][0]["can_bus"][:3] -= self.prev_frame_info["prev_pos"]
-        img_metas[0][0]["can_bus"][-1] -= self.prev_frame_info["prev_angle"]
-        self.prev_frame_info["prev_pos"] = tmp_pos
-        self.prev_frame_info["prev_angle"] = tmp_angle
-
         img = img[0]
         img_metas = img_metas[0]
         timestamp = timestamp[0] if timestamp is not None else None
