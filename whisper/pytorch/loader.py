@@ -11,6 +11,7 @@ from transformers import (
     WhisperForConditionalGeneration,
     WhisperModel,
     AutoFeatureExtractor,
+    WhisperConfig,
 )
 from datasets import load_dataset
 from ...config import (
@@ -22,6 +23,7 @@ from ...config import (
     StrEnum,
     ModelConfig,
 )
+from .src.model_utils import WhisperWrapper
 from ...tools.utils import get_file
 from ...base import ForgeModel
 from typing import Optional
@@ -106,65 +108,93 @@ class ModelLoader(ForgeModel):
         # Configuration parameters
         self.processor = None
         self.feature_extractor = None
+        self.model = None
 
     def load_model(self, dtype_override=None):
         """Load a Whisper model from Hugging Face."""
 
-        # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Common model kwargs
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        # Handle dtype override
+        model_kwargs = {"torch_dtype": dtype_override} if dtype_override else {}
+        processor_kwargs = {"torch_dtype": dtype_override} if dtype_override else {}
 
         if self._variant == ModelVariant.WHISPER_LARGE_V3:
+            self.model = WhisperModel.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
             self.feature_extractor = AutoFeatureExtractor.from_pretrained(
                 pretrained_model_name
             )
-            model = WhisperModel.from_pretrained(pretrained_model_name, **model_kwargs)
+            self.processor = None
         else:
-            processor_kwargs = {}
-            if dtype_override is not None:
-                processor_kwargs["torch_dtype"] = dtype_override
-
+            self.model = WhisperForConditionalGeneration.from_pretrained(
+                pretrained_model_name, use_cache=False, **model_kwargs
+            )
             self.processor = WhisperProcessor.from_pretrained(
                 pretrained_model_name, use_cache=False, **processor_kwargs
             )
-            model = WhisperForConditionalGeneration.from_pretrained(
-                pretrained_model_name, use_cache=False, **model_kwargs
-            )
+            self.feature_extractor = None
 
-        model.eval()
-        return model
+        # Apply variant-specific model wrappers
+        variant_map = {
+            ModelVariant.WHISPER_LARGE_V3_TURBO: "large_v3_turbo",
+            ModelVariant.WHISPER_LARGE_V3: "large_v3",
+        }
+        variant_str = variant_map.get(self._variant, "default")
+        self.model = WhisperWrapper(self.model, variant=variant_str)
+
+        self.model.eval()
+        return self.model
 
     def load_inputs(self):
         """Generate sample inputs for Whisper model."""
 
+        # Ensure processor is initialized
+        if self.processor is None:
+            self.load_model()
+
+        model_config = WhisperConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+
+        # Load audio sample
         if self._variant == ModelVariant.WHISPER_LARGE_V3:
-
-            if self.feature_extractor is None:
-                self.load_model()  # This will initialize the feature_extractor
-
             ds = load_dataset(
                 "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
             )
-            input_audio = self.feature_extractor(
-                ds[0]["audio"]["array"], return_tensors="pt"
-            )
-            input_features = input_audio.input_features
-
-            return input_features
+            sample_audio = ds[0]["audio"]["array"]
         else:
-
-            if self.processor is None:
-                self.load_model()  # This will initialize the processor
-
             weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
             sample = torch.load(weights_pth, weights_only=False)
             sample_audio = sample["audio"]["array"]
 
-            inputs = self.processor(sample_audio, return_tensors="pt")
-            input_features = inputs.input_features
+        # Preprocess audio
+        sampling_rate = 16000  # Could make this configurable
+        if hasattr(self, "feature_extractor") and self.feature_extractor is not None:
+            processed = self.feature_extractor(
+                sample_audio, return_tensors="pt", sampling_rate=sampling_rate
+            )
+        else:
+            processed = self.processor(
+                sample_audio, return_tensors="pt", sampling_rate=sampling_rate
+            )
 
-            return input_features
+        input_features = processed.input_features
+        decoder_input_ids = torch.tensor([[1, 1]]) * model_config.decoder_start_token_id
+
+        if self._variant == ModelVariant.WHISPER_LARGE_V3_TURBO:
+            model_param = next(self.model.parameters())
+            input_features = input_features.to(
+                device=model_param.device, dtype=model_param.dtype
+            )
+            decoder_input_ids = decoder_input_ids.to(device=model_param.device)
+
+            encoder_outputs = (
+                self.model.model.model.encoder(input_features)[0]
+                .detach()
+                .to(torch.float32)
+            )
+            return [decoder_input_ids, encoder_outputs]
+
+        return [input_features, decoder_input_ids]
