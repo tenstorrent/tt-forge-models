@@ -199,7 +199,7 @@ class ModelLoader(ForgeModel):
                     "input_activations_partition_specs, and input_parameters_partition_specs parameters"
                 )
 
-            from .multichip_utils import initialize_flax_linen_parameters_on_cpu
+            from infra.utilities import initialize_flax_linen_parameters_on_cpu
 
             # Use provided inputs or load default ones
             if inputs is None:
@@ -265,7 +265,7 @@ class ModelLoader(ForgeModel):
                 "and input_activations_partition_specs parameters"
             )
 
-        from .multichip_utils import make_flax_linen_parameters_partition_specs_on_cpu
+        from infra.utilities import make_flax_linen_parameters_partition_specs_on_cpu
 
         # Use provided inputs or load default ones for shape evaluation
         if inputs is None:
