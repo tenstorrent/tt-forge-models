@@ -60,6 +60,7 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self.tokenizer = None
+        self.model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -94,7 +95,7 @@ class ModelLoader(ForgeModel):
             The loaded tokenizer instance
         """
         tokenizer_kwargs = {
-            "padding_side": "left",
+            "padding_side": "right",
         }
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -130,6 +131,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
 
+        self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -146,11 +148,21 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
 
+        if self.model is None:
+            self.load_model(dtype_override)
+
         # Set up sample input
         test_input = "How often does the letter r occur in Mistral?"
 
         # Tokenize input
         inputs = self.tokenizer.encode_plus(test_input, return_tensors="pt")
+        if (
+            hasattr(self.model.config, "sliding_window")
+            and self.model.config.sliding_window is not None
+        ):
+            # if the model uses sliding window attention, match sliding window value to input size so it
+            # does not go out of bounds when updating the cache
+            self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
         # Add batch dimension
         for key in inputs:
