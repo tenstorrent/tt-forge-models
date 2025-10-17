@@ -35,9 +35,9 @@ class ModelVariant(StrEnum):
     WHISPER_BASE = "openai/whisper-base"
     WHISPER_SMALL = "openai/whisper-small"
     WHISPER_MEDIUM = "openai/whisper-medium"
-    WHISPER_LARGE = "openai/whisper-large"
     WHISPER_LARGE_V3 = "openai/whisper-large-v3"
     WHISPER_LARGE_V3_TURBO = "openai/whisper-large-v3-turbo"
+    WHISPER_LARGE = "openai/whisper-large"
 
 
 class ModelLoader(ForgeModel):
@@ -57,14 +57,14 @@ class ModelLoader(ForgeModel):
         ModelVariant.WHISPER_MEDIUM: ModelConfig(
             pretrained_model_name="openai/whisper-medium",
         ),
-        ModelVariant.WHISPER_LARGE: ModelConfig(
-            pretrained_model_name="openai/whisper-large",
-        ),
         ModelVariant.WHISPER_LARGE_V3: ModelConfig(
             pretrained_model_name="openai/whisper-large-v3",
         ),
         ModelVariant.WHISPER_LARGE_V3_TURBO: ModelConfig(
             pretrained_model_name="openai/whisper-large-v3-turbo",
+        ),
+        ModelVariant.WHISPER_LARGE: ModelConfig(
+            pretrained_model_name="openai/whisper-large",
         ),
     }
 
