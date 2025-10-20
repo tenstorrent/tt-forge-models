@@ -162,7 +162,7 @@ class ForgeModel(ABC):
 
     def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
         """Unpack forward pass output for further analysis.
-        
+
         Currently this method is only called in training mode, after the forward pass and before the backward pass.
 
         Args:
