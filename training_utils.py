@@ -9,7 +9,7 @@ model output objects (e.g., Hugging Face model outputs).
 
 It maintains a registry of handlers that define how to unpack each output type.
 Intended to be used if the model returns a class that can be unambiguously unpacked into a single tensor that represents the whole output.
-In case model returns an ambiguous output (e.g, list/tuple) ModelLoader needs to override `unpack_forward_output`. 
+In case model returns an ambiguous output (e.g, list/tuple) ModelLoader needs to override `unpack_forward_output`.
 """
 import torch
 from typing import Any, Callable, Dict
