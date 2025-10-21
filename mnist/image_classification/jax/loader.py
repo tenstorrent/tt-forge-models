@@ -7,6 +7,7 @@ MNIST model loader implementation for image classification.
 """
 
 from typing import Optional, Sequence
+import inspect
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -355,3 +356,48 @@ class ModelLoader(ForgeModel):
             str: Name of the forward method (typically 'apply' for Flax models)
         """
         return "apply"
+
+    def get_input_parameters(self, train=False, seed=None):
+        """Get input parameters for the model.
+
+        This method provides compatibility with DynamicJaxModelTester which expects
+        a get_input_parameters method.
+
+        Args:
+            train: Whether to initialize for training mode (affects dropout).
+            seed: Random seed for parameter initialization. If None, uses DEFAULT_PARAMS_INIT_SEED.
+
+        Returns:
+            PyTree: Model parameters initialized with random weights
+        """
+        return self.load_parameters(train=train, seed=seed)
+
+    def get_forward_method_kwargs(self, run_mode=None):
+        """Get keyword arguments for the model's forward method.
+
+        This method provides compatibility with DynamicJaxModelTester by returning
+        the appropriate kwargs based on what the model's __call__ method accepts.
+
+        Args:
+            run_mode: Optional RunMode. If not provided, defaults to inference behavior.
+
+        Returns:
+            dict: Keyword arguments for the model's forward method
+        """
+        model = self.load_model()
+
+        # Get the signature of the model's __call__ method.
+        try:
+            sig = inspect.signature(model.__call__)
+            params = sig.parameters
+        # Model might not have __call__ defined.
+        except (AttributeError, ValueError):
+            return {}
+
+        kwargs = {}
+
+        if 'train' in params:
+            is_training = str(run_mode).lower() == 'training' if run_mode else False
+            kwargs['train'] = is_training
+
+        return kwargs
