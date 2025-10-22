@@ -126,7 +126,9 @@ class ModelLoader(ForgeModel):
         config = PhiConfig.from_pretrained(pretrained_model_name)
         config_dict = config.to_dict()
         config_dict["use_cache"] = False
-        config_dict["pad_token_id"] = self.tokenizer.pad_token_id  # Set to match tokenizer
+        config_dict[
+            "pad_token_id"
+        ] = self.tokenizer.pad_token_id  # Set to match tokenizer
         config = PhiConfig(**config_dict)
 
         # Load the model with dtype override if specified
