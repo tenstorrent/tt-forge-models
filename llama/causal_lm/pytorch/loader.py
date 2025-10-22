@@ -214,7 +214,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, dtype_override=None, batch_size=4):
         """Load and return sample inputs for the Llama model with this instance's variant settings.
 
         Args:
@@ -289,3 +289,46 @@ class ModelLoader(ForgeModel):
         valid_tokens = inputs[0][:, self.seq_len : current_pos].view(-1).tolist()
         answer = tokenizer.decode(valid_tokens, skip_special_tokens=True)
         return answer
+
+    def get_mesh_config(self, num_devices: int):
+        assert num_devices > 2, "Llama models require at least 2 devices for TP"
+        if num_devices == 32:
+            mesh_shape = (4, 8)
+        else:
+            mesh_shape = (2, num_devices // 2)
+        mesh_shape = (2, num_devices // 2)
+        if self._variant not in [
+            ModelVariant.LLAMA_3_2_1B,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT,
+            ModelVariant.LLAMA_3_2_3B,
+            ModelVariant.LLAMA_3_2_3B_INSTRUCT,
+        ]:
+            assert (
+                self.config.num_attention_heads % mesh_shape[1] == 0
+            ), "Attention heads must be divisible by the model axis size"
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model, args, kwargs):
+        if self._variant in [
+            ModelVariant.LLAMA_3_2_1B,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT,
+            ModelVariant.LLAMA_3_2_3B,
+            ModelVariant.LLAMA_3_2_3B_INSTRUCT,
+        ]:
+            return None
+
+        shard_specs = {}
+        shard_specs[kwargs["input_ids"]] = ("batch", None)
+        shard_specs[kwargs["attention_mask"]] = ("batch", None)
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        # shard_specs[model.lm_head.weight] = ("model", "batch")
+
+        return shard_specs
