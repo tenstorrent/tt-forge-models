@@ -60,7 +60,7 @@ class ModelLoader(ForgeModel):
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self._variant_config.pretrained_model_name, trust_remote_code=True
             )
-           # Set pad token if not already set (PHI models often need this)
+            # Set pad token if not already set (PHI models often need this)
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 

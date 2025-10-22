@@ -119,7 +119,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForSequenceClassification.from_pretrained(
             pretrained_model_name, use_cache=False, **model_kwargs
         )
-        
+
         # Set the pad_token_id in the model config to match the tokenizer
         if model.config.pad_token_id is None:
             model.config.pad_token_id = self.tokenizer.pad_token_id

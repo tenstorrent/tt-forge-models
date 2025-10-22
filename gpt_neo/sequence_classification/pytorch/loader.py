@@ -137,7 +137,7 @@ class ModelLoader(ForgeModel):
         # Set the pad_token_id in the model config to match the tokenizer
         if model.config.pad_token_id is None:
             model.config.pad_token_id = self.tokenizer.pad_token_id
-            
+
         model.eval()
         self.model = model
 
