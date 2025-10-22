@@ -203,11 +203,11 @@ class ModelLoader(ForgeModel):
         kwargs = {}
 
         # Check if the model accepts a 'train' parameter
-        if 'train' in params:
+        if "train" in params:
             # Determine if we're in training mode
             # RunMode.TRAINING has string representation 'training'
-            is_training = str(run_mode).lower() == 'training' if run_mode else False
-            kwargs['train'] = is_training
+            is_training = str(run_mode).lower() == "training" if run_mode else False
+            kwargs["train"] = is_training
 
         # MlpMixer doesn't have a train parameter, so this will return empty dict
         return kwargs

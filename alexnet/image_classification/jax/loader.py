@@ -278,7 +278,9 @@ class ModelLoader(ForgeModel):
             inputs,
         )
 
-    def load_multichip_model(self, axis_name="X", num_devices=2, train_mode=False, dtype_override=None):
+    def load_multichip_model(
+        self, axis_name="X", num_devices=2, train_mode=False, dtype_override=None
+    ):
         """Load and return the AlexNet multichip model instance.
 
         Args:
@@ -310,6 +312,7 @@ class ModelLoader(ForgeModel):
             PartitionSpec for input activations (sharded on batch dimension)
         """
         from jax.sharding import PartitionSpec
+
         return PartitionSpec(axis_name)
 
     def get_forward_method_name(self):
