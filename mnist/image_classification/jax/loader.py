@@ -305,7 +305,9 @@ class ModelLoader(ForgeModel):
             inputs,
         )
 
-    def load_multichip_model(self, axis_name="X", num_devices=2, train_mode=False, dtype_override=None):
+    def load_multichip_model(
+        self, axis_name="X", num_devices=2, train_mode=False, dtype_override=None
+    ):
         """Load and return the MNIST multichip model instance.
 
         Args:
@@ -346,6 +348,7 @@ class ModelLoader(ForgeModel):
             PartitionSpec for input activations (replicated for MNIST MLP)
         """
         from jax.sharding import PartitionSpec
+
         # No data parallelism utilized in MNIST MLP model - inputs are replicated
         return PartitionSpec()
 
@@ -396,8 +399,8 @@ class ModelLoader(ForgeModel):
 
         kwargs = {}
 
-        if 'train' in params:
-            is_training = str(run_mode).lower() == 'training' if run_mode else False
-            kwargs['train'] = is_training
+        if "train" in params:
+            is_training = str(run_mode).lower() == "training" if run_mode else False
+            kwargs["train"] = is_training
 
         return kwargs
