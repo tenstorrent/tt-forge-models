@@ -1,0 +1,3 @@
+triton==3.3.0
+intel_extension_for_pytorch==2.7.0
+autoawq[cpu]==0.2.9
