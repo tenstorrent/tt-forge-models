@@ -20,7 +20,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from .mlp.model_implementation import MNISTMLPModel
+from .mlp.model_implementation import MNISTMLPModel, MNISTMLPMultichipModel
 from .cnn_batchnorm.model_implementation import MNISTCNNBatchNormModel
 from .cnn_dropout.model_implementation import MNISTCNNDropoutModel
 

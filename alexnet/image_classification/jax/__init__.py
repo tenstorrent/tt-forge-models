@@ -3,4 +3,4 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .loader import ModelLoader, ModelVariant
-from .src import AlexNetModel, LocalResponseNormalization
+from .src import AlexNetModel, AlexNetMultichipModel, LocalResponseNormalization
