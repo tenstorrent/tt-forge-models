@@ -6,7 +6,6 @@ MAPTR model loader implementation
 """
 import torch
 from typing import Optional
-from mmcv.runner import load_checkpoint
 
 from ...config import (
     ModelConfig,
@@ -26,8 +25,9 @@ from .src.maptr import (
     lss_cfg,
     lidar_encoder_cfg,
     fuser_cfg,
+    load_checkpoint,
+    ConfigDict,
 )
-from mmcv import ConfigDict
 import numpy as np
 import copy
 
@@ -108,7 +108,9 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="maptr",
             variant=variant,
-            group=ModelGroup.RED,
+            group=ModelGroup.RED
+            if variant == ModelVariant.TINY_R50_24E_BEVFORMER
+            else ModelGroup.GENERALITY,
             task=ModelTask.REALTIME_MAP_CONSTRUCTION,
             source=ModelSource.GITHUB,
             framework=Framework.TORCH,
@@ -146,7 +148,7 @@ class ModelLoader(ForgeModel):
         ]:
             local_model_cfg["pts_bbox_head"]["transformer"]["encoder"][
                 "transformerlayers"
-            ]["attn_cfgs"][1] = gkt_cfg
+            ]["attn_cfgs"][1] = copy.deepcopy(gkt_cfg)
 
         if variant_name == "nano_r18_110e":
 
@@ -179,7 +181,9 @@ class ModelLoader(ForgeModel):
             bevpool_voxel_size = [0.15, 0.15, 20.0]
 
             # Replace encoder with BevPool's LSSTransform
-            local_model_cfg["pts_bbox_head"]["transformer"]["encoder"] = lss_cfg
+            local_model_cfg["pts_bbox_head"]["transformer"]["encoder"] = copy.deepcopy(
+                lss_cfg
+            )
 
             # Override parameters in encoder
             local_model_cfg["pts_bbox_head"]["transformer"]["encoder"][
@@ -203,9 +207,11 @@ class ModelLoader(ForgeModel):
 
             # Add fusion-specific configurations
             local_model_cfg["modality"] = "fusion"
-            local_model_cfg["lidar_encoder"] = lidar_encoder_cfg
+            local_model_cfg["lidar_encoder"] = copy.deepcopy(lidar_encoder_cfg)
             local_model_cfg["pts_bbox_head"]["transformer"]["modality"] = "fusion"
-            local_model_cfg["pts_bbox_head"]["transformer"]["fuser"] = fuser_cfg
+            local_model_cfg["pts_bbox_head"]["transformer"]["fuser"] = copy.deepcopy(
+                fuser_cfg
+            )
 
             # Override voxel size in lidar_encoder
             local_model_cfg["lidar_encoder"]["voxelize"][
