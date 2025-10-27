@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="meta-llama/Meta-Llama-3.1-70B-Instruct",
             max_length=128,
         ),
-        ModelVaraiant.LLAMA_3_1_405B: LLMModelConfig(
+        ModelVariant.LLAMA_3_1_405B: LLMModelConfig(
             pretrained_model_name="meta-llama/Meta-Llama-3.1-405B",
             max_length=128,
         ),
