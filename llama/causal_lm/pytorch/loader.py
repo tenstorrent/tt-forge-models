@@ -157,14 +157,20 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        # Set group based on variant (instruct variants are RED priority expect llama_3_8b_instruct variant)
+        # Set group based on variant (instruct variants are RED priority except llama_3_8b_instruct and llama_3_1_405b_instruct variant)
         if (
             (
                 "instruct" in variant.value
-                and variant != ModelVariant.LLAMA_3_8B_INSTRUCT
+                and (
+                    variant
+                    not in [
+                        ModelVariant.LLAMA_3_8B_INSTRUCT,
+                        ModelVariant.LLAMA_3_1_405B_INSTRUCT,
+                    ]
+                )
             )
             or "70b" in variant.value
-            or "405b" in variant.value
+            or variant == ModelVariant.LLAMA_3_1_405B
         ):
             group = ModelGroup.RED
         else:
