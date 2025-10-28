@@ -47,6 +47,9 @@ class ModelVariant(StrEnum):
     # HuggingFace community variants
     HUGGYLLAMA_7B = "huggyllama_7b"
 
+    # TinyLlama variants
+    TINYLLAMA_V1_1 = "TinyLlama_v1.1"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -104,6 +107,11 @@ class ModelLoader(ForgeModel):
         # HuggingFace community variants
         ModelVariant.HUGGYLLAMA_7B: LLMModelConfig(
             pretrained_model_name="huggyllama/llama-7b",
+            max_length=128,
+        ),
+        # TinyLlama variants
+        ModelVariant.TINYLLAMA_V1_1: LLMModelConfig(
+            pretrained_model_name="TinyLlama/TinyLlama_v1.1",
             max_length=128,
         ),
     }
@@ -211,6 +219,7 @@ class ModelLoader(ForgeModel):
 
         model.eval()
         self.model = model
+        self.config = model.config
 
         return model
 
@@ -225,10 +234,6 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors suitable for causal LM.
         """
-
-        # Get max_length from the variant config
-        max_length = self._variant_config.max_length
-
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -289,3 +294,30 @@ class ModelLoader(ForgeModel):
         valid_tokens = inputs[0][:, self.seq_len : current_pos].view(-1).tolist()
         answer = tokenizer.decode(valid_tokens, skip_special_tokens=True)
         return answer
+
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        if self._variant in [
+            ModelVariant.LLAMA_3_2_1B,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT,
+            ModelVariant.LLAMA_3_2_3B,
+            ModelVariant.LLAMA_3_2_3B_INSTRUCT,
+            ModelVariant.HUGGYLLAMA_7B,
+        ]:
+            return None
+
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        return shard_specs
