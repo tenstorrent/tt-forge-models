@@ -204,6 +204,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs["num_hidden_layers"] = 1
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -215,7 +216,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, dtype_override=None, batch_size=4):
         """Load and return sample inputs for the Llama model with this instance's variant settings.
 
         Args:
@@ -293,10 +294,12 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
         mesh_shape = (1, num_devices)
+        if num_devices == 32:
+            return (8, 4), ("model", "batch")
 
         return mesh_shape, ("batch", "model")
 
-    def load_shard_spec(self, model):
+    def load_shard_spec(self, model, args, kwargs):
         if self._variant in [
             ModelVariant.LLAMA_3_2_1B,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT,
@@ -307,6 +310,8 @@ class ModelLoader(ForgeModel):
             return None
 
         shard_specs = {}
+        shard_specs[kwargs["input_ids"]] = ("batch", None)
+        shard_specs[kwargs["attention_mask"]] = ("batch", None)
         for layer in model.model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
@@ -316,4 +321,5 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
