@@ -1,0 +1,17 @@
+{
+  "include": ["."],
+  "exclude": [
+    "**/.venv",
+    "**/.mypy_cache",
+    "**/.ruff_cache",
+    "**/__pycache__"
+  ],
+  "typeCheckingMode": "basic",
+  "stubPath": "typings",
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportOptionalCall": "none",
+  "reportOptionalOperand": "none",
+  "reportAttributeAccessIssue": "error"
+}
