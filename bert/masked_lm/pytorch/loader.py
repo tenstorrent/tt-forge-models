@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
             model="BERT-MaskedLM",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
-            task=ModelTask.NLP_MASKED_LM,
+            task=ModelTask.NLP_MASKED_LM_TYPO,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )

@@ -7,9 +7,9 @@ repos:
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v18.1.7
     hooks:
-    - id: clang-format
-      types_or: [c++, c]
-      args: [-style=file, -i]
+      - id: clang-format
+        types_or: [c++, c]
+        args: [-style=file, -i]
   - repo: https://github.com/espressif/check-copyright/
     rev: v1.0.3
     hooks:
@@ -21,3 +21,37 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-added-large-files
+
+  # # 🧩 NEW: mypy with absolute-path workaround
+  # - repo: https://github.com/pre-commit/mirrors-mypy
+  #   rev: v1.11.2
+  #   hooks:
+  #     - id: mypy
+  #       name: mypy (absolute path safe)
+  #       language: system
+  #       types: [python]
+  #       pass_filenames: true
+  #       entry: bash -c |
+  #         abs_files=()
+  #         for f in "$@"; do
+  #           abs_files+=("$(realpath "$f")")
+  #         done
+  #         mypy "${abs_files[@]}"
+  #       args:
+  #         - --ignore-missing-imports
+  #         - --show-error-codes
+  #         - --pretty
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        name: mypy (absolute path safe)
+        entry: .pre-commit-hooks/mypy-abs.sh
+        language: system
+        types: [python]
+        pass_filenames: true
+        args:
+          # - --ignore-missing-imports
+          - --show-error-codes
+          - --pretty
