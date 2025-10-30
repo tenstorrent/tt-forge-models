@@ -1104,9 +1104,9 @@ class SpatialCrossAttention(BaseModule):
                 queries_rebatch[j, i, : len(index_query_per_img)] = query[
                     j, index_query_per_img
                 ]
-                reference_points_rebatch[j, i, : len(index_query_per_img)] = (
-                    reference_points_per_img[j, index_query_per_img]
-                )
+                reference_points_rebatch[
+                    j, i, : len(index_query_per_img)
+                ] = reference_points_per_img[j, index_query_per_img]
 
         num_cams, l, bs, embed_dims = key.shape
 
@@ -3279,9 +3279,9 @@ class SSR(MVXTwoStageDetector):
             )
             metric_dict["plan_L2_{}s".format(i + 1)] = traj_L2
             metric_dict["plan_obj_col_{}s".format(i + 1)] = obj_coll.mean().item()
-            metric_dict["plan_obj_box_col_{}s".format(i + 1)] = (
-                obj_box_coll.mean().item()
-            )
+            metric_dict[
+                "plan_obj_box_col_{}s".format(i + 1)
+            ] = obj_box_coll.mean().item()
 
             metric_dict["plan_L2_stp3_{}s".format(i + 1)] = traj_L2_stp3
             metric_dict["plan_obj_col_stp3_{}s".format(i + 1)] = obj_coll[-1].item()
