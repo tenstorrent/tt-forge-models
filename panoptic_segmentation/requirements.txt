@@ -1,7 +1,1 @@
-# Panoptic Segmentation (Panoptic-DeepLab) Requirements
-
-# Detectron2 (main dependency for Panoptic-DeepLab)
-git+https://github.com/facebookresearch/detectron2.git
-
-# Panoptic API for evaluation and utilities
-git+https://github.com/cocodataset/panopticapi.git
+fvcore

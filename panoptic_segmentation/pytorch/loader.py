@@ -2,13 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Panoptic-DeepLab model loader implementation based on CPU inference patterns
+Panoptic FPN model loader implementation based on CPU inference patterns
 """
 
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
 import torch
 import numpy as np
+import importlib.util
 
 from ...config import (
     ModelConfig,
@@ -23,82 +24,52 @@ from ...base import ForgeModel
 
 
 @dataclass
-class PanopticDeepLabConfig(ModelConfig):
-    """Configuration specific to Panoptic-DeepLab models"""
+class PanopticFPNConfig(ModelConfig):
+    """Configuration specific to Panoptic FPN models"""
 
     config_file: str
     backbone: str
     num_classes: int
     image_size: tuple
-    output_stride: int
-    use_depthwise_separable_conv: bool = False
 
 
 class ModelVariant(StrEnum):
-    """Available Panoptic-DeepLab model variants."""
+    """Available Panoptic FPN model variants."""
 
     # COCO variants
-    RESNET_52_OS16_COCO = "resnet52_os16_coco"
-    RESNET_101_OS16_COCO = "resnet101_os16_coco"
-    RESNET_52_OS16_COCO_DSCONV = "resnet52_os16_coco_dsconv"
-
-    # Cityscapes variants
-    RESNET_52_OS16_CITYSCAPES = "resnet52_os16_cityscapes"
-    RESNET_52_OS16_CITYSCAPES_DSCONV = "resnet52_os16_cityscapes_dsconv"
+    RESNET_50_1X_COCO = "resnet50_1x_coco"
+    RESNET_50_3X_COCO = "resnet50_3x_coco"
+    RESNET_101_3X_COCO = "resnet101_3x_coco"
 
 
 class ModelLoader(ForgeModel):
-    """Panoptic-DeepLab model loader implementation based on CPU inference patterns."""
+    """Panoptic FPN model loader implementation with tensor-based API (no image preprocessing)."""
 
     _VARIANTS = {
-        ModelVariant.RESNET_52_OS16_COCO: PanopticDeepLabConfig(
-            pretrained_model_name="panoptic_deeplab_R_52_os16_mg124_poly_200k_bs64_crop_640_640_coco",
-            config_file="COCO-PanopticSegmentation/panoptic_deeplab_R_52_os16_mg124_poly_200k_bs64_crop_640_640_coco.yaml",
-            backbone="resnet50",  # Use ResNet-50 instead of 52
-            num_classes=133,  # COCO panoptic classes
+        ModelVariant.RESNET_50_1X_COCO: PanopticFPNConfig(
+            pretrained_model_name="panoptic_fpn_R_50_1x",
+            config_file="COCO-PanopticSegmentation/panoptic_fpn_R_50_1x.yaml",
+            backbone="resnet50",
+            num_classes=80,  # COCO instance classes
             image_size=(640, 640),
-            output_stride=16,
-            use_depthwise_separable_conv=False,
         ),
-        ModelVariant.RESNET_101_OS16_COCO: PanopticDeepLabConfig(
-            pretrained_model_name="panoptic_deeplab_R_101_os16_mg124_poly_200k_bs64_crop_640_640_coco",
-            config_file="COCO-PanopticSegmentation/panoptic_deeplab_R_101_os16_mg124_poly_200k_bs64_crop_640_640_coco.yaml",
+        ModelVariant.RESNET_50_3X_COCO: PanopticFPNConfig(
+            pretrained_model_name="panoptic_fpn_R_50_3x",
+            config_file="COCO-PanopticSegmentation/panoptic_fpn_R_50_3x.yaml",
+            backbone="resnet50",
+            num_classes=80,
+            image_size=(640, 640),
+        ),
+        ModelVariant.RESNET_101_3X_COCO: PanopticFPNConfig(
+            pretrained_model_name="panoptic_fpn_R_101_3x",
+            config_file="COCO-PanopticSegmentation/panoptic_fpn_R_101_3x.yaml",
             backbone="resnet101",
-            num_classes=133,
+            num_classes=80,
             image_size=(640, 640),
-            output_stride=16,
-            use_depthwise_separable_conv=False,
-        ),
-        ModelVariant.RESNET_52_OS16_COCO_DSCONV: PanopticDeepLabConfig(
-            pretrained_model_name="panoptic_deeplab_R_52_os16_mg124_poly_200k_bs64_crop_640_640_coco_dsconv",
-            config_file="COCO-PanopticSegmentation/panoptic_deeplab_R_52_os16_mg124_poly_200k_bs64_crop_640_640_coco_dsconv.yaml",
-            backbone="resnet50",
-            num_classes=133,
-            image_size=(640, 640),
-            output_stride=16,
-            use_depthwise_separable_conv=True,
-        ),
-        ModelVariant.RESNET_52_OS16_CITYSCAPES: PanopticDeepLabConfig(
-            pretrained_model_name="panoptic_deeplab_R_52_os16_mg124_poly_90k_bs32_crop_512_1024",
-            config_file="Cityscapes-PanopticSegmentation/panoptic_deeplab_R_52_os16_mg124_poly_90k_bs32_crop_512_1024.yaml",
-            backbone="resnet50",
-            num_classes=19,  # Cityscapes classes
-            image_size=(1024, 2048),
-            output_stride=16,
-            use_depthwise_separable_conv=False,
-        ),
-        ModelVariant.RESNET_52_OS16_CITYSCAPES_DSCONV: PanopticDeepLabConfig(
-            pretrained_model_name="panoptic_deeplab_R_52_os16_mg124_poly_90k_bs32_crop_512_1024_dsconv",
-            config_file="Cityscapes-PanopticSegmentation/panoptic_deeplab_R_52_os16_mg124_poly_90k_bs32_crop_512_1024_dsconv.yaml",
-            backbone="resnet50",
-            num_classes=19,
-            image_size=(1024, 2048),
-            output_stride=16,
-            use_depthwise_separable_conv=True,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.RESNET_52_OS16_COCO
+    DEFAULT_VARIANT = ModelVariant.RESNET_50_1X_COCO
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -116,7 +87,7 @@ class ModelLoader(ForgeModel):
         variant = variant or cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="panoptic_deeplab",
+            model="panoptic_fpn",
             variant=variant,
             framework=Framework.TORCH,
             task=ModelTask.CV_PANOPTIC_SEG,
@@ -136,137 +107,200 @@ class ModelLoader(ForgeModel):
         Returns:
             CfgNode: Configured detectron2 config object
         """
+        # Import the model.py implementation
         try:
-            from detectron2.config import get_cfg
-            from detectron2.projects.panoptic_deeplab import add_panoptic_deeplab_config
+            import sys
+            import os
+
+            model_path = os.path.join(os.path.dirname(__file__), "model.py")
+            spec = importlib.util.spec_from_file_location("panoptic_model", model_path)
+            panoptic_model = importlib.util.module_from_spec(spec)
+            sys.modules["panoptic_model"] = panoptic_model
+            spec.loader.exec_module(panoptic_model)
         except ImportError as e:
-            raise ImportError(
-                "detectron2 and panoptic-deeplab dependencies are required. "
-                "Install with: pip install 'git+https://github.com/facebookresearch/detectron2.git'"
-            ) from e
+            raise ImportError(f"Failed to import model.py: {e}")
 
         config = self._variant_config
 
-        # Create configs and perform basic setups (following CPU inference script)
-        cfg = get_cfg()
+        # Use the get_cfg() function from model.py
+        cfg = panoptic_model.get_cfg()
 
-        # Add Panoptic-DeepLab config
-        add_panoptic_deeplab_config(cfg)
+        # Load the appropriate config file
+        try:
+            config_file = panoptic_model.get_config_file(config.config_file)
+            cfg.merge_from_file(config_file)
+        except Exception:
+            # If config file not found, use default configuration
+            cfg.MODEL.META_ARCHITECTURE = "GeneralizedRCNN"
+            cfg.MODEL.WEIGHTS = ""
 
-        # Set basic configuration without loading config file for now
-        # (since we might not have access to the config files in the environment)
-        self._configure_model_architecture(cfg, config)
-
-        # Force specified device
+        # Set device
         cfg.MODEL.DEVICE = device
 
-        # Set model weights to empty for random initialization (testing purposes)
-        cfg.MODEL.WEIGHTS = ""
+        # Set confidence thresholds
+        cfg.MODEL.RETINANET.SCORE_THRESH_TEST = 0.5
+        cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
 
-        # Set confidence threshold (similar to CPU inference script)
-        if hasattr(cfg.MODEL, "PANOPTIC_DEEPLAB"):
-            cfg.MODEL.PANOPTIC_DEEPLAB.CENTER_THRESHOLD = 0.1
+        # Setup metadata for COCO panoptic dataset
+        metadata = panoptic_model.MetadataCatalog.get("coco_2017_val_panoptic")
+        metadata.thing_classes = (
+            [
+                "person",
+                "bicycle",
+                "car",
+                "motorcycle",
+                "airplane",
+                "bus",
+                "train",
+                "truck",
+                "boat",
+            ]
+            + [
+                "traffic light",
+                "fire hydrant",
+                "stop sign",
+                "parking meter",
+                "bench",
+                "bird",
+                "cat",
+                "dog",
+                "horse",
+                "sheep",
+                "cow",
+                "elephant",
+                "bear",
+                "zebra",
+                "giraffe",
+            ]
+            + [
+                "backpack",
+                "umbrella",
+                "handbag",
+                "tie",
+                "suitcase",
+                "frisbee",
+                "skis",
+                "snowboard",
+                "sports ball",
+                "kite",
+                "baseball bat",
+                "baseball glove",
+                "skateboard",
+                "surfboard",
+                "tennis racket",
+            ]
+            + [
+                "bottle",
+                "wine glass",
+                "cup",
+                "fork",
+                "knife",
+                "spoon",
+                "bowl",
+                "banana",
+                "apple",
+                "sandwich",
+                "orange",
+                "broccoli",
+                "carrot",
+                "hot dog",
+                "pizza",
+                "donut",
+                "cake",
+            ]
+            + [
+                "chair",
+                "couch",
+                "potted plant",
+                "bed",
+                "dining table",
+                "toilet",
+                "tv",
+                "laptop",
+                "mouse",
+                "remote",
+                "keyboard",
+                "cell phone",
+                "microwave",
+                "oven",
+                "toaster",
+                "sink",
+                "refrigerator",
+                "book",
+                "clock",
+                "vase",
+                "scissors",
+                "teddy bear",
+                "hair drier",
+                "toothbrush",
+            ]
+        )
+        metadata.stuff_classes = (
+            [
+                "banner",
+                "blanket",
+                "bridge",
+                "cardboard",
+                "counter",
+                "curtain",
+                "door-stuff",
+                "floor-wood",
+                "flower",
+                "fruit",
+                "gravel",
+                "house",
+                "light",
+                "mirror-stuff",
+                "net",
+                "pillow",
+                "platform",
+            ]
+            + [
+                "playingfield",
+                "railroad",
+                "river",
+                "road",
+                "roof",
+                "sand",
+                "sea",
+                "shelf",
+                "snow",
+                "stairs",
+                "tent",
+                "towel",
+                "wall-brick",
+                "wall-stone",
+                "wall-tile",
+                "wall-wood",
+                "water-other",
+                "window-blind",
+                "window-other",
+            ]
+            + [
+                "tree-merged",
+                "fence",
+                "ceiling",
+                "sky-other",
+                "cabinet",
+                "table",
+                "floor-other",
+                "pavement",
+                "mountain",
+                "grass",
+                "dirt",
+                "paper",
+                "food-other",
+                "building-other",
+                "rock",
+                "wall-other",
+                "rug",
+            ]
+        )
 
-        cfg.freeze()
         return cfg
 
-    def _configure_model_architecture(
-        self, cfg: "CfgNode", config: PanopticDeepLabConfig
-    ):
-        """Configure the model architecture based on variant config.
-
-        Args:
-            cfg: Detectron2 config node
-            config: PanopticDeepLabConfig for the current variant
-        """
-        # Set meta architecture
-        cfg.MODEL.META_ARCHITECTURE = "PanopticDeepLab"
-
-        # Configure backbone
-        cfg.MODEL.BACKBONE.NAME = "build_resnet_deeplab_backbone"
-        if config.backbone == "resnet50":
-            cfg.MODEL.RESNETS.DEPTH = 50
-        elif config.backbone == "resnet101":
-            cfg.MODEL.RESNETS.DEPTH = 101
-        else:
-            cfg.MODEL.RESNETS.DEPTH = 50  # Default
-
-        # Configure ResNet properties (following panoptic-deeplab configs)
-        cfg.MODEL.RESNETS.OUT_FEATURES = ["res2", "res3", "res5"]
-        cfg.MODEL.RESNETS.RES5_DILATION = 2
-        cfg.MODEL.RESNETS.NORM = "SyncBN"
-        cfg.MODEL.RESNETS.STEM_TYPE = "deeplab"
-        cfg.MODEL.RESNETS.STEM_OUT_CHANNELS = 128
-        cfg.MODEL.RESNETS.STRIDE_IN_1X1 = False
-
-        # Configure semantic segmentation head
-        cfg.MODEL.SEM_SEG_HEAD.NAME = "PanopticDeepLabSemSegHead"
-        cfg.MODEL.SEM_SEG_HEAD.IN_FEATURES = ["res2", "res3", "res5"]
-        cfg.MODEL.SEM_SEG_HEAD.PROJECT_FEATURES = ["res2", "res3"]
-        cfg.MODEL.SEM_SEG_HEAD.PROJECT_CHANNELS = [32, 64]
-        cfg.MODEL.SEM_SEG_HEAD.ASPP_CHANNELS = 256
-        cfg.MODEL.SEM_SEG_HEAD.ASPP_DILATIONS = [6, 12, 18]
-        cfg.MODEL.SEM_SEG_HEAD.ASPP_DROPOUT = 0.1
-        cfg.MODEL.SEM_SEG_HEAD.HEAD_CHANNELS = 256
-        cfg.MODEL.SEM_SEG_HEAD.CONVS_DIM = 256
-        cfg.MODEL.SEM_SEG_HEAD.COMMON_STRIDE = 4
-        cfg.MODEL.SEM_SEG_HEAD.NUM_CLASSES = config.num_classes
-        cfg.MODEL.SEM_SEG_HEAD.LOSS_TYPE = "hard_pixel_mining"
-        cfg.MODEL.SEM_SEG_HEAD.NORM = "SyncBN"
-        cfg.MODEL.SEM_SEG_HEAD.USE_DEPTHWISE_SEPARABLE_CONV = (
-            config.use_depthwise_separable_conv
-        )
-
-        # Configure instance embedding head
-        cfg.MODEL.INS_EMBED_HEAD.NAME = "PanopticDeepLabInsEmbedHead"
-        cfg.MODEL.INS_EMBED_HEAD.IN_FEATURES = ["res2", "res3", "res5"]
-        cfg.MODEL.INS_EMBED_HEAD.PROJECT_FEATURES = ["res2", "res3"]
-        cfg.MODEL.INS_EMBED_HEAD.PROJECT_CHANNELS = [32, 64]
-        cfg.MODEL.INS_EMBED_HEAD.ASPP_CHANNELS = 256
-        cfg.MODEL.INS_EMBED_HEAD.ASPP_DILATIONS = [6, 12, 18]
-        cfg.MODEL.INS_EMBED_HEAD.ASPP_DROPOUT = 0.1
-        cfg.MODEL.INS_EMBED_HEAD.HEAD_CHANNELS = 32
-        cfg.MODEL.INS_EMBED_HEAD.CONVS_DIM = 128
-        cfg.MODEL.INS_EMBED_HEAD.COMMON_STRIDE = 4
-        cfg.MODEL.INS_EMBED_HEAD.NORM = "SyncBN"
-        cfg.MODEL.INS_EMBED_HEAD.CENTER_LOSS_WEIGHT = 200.0
-        cfg.MODEL.INS_EMBED_HEAD.OFFSET_LOSS_WEIGHT = 0.01
-
-        # Configure Panoptic-DeepLab post-processing
-        cfg.MODEL.PANOPTIC_DEEPLAB.STUFF_AREA = (
-            2048 if "cityscapes" in config.pretrained_model_name.lower() else 4096
-        )
-        cfg.MODEL.PANOPTIC_DEEPLAB.CENTER_THRESHOLD = 0.1
-        cfg.MODEL.PANOPTIC_DEEPLAB.NMS_KERNEL = (
-            7 if "cityscapes" in config.pretrained_model_name.lower() else 41
-        )
-        cfg.MODEL.PANOPTIC_DEEPLAB.TOP_K_INSTANCE = 200
-        cfg.MODEL.PANOPTIC_DEEPLAB.PREDICT_INSTANCES = True
-        cfg.MODEL.PANOPTIC_DEEPLAB.USE_DEPTHWISE_SEPARABLE_CONV = (
-            config.use_depthwise_separable_conv
-        )
-        cfg.MODEL.PANOPTIC_DEEPLAB.SIZE_DIVISIBILITY = config.image_size[0]
-        cfg.MODEL.PANOPTIC_DEEPLAB.BENCHMARK_NETWORK_SPEED = False
-
-        # Set input format and size
-        cfg.INPUT.FORMAT = "RGB"
-        cfg.INPUT.MIN_SIZE_TEST = config.image_size[0]
-        cfg.INPUT.MAX_SIZE_TEST = config.image_size[1]
-
-        # Configure pixel mean and std (COCO defaults)
-        cfg.MODEL.PIXEL_MEAN = [123.675, 116.280, 103.530]
-        cfg.MODEL.PIXEL_STD = [58.395, 57.120, 57.375]
-
-        # Dataset configuration
-        if "coco" in config.pretrained_model_name.lower():
-            cfg.DATASETS.TRAIN = ("coco_2017_train_panoptic",)
-            cfg.DATASETS.TEST = ("coco_2017_val_panoptic",)
-        else:  # cityscapes
-            cfg.DATASETS.TRAIN = ("cityscapes_fine_panoptic_train",)
-            cfg.DATASETS.TEST = ("cityscapes_fine_panoptic_val",)
-
     def load_model(self, **kwargs) -> torch.nn.Module:
-        """Load and return the Panoptic-DeepLab model instance.
+        """Load and return the Panoptic FPN model instance.
 
         Args:
             **kwargs: Additional model-specific arguments.
@@ -275,7 +309,7 @@ class ModelLoader(ForgeModel):
                      - force_cpu: Force CPU usage even if CUDA is available
 
         Returns:
-            torch.nn.Module: The Panoptic-DeepLab model instance
+            torch.nn.Module: The Panoptic FPN model instance
         """
         dtype_override = kwargs.get("dtype_override", torch.float32)
         device = kwargs.get("device", "cpu")
@@ -289,16 +323,22 @@ class ModelLoader(ForgeModel):
         # Setup configuration
         cfg = self._setup_cfg(device=device, dtype_override=dtype_override)
 
-        # Create predictor (following CPU inference script)
+        # Create predictor using the model.py implementation
         try:
-            from detectron2.engine import DefaultPredictor
+            # Import the model.py implementation
+            import sys
+            import os
 
-            self.predictor = DefaultPredictor(cfg)
+            model_path = os.path.join(os.path.dirname(__file__), "model.py")
+            spec = importlib.util.spec_from_file_location("panoptic_model", model_path)
+            panoptic_model = importlib.util.module_from_spec(spec)
+            sys.modules["panoptic_model"] = panoptic_model
+            spec.loader.exec_module(panoptic_model)
+
+            self.predictor = panoptic_model.DefaultPredictor(cfg)
             model = self.predictor.model
         except Exception as e:
-            raise RuntimeError(
-                f"Failed to create Panoptic-DeepLab model: {str(e)}"
-            ) from e
+            raise RuntimeError(f"Failed to create Panoptic FPN model: {str(e)}") from e
 
         # Apply dtype override if specified and different from float32
         if dtype_override != torch.float32:
@@ -307,8 +347,8 @@ class ModelLoader(ForgeModel):
         model.eval()
         return model
 
-    def load_inputs(self, **kwargs) -> List[Dict[str, torch.Tensor]]:
-        """Load and return sample inputs for the model in detectron2 format.
+    def load_inputs(self, **kwargs) -> List[torch.Tensor]:
+        """Load and return sample inputs for the model as tensors (C, H, W format).
 
         Args:
             **kwargs: Additional input-specific arguments.
@@ -317,7 +357,7 @@ class ModelLoader(ForgeModel):
                      - image_size: Override image size (default: from config)
 
         Returns:
-            List[Dict[str, torch.Tensor]]: Sample inputs in detectron2 format
+            List[torch.Tensor]: Sample inputs as tensors (C, H, W format)
         """
         config = self._variant_config
         dtype_override = kwargs.get("dtype_override", torch.float32)
@@ -326,24 +366,19 @@ class ModelLoader(ForgeModel):
 
         inputs = []
         for i in range(batch_size):
-            # Create random image tensor (C, H, W) - detectron2 format
-            image = torch.randn(3, image_size[0], image_size[1], dtype=dtype_override)
-
-            # Detectron2 expects a list of dicts, each with image, height, width
-            input_dict = {
-                "image": image,
-                "height": image_size[0],
-                "width": image_size[1],
-            }
-            inputs.append(input_dict)
+            # Create random tensor in (C, H, W) format expected by the model
+            tensor_input = torch.randn(
+                3, image_size[0], image_size[1], dtype=dtype_override
+            )
+            inputs.append(tensor_input)
 
         return inputs
 
-    def predict(self, inputs: List[Dict[str, torch.Tensor]]) -> List[Dict[str, Any]]:
-        """Run inference using the predictor (following CPU inference script pattern).
+    def predict(self, inputs: List[torch.Tensor]) -> List[Dict[str, Any]]:
+        """Run inference using tensors directly (bypassing image preprocessing).
 
         Args:
-            inputs: List of input dictionaries in detectron2 format
+            inputs: List of input tensors in (C, H, W) format
 
         Returns:
             List of prediction dictionaries
@@ -352,27 +387,41 @@ class ModelLoader(ForgeModel):
             raise RuntimeError("Model not loaded. Call load_model() first.")
 
         results = []
-        for input_dict in inputs:
-            # Convert to numpy array format expected by DefaultPredictor
-            image = input_dict["image"]
-            if isinstance(image, torch.Tensor):
-                # Convert from (C, H, W) to (H, W, C) and to numpy
-                image_np = image.permute(1, 2, 0).cpu().numpy()
-                # Convert to BGR format (expected by DefaultPredictor)
-                if image_np.shape[2] == 3:  # RGB
-                    image_np = image_np[:, :, ::-1]  # RGB to BGR
-
-                # Run inference
-                predictions = self.predictor(image_np)
+        for tensor_input in inputs:
+            if isinstance(tensor_input, torch.Tensor):
+                # Run inference directly on the model with tensor input
+                predictions = self._predict_tensor(tensor_input)
                 results.append(predictions)
             else:
-                raise ValueError("Input image must be a torch.Tensor")
+                raise ValueError("Input must be a torch.Tensor")
 
         return results
 
+    def _predict_tensor(self, tensor_input: torch.Tensor) -> Dict[str, Any]:
+        """Run inference on a single tensor input.
+
+        Args:
+            tensor_input: Input tensor in (C, H, W) format
+
+        Returns:
+            Prediction dictionary
+        """
+        with torch.no_grad():
+            # Ensure tensor is on the correct device
+            tensor_input = tensor_input.to(self.predictor.cfg.MODEL.DEVICE)
+
+            # Create input dict in the format expected by detectron2 models
+            height, width = tensor_input.shape[1], tensor_input.shape[2]
+            inputs = {"image": tensor_input, "height": height, "width": width}
+
+            # Run inference directly on the model
+            predictions = self.predictor.model([inputs])[0]
+
+            return predictions
+
     @classmethod
     def decode_output(cls, outputs: List[Dict[str, Any]], **kwargs) -> Dict[str, Any]:
-        """Decode model outputs into human-readable format.
+        """Decode Panoptic FPN model outputs into human-readable format.
 
         Args:
             outputs: List of model output dictionaries from predict()
@@ -411,12 +460,18 @@ class ModelLoader(ForgeModel):
                     elif key == "sem_seg" and hasattr(value, "shape"):
                         decoded_pred["sem_seg_shape"] = tuple(value.shape)
                         decoded_pred["num_semantic_classes"] = (
-                            len(torch.unique(value))
+                            int(torch.unique(value).numel())
                             if isinstance(value, torch.Tensor)
                             else None
                         )
                     elif key == "instances" and hasattr(value, "__len__"):
                         decoded_pred["num_instances"] = len(value)
+                        if hasattr(value, "pred_classes"):
+                            decoded_pred[
+                                "instance_classes"
+                            ] = value.pred_classes.tolist()
+                        if hasattr(value, "pred_boxes"):
+                            decoded_pred["num_boxes"] = len(value.pred_boxes)
                     else:
                         decoded_pred[key] = (
                             str(type(value))
@@ -432,7 +487,7 @@ class ModelLoader(ForgeModel):
         """Post-process model outputs and print results."""
         decoded = self.decode_output(outputs)
 
-        print("Panoptic-DeepLab Inference Results:")
+        print("Panoptic FPN Inference Results:")
         print(f"  Number of predictions: {decoded['num_predictions']}")
 
         for pred in decoded["predictions"]:
