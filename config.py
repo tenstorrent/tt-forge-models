@@ -56,6 +56,7 @@ class ModelTask(StrEnum):
     CV_KEYPOINT_DET = "cv_keypoint_det"
     CV_KNOW_DISTILL = "cv_know_distill"
     CV_PANOPTIC_SEG = "cv_panoptic_seg"
+    REALTIME_MAP_CONSTRUCTION = "realtime_map_construction"
     MM_IMAGE_CAPT = "mm_image_capt"
     MM_DOC_QA = "mm_doc_qa"
     MM_VISUAL_QA = "mm_visual_qa"
@@ -64,6 +65,9 @@ class ModelTask(StrEnum):
     MM_VIDEO_TTT = "mm_video_ttt"
     MM_MASKED_LM = "mm_masked_lm"
     MM_CAUSAL_LM = "mm_causal_lm"
+    MM_ACTION_PREDICTION = "mm_action_prediction"
+    MM_CONDITIONAL_GENERATION = "mm_conditional_generation"
+    MM_DOC_OCR = "mm_doc_ocr"
     CONDITIONAL_GENERATION = "conditional_generation"
     ATOMIC_ML = "atomic_ml"
 

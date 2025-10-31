@@ -19,7 +19,7 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
-from ....tools.utils import pad_inputs
+from ....tools.utils import pad_inputs, cast_input_to_type
 
 
 class ModelVariant(StrEnum):
@@ -34,6 +34,8 @@ class ModelVariant(StrEnum):
     LLAMA_3_1_8B_INSTRUCT = "llama_3_1_8b_instruct"
     LLAMA_3_1_70B = "llama_3_1_70b"
     LLAMA_3_1_70B_INSTRUCT = "llama_3_1_70b_instruct"
+    LLAMA_3_1_405B = "llama_3_1_405b"
+    LLAMA_3_1_405B_INSTRUCT = "llama_3_1_405b_instruct"
 
     # Llama 3.2 variants
     LLAMA_3_2_1B = "llama_3_2_1b"
@@ -46,6 +48,9 @@ class ModelVariant(StrEnum):
 
     # HuggingFace community variants
     HUGGYLLAMA_7B = "huggyllama_7b"
+
+    # TinyLlama variants
+    TINYLLAMA_V1_1 = "TinyLlama_v1.1"
 
 
 class ModelLoader(ForgeModel):
@@ -79,6 +84,14 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="meta-llama/Meta-Llama-3.1-70B-Instruct",
             max_length=128,
         ),
+        ModelVariant.LLAMA_3_1_405B: LLMModelConfig(
+            pretrained_model_name="meta-llama/Meta-Llama-3.1-405B",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_1_405B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="meta-llama/Meta-Llama-3.1-405B-Instruct",
+            max_length=128,
+        ),
         # Llama 3.2 variants
         ModelVariant.LLAMA_3_2_1B: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.2-1B",
@@ -104,6 +117,11 @@ class ModelLoader(ForgeModel):
         # HuggingFace community variants
         ModelVariant.HUGGYLLAMA_7B: LLMModelConfig(
             pretrained_model_name="huggyllama/llama-7b",
+            max_length=128,
+        ),
+        # TinyLlama variants
+        ModelVariant.TINYLLAMA_V1_1: LLMModelConfig(
+            pretrained_model_name="TinyLlama/TinyLlama_v1.1",
             max_length=128,
         ),
     }
@@ -139,8 +157,21 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        # Set group based on variant (instruct variants are RED priority)
-        if "instruct" in variant.value or "70b" in variant.value:
+        # Set group based on variant (instruct variants are RED priority except llama_3_8b_instruct and llama_3_1_405b_instruct variant)
+        if (
+            (
+                "instruct" in variant.value
+                and (
+                    variant
+                    not in [
+                        ModelVariant.LLAMA_3_8B_INSTRUCT,
+                        ModelVariant.LLAMA_3_1_405B_INSTRUCT,
+                    ]
+                )
+            )
+            or "70b" in variant.value
+            or variant == ModelVariant.LLAMA_3_1_405B
+        ):
             group = ModelGroup.RED
         else:
             group = ModelGroup.GENERALITY
@@ -209,6 +240,7 @@ class ModelLoader(ForgeModel):
 
         model.eval()
         self.model = model
+        self.config = model.config
 
         return model
 
@@ -223,10 +255,6 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors suitable for causal LM.
         """
-
-        # Get max_length from the variant config
-        max_length = self._variant_config.max_length
-
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -235,9 +263,6 @@ class ModelLoader(ForgeModel):
         inputs = self.tokenizer(
             self.sample_text,
             return_tensors="pt",
-            max_length=max_length,
-            padding="max_length",
-            truncation=True,
         )
 
         # Replicate tensors for batch size
@@ -246,17 +271,13 @@ class ModelLoader(ForgeModel):
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
-            # Only cast when the override dtype category matches the tensor's category
-            override_is_float = dtype_override.is_floating_point
             for key in inputs:
-                if override_is_float and inputs[key].is_floating_point():
-                    inputs[key] = inputs[key].to(dtype_override)
-                elif (not override_is_float) and (not inputs[key].is_floating_point()):
-                    inputs[key] = inputs[key].to(dtype_override)
+                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
 
         # Pad input_ids and attention_mask
-        padded_input_ids, seq_len = pad_inputs(inputs["input_ids"], 512)
-        padded_attention_mask, _ = pad_inputs(inputs["attention_mask"], 512)
+        target_len = self._variant_config.max_length
+        padded_input_ids, seq_len = pad_inputs(inputs["input_ids"], target_len)
+        padded_attention_mask, _ = pad_inputs(inputs["attention_mask"], target_len)
         self.seq_len = seq_len
 
         inputs["input_ids"] = padded_input_ids
@@ -294,3 +315,30 @@ class ModelLoader(ForgeModel):
         valid_tokens = inputs[0][:, self.seq_len : current_pos].view(-1).tolist()
         answer = tokenizer.decode(valid_tokens, skip_special_tokens=True)
         return answer
+
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        if self._variant in [
+            ModelVariant.LLAMA_3_2_1B,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT,
+            ModelVariant.LLAMA_3_2_3B,
+            ModelVariant.LLAMA_3_2_3B_INSTRUCT,
+            ModelVariant.HUGGYLLAMA_7B,
+        ]:
+            return None
+
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        return shard_specs

@@ -18,6 +18,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
+from ....tools.utils import cast_input_to_type
 
 
 class ModelVariant(StrEnum):
@@ -132,6 +133,11 @@ class ModelLoader(ForgeModel):
         model = GPTNeoForSequenceClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # Set the pad_token_id in the model config to match the tokenizer
+        if model.config.pad_token_id is None:
+            model.config.pad_token_id = self.tokenizer.pad_token_id
+
         model.eval()
         self.model = model
 
@@ -156,7 +162,7 @@ class ModelLoader(ForgeModel):
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
             for key in inputs:
-                inputs[key] = inputs[key].to(dtype_override)
+                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
 
         return inputs
 

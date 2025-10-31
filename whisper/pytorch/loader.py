@@ -86,7 +86,11 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="whisper",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=(
+                ModelGroup.RED
+                if variant == ModelVariant.WHISPER_LARGE_V3
+                else ModelGroup.GENERALITY
+            ),
             task=ModelTask.AUDIO_ASR,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -120,19 +124,14 @@ class ModelLoader(ForgeModel):
             self.feature_extractor = AutoFeatureExtractor.from_pretrained(
                 pretrained_model_name
             )
-            model = WhisperModel.from_pretrained(
-                pretrained_model_name, return_dict=False, **model_kwargs
-            )
+            model = WhisperModel.from_pretrained(pretrained_model_name, **model_kwargs)
         else:
             processor_kwargs = {}
             if dtype_override is not None:
                 processor_kwargs["torch_dtype"] = dtype_override
 
             self.processor = WhisperProcessor.from_pretrained(
-                pretrained_model_name,
-                use_cache=False,
-                return_dict=False,
-                **processor_kwargs
+                pretrained_model_name, use_cache=False, **processor_kwargs
             )
             model = WhisperForConditionalGeneration.from_pretrained(
                 pretrained_model_name, use_cache=False, **model_kwargs
@@ -141,7 +140,7 @@ class ModelLoader(ForgeModel):
         model.eval()
         return model
 
-    def load_inputs(self):
+    def load_inputs(self, dtype_override=None):
         """Generate sample inputs for Whisper model."""
 
         if self._variant == ModelVariant.WHISPER_LARGE_V3:
@@ -157,6 +156,10 @@ class ModelLoader(ForgeModel):
             )
             input_features = input_audio.input_features
 
+            # Convert to the specified dtype if provided
+            if dtype_override is not None:
+                input_features = input_features.to(dtype_override)
+
             return input_features
         else:
 
@@ -170,4 +173,20 @@ class ModelLoader(ForgeModel):
             inputs = self.processor(sample_audio, return_tensors="pt")
             input_features = inputs.input_features
 
-            return input_features
+            # Convert to the specified dtype if provided
+            if dtype_override is not None:
+                input_features = input_features.to(dtype_override)
+
+            # Create decoder_input_ids starting with the decoder start token
+            # For WhisperForConditionalGeneration, we need to provide decoder_input_ids
+            decoder_start_token_id = self.processor.tokenizer.convert_tokens_to_ids(
+                "<|startoftranscript|>"
+            )
+            decoder_input_ids = torch.tensor(
+                [[decoder_start_token_id]], dtype=torch.long
+            )
+
+            return {
+                "input_features": input_features,
+                "decoder_input_ids": decoder_input_ids,
+            }

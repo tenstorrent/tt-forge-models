@@ -19,6 +19,7 @@ from ...config import (
 )
 from ...base import ForgeModel
 from .src.model_utils import pad_inputs
+from ...tools.utils import cast_input_to_type
 
 
 class ModelVariant(StrEnum):
@@ -135,6 +136,7 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
         self.model = model
+        self.config = model.config
         return model
 
     def load_inputs(
@@ -163,15 +165,43 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
         if dtype_override is not None:
-            override_is_float = dtype_override.is_floating_point
             for key in inputs:
-                if override_is_float and inputs[key].is_floating_point():
-                    inputs[key] = inputs[key].to(dtype_override)
-                elif (not override_is_float) and (not inputs[key].is_floating_point()):
-                    inputs[key] = inputs[key].to(dtype_override)
+                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
         padded_input_ids, seq_len = pad_inputs(inputs["input_ids"], max_new_tokens)
         padded_attention_mask, _ = pad_inputs(inputs["attention_mask"], max_new_tokens)
         self.seq_len = seq_len
         inputs["input_ids"] = padded_input_ids
         inputs["attention_mask"] = padded_attention_mask
         return inputs
+
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        if self._variant not in [
+            ModelVariant.GEMMA_1_1_2B_IT,
+            ModelVariant.GEMMA_2B,
+            ModelVariant.GEMMA_2_2B_IT,
+        ]:
+            assert (
+                self.config.num_attention_heads % mesh_shape[1] == 0
+            ), "Attention heads must be divisible by the model axis size"
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        if self._variant in [
+            ModelVariant.GEMMA_1_1_2B_IT,
+            ModelVariant.GEMMA_2B,
+            ModelVariant.GEMMA_2_2B_IT,
+        ]:
+            return None
+
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        return shard_specs

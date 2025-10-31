@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Optional, Union, Type, Any
 
 from .config import ModelConfig, ModelInfo, StrEnum
+from .training_utils import unpack_forward_output
 import torch
 
 
@@ -159,6 +160,19 @@ class ForgeModel(ABC):
         """
         pass
 
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        """Unpack forward pass output for further analysis.
+
+        Currently this method is only called in training mode, after the forward pass and before the backward pass.
+
+        Args:
+            fwd_output: Output from the forward pass
+
+        Returns:
+            torch.Tensor: Tensor that can be fed to the backward pass
+        """
+        return unpack_forward_output(fwd_output)
+
     @classmethod
     def decode_output(cls, **kwargs):
         """Decode model outputs into a human-readable format if applicable.
@@ -174,3 +188,25 @@ class ForgeModel(ABC):
         """
         # Default implementation just returns outputs if present in kwargs
         return kwargs.get("outputs", None)
+
+    def get_mesh_config(self, num_devices: int):
+        """Get the mesh shape for the model.
+
+        Args:
+            num_devices: Number of devices to distribute the model across
+
+        Returns:
+            tuple: Mesh shape tuple, mesh names tuple, or None if not applicable for this model
+        """
+        return None, ()
+
+    def load_shard_spec(self, model):
+        """Load the shard spec of the model. Note: model needs to be on device first.
+
+        Args:
+            model: The model instance (should be on device)
+
+        Returns:
+            Dict[Tensor, Tuple(str, str)]: Shard specification object, or None if not applicable for this model
+        """
+        return None
