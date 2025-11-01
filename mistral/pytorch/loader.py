@@ -28,6 +28,10 @@ class ModelVariant(StrEnum):
     MINISTRAL_3B = "ministral_3b_instruct"
     MINISTRAL_8B = "ministral_8b_instruct"
     MISTRAL_SMALL_24B_INSTRUCT_2501 = "mistral_small_24b_instruct_2501"
+    MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3_1_24b_instruct_2503"
+    MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3_2_24b_instruct_2506"
+    MISTRAL_LARGE_INSTRUCT_2411 = "mistral_large_instruct_2411"
+    MISTRAL_NEMO_INSTRUCT_2407 = "mistral_nemo_instruct_2407"
 
 
 class ModelLoader(ForgeModel):
@@ -49,6 +53,18 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MISTRAL_SMALL_24B_INSTRUCT_2501: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-24B-Instruct-2501",
+        ),
+        ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_2503: ModelConfig(
+            pretrained_model_name="mistralai/Mistral-Small-3.1-24B-Instruct-2503",
+        ),
+        ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506: ModelConfig(
+            pretrained_model_name="mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+        ),
+        ModelVariant.MISTRAL_LARGE_INSTRUCT_2411: ModelConfig(
+            pretrained_model_name="mistralai/Mistral-Large-Instruct-2411",
+        ),
+        ModelVariant.MISTRAL_NEMO_INSTRUCT_2407: ModelConfig(
+            pretrained_model_name="mistralai/Mistral-Nemo-Instruct-2407",
         ),
     }
 
@@ -81,6 +97,10 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_INSTRUCT_V03,
             ModelVariant.MINISTRAL_8B,
             ModelVariant.MISTRAL_SMALL_24B_INSTRUCT_2501,
+            ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_2503,
+            ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506,
+            ModelVariant.MISTRAL_LARGE_INSTRUCT_2411,
+            ModelVariant.MISTRAL_NEMO_INSTRUCT_2407,
         ]:
             group = ModelGroup.RED
         else:
