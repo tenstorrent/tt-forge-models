@@ -82,6 +82,8 @@ class ModelLoader(ForgeModel):
 
         if variant is None:
             variant = cls.DEFAULT_VARIANT
+        if variant in [ModelVariant.YOLOv12N]:
+            group = ModelGroup.RED
         return ModelInfo(
             model="yolo12",
             variant=variant,
