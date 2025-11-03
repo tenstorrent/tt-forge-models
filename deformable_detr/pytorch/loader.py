@@ -28,7 +28,9 @@ class ModelVariant(StrEnum):
     DEFORMABLE_DETR = "deformable-detr"
     DEFORMABLE_DETR_SINGLE_SCALE = "deformable-detr-single-scale"
     DEFORMABLE_DETR_WITH_BOX_REFINE = "deformable-detr-with-box-refine"
-    DEFORMABLE_DETR_WITH_BOX_REFINE_TWO_STAGE = "deformable-detr-with-box-refine-two-stage"
+    DEFORMABLE_DETR_WITH_BOX_REFINE_TWO_STAGE = (
+        "deformable-detr-with-box-refine-two-stage"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -74,10 +76,18 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
+
+        if variant == ModelVariant.DEFORMABLE_DETR:
+            group = ModelGroup.RED
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
             model="deformable_detr",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_OBJECT_DET,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
