@@ -201,9 +201,7 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
         mesh_shape = (1, num_devices)
-        if self._variant not in [
-            ModelVariant.MINISTRAL_3B,
-        ]:
+        if self._variant not in [ModelVariant.MINISTRAL_3B, ModelVariant.MINISTRAL_8B]:
             assert (
                 self.config.num_attention_heads % mesh_shape[1] == 0
             ), "Attention heads must be divisible by the model axis size"
