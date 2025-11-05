@@ -18,6 +18,7 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
+from ....tools.utils import cast_input_to_type
 
 
 class ModelVariant(StrEnum):
@@ -59,13 +60,16 @@ class ModelLoader(ForgeModel):
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self._variant_config.pretrained_model_name, trust_remote_code=True
             )
+            # Set pad token if not already set (PHI models often need this)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
 
     def load_model(self, dtype_override=None):
         self._ensure_tokenizer()
         cfg = Phi3Config.from_pretrained(self._variant_config.pretrained_model_name)
         cfg_dict = cfg.to_dict()
         cfg_dict["use_cache"] = False
-        cfg_dict["pad_token_id"] = None
+        cfg_dict["pad_token_id"] = self.tokenizer.pad_token_id  # Set to match tokenizer
         cfg = Phi3Config(**cfg_dict)
 
         model = Phi3ForSequenceClassification.from_pretrained(
@@ -83,5 +87,5 @@ class ModelLoader(ForgeModel):
         inputs = self.tokenizer(input_prompt, return_tensors="pt")
         input_ids = inputs["input_ids"]
         if dtype_override is not None:
-            input_ids = input_ids.to(dtype_override)
+            input_ids = cast_input_to_type(input_ids, dtype_override)
         return [input_ids]

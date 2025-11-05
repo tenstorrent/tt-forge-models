@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
             task=ModelTask.CV_PANOPTIC_SEG,
             source=ModelSource.DETECTRON2,
-            group=ModelGroup.GENERALITY,
+            group=ModelGroup.RED,
         )
 
     def _setup_cfg(

@@ -27,6 +27,9 @@ class ModelVariant(StrEnum):
     MISTRAL_7B_INSTRUCT_V03 = "7b_instruct_v03"
     MINISTRAL_3B = "ministral_3b_instruct"
     MINISTRAL_8B = "ministral_8b_instruct"
+    MISTRAL_SMALL_24B_INSTRUCT_2501 = "mistral_small_24b_instruct_2501"
+    MISTRAL_LARGE_INSTRUCT_2411 = "mistral_large_instruct_2411"
+    MISTRAL_NEMO_INSTRUCT_2407 = "mistral_nemo_instruct_2407"
 
 
 class ModelLoader(ForgeModel):
@@ -45,6 +48,15 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MINISTRAL_8B: ModelConfig(
             pretrained_model_name="mistralai/Ministral-8B-Instruct-2410",
+        ),
+        ModelVariant.MISTRAL_SMALL_24B_INSTRUCT_2501: ModelConfig(
+            pretrained_model_name="mistralai/Mistral-Small-24B-Instruct-2501",
+        ),
+        ModelVariant.MISTRAL_LARGE_INSTRUCT_2411: ModelConfig(
+            pretrained_model_name="mistralai/Mistral-Large-Instruct-2411",
+        ),
+        ModelVariant.MISTRAL_NEMO_INSTRUCT_2407: ModelConfig(
+            pretrained_model_name="mistralai/Mistral-Nemo-Instruct-2407",
         ),
     }
 
@@ -73,7 +85,13 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
 
-        if variant in [ModelVariant.MISTRAL_7B_INSTRUCT_V03, ModelVariant.MINISTRAL_8B]:
+        if variant in [
+            ModelVariant.MISTRAL_7B_INSTRUCT_V03,
+            ModelVariant.MINISTRAL_8B,
+            ModelVariant.MISTRAL_SMALL_24B_INSTRUCT_2501,
+            ModelVariant.MISTRAL_LARGE_INSTRUCT_2411,
+            ModelVariant.MISTRAL_NEMO_INSTRUCT_2407,
+        ]:
             group = ModelGroup.RED
         else:
             group = ModelGroup.GENERALITY
@@ -128,8 +146,12 @@ class ModelLoader(ForgeModel):
         # Load pre-trained model from HuggingFace
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
-        )
+        ).eval()
 
+        self.config = model.config
+
+        self.config = model.config
+        self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -176,3 +198,31 @@ class ModelLoader(ForgeModel):
         next_token_logits = outputs.logits[:, -1]
         next_token = next_token_logits.softmax(dim=-1).argmax()
         return self.tokenizer.decode([next_token])
+
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        if self._variant not in [
+            ModelVariant.MINISTRAL_3B,
+        ]:
+            assert (
+                self.config.num_attention_heads % mesh_shape[1] == 0
+            ), "Attention heads must be divisible by the model axis size"
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        if self._variant in [
+            ModelVariant.MINISTRAL_3B,
+        ]:
+            return None
+
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        return shard_specs
