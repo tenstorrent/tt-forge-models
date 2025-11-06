@@ -2,15 +2,19 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DETR model loader implementation for object detection.
+YOLOS-Small model loader implementation for object detection.
 """
 import torch
-from transformers import DetrForObjectDetection, DetrImageProcessor
+from transformers import (
+    YolosImageProcessor,
+    YolosFeatureExtractor,
+    YolosForObjectDetection,
+)
 from typing import Optional
 from PIL import Image
 
-from ....base import ForgeModel
-from ....config import (
+from ...base import ForgeModel
+from ...config import (
     ModelConfig,
     ModelInfo,
     ModelGroup,
@@ -19,27 +23,35 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....tools.utils import get_file
+from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
-    """Available DETR model variants for object detection."""
+    """Available YOLOS-Small model variants for object detection."""
 
-    RESNET_50 = "resnet_50"
+    SMALL = "small"
+    SMALL_DWR = "small_dwr"
+    SMALL_300 = "small_300"
 
 
 class ModelLoader(ForgeModel):
-    """DETR model loader implementation for object detection tasks."""
+    """YOLOS model loader implementation for object detection tasks."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.RESNET_50: ModelConfig(
-            pretrained_model_name="facebook/detr-resnet-50",
+        ModelVariant.SMALL: ModelConfig(
+            pretrained_model_name="hustvl/yolos-small",
+        ),
+        ModelVariant.SMALL_DWR: ModelConfig(
+            pretrained_model_name="hustvl/yolos-small-dwr",
+        ),
+        ModelVariant.SMALL_300: ModelConfig(
+            pretrained_model_name="hustvl/yolos-small-300",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.RESNET_50
+    DEFAULT_VARIANT = ModelVariant.SMALL
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -62,51 +74,61 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
+
+        if variant == ModelVariant.SMALL:
+            group = ModelGroup.RED
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
-            model="detr_detection",
+            model="yolos",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.CV_OBJECT_DET,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
     def _load_processor(self):
-        """Load processor for the current variant.
+        """Load feature extractor or image processor for the current variant.
 
         Returns:
             The loaded processor instance
         """
-        # Load the processor
-        self.processor = DetrImageProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
+        # Load YolosImageProcessor based on variant
+        if pretrained_model_name == "hustvl/yolos-small-300":
+            self.processor = YolosImageProcessor.from_pretrained(pretrained_model_name)
+        else:
+            self.processor = YolosFeatureExtractor.from_pretrained(
+                pretrained_model_name
+            )
 
         return self.processor
 
     def load_model(self, dtype_override=None):
-        """Load and return the DETR model instance for this instance's variant.
+        """Load and return the YOLOS model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The DETR model instance for object detection.
+            torch.nn.Module: The YOLOS model instance for object detection.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Ensure processor is loaded
-        if self.processor is None:
-            self._load_processor()
+        model_kwargs = {"return_dict": False}
 
         # Load the model with dtype override if specified
-        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model = DetrForObjectDetection.from_pretrained(
+        model = YolosForObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
@@ -114,7 +136,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the DETR model with this instance's variant settings.
+        """Load and return sample inputs for the YOLOS model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -130,14 +152,17 @@ class ModelLoader(ForgeModel):
         # Get the Image
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         image = Image.open(image_file)
+
+        # Process images
         inputs = self.processor(images=image, return_tensors="pt")
 
         # Handle batch size
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-                # Convert the input dtype to dtype_override if specified
-                if dtype_override is not None:
-                    inputs[key] = inputs[key].to(dtype_override)
+
+        # Convert the input dtype to dtype_override if specified
+        if dtype_override is not None:
+            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
         return inputs

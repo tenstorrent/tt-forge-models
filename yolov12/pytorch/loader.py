@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-YOLOv11 model loader implementation
+YOLOv12 model loader implementation
 """
 from typing import Optional
 
@@ -25,39 +25,39 @@ from ...tools.utils import yolo_postprocess
 
 
 class ModelVariant(StrEnum):
-    """Available YOLOv11 model variants."""
+    """Available YOLOv12 model variants."""
 
-    YOLOV11N = "yolo11n"
-    YOLOV11S = "yolo11s"
-    YOLOV11M = "yolo11m"
-    YOLOV11L = "yolo11l"
-    YOLOV11X = "yolo11x"
+    YOLOv12N = "yolo12n"
+    YOLOv12S = "yolo12s"
+    YOLOv12M = "yolo12m"
+    YOLOv12L = "yolo12l"
+    YOLOv12X = "yolo12x"
 
 
 class ModelLoader(ForgeModel):
-    """YOLOv11 model loader implementation."""
+    """YOLOv12 model loader implementation."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.YOLOV11N: ModelConfig(
-            pretrained_model_name="yolo11n",
+        ModelVariant.YOLOv12N: ModelConfig(
+            pretrained_model_name="yolo12n",
         ),
-        ModelVariant.YOLOV11S: ModelConfig(
-            pretrained_model_name="yolo11s",
+        ModelVariant.YOLOv12S: ModelConfig(
+            pretrained_model_name="yolo12s",
         ),
-        ModelVariant.YOLOV11M: ModelConfig(
-            pretrained_model_name="yolo11m",
+        ModelVariant.YOLOv12M: ModelConfig(
+            pretrained_model_name="yolo12m",
         ),
-        ModelVariant.YOLOV11L: ModelConfig(
-            pretrained_model_name="yolo11l",
+        ModelVariant.YOLOv12L: ModelConfig(
+            pretrained_model_name="yolo12l",
         ),
-        ModelVariant.YOLOV11X: ModelConfig(
-            pretrained_model_name="yolo11x",
+        ModelVariant.YOLOv12X: ModelConfig(
+            pretrained_model_name="yolo12x",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.YOLOV11X
+    DEFAULT_VARIANT = ModelVariant.YOLOv12X
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -82,30 +82,26 @@ class ModelLoader(ForgeModel):
 
         if variant is None:
             variant = cls.DEFAULT_VARIANT
-
-        if variant in [ModelVariant.YOLOV11N]:
+        if variant in [ModelVariant.YOLOv12N]:
             group = ModelGroup.RED
-        else:
-            group = ModelGroup.GENERALITY
-
         return ModelInfo(
-            model="yolo11",
+            model="yolo12",
             variant=variant,
-            group=group,
+            group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,
             source=ModelSource.CUSTOM,
             framework=Framework.TORCH,
         )
 
     def load_model(self, dtype_override=None):
-        """Load and return the YOLOv11 model instance with default settings.
+        """Load and return the YOLOv12 model instance with default settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The YOLOv11 model instance.
+            torch.nn.Module: The YOLOv12 model instance.
         """
         # Get the model name from the instance's variant config
         variant = self._variant_config.pretrained_model_name
@@ -121,7 +117,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the YOLOv11 model with default settings.
+        """Load and return sample inputs for the YOLOv12 model with default settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the inputs' default dtype.
@@ -152,10 +148,10 @@ class ModelLoader(ForgeModel):
         return batch_tensor
 
     def post_process(self, co_out):
-        """Post-process YOLOv11 model outputs to extract detection results.
+        """Post-process YOLOv12 model outputs to extract detection results.
 
         Args:
-            co_out: Raw model output tensor from YOLOv11 forward pass.
+            co_out: Raw model output tensor from YOLOv12 forward pass.
 
         Returns:
             Post-processed detection results.

@@ -2,15 +2,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DETR model loader implementation for object detection.
+RT-DETR (Real-Time DETR) model loader implementation for object detection.
 """
 import torch
-from transformers import DetrForObjectDetection, DetrImageProcessor
+from transformers import RTDetrForObjectDetection, RTDetrImageProcessor
 from typing import Optional
 from PIL import Image
 
-from ....base import ForgeModel
-from ....config import (
+from ...base import ForgeModel
+from ...config import (
     ModelConfig,
     ModelInfo,
     ModelGroup,
@@ -19,27 +19,39 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....tools.utils import get_file
+from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
-    """Available DETR model variants for object detection."""
+    """Available RT-DETR model variants for object detection."""
 
-    RESNET_50 = "resnet_50"
+    RTDETR_R18VD = "rtdetr-r18vd"
+    RTDETR_R34VD = "rtdetr-r34vd"
+    RTDETR_R50VD = "rtdetr-r50vd"
+    RTDETR_R101VD = "rtdetr-r101vd"
 
 
 class ModelLoader(ForgeModel):
-    """DETR model loader implementation for object detection tasks."""
+    """RT-DETR model loader implementation for real-time object detection tasks."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.RESNET_50: ModelConfig(
-            pretrained_model_name="facebook/detr-resnet-50",
+        ModelVariant.RTDETR_R18VD: ModelConfig(
+            pretrained_model_name="PekingU/rtdetr_r18vd",
+        ),
+        ModelVariant.RTDETR_R34VD: ModelConfig(
+            pretrained_model_name="PekingU/rtdetr_r34vd",
+        ),
+        ModelVariant.RTDETR_R50VD: ModelConfig(
+            pretrained_model_name="PekingU/rtdetr_r50vd",
+        ),
+        ModelVariant.RTDETR_R101VD: ModelConfig(
+            pretrained_model_name="PekingU/rtdetr_r101vd",
         ),
     }
 
-    # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.RESNET_50
+    # Default variant to use (smallest model for fastest testing)
+    DEFAULT_VARIANT = ModelVariant.RTDETR_R18VD
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -62,10 +74,20 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
+
+        if variant in [
+            ModelVariant.RTDETR_R18VD,
+        ]:
+            group = ModelGroup.RED
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
-            model="detr_detection",
+            model="rt_detr",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.CV_OBJECT_DET,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -78,21 +100,21 @@ class ModelLoader(ForgeModel):
             The loaded processor instance
         """
         # Load the processor
-        self.processor = DetrImageProcessor.from_pretrained(
+        self.processor = RTDetrImageProcessor.from_pretrained(
             self._variant_config.pretrained_model_name
         )
 
         return self.processor
 
     def load_model(self, dtype_override=None):
-        """Load and return the DETR model instance for this instance's variant.
+        """Load and return the RT-DETR model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The DETR model instance for object detection.
+            torch.nn.Module: The RT-DETR model instance for object detection.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -106,7 +128,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model = DetrForObjectDetection.from_pretrained(
+        model = RTDetrForObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
@@ -114,7 +136,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the DETR model with this instance's variant settings.
+        """Load and return sample inputs for the RT-DETR model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
