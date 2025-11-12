@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Whisper PyTorch model implementation for Tenstorrent projects.
+Llama 3.2 Vision PyTorch model loader implementation.
 """
 from .loader import ModelLoader, ModelVariant
+
+__all__ = ["ModelLoader", "ModelVariant"]
