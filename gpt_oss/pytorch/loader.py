@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available gpt-oss model variants."""
 
     GPT_OSS_20B = "gpt_oss_20b"
+    GPT_OSS_120B = "gpt_oss_120b"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GPT_OSS_20B: LLMModelConfig(
             pretrained_model_name="openai/gpt-oss-20b",
+            max_length=256,
+        ),
+        ModelVariant.GPT_OSS_120B: LLMModelConfig(
+            pretrained_model_name="openai/gpt-oss-120b",
             max_length=256,
         ),
     }
