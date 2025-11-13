@@ -50,9 +50,6 @@ class ModelLoader(ForgeModel):
         {"role": "user", "content": "Who are you?"},
     ]
 
-    # Model configuration parameters
-    num_hidden_layers = 1
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
