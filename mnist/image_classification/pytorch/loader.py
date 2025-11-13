@@ -193,7 +193,7 @@ class ModelLoader(ForgeModel):
         test_dataset = datasets.MNIST(
             root="./data", train=False, transform=transform, download=True
         )
-        dataloader = DataLoader(test_dataset, batch_size=1)
+        dataloader = DataLoader(test_dataset, batch_size=2)
         test_input, _ = next(iter(dataloader))
 
         if dtype_override is not None:
