@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
-    def load_model(self, dtype_override=None, num_hidden_layers=None):
+    def load_model(self, dtype_override=None):
         """Load and return the gpt-oss model instance for this instance's variant.
 
         Args:
@@ -106,9 +106,6 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
         config.quantization_config["quant_method"] = "none"
-        if num_hidden_layers is not None:
-            self.num_hidden_layers = num_hidden_layers
-            config.num_hidden_layers = self.num_hidden_layers
         config.use_cache = False
 
         # Prepare model kwargs
