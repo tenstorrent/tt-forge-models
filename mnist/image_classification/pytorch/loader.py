@@ -19,6 +19,8 @@ from third_party.tt_forge_models.config import (
     ModelConfig,
 )
 from third_party.tt_forge_models.base import ForgeModel
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
 
 
 class MNISTCNNDropoutModel(torch.nn.Module):
@@ -187,7 +189,16 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Input tensor that can be fed to the model.
         """
-        # MNIST uses 28x28 grayscale images
-        # Batch size of 4, 1 channel (grayscale), 28x28 image
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        return torch.ones((4, 1, 28, 28), dtype=dtype)
+        transform = transforms.Compose([transforms.ToTensor()])
+        test_dataset = datasets.MNIST(
+            root="./data", train=False, transform=transform, download=True
+        )
+        dataloader = DataLoader(test_dataset, batch_size=1)
+        test_input, _ = next(iter(dataloader))
+
+        if dtype_override is not None:
+            test_input = test_input.to(dtype=dtype_override)
+        else:
+            test_input = test_input.to(dtype=torch.bfloat16)
+
+        return test_input
