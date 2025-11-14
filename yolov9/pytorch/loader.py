@@ -66,10 +66,6 @@ class ModelLoader(ForgeModel):
         """
 
         variant = self.model_variant
-        # weights = load_state_dict_from_url(
-        #     f"https://github.com/ultralytics/assets/releases/download/v8.3.0/{variant}.pt",
-        #     map_location="cpu",
-        # )
         # model = DetectionModel(cfg=weights["model"].yaml)
         model.load_state_dict(weights["model"].float().state_dict())
         model.eval()

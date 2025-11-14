@@ -110,7 +110,7 @@ class ModelLoader(ForgeModel):
         variant = self._variant_config.pretrained_model_name
 
         yolo_wrapper = YOLO(f"{variant}.pt")
-        model = yolo_wrapper.model  # ultralytics.nn.tasks.DetectionModel
+        model = yolo_wrapper.model
         model.eval()
 
         # Only convert dtype if explicitly requested
