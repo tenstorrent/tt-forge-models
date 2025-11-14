@@ -80,6 +80,7 @@ class ModelLoader(ForgeModel):
         """Initialize ModelLoader with specified variant."""
         super().__init__(variant)
         self._transform = transforms.Compose([transforms.ToTensor()])
+        self.image_tensor = None
 
     def load_model(self, dtype_override=None) -> nn.Module:
         """Load Surya OCR wrapper model.
@@ -92,6 +93,8 @@ class ModelLoader(ForgeModel):
             raise ImportError(
                 "Surya package is not available. Please install `surya` to use SuryaOCR loader."
             )
+        if self.image_tensor is None:
+            self.load_inputs()
         if self._variant == ModelVariant.OCR_TEXT:
             model = SuryaOCRWrapper(image_tensor=self.image_tensor)
         elif self._variant == ModelVariant.OCR_DETECTION:
@@ -122,6 +125,7 @@ class ModelLoader(ForgeModel):
         self.images = images
         if dtype_override is not None:
             image_tensor = image_tensor.to(dtype_override)
+        image_tensor = image_tensor.to(torch.float32)
         self.image_tensor = image_tensor
         return image_tensor
 
