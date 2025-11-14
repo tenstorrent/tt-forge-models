@@ -92,15 +92,21 @@ def get_file(path):
 
             except Exception as e:
                 raise RuntimeError(f"Failed to download {path}: {str(e)}")
-        elif "DOCKER_CACHE_ROOT" in os.environ:
-            raise FileNotFoundError(
-                f"File {file_path} is not available, check file path. If path is correct, DOCKER_CACHE_ROOT syncs automatically with S3 bucket every hour so please wait for the next sync."
-            )
         else:
+            # Try to download from IRD_LF_CACHE regardless of DOCKER_CACHE_ROOT
+            # This allows CI to get new files immediately instead of waiting for S3 sync
             if "IRD_LF_CACHE" not in os.environ:
-                raise ValueError(
-                    "IRD_LF_CACHE environment variable is not set. Please set it to the address of the IRD LF cache."
-                )
+                if "DOCKER_CACHE_ROOT" in os.environ:
+                    raise FileNotFoundError(
+                        f"File {file_path} is not available in DOCKER_CACHE_ROOT. "
+                        f"IRD_LF_CACHE is not set, so cannot download directly. "
+                        f"Either: (1) Set IRD_LF_CACHE to download immediately, or "
+                        f"(2) Wait for DOCKER_CACHE_ROOT to sync from S3 (happens every hour)."
+                    )
+                else:
+                    raise ValueError(
+                        "IRD_LF_CACHE environment variable is not set. Please set it to the address of the IRD LF cache."
+                    )
             print(f"Downloading file from path {path} to {cache_dir}/{file_name}")
             exit_code = os.system(
                 f"wget -nH -np -R \"indexg.html*\" -P {cache_dir} {os.environ['IRD_LF_CACHE']}/{path} --connect-timeout=15 --read-timeout=60 --tries=3"
