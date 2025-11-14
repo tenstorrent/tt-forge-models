@@ -8,7 +8,6 @@ from typing import Optional
 
 from datasets import load_dataset
 from torchvision import transforms
-from ultralytics import YOLO
 
 from ...base import ForgeModel
 
