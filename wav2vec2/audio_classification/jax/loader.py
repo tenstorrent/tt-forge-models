@@ -131,6 +131,7 @@ class ModelLoader(ForgeModel):
         Returns:
             inputs: Input tensors that can be fed to the model.
         """
+        from datasets import load_dataset
         # Force datasets to use soundfile backend instead of torchcodec
         datasets.config.AUDIO_BACKEND = "soundfile"
 
