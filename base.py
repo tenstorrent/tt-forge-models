@@ -220,4 +220,4 @@ class ForgeModel(ABC):
         Returns:
             Any: Model configuration object
         """
-        pass
+        return None
