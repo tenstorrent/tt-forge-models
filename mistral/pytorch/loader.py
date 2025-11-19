@@ -272,7 +272,7 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         return shard_specs
-    
+
     def load_config(self):
         """Load and return the configuration for the Mistral model variant.
 
@@ -282,5 +282,5 @@ class ModelLoader(ForgeModel):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
-        
+
         return self.config
