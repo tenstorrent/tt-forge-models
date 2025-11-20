@@ -373,17 +373,22 @@ class ModelLoader(ForgeModel):
         """
         static_args = []
 
-        # Check if the model actually has a 'train' parameter
+        # Check if the model actually has a `train` parameter
         # Only CNN models have it, not the MLP models
         if self._variant in [ModelVariant.CNN_BATCHNORM, ModelVariant.CNN_DROPOUT]:
-            # 'train' must be static because the model does boolean operations on it
+            # `train` must be static because the model does boolean operations on it
             # (e.g., use_running_average=not train) which don't work with traced values
             static_args.append("train")
 
-            # 'mutable' must be static for batch norm models because it contains strings
-            # which cannot be traced by JAX
-            if self._variant == ModelVariant.CNN_BATCHNORM:
-                static_args.append("mutable")
+        # `mutable` must be static for batch norm models because it contains strings
+        # which cannot be traced by JAX
+        if self._variant == ModelVariant.CNN_BATCHNORM:
+            static_args.append("mutable")
+        
+        # `rngs` must be static for dropout models because it contains a random key
+        # which cannot be traced by JAX
+        if self._variant == ModelVariant.CNN_DROPOUT:
+            static_args.append("rngs")
 
         return static_args
 
