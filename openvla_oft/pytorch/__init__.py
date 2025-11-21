@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-YOLOv9 PyTorch model implementation for Tenstorrent projects.
+OpenVLA-OFT model implementation for Tenstorrent projects.
 """
+
 from .loader import ModelLoader, ModelVariant
