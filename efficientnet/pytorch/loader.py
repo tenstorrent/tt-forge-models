@@ -290,6 +290,7 @@ class ModelLoader(ForgeModel):
 
             # For TORCHVISION, use standard ImageNet preprocessing
             if source == ModelSource.TORCHVISION:
+
                 def weight_class_name_fn(name: str) -> str:
                     # Handle efficientnet_b0 -> EfficientNet_B0_Weights
                     # Split by underscore and capitalize each part, then join with underscore
