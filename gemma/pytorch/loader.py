@@ -204,6 +204,12 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+
+        # KCM works to fit 27B on device but causes low PCC in existing variants
+        # https://github.com/tenstorrent/tt-xla/issues/1494
+        shard_specs[model.model.embed_tokens.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("batch", "model")
+
         return shard_specs
 
     def load_config(self):
