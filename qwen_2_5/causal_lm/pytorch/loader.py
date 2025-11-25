@@ -278,6 +278,11 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
 
+        # This allows 7B to fit on device, but gives terrible PCC here and for previously passing variants
+        # https://github.com/tenstorrent/tt-xla/issues/2150
+        # Shard embeddings too (same as lm_head)
+        shard_specs[model.model.embed_tokens.weight] = ("model", "batch")
+
         return shard_specs
 
     def load_config(self):
