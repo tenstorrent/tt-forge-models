@@ -1,0 +1,5 @@
+# Boltz2 Inference Requirements
+boltz==2.2.1
+
+# Model-specific dependencies
+rdkit==2025.9.1
