@@ -21,6 +21,7 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import get_file
+from .src.model_utils import MaskformerEncoderWrapper
 
 
 class ModelVariant(StrEnum):
@@ -112,6 +113,8 @@ class ModelLoader(ForgeModel):
         model = MaskFormerForInstanceSegmentation.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        model = model.model.pixel_level_module.encoder.model.encoder
+        model = MaskformerEncoderWrapper(model, num_layers=2)
         model.eval()
 
         return model
@@ -128,30 +131,8 @@ class ModelLoader(ForgeModel):
             dict: Input tensors that can be fed to the model.
         """
 
-        # Ensure feature extractor is initialized
-        if self.feature_extractor is None:
-            self._load_feature_extractor()
+        hidden_states = torch.load(
+            "third_party/tt_forge_models/maskformer_swin_b/pytorch/src/hidden_states.pt"
+        )
 
-        # Choose sample image based on variant
-        if self._variant == ModelVariant.SWIN_B_COCO:
-            image_url = "http://images.cocodataset.org/val2017/000000039769.jpg"
-        else:
-            image_url = "https://huggingface.co/datasets/hf-internal-testing/fixtures_ade20k/resolve/main/ADE_val_00000001.jpg"
-
-        image_file = get_file(image_url)
-        image = Image.open(image_file)
-
-        # Process image
-        inputs = self.feature_extractor(images=image, return_tensors="pt")
-
-        # Handle batch size
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
-        # NOTE: Ignoring dtype_override and always using default (fp32) due to dtype mismatch
-        # issue with bfloat16. See: https://github.com/tenstorrent/tt-xla/issues/1959
-        # if dtype_override is not None:
-        #     inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
-
-        return inputs
+        return hidden_states
