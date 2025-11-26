@@ -25,7 +25,6 @@ from ...base import ForgeModel
 from ...tools.utils import (
     VisionPreprocessor,
     VisionPostprocessor,
-    print_compiled_model_results,
 )
 
 
@@ -233,7 +232,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_inputs(self, dtype_override=None, batch_size=1, image=None):
-        """Load and return sample inputs (backward compatibility wrapper for input_preprocess).
+        """Load and return sample inputs for the model.
 
         Args:
             dtype_override: Optional torch.dtype override.
@@ -249,27 +248,14 @@ class ModelLoader(ForgeModel):
             batch_size=batch_size,
         )
 
-    def output_postprocess(
-        self,
-        output=None,
-        co_out=None,
-        framework_model=None,
-        compiled_model=None,
-        inputs=None,
-        dtype_override=None,
-    ):
+    def output_postprocess(self, output):
         """Post-process model outputs.
 
         Args:
-            output: Model output tensor (returns dict if provided).
-            co_out: Compiled model outputs (legacy, prints results).
-            framework_model: Original framework model (legacy).
-            compiled_model: Compiled model (legacy).
-            inputs: Input images (legacy).
-            dtype_override: Optional dtype override (legacy).
+            output: Model output tensor.
 
         Returns:
-            dict or None: Prediction dict if output provided, else None (prints results).
+            dict: Prediction dict with top-k results.
         """
         if self._postprocessor is None:
             model_name = self._variant_config.pretrained_model_name
@@ -288,20 +274,4 @@ class ModelLoader(ForgeModel):
                 model_instance=self.model,
             )
 
-        # New usage: return dict from output tensor
-        if output is not None:
-            return self._postprocessor.postprocess(output, top_k=1, return_dict=True)
-
-        # Legacy usage: print results (backward compatibility)
-        self._postprocessor.print_results(
-            co_out=co_out,
-            framework_model=framework_model,
-            compiled_model=compiled_model,
-            inputs=inputs,
-            dtype_override=dtype_override,
-        )
-        return None
-
-    def print_cls_results(self, compiled_model_out):
-        """Legacy method for backward compatibility."""
-        print_compiled_model_results(compiled_model_out)
+        return self._postprocessor.postprocess(output, top_k=1, return_dict=True)
