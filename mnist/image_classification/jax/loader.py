@@ -338,7 +338,7 @@ class ModelLoader(ForgeModel):
             param_dtype=param_dtype,
         )
 
-    def get_input_activations_partition_spec(self, axis_name="X"):
+    def get_input_activations_partition_spec(self, mesh, axis_name="X"):
         """Get partition specification for input activations.
 
         Args:
@@ -351,14 +351,6 @@ class ModelLoader(ForgeModel):
 
         # No data parallelism utilized in MNIST MLP model - inputs are replicated
         return PartitionSpec()
-
-    def get_forward_method_name(self):
-        """Get the name of the forward method for the model.
-
-        Returns:
-            str: Name of the forward method (typically 'apply' for Flax models)
-        """
-        return "apply"
 
     def get_static_argnames(self):
         """Get static argument names for the forward method.
