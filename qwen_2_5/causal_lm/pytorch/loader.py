@@ -20,6 +20,17 @@ from ....config import (
     Framework,
     StrEnum,
 )
+class Model1(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+    def forward(self,x,y):
+        print("x",x.mean().item(),y.mean().item())
+        print("y",y.mean().item(),y.std().item())
+        a=torch.matmul(x,y.transpose(2, 3))*0.08838834764831845
+        print("a.matmul",a.mean().item(),a.std().item())
+        attn_weights = torch.nn.functional.softmax(a, dim=-1, dtype=torch.float32).to(torch.bfloat16)
+        print("attn_weights",attn_weights.mean().item(),attn_weights.std().item())
+        return attn_weights
 
 
 class ModelVariant(StrEnum):
@@ -189,22 +200,24 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Qwen 2.5 model instance for causal language modeling.
         """
-        # Get the pretrained model name from the instance's variant config
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        # # Get the pretrained model name from the instance's variant config
+        # pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Ensure tokenizer is loaded
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+        # # Ensure tokenizer is loaded
+        # if self.tokenizer is None:
+        #     self._load_tokenizer(dtype_override=dtype_override)
 
-        # Load the model with dtype override if specified
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        # # Load the model with dtype override if specified
+        # model_kwargs = {}
+        # if dtype_override is not None:
+        #     model_kwargs["torch_dtype"] = dtype_override
 
-        model = Qwen2ForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
-        model.eval()
+        # model = Qwen2ForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
+        # model.eval()
 
-        self.config = model.config
+        # self.config = model.config
+        # print("model",model)
+        model=Model1()
 
         return model
 
@@ -219,75 +232,80 @@ class ModelLoader(ForgeModel):
             dict: Input tensors that can be fed to the model.
         """
         # Ensure tokenizer is initialized
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+        # if self.tokenizer is None:
+        #     self._load_tokenizer(dtype_override=dtype_override)
 
-        # Get max_length from the variant config
-        max_length = self._variant_config.max_length
+        # # Get max_length from the variant config
+        # max_length = self._variant_config.max_length
 
-        messages = [{"role": "user", "content": self.sample_text}]
-        text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        prompts = [text]
+        # messages = [{"role": "user", "content": self.sample_text}]
+        # text = self.tokenizer.apply_chat_template(
+        #     messages, tokenize=False, add_generation_prompt=True
+        # )
+        # prompts = [text]
 
-        inputs = self.tokenizer(
-            prompts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=max_length,
-        )
+        # inputs = self.tokenizer(
+        #     prompts,
+        #     return_tensors="pt",
+        #     padding=True,
+        #     truncation=True,
+        #     max_length=max_length,
+        # )
 
-        # Add batch dimension
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
+        # # Add batch dimension
+        # for key in inputs:
+        #     if torch.is_tensor(inputs[key]):
+        #         inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        x=torch.load("query.pt")
+        y=torch.load("key_states.pt")
+        inputs= {"x":x,"y":y}
+        print("inputs",inputs)
+        print("x",x.shape)
+        print("y",y.shape)
         return inputs
 
-    def get_mesh_config(self, num_devices: int):
+    # def get_mesh_config(self, num_devices: int):
 
-        # Prefer (1, N) when heads divide N, otherwise try (2, N/2)
-        if self.config.num_attention_heads % num_devices == 0:
-            mesh_shape = (1, num_devices)
-        elif (
-            self.config.num_attention_heads % (num_devices // 2) == 0
-            and num_devices % 2 == 0
-        ):
-            mesh_shape = (2, num_devices // 2)
-        else:
-            raise ValueError(
-                f"Cannot evenly distribute {self.config.num_attention_heads} heads across {num_devices} devices"
-            )
-        return mesh_shape, ("batch", "model")
+    #     # Prefer (1, N) when heads divide N, otherwise try (2, N/2)
+    #     if self.config.num_attention_heads % num_devices == 0:
+    #         mesh_shape = (1, num_devices)
+    #     elif (
+    #         self.config.num_attention_heads % (num_devices // 2) == 0
+    #         and num_devices % 2 == 0
+    #     ):
+    #         mesh_shape = (2, num_devices // 2)
+    #     else:
+    #         raise ValueError(
+    #             f"Cannot evenly distribute {self.config.num_attention_heads} heads across {num_devices} devices"
+    #         )
+    #     return mesh_shape, ("batch", "model")
 
-    def load_shard_spec(self, model):
-        shard_specs = {}
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+    # def load_shard_spec(self, model):
+    #     shard_specs = {}
+    #     for layer in model.model.layers:
+    #         shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+    #         shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+    #         shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
+    #         shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+    #         shard_specs[layer.self_attn.q_proj.bias] = ("model",)
+    #         shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+    #         shard_specs[layer.self_attn.k_proj.bias] = ("model",)
+    #         shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+    #         shard_specs[layer.self_attn.v_proj.bias] = ("model",)
+    #         shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+    #     shard_specs[model.lm_head.weight] = ("model", "batch")
 
-        return shard_specs
+    #     return shard_specs
 
-    def load_config(self):
-        """Load and return the configuration for the Qwen 2.5 model variant.
+    # def load_config(self):
+    #     """Load and return the configuration for the Qwen 2.5 model variant.
 
-        Returns:
-            The configuration object for the Qwen 2.5 model.
-        """
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+    #     Returns:
+    #         The configuration object for the Qwen 2.5 model.
+    #     """
+    #     self.config = AutoConfig.from_pretrained(
+    #         self._variant_config.pretrained_model_name
+    #     )
 
-        return self.config
+    #     return self.config
