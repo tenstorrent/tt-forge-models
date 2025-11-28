@@ -25,7 +25,6 @@ from ...base import ForgeModel
 from ...tools.utils import (
     VisionPreprocessor,
     VisionPostprocessor,
-    print_compiled_model_results,
 )
 
 
@@ -50,6 +49,22 @@ class ModelVariant(StrEnum):
 
 class ModelLoader(ForgeModel):
     """MobileNetV3 model loader implementation."""
+
+    # ImageNet preprocessing constants
+    # These values are standard ImageNet preprocessing parameters used by torchvision
+    # and are consistent across most ImageNet-trained models:
+    # - 256: Resize size (shortest side) - standard preprocessing step before center crop
+    # - 224: Final input size after center crop - standard input size for ImageNet models
+    IMAGENET_RESIZE_SIZE = 256
+    IMAGENET_INPUT_SIZE = 224
+
+    # ImageNet dataset normalization statistics
+    # These are the channel-wise mean and standard deviation values computed from
+    # the ImageNet training dataset. These statistics are used to normalize input
+    # images to match the distribution the models were trained on.
+    # Source: Standard ImageNet normalization values used by torchvision
+    IMAGENET_MEAN = [0.485, 0.456, 0.406]  # RGB channel means
+    IMAGENET_STD = [0.229, 0.224, 0.225]  # RGB channel standard deviations
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
@@ -177,11 +192,12 @@ class ModelLoader(ForgeModel):
                 def custom_preprocess_fn(img: Image.Image) -> torch.Tensor:
                     preprocess = transforms.Compose(
                         [
-                            transforms.Resize(256),
-                            transforms.CenterCrop(224),
+                            transforms.Resize(ModelLoader.IMAGENET_RESIZE_SIZE),
+                            transforms.CenterCrop(ModelLoader.IMAGENET_INPUT_SIZE),
                             transforms.ToTensor(),
                             transforms.Normalize(
-                                mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                                mean=ModelLoader.IMAGENET_MEAN,
+                                std=ModelLoader.IMAGENET_STD,
                             ),
                         ]
                     )
@@ -215,8 +231,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_inputs(self, dtype_override=None, batch_size=1, image=None):
-        """Load and return sample inputs (backward compatibility wrapper for input_preprocess).
-
+        """Load and return sample inputs for the model.
         Args:
             dtype_override: Optional torch.dtype override.
             batch_size: Batch size (default: 1).
@@ -231,27 +246,14 @@ class ModelLoader(ForgeModel):
             batch_size=batch_size,
         )
 
-    def output_postprocess(
-        self,
-        output=None,
-        co_out=None,
-        framework_model=None,
-        compiled_model=None,
-        inputs=None,
-        dtype_override=None,
-    ):
+    def output_postprocess(self, output):
         """Post-process model outputs.
 
         Args:
-            output: Model output tensor (returns dict if provided).
-            co_out: Compiled model outputs (legacy, prints results).
-            framework_model: Original framework model (legacy).
-            compiled_model: Compiled model (legacy).
-            inputs: Input images (legacy).
-            dtype_override: Optional dtype override (legacy).
+            output: Model output tensor.
 
         Returns:
-            dict or None: Prediction dict if output provided, else None (prints results).
+            dict: Prediction dictionary with top-k results.
         """
         if self._postprocessor is None:
             model_name = self._variant_config.pretrained_model_name
@@ -268,20 +270,4 @@ class ModelLoader(ForgeModel):
                 model_instance=self.model,
             )
 
-        # New usage: return dict from output tensor
-        if output is not None:
-            return self._postprocessor.postprocess(output, top_k=1, return_dict=True)
-
-        # Legacy usage: print results (backward compatibility)
-        self._postprocessor.print_results(
-            co_out=co_out,
-            framework_model=framework_model,
-            compiled_model=compiled_model,
-            inputs=inputs,
-            dtype_override=dtype_override,
-        )
-        return None
-
-    def print_cls_results(self, co_out):
-        """Legacy method for backward compatibility."""
-        print_compiled_model_results(co_out)
+        return self._postprocessor.postprocess(output, top_k=1, return_dict=True)
