@@ -109,6 +109,7 @@ class ModelLoader(ForgeModel):
         model = OwlViTForObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        model = model.class_head
         model.eval()
 
         return model
@@ -123,32 +124,19 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        # Ensure processor is initialized
-        if self.processor is None:
-            self._load_processor()
-
-        # Get the Image
-        image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
-        self.image = Image.open(image_file)
-
-        # Define text labels for object detection
-        self.text_labels = [["a photo of a cat", "a photo of a dog"]]
-
-        # Process both text and images
-        inputs = self.processor(
-            text=self.text_labels, images=self.image, return_tensors="pt"
+        image_embeds = torch.load(
+            "third_party/tt_forge_models/owl_vit/pytorch/image_embeds.pt"
         )
+        query_embeds = torch.load(
+            "third_party/tt_forge_models/owl_vit/pytorch/query_embeds.pt"
+        )
+        query_mask = torch.load(
+            "third_party/tt_forge_models/owl_vit/pytorch/query_mask.pt"
+        )
+        image_embeds = image_embeds.to(torch.float32)
+        query_embeds = query_embeds.to(torch.float32)
 
-        # Handle batch size
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
-        # Convert the input dtype to dtype_override if specified
-        if dtype_override is not None:
-            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
-
-        return inputs
+        return (image_embeds, query_embeds, query_mask)
 
     def post_process(self, outputs, threshold=0.1):
         """Post-process OWL-ViT model outputs to extract detection results.
