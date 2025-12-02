@@ -167,15 +167,55 @@ class ModelLoader(ForgeModel):
 
         elif source == ModelSource.TORCH_HUB and cfg.hub_repo is not None:
             # TorchHub brain segmentation sample preprocessing
+            # Match the preprocessing from brain-segmentation-pytorch/test_inference.py
             def preprocess_fn(image: Image.Image) -> torch.Tensor:
-                m, s = np.mean(image, axis=(0, 1)), np.std(image, axis=(0, 1))
-                preprocess = transforms.Compose(
-                    [
-                        transforms.ToTensor(),
-                        transforms.Normalize(mean=m, std=s),
-                    ]
-                )
-                return preprocess(image)
+                from skimage.transform import resize
+                from skimage.exposure import rescale_intensity
+                
+                # Convert PIL Image to numpy array
+                img_array = np.array(image).astype(np.float32)
+                
+                # Handle different image formats
+                if len(img_array.shape) == 2:
+                    # Grayscale - duplicate to 3 channels
+                    img_array = np.stack([img_array, img_array, img_array], axis=-1)
+                elif len(img_array.shape) == 3 and img_array.shape[2] == 4:
+                    # RGBA - convert to RGB
+                    img_array = img_array[:, :, :3]
+                
+                # Normalize to 0-1 range if needed
+                if img_array.max() > 1.0:
+                    img_array = img_array / 255.0
+                
+                # Resize to 256x256 if needed
+                target_size = 256
+                if img_array.shape[0] != target_size or img_array.shape[1] != target_size:
+                    img_array = resize(
+                        img_array, 
+                        (target_size, target_size), 
+                        anti_aliasing=True, 
+                        preserve_range=True
+                    )
+                
+                # Normalize each channel (percentile-based + z-score normalization)
+                # This matches the preprocessing in brain-segmentation-pytorch
+                for c in range(3):
+                    channel = img_array[:, :, c]
+                    # Percentile-based normalization
+                    p10 = np.percentile(channel, 10)
+                    p99 = np.percentile(channel, 99)
+                    channel = rescale_intensity(channel, in_range=(p10, p99), out_range=(0, 1))
+                    # Z-score normalization
+                    m = np.mean(channel)
+                    s = np.std(channel)
+                    if s > 0:
+                        channel = (channel - m) / s
+                    img_array[:, :, c] = channel
+                
+                # Convert to tensor format (C, H, W)
+                # Note: VisionPreprocessor will add batch dimension, so don't add it here
+                img_tensor = torch.from_numpy(img_array.transpose(2, 0, 1).astype(np.float32))
+                return img_tensor
 
         elif source == ModelSource.TORCH_HUB and cfg.smp_encoder_name is not None:
             # SMP preprocessing using encoder params
@@ -300,24 +340,114 @@ class ModelLoader(ForgeModel):
         compiled_model=None,
         inputs=None,
         dtype_override=None,
+        threshold=0.5,
+        apply_lcc=True,
     ):
         """Post-process model outputs for segmentation tasks.
 
+        For brain segmentation UNet (TORCHHUB_BRAIN_UNET variant), applies:
+        1. Thresholding (default 0.5) to convert probabilities to binary mask
+        2. Largest connected component filtering (if medpy available and apply_lcc=True)
+
         Args:
-            output: Model output tensor (returns dict if provided).
+            output: Model output tensor (returns dict with processed mask if provided).
             co_out: Compiled model outputs (legacy, prints results).
             framework_model: Original framework model (legacy).
             compiled_model: Compiled model (legacy).
             inputs: Input images (legacy).
             dtype_override: Optional dtype override (legacy).
+            threshold: Threshold for binary mask conversion (default: 0.5).
+            apply_lcc: Whether to apply largest connected component filtering (default: True).
 
         Returns:
-            dict or None: For segmentation, returns dict with output shape info if output provided,
-                        else None (for backward compatibility).
+            dict or None: For brain segmentation, returns dict with:
+                        - "output": raw output tensor (torch.Tensor) - original model output
+                        - "output_numpy": raw output as numpy array
+                        - "output_shape": original output shape
+                        - "output_dtype": original output dtype
+                        - "mask": binary mask after thresholding and LCC (if applicable) - numpy array
+                        - "mask_shape": mask shape
+                        - "threshold": threshold value used
+                        - "lcc_applied": whether LCC was applied
+                        If output is None, returns None (for backward compatibility).
         """
+        cfg = self._variant_config
+        source = cfg.source
+        
+        # Apply brain segmentation post-processing for TORCHHUB_BRAIN_UNET variant
+        if output is not None and source == ModelSource.TORCH_HUB and cfg.hub_repo is not None:
+            # Extract tensor from output if needed
+            if isinstance(output, torch.Tensor):
+                output_tensor = output
+            elif isinstance(output, (list, tuple)) and len(output) > 0:
+                output_tensor = output[0] if isinstance(output[0], torch.Tensor) else output
+            else:
+                return {"output": str(type(output))}
+            
+            # Convert to numpy for post-processing
+            output_np = output_tensor.detach().cpu().numpy()
+            
+            # Apply thresholding
+            binary_mask = (output_np > threshold).astype(np.float32)
+            
+            # Apply largest connected component filtering if requested
+            lcc_actually_applied = False
+            if apply_lcc:
+                try:
+                    from medpy.filter.binary import largest_connected_component
+                    # Apply LCC per batch item and channel
+                    # Handle different output shapes from the model
+                    if len(binary_mask.shape) == 4:  # (batch, channels, H, W)
+                        for b in range(binary_mask.shape[0]):
+                            for c in range(binary_mask.shape[1]):
+                                mask_2d = binary_mask[b, c]
+                                if np.any(mask_2d):
+                                    mask_2d_int = np.round(mask_2d).astype(int)
+                                    binary_mask[b, c] = largest_connected_component(mask_2d_int).astype(np.float32)
+                    elif len(binary_mask.shape) == 3:
+                        # Could be (channels, H, W) or (batch, H, W)
+                        # For brain UNet, typically (1, H, W) after removing batch dim
+                        if binary_mask.shape[0] == 1:  # Single channel: (1, H, W)
+                            mask_2d = binary_mask[0]
+                            if np.any(mask_2d):
+                                mask_2d_int = np.round(mask_2d).astype(int)
+                                binary_mask[0] = largest_connected_component(mask_2d_int).astype(np.float32)
+                        elif binary_mask.shape[0] <= 3:  # Multiple channels: (channels, H, W)
+                            for c in range(binary_mask.shape[0]):
+                                mask_2d = binary_mask[c]
+                                if np.any(mask_2d):
+                                    mask_2d_int = np.round(mask_2d).astype(int)
+                                    binary_mask[c] = largest_connected_component(mask_2d_int).astype(np.float32)
+                        else:  # Likely (batch, H, W) - single channel per batch item
+                            for b in range(binary_mask.shape[0]):
+                                mask_2d = binary_mask[b]
+                                if np.any(mask_2d):
+                                    mask_2d_int = np.round(mask_2d).astype(int)
+                                    binary_mask[b] = largest_connected_component(mask_2d_int).astype(np.float32)
+                    elif len(binary_mask.shape) == 2:  # (H, W) - single 2D mask
+                        if np.any(binary_mask):
+                            mask_2d_int = np.round(binary_mask).astype(int)
+                            binary_mask = largest_connected_component(mask_2d_int).astype(np.float32)
+                except ImportError:
+                    # medpy not available, skip LCC
+                    pass
+            
+            return {
+                "output": output_tensor,  # Raw output tensor (torch.Tensor)
+                "output_numpy": output_np,  # Raw output as numpy array
+                "output_shape": list(output_tensor.shape),
+                "output_dtype": str(output_tensor.dtype),
+                "mask": binary_mask,  # Processed binary mask (numpy array)
+                "mask_shape": list(binary_mask.shape),
+                "threshold": threshold,
+                "lcc_applied": lcc_actually_applied,
+            }
+        
+        # For other variants or legacy usage, return basic info with raw output
         if output is not None:
             if isinstance(output, torch.Tensor):
                 return {
+                    "output": output,  # Raw output tensor
                     "output_shape": list(output.shape),
                     "output_dtype": str(output.dtype),
                 }
@@ -325,6 +455,7 @@ class ModelLoader(ForgeModel):
                 # Handle tuple/list outputs (common in segmentation)
                 if isinstance(output[0], torch.Tensor):
                     return {
+                        "output": output[0],  # Raw output tensor (first element)
                         "output_shape": list(output[0].shape),
                         "output_dtype": str(output[0].dtype),
                     }
