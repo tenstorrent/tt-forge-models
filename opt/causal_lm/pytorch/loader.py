@@ -4,7 +4,7 @@
 """
 OPT model loader implementation for causal language modeling.
 """
-from transformers import OPTForCausalLM, AutoTokenizer
+from transformers import OPTForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -52,15 +52,17 @@ class ModelLoader(ForgeModel):
     # Shared configuration parameters
     sample_text = "My name is Thomas and my main"
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
         self.tokenizer = None
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -126,7 +128,12 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model = OPTForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
+        # Load config and optionally limit number of hidden layers
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
+        model = OPTForCausalLM.from_pretrained(pretrained_model_name, config=config, **model_kwargs)
 
         model.eval()
 
