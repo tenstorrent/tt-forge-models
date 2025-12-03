@@ -30,6 +30,7 @@ try:
     import skimage
     import torchvision
     from .src.utils import op_norm
+
     XRAY_AVAILABLE = True
 except ImportError:
     XRAY_AVAILABLE = False
