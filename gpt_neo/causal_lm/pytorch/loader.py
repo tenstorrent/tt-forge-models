@@ -7,7 +7,7 @@ GPT-Neo model loader implementation
 import torch
 from typing import Optional
 
-from transformers import GPTNeoForCausalLM, GPT2Tokenizer, GenerationConfig
+from transformers import GPTNeoForCausalLM, GPT2Tokenizer, GenerationConfig, AutoConfig
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -50,15 +50,17 @@ class ModelLoader(ForgeModel):
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.GPT_NEO_125M
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
         self.tokenizer = None
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -104,7 +106,12 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model = GPTNeoForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
+        # Load config and optionally limit number of hidden layers
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
+        model = GPTNeoForCausalLM.from_pretrained(pretrained_model_name, config=config, **model_kwargs)
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
