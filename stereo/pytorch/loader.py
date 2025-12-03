@@ -166,5 +166,6 @@ class ModelLoader(ForgeModel):
             "input_ids": inputs["input_ids"],
             "attention_mask": inputs["attention_mask"],
             "decoder_input_ids": decoder_input_ids,
+            "use_cache": False,
         }
         return inputs
