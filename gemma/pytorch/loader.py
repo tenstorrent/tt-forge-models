@@ -8,6 +8,8 @@ Gemma model loader implementation for causal language modeling.
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
+from transformers import Gemma2ForCausalLM
+
 from ...config import (
     LLMModelConfig,
     ModelInfo,
@@ -129,14 +131,63 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
         model_kwargs = {"use_cache": False}
+
+        # Experiment to see if it solves the pcc..
+        # model_kwargs['use_sliding_window'] = False
+
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        for i, layer in enumerate(model.model.layers):
+            print(
+                f"KCM layer {i} sliding_window = {getattr(layer.self_attn, 'sliding_window', None)}",
+                flush=True,
+            )
+
+        # Get num layers from env-var optional:
+        num_layers = len(model.model.layers)
+        import os
+
+        num_layers_to_keep = int(os.getenv("NUM_LAYERS", num_layers))
+
+        print(
+            f"KCM num_layers = {num_layers}, num_layers_to_keep = {num_layers_to_keep}",
+            flush=True,
+        )
+        model.model.layers = model.model.layers[:num_layers_to_keep]
+
         model.eval()
         self.model = model
         self.config = model.config
+
+        if os.getenv("TT_DISABLE_SLIDING_WINDOW", "0") == "1":
+            for i, layer in enumerate(model.model.layers):
+                if hasattr(layer.self_attn, "sliding_window"):
+                    print(f"KCM disabling sliding_window for layer {i}", flush=True)
+                    layer.self_attn.sliding_window = None
+
+                    # Het suggestion.
+                    layer.is_sliding = False
+                    layer.sliding_window = None
+
+        print(f"KCM model = {model}", flush=True)
+
+        # PRint model.model.embed_tokens.weight shaope:
+        print(
+            f"KCM model.model.embed_tokens.weight shape = {model.model.embed_tokens.weight.shape}",
+            flush=True,
+        )
+        # And lm_head shape:
+        print(
+            f"KCM model.lm_head.weight shape = {model.lm_head.weight.shape}", flush=True
+        )
+
+        # Set Breakpoint:
+        # import pdb; pdb.set_trace()
+
         return model
 
     def load_inputs(
@@ -169,6 +220,9 @@ class ModelLoader(ForgeModel):
                 inputs[key] = cast_input_to_type(inputs[key], dtype_override)
         padded_input_ids, seq_len = pad_inputs(inputs["input_ids"], max_new_tokens)
         padded_attention_mask, _ = pad_inputs(inputs["attention_mask"], max_new_tokens)
+        print(
+            f"KCM seq_len = {seq_len} from max_new_tokens {max_new_tokens}", flush=True
+        )
         self.seq_len = seq_len
         inputs["input_ids"] = padded_input_ids
         inputs["attention_mask"] = padded_attention_mask
@@ -179,7 +233,6 @@ class ModelLoader(ForgeModel):
         if self._variant not in [
             ModelVariant.GEMMA_1_1_2B_IT,
             ModelVariant.GEMMA_2B,
-            ModelVariant.GEMMA_2_2B_IT,
         ]:
             assert (
                 self.config.num_attention_heads % mesh_shape[1] == 0
@@ -190,7 +243,6 @@ class ModelLoader(ForgeModel):
         if self._variant in [
             ModelVariant.GEMMA_1_1_2B_IT,
             ModelVariant.GEMMA_2B,
-            ModelVariant.GEMMA_2_2B_IT,
         ]:
             return None
 
@@ -207,8 +259,12 @@ class ModelLoader(ForgeModel):
 
         # KCM works to fit 27B on device but causes low PCC in existing variants
         # https://github.com/tenstorrent/tt-xla/issues/1494
-        shard_specs[model.model.embed_tokens.weight] = ("batch", "model")
+        # shard_specs[model.model.embed_tokens.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("batch", "model")
+
+        # Het suggestion - no good (but should work)
+        # shard_specs[model.model.embed_tokens.weight] = ("model", None)
+        # shard_specs[model.lm_head.weight] = ("model", "batch")
 
         return shard_specs
 

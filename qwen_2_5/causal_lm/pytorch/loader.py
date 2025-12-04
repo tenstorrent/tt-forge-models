@@ -260,6 +260,11 @@ class ModelLoader(ForgeModel):
             raise ValueError(
                 f"Cannot evenly distribute {self.config.num_attention_heads} heads across {num_devices} devices"
             )
+
+        print(
+            f"KCM mesh_shape = {mesh_shape} from num_attention_heads {self.config.num_attention_heads} and num_devices {num_devices}",
+            flush=True,
+        )
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
