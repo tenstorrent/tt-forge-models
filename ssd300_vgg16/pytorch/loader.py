@@ -79,7 +79,7 @@ class ModelLoader(ForgeModel):
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
+                          NOTE: This parameter is currently ignored (model always uses float32).
 
         Returns:
             torch.nn.Module: The SSD300 VGG16 model instance for object detection.
@@ -91,7 +91,8 @@ class ModelLoader(ForgeModel):
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
-            model = model.to(dtype_override)
+            # model = model.to(dtype_override)
+            print("NOTE: dtype_override ignored - batched_nms lacks BFloat16 support")
 
         return model
 
@@ -100,6 +101,7 @@ class ModelLoader(ForgeModel):
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
+                          NOTE: This parameter is currently ignored (model always uses float32).
 
         Returns:
             torch.Tensor: Preprocessed input tensor suitable for SSD300 VGG16.
@@ -120,7 +122,8 @@ class ModelLoader(ForgeModel):
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
-            batch_t = batch_t.to(dtype_override)
+            # batch_t = batch_t.to(dtype_override)
+            print("NOTE: dtype_override ignored - batched_nms lacks BFloat16 support")
 
         return batch_t
 
