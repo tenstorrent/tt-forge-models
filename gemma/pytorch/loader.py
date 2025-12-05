@@ -35,6 +35,13 @@ class ModelVariant(StrEnum):
     GEMMA_2_9B_IT = "google/gemma-2-9b-it"
     GEMMA_2_27B_IT = "google/gemma-2-27b-it"
 
+    # Gemma 3.x
+    GEMMA_3_270M_IT = "google/gemma-3-270m-it"
+    GEMMA_3_1B_IT = "google/gemma-3-1b-it"
+    GEMMA_3_4B_IT = "google/gemma-3-4b-it"
+    GEMMA_3_12B_IT = "google/gemma-3-12b-it"
+    GEMMA_3_27B_IT = "google/gemma-3-27b-it"
+
 
 class ModelLoader(ForgeModel):
     """Gemma model loader implementation for causal language modeling tasks."""
@@ -62,6 +69,26 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GEMMA_2_27B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_2_27B_IT),
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_3_270M_IT: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.GEMMA_3_270M_IT),
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_3_1B_IT: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.GEMMA_3_1B_IT),
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_3_4B_IT: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.GEMMA_3_4B_IT),
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_3_12B_IT: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.GEMMA_3_12B_IT),
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_3_27B_IT: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.GEMMA_3_27B_IT),
             max_length=256,
         ),
     }
