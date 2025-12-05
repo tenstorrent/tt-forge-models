@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 """
 Model reference implementation for DenseUNet3d : https://github.com/NguyenJus/pytorch-dense-unet-3d
 """
@@ -158,6 +161,7 @@ class DenseBlock(nn.Module):
         :return:   output of the forward pass
         """
         return self.convs(x)
+
 
 class DenseUNet3d(nn.Module):
     def __init__(self):
