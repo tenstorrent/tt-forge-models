@@ -43,7 +43,9 @@ class ModelLoader(ForgeModel):
     # Shared configuration parameters
     sample_text = "Africa is an emerging economy because"
 
-    def __init__(self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:
@@ -125,7 +127,9 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
 
-        model = PhiForCausalLM.from_pretrained(pretrained_model_name, config=config, **model_kwargs)
+        model = PhiForCausalLM.from_pretrained(
+            pretrained_model_name, config=config, **model_kwargs
+        )
 
         return model
 

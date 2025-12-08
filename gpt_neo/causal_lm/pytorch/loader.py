@@ -50,7 +50,9 @@ class ModelLoader(ForgeModel):
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.GPT_NEO_125M
 
-    def __init__(self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:
@@ -111,7 +113,9 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
 
-        model = GPTNeoForCausalLM.from_pretrained(pretrained_model_name, config=config, **model_kwargs)
+        model = GPTNeoForCausalLM.from_pretrained(
+            pretrained_model_name, config=config, **model_kwargs
+        )
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
