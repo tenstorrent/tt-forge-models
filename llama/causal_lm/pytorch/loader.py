@@ -136,7 +136,9 @@ class ModelLoader(ForgeModel):
     # Sample text for causal LM
     sample_text = "Hey how are you doing today?"
 
-    def __init__(self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:
