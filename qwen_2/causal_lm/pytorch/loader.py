@@ -43,7 +43,9 @@ class ModelLoader(ForgeModel):
     # Shared configuration parameters
     sample_text = "Give me a short introduction to large language model."
 
-    def __init__(self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:
