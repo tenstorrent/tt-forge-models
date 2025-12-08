@@ -50,7 +50,9 @@ class ModelLoader(ForgeModel):
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.GPT_NEO_125M
 
-    def __init__(self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:

@@ -46,7 +46,9 @@ class ModelLoader(ForgeModel):
     # Shared configuration parameters
     sample_text = "Write a detailed analogy between mathematics and a lighthouse."
 
-    def __init__(self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:
@@ -131,11 +133,15 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         # Load config and optionally limit number of hidden layers
-        config = AutoConfig.from_pretrained(pretrained_model_name, trust_remote_code=True)
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
 
-        model = PhiForCausalLM.from_pretrained(pretrained_model_name, config=config, **model_kwargs)
+        model = PhiForCausalLM.from_pretrained(
+            pretrained_model_name, config=config, **model_kwargs
+        )
 
         return model
 

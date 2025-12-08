@@ -38,7 +38,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.MINI_128K
 
-    def __init__(self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:

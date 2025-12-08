@@ -52,7 +52,9 @@ class ModelLoader(ForgeModel):
     # Shared configuration parameters
     sample_text = "My name is Thomas and my main"
 
-    def __init__(self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:
@@ -133,7 +135,9 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
 
-        model = OPTForCausalLM.from_pretrained(pretrained_model_name, config=config, **model_kwargs)
+        model = OPTForCausalLM.from_pretrained(
+            pretrained_model_name, config=config, **model_kwargs
+        )
 
         model.eval()
 
