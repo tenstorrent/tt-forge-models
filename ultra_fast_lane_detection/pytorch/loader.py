@@ -160,10 +160,12 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="ultra-fast-lane-detection",
             variant=variant,
-            group=ModelGroup.RED
-            if variant
-            in [ModelVariant.TUSIMPLE_RESNET18, ModelVariant.TUSIMPLE_RESNET34]
-            else ModelGroup.GENERALITY,
+            group=(
+                ModelGroup.RED
+                if variant
+                in [ModelVariant.TUSIMPLE_RESNET18, ModelVariant.TUSIMPLE_RESNET34]
+                else ModelGroup.GENERALITY
+            ),
             source=ModelSource.GITHUB,
             task=ModelTask.CV_IMAGE_SEG,
             framework=Framework.TORCH,

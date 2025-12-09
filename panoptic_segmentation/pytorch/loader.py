@@ -443,9 +443,9 @@ class ModelLoader(ForgeModel):
                     elif key == "instances" and hasattr(value, "__len__"):
                         decoded_pred["num_instances"] = len(value)
                         if hasattr(value, "pred_classes"):
-                            decoded_pred[
-                                "instance_classes"
-                            ] = value.pred_classes.tolist()
+                            decoded_pred["instance_classes"] = (
+                                value.pred_classes.tolist()
+                            )
                         if hasattr(value, "pred_boxes"):
                             decoded_pred["num_boxes"] = len(value.pred_boxes)
                     else:

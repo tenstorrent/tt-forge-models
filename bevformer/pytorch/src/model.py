@@ -2372,9 +2372,9 @@ class SpatialCrossAttention(BaseModule):
                 queries_rebatch[j, i, : len(index_query_per_img)] = query[
                     j, index_query_per_img
                 ]
-                reference_points_rebatch[
-                    j, i, : len(index_query_per_img)
-                ] = reference_points_per_img[j, index_query_per_img]
+                reference_points_rebatch[j, i, : len(index_query_per_img)] = (
+                    reference_points_per_img[j, index_query_per_img]
+                )
 
         num_cams, l, bs, embed_dims = key.shape
 
@@ -3732,9 +3732,11 @@ class PerceptionTransformerV2(PerceptionTransformerBEVEncoder):
             self.fusion = ResNetFusion(
                 len(self.frames) * self.embed_dims,
                 self.embed_dims,
-                inter_channels
-                if inter_channels is not None
-                else len(self.frames) * self.embed_dims,
+                (
+                    inter_channels
+                    if inter_channels is not None
+                    else len(self.frames) * self.embed_dims
+                ),
                 num_fusion,
             )
 
@@ -4908,9 +4910,9 @@ class BEVFormerHead(DETRHead):
                 self.bev_w,
                 grid_length=(self.real_h / self.bev_h, self.real_w / self.bev_w),
                 bev_pos=bev_pos,
-                reg_branches=self.reg_branches
-                if self.with_box_refine
-                else None,  # noqa:E501
+                reg_branches=(
+                    self.reg_branches if self.with_box_refine else None
+                ),  # noqa:E501
                 cls_branches=self.cls_branches if self.as_two_stage else None,
                 img_metas=img_metas,
                 prev_bev=prev_bev,
@@ -5005,9 +5007,9 @@ class BEVFormerHead_GroupDETR(BEVFormerHead):
             self.bev_w,
             grid_length=(self.real_h / self.bev_h, self.real_w / self.bev_w),
             bev_pos=bev_pos,
-            reg_branches=self.reg_branches
-            if self.with_box_refine
-            else None,  # noqa:E501
+            reg_branches=(
+                self.reg_branches if self.with_box_refine else None
+            ),  # noqa:E501
             cls_branches=self.cls_branches if self.as_two_stage else None,
             img_metas=img_metas,
             prev_bev=prev_bev,

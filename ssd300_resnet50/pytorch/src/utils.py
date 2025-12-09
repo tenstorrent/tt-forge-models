@@ -9,6 +9,7 @@ import skimage.transform
 import os
 import requests
 
+
 # Image processing utilities for vision models
 def load_image(image_path):
     """Load image using skimage.

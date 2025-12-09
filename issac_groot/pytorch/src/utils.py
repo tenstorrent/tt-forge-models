@@ -1563,15 +1563,15 @@ class LeRobotSingleDataset(Dataset):
                 absolute=True, rotation_type=None, shape=(1,), continuous=True
             )
             # assume the task progress is uniformly distributed between 0 and 1
-            self._metadata.statistics.action[
-                "task_progress"
-            ] = DatasetStatisticalValues(
-                max=[1.0],
-                min=[0.0],
-                mean=[0.5],
-                std=[0.2887],
-                q01=[0.01],
-                q99=[0.99],
+            self._metadata.statistics.action["task_progress"] = (
+                DatasetStatisticalValues(
+                    max=[1.0],
+                    min=[0.0],
+                    mean=[0.5],
+                    std=[0.2887],
+                    q01=[0.01],
+                    q99=[0.99],
+                )
             )
 
         self.set_transforms_metadata(self.metadata)
@@ -4437,15 +4437,15 @@ class LeRobotSingleDataset(Dataset):
                 absolute=True, rotation_type=None, shape=(1,), continuous=True
             )
             # assume the task progress is uniformly distributed between 0 and 1
-            self._metadata.statistics.action[
-                "task_progress"
-            ] = DatasetStatisticalValues(
-                max=[1.0],
-                min=[0.0],
-                mean=[0.5],
-                std=[0.2887],
-                q01=[0.01],
-                q99=[0.99],
+            self._metadata.statistics.action["task_progress"] = (
+                DatasetStatisticalValues(
+                    max=[1.0],
+                    min=[0.0],
+                    mean=[0.5],
+                    std=[0.2887],
+                    q01=[0.01],
+                    q99=[0.99],
+                )
             )
 
         self.set_transforms_metadata(self.metadata)

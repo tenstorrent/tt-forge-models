@@ -148,7 +148,6 @@ class ModelLoader(ForgeModel):
     def post_process(
         self, ims, pixel_values_shape, output, framework_model, n, shape0, shape1, files
     ):
-
         """Post-process YOLOv5 model outputs to extract detection results.
 
         Args:

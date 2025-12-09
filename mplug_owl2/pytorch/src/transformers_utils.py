@@ -727,10 +727,10 @@ class GenerationMixin:
                         "doesn't have its forwarding implemented. See the GPT2 implementation for an example "
                         "(https://github.com/huggingface/transformers/pull/21405), and feel free to open a PR with it!"
                     )
-                model_kwargs[
-                    "input_ids"
-                ] = self._maybe_initialize_input_ids_for_generation(
-                    inputs, bos_token_id, model_kwargs=model_kwargs
+                model_kwargs["input_ids"] = (
+                    self._maybe_initialize_input_ids_for_generation(
+                        inputs, bos_token_id, model_kwargs=model_kwargs
+                    )
                 )
             else:
                 if inputs is not None:
@@ -851,7 +851,7 @@ class ModuleUtilsMixin:
 
 
 def get_parameter_device(
-    parameter: Union[nn.Module, GenerationMixin, "ModuleUtilsMixin"]
+    parameter: Union[nn.Module, GenerationMixin, "ModuleUtilsMixin"],
 ):
     try:
         return next(parameter.parameters()).device
@@ -867,7 +867,7 @@ def get_parameter_device(
 
 
 def get_parameter_dtype(
-    parameter: Union[nn.Module, GenerationMixin, "ModuleUtilsMixin"]
+    parameter: Union[nn.Module, GenerationMixin, "ModuleUtilsMixin"],
 ):
     last_dtype = None
     for t in parameter.parameters():

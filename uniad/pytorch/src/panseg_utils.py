@@ -241,7 +241,6 @@ class Transformer(nn.Module):
 
 
 class SegDeformableTransformer(Transformer):
-
     """Implements the DeformableDETR transformer.
 
     Args:

@@ -104,9 +104,9 @@ def hard_voxelize_(
                 continue
             voxel_num += 1
 
-            coor_to_voxelidx[
-                temp_coors[i, 0], temp_coors[i, 1], temp_coors[i, 2]
-            ] = voxelidx
+            coor_to_voxelidx[temp_coors[i, 0], temp_coors[i, 1], temp_coors[i, 2]] = (
+                voxelidx
+            )
 
             for k in range(NDim):
                 coors[voxelidx, k] = temp_coors[i, k]

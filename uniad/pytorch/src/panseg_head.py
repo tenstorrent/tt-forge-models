@@ -393,9 +393,9 @@ class PansegformerHead(SegDETRHead):
             "outputs_classes": outputs_classes,
             "outputs_coords": outputs_coords,
             "enc_outputs_class": enc_outputs_class if self.as_two_stage else None,
-            "enc_outputs_coord": enc_outputs_coord.sigmoid()
-            if self.as_two_stage
-            else None,
+            "enc_outputs_coord": (
+                enc_outputs_coord.sigmoid() if self.as_two_stage else None
+            ),
             "args_tuple": args_tuple,
             "reference": reference,
         }

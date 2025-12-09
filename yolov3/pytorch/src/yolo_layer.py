@@ -237,7 +237,14 @@ class YoloLayer(nn.Module):
         pred_boxes[3] = coord[3].exp() * anchor_h
         pred_boxes = pred_boxes.transpose(0, 1).contiguous().view(-1, 4)
 
-        (coord_mask, conf_mask, cls_mask, tcoord, tconf, tcls,) = self.build_targets(
+        (
+            coord_mask,
+            conf_mask,
+            cls_mask,
+            tcoord,
+            tconf,
+            tcls,
+        ) = self.build_targets(
             pred_boxes.detach(), target.detach(), anchors.detach(), nH, nW
         )
 

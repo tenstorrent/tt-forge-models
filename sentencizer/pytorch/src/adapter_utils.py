@@ -1170,9 +1170,9 @@ class AdapterLayerBase(metaclass=ABCMeta):
                 self.location_key, None
             )
             if cache_score is not None:
-                gating_cache[adapter_name][self.layer_idx][
-                    self.location_key
-                ] = np.column_stack((cache_score, gating_score))
+                gating_cache[adapter_name][self.layer_idx][self.location_key] = (
+                    np.column_stack((cache_score, gating_score))
+                )
             else:
                 gating_cache[adapter_name][self.layer_idx][
                     self.location_key
@@ -4663,11 +4663,9 @@ class ReftLayer(AdapterLayerBase, nn.Module):
         for reft in self.refts.values():
             for unit in reft.units:
                 if unit.orthogonal:
-                    unit.projection.parametrizations.weight[
-                        0
-                    ].base = unit.projection.parametrizations.weight[
-                        0
-                    ].base.contiguous()
+                    unit.projection.parametrizations.weight[0].base = (
+                        unit.projection.parametrizations.weight[0].base.contiguous()
+                    )
 
 
 def hook_fn(module, args, output):
@@ -5264,10 +5262,10 @@ class ModelAdaptersMixin(ABC):
                         for key in SUBMODEL_NAMES[self.config.model_type]
                     ]
                     if all(hidden_sizes[0] == h for h in hidden_sizes):
-                        self.base_model.shared_parameters[
-                            adapter_name
-                        ] = init_shared_parameters(
-                            adapter_config, hidden_sizes[0], self.device
+                        self.base_model.shared_parameters[adapter_name] = (
+                            init_shared_parameters(
+                                adapter_config, hidden_sizes[0], self.device
+                            )
                         )
                     else:
                         raise ValueError(
@@ -5275,10 +5273,10 @@ class ModelAdaptersMixin(ABC):
                             " the hidden_sizes match.".format(hidden_sizes)
                         )
                 else:
-                    self.base_model.shared_parameters[
-                        adapter_name
-                    ] = init_shared_parameters(
-                        adapter_config, self.config.hidden_size, self.device
+                    self.base_model.shared_parameters[adapter_name] = (
+                        init_shared_parameters(
+                            adapter_config, self.config.hidden_size, self.device
+                        )
                     )
 
         # Vera Initialization
@@ -5306,10 +5304,10 @@ class ModelAdaptersMixin(ABC):
                 shapes_info = self.adapters_config._vera_init_shapes[adapter_name]
                 lora_A_shape = shapes_info["lora_A_shape"]
                 lora_B_shape = shapes_info["lora_B_shape"]
-                self.base_model.shared_parameters[
-                    adapter_name
-                ] = init_shared_vera_parameters(
-                    lora_A_shape, lora_B_shape, adapter_config, self.device
+                self.base_model.shared_parameters[adapter_name] = (
+                    init_shared_vera_parameters(
+                        lora_A_shape, lora_B_shape, adapter_config, self.device
+                    )
                 )
 
         # Prefix Tuning
@@ -6477,10 +6475,10 @@ class AdapterLoader(WeightsLoader):
                     adapter_config = self.model.adapters_config.config_map[
                         adapter_config_name
                     ]
-                    self.model.adapters_config.config_map[
-                        adapter_config_name
-                    ] = adapter_config.replace(
-                        inv_adapter=None, inv_adapter_reduction_factor=None
+                    self.model.adapters_config.config_map[adapter_config_name] = (
+                        adapter_config.replace(
+                            inv_adapter=None, inv_adapter_reduction_factor=None
+                        )
                     )
         return missing_keys
 

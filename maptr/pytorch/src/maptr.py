@@ -3237,7 +3237,6 @@ def get_indice_conv_cpu_fp32(
     inverse: int = 0,
     subm: int = 0,
 ) -> torch.Tensor:
-
     """
     Python implementation of sparse_conv_ext.indice_conv_fp32
 
@@ -4240,9 +4239,9 @@ class GeometrySptialCrossAttention(BaseModule):
                 queries_rebatch[j, i, : len(index_query_per_img)] = query[
                     j, index_query_per_img
                 ]
-                reference_points_rebatch[
-                    j, i, : len(index_query_per_img)
-                ] = reference_points_per_img[j, index_query_per_img]
+                reference_points_rebatch[j, i, : len(index_query_per_img)] = (
+                    reference_points_per_img[j, index_query_per_img]
+                )
 
         num_cams, l, bs, embed_dims = key.shape
 
@@ -4600,9 +4599,9 @@ class SpatialCrossAttention(BaseModule):
                 queries_rebatch[j, i, : len(index_query_per_img)] = query[
                     j, index_query_per_img
                 ]
-                reference_points_rebatch[
-                    j, i, : len(index_query_per_img)
-                ] = reference_points_per_img[j, index_query_per_img]
+                reference_points_rebatch[j, i, : len(index_query_per_img)] = (
+                    reference_points_per_img[j, index_query_per_img]
+                )
 
         num_cams, l, bs, embed_dims = key.shape
 

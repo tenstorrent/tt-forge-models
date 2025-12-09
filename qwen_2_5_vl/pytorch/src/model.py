@@ -8,6 +8,7 @@ Qwen 2.5 VL model wrapper for extracting logits from model outputs.
 
 import torch
 
+
 # https://github.com/tenstorrent/tt-xla/issues/1661
 class Wrapper(torch.nn.Module):
     def __init__(self, model):

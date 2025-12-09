@@ -217,9 +217,11 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="Sentencizer",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == ModelVariant.XLM_ROBERTA_BASE
-            else ModelGroup.GENERALITY,
+            group=(
+                ModelGroup.RED
+                if variant == ModelVariant.XLM_ROBERTA_BASE
+                else ModelGroup.GENERALITY
+            ),
             task=ModelTask.NLP_TOKEN_CLS,
             source=ModelSource.CUSTOM,
             framework=Framework.TORCH,

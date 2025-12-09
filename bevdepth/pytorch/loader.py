@@ -76,9 +76,11 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="bevdepth",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == ModelVariant.BEVDEPTH_LSS_R50_256X704_128X128_24E_2KEY
-            else ModelGroup.GENERALITY,
+            group=(
+                ModelGroup.RED
+                if variant == ModelVariant.BEVDEPTH_LSS_R50_256X704_128X128_24E_2KEY
+                else ModelGroup.GENERALITY
+            ),
             task=ModelTask.CV_OBJECT_DET,
             source=ModelSource.CUSTOM,
             framework=Framework.TORCH,

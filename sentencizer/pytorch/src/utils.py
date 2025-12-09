@@ -1726,9 +1726,11 @@ def list_adapters(model_name: str = None) -> List[AdapterInfo]:
         adapter_info = AdapterInfo(
             source="hf",
             adapter_id=model_info.modelId,
-            model_name=model_info.config.get("adapters", {}).get("model_name")
-            if model_info.config
-            else None,
+            model_name=(
+                model_info.config.get("adapters", {}).get("model_name")
+                if model_info.config
+                else None
+            ),
             username=model_info.modelId.split("/")[0],
             sha1_checksum=model_info.sha,
         )
