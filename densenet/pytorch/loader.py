@@ -25,7 +25,6 @@ from ...base import ForgeModel
 from ...tools.utils import get_file, print_compiled_model_results
 
 import torchxrayvision as xrv
-import skimage
 import torchvision
 from .src.utils import op_norm
 
@@ -164,6 +163,8 @@ class ModelLoader(ForgeModel):
             torch.Tensor: Preprocessed input tensor suitable for DenseNet.
         """
         source = self._variant_config.source
+
+        import skimage
 
         if source == ModelSource.TORCH_XRAY_VISION:
             # Use X-ray specific preprocessing

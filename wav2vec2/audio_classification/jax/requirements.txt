@@ -1,1 +1,2 @@
 datasets
+torchcodec==0.5

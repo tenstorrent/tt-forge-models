@@ -5,13 +5,14 @@
 
 import torch
 from pathlib import Path
-import yolov5
 import cv2
 import numpy as np
 from PIL import Image
-from yolov5.models.common import Detections
-from yolov5.utils.dataloaders import exif_transpose, letterbox
-from yolov5.utils.general import Profile, non_max_suppression, scale_boxes
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import yolov5
+    from yolov5.models.common import Detections
 
 
 def data_preprocessing(ims: Image.Image, size: tuple) -> tuple:
@@ -34,6 +35,8 @@ def data_preprocessing(ims: Image.Image, size: tuple) -> tuple:
         ims = [ims]
     num_images = len(ims)
     shape_orig, shape_infer, filenames = [], [], []
+
+    from yolov5.utils.dataloaders import exif_transpose, letterbox
 
     for idx, img in enumerate(ims):
         filename = getattr(img, "filename", f"image{idx}")
@@ -66,12 +69,12 @@ def data_postprocessing(
     ims: list,
     x_shape: torch.Size,
     pred: list,
-    model: yolov5.models.common.AutoShape,
+    model: "yolov5.models.common.AutoShape",
     n: int,
     shape0: list,
     shape1: list,
     files: list,
-) -> Detections:
+) -> "Detections":
     """Data postprocessing function for YOLOv5 object detection.
 
     Parameters
@@ -98,6 +101,8 @@ def data_postprocessing(
     Detections
         Detection object
     """
+
+    from yolov5.utils.general import Profile, non_max_suppression, scale_boxes
 
     # Create dummy dt tuple (not used but required for Detections)
     dt = (Profile(), Profile(), Profile())

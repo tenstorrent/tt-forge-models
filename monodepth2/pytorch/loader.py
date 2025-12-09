@@ -7,8 +7,6 @@ Monodepth2 model loader implementation
 import os
 import torch
 import numpy as np
-import matplotlib as mpl
-import matplotlib.cm as cm
 import PIL.Image as pil
 from ...config import (
     ModelInfo,
@@ -149,6 +147,9 @@ class ModelLoader(ForgeModel):
             mode="bilinear",
             align_corners=False,
         )
+
+        import matplotlib as mpl
+        import matplotlib.cm as cm
 
         # Saving colormapped depth image
         disp_resized_np = disp_resized.squeeze().cpu().numpy()
