@@ -195,6 +195,22 @@ class ModelLoader(ForgeModel):
             return None
 
         shard_specs = {}
+
+        # KCM - Nov25 - Original experiment from https://github.com/tenstorrent/tt-xla/issues/1494
+        # shard_specs[model.model.embed_tokens.weight] = ("batch", "model")
+        # shard_specs[model.lm_head.weight] = ("batch", "model")
+
+        # KCM - New Dec 4 from Aleks - Fails on 8GB Tensor OOM
+        shard_specs[model.model.embed_tokens.weight] = (None, "model")
+
+        # KCM - Tried these too after discussion with Het, still crap 0.3 PCC
+        # shard_specs[model.lm_head.weight] = ("batch", "model")
+        # shard_specs[model.lm_head.weight] = ("model", "batch")
+        # shard_specs[model.lm_head.weight] = (None, None)
+
+        # KCM - Het wants to see 1 layer IR with this:
+        shard_specs[model.lm_head.weight] = (None, "model")
+
         for layer in model.model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")

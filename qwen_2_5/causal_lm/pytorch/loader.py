@@ -277,7 +277,9 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.v_proj.bias] = ("model",)
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
-
+        # shard_specs[model.model.embed_tokens.weight] = ("batch", "model")
+        # shard_specs[model.model.embed_tokens.weight] = (None, "model")
+        shard_specs[model.model.embed_tokens.weight] = (None, "batch")
         return shard_specs
 
     def load_config(self):
