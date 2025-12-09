@@ -369,3 +369,15 @@ class ModelLoader(ForgeModel):
             list: List containing 'train' as a static argument
         """
         return ["train"]
+
+    def get_forward_method_name(self):
+        """Get the forward method name for the model.
+
+        For Flax linen modules, we must use 'apply' to bind parameters
+        before calling the module. Calling '__call__' directly on an
+        unbound linen module will raise CallCompactUnboundModuleError.
+
+        Returns:
+            str: 'apply' for Flax linen modules
+        """
+        return "apply"
