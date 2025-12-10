@@ -50,7 +50,9 @@ class ModelLoader(ForgeModel):
         {"role": "user", "content": "Who are you?"},
     ]
 
-    def __init__(self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:
@@ -165,7 +167,7 @@ class ModelLoader(ForgeModel):
         )
         if self.num_layers is not None:
             self.config.num_hidden_layers = self.num_layers
-            
+
         self.config.quantization_config["quant_method"] = "none"
         self.config.use_cache = False
         return self.config
