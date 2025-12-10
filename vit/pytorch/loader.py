@@ -155,6 +155,7 @@ class ModelLoader(ForgeModel):
             weights = getattr(models, weight_class_name).DEFAULT
             model_func = getattr(models, model_name)
             model = model_func(weights=weights)
+            model = model.encoder.layers[9:12]
 
         model.eval()
 
@@ -230,11 +231,12 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Preprocessed input tensor.
         """
-        return self.input_preprocess(
-            image=image,
-            dtype_override=dtype_override,
-            batch_size=batch_size,
+        import torch
+
+        inputs = torch.load(
+            "third_party/tt_forge_models/vit/pytorch/vit_input_to_layer9.pt"
         )
+        return inputs
 
     def output_postprocess(
         self,
