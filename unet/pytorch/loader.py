@@ -164,9 +164,6 @@ class ModelLoader(ForgeModel):
                 elif len(img_array.shape) == 3 and img_array.shape[2] == 4:
                     img_array = img_array[:, :, :3]
 
-                if img_array.max() > 1.0:
-                    img_array = img_array / 255.0
-
                 target_size = 256
                 if (
                     img_array.shape[0] != target_size
@@ -300,6 +297,22 @@ class ModelLoader(ForgeModel):
             batch_size=batch_size,
         )
 
+    def _extract_output_tensor(self, output) -> Optional[torch.Tensor]:
+        """Extract and normalize output to always be a torch.Tensor.
+
+        Args:
+            output: Model output (torch.Tensor, list/tuple of tensors, or other).
+
+        Returns:
+            torch.Tensor if output contains a valid tensor, None otherwise.
+        """
+        if isinstance(output, torch.Tensor):
+            return output
+        elif isinstance(output, (list, tuple)) and len(output) > 0:
+            if isinstance(output[0], torch.Tensor):
+                return output[0]
+        return None
+
     def output_postprocess(
         self,
         output=None,
@@ -347,14 +360,10 @@ class ModelLoader(ForgeModel):
             and source == ModelSource.TORCH_HUB
             and cfg.hub_repo is not None
         ):
-            if isinstance(output, torch.Tensor):
-                output_tensor = output
-            elif isinstance(output, (list, tuple)) and len(output) > 0:
-                output_tensor = (
-                    output[0] if isinstance(output[0], torch.Tensor) else output
-                )
-            else:
-                return {"output": str(type(output))}
+            # Extract output tensor, normalizing to always be a torch.Tensor
+            output_tensor = self._extract_output_tensor(output)
+            if output_tensor is None:
+                return None
 
             output_np = output_tensor.detach().cpu().numpy()
             binary_mask = (output_np > threshold).astype(np.float32)
@@ -373,6 +382,7 @@ class ModelLoader(ForgeModel):
                                     binary_mask[b, c] = largest_connected_component(
                                         mask_2d_int
                                     ).astype(np.float32)
+                                    lcc_actually_applied = True
                     elif len(binary_mask.shape) == 3:
                         if binary_mask.shape[0] == 1:
                             mask_2d = binary_mask[0]
@@ -381,6 +391,7 @@ class ModelLoader(ForgeModel):
                                 binary_mask[0] = largest_connected_component(
                                     mask_2d_int
                                 ).astype(np.float32)
+                                lcc_actually_applied = True
                         elif binary_mask.shape[0] <= 3:
                             for c in range(binary_mask.shape[0]):
                                 mask_2d = binary_mask[c]
@@ -389,6 +400,7 @@ class ModelLoader(ForgeModel):
                                     binary_mask[c] = largest_connected_component(
                                         mask_2d_int
                                     ).astype(np.float32)
+                                    lcc_actually_applied = True
                         else:
                             for b in range(binary_mask.shape[0]):
                                 mask_2d = binary_mask[b]
@@ -397,12 +409,14 @@ class ModelLoader(ForgeModel):
                                     binary_mask[b] = largest_connected_component(
                                         mask_2d_int
                                     ).astype(np.float32)
+                                    lcc_actually_applied = True
                     elif len(binary_mask.shape) == 2:
                         if np.any(binary_mask):
                             mask_2d_int = np.round(binary_mask).astype(int)
                             binary_mask = largest_connected_component(
                                 mask_2d_int
                             ).astype(np.float32)
+                            lcc_actually_applied = True
                 except ImportError:
                     pass
 
@@ -418,19 +432,16 @@ class ModelLoader(ForgeModel):
             }
 
         if output is not None:
-            if isinstance(output, torch.Tensor):
-                return {
-                    "output": output,
-                    "output_shape": list(output.shape),
-                    "output_dtype": str(output.dtype),
-                }
-            elif isinstance(output, (list, tuple)) and len(output) > 0:
-                if isinstance(output[0], torch.Tensor):
-                    return {
-                        "output": output[0],
-                        "output_shape": list(output[0].shape),
-                        "output_dtype": str(output[0].dtype),
-                    }
-            return {"output": str(type(output))}
+            # Extract output tensor, normalizing to always be a torch.Tensor
+            output_tensor = self._extract_output_tensor(output)
+            if output_tensor is None:
+                return None
+
+            return {
+                "output": output_tensor,
+                "output_numpy": output_tensor.detach().cpu().numpy(),
+                "output_shape": list(output_tensor.shape),
+                "output_dtype": str(output_tensor.dtype),
+            }
 
         return None
