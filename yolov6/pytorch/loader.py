@@ -19,8 +19,6 @@ from ...config import (
 )
 from ...base import ForgeModel
 from .src.utils import check_img_size, process_image
-from yolov6.core.inferer import Inferer
-from yolov6.utils.nms import non_max_suppression
 import yaml
 
 
@@ -156,6 +154,9 @@ class ModelLoader(ForgeModel):
         Returns:
             The decoded output.
         """
+
+        from yolov6.core.inferer import Inferer
+        from yolov6.utils.nms import non_max_suppression
 
         det = non_max_suppression(output.detach().float())
 
