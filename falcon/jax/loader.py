@@ -180,7 +180,6 @@ class ModelLoader(ForgeModel):
             ), "Attention heads must be divisible by the model axis size"
         return mesh_shape, ("batch", "model")
 
-
     def get_input_activations_partition_spec(self, mesh, axis_name="X"):
         """Get partition specification for input activations.
 
