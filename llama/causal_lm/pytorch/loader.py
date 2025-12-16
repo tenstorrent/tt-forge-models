@@ -8,6 +8,8 @@ Llama model loader implementation for causal language modeling.
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 import torch
+from transformers.cache_utils import StaticCache
+import os
 
 from ....config import (
     LLMModelConfig,
@@ -283,6 +285,97 @@ class ModelLoader(ForgeModel):
         inputs["input_ids"] = padded_input_ids
         inputs["attention_mask"] = padded_attention_mask
         return inputs
+
+    def load_inputs_decode(self, dtype_override=None, batch_size=1):
+        """Load decode-step inputs for Llama (single token + static KV cache).
+
+        This prepares inputs for an autoregressive decode step without running prefill.
+
+        Args:
+            dtype_override: Optional torch.dtype for cache tensors (e.g., torch.bfloat16).
+            batch_size: Number of sequences (replicates a single decode token).
+
+        Returns:
+            dict: Input tensors suitable for a single decode forward pass:
+                - input_ids: (batch_size, 1) long
+                - attention_mask: (batch_size, 1) long
+                - past_key_values: StaticCache
+                - cache_position: (1,) long
+                - use_cache: bool
+        """
+        # Ensure tokenizer and config are initialized
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+        if getattr(self, "config", None) is None:
+            self.load_config()
+
+        # Create zero-initialized static cache for decode
+        cache_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        max_cache_len = self._variant_config.max_length
+        static_cache = StaticCache(
+            config=self.config,
+            max_batch_size=batch_size,
+            max_cache_len=max_cache_len,
+            device="cpu",
+            dtype=cache_dtype,
+        )
+
+        # Single decode token per batch (use eos token id)
+        eos_id = self.tokenizer.eos_token_id
+        input_ids = torch.full((batch_size, 1), fill_value=eos_id, dtype=torch.long)
+
+        # Minimal attention mask for the single token
+        attention_mask = torch.ones((batch_size, 1), dtype=torch.long)
+
+        # Choose decode write position:
+        # - For pure decode perf testing, write at the end of the cache buffer.
+        # - To simulate first-token decode after prefill length k, set to k instead.
+        cache_position = torch.tensor([max_cache_len - 1], dtype=torch.long)
+
+        # For compatibility with downstream helpers that may expect seq_len
+        self.seq_len = 1
+
+        # Optional debug (off by default). Enable with TT_LLM_DEBUG_DECODE_INPUTS=1
+        if os.environ.get("TT_LLM_DEBUG_DECODE_INPUTS") == "1":
+            print("\n=== DEBUG: Llama decode input loader ===")
+            print(f"Variant: {self._variant}")
+            print(f"Batch size: {batch_size} | Max cache len: {max_cache_len}")
+            print(f"Cache dtype: {cache_dtype} | Cache device: cpu")
+            try:
+                num_layers = len(static_cache.key_cache)
+            except Exception:
+                num_layers = -1
+            print(f"StaticCache layers: {num_layers}")
+            if (
+                isinstance(getattr(static_cache, "key_cache", None), list)
+                and len(static_cache.key_cache) > 0
+            ):
+                try:
+                    print(f"key_cache[0].shape: {static_cache.key_cache[0].shape}")
+                    print(f"value_cache[0].shape: {static_cache.value_cache[0].shape}")
+                except Exception as e:
+                    print(f"(Could not read cache tensor shapes: {e})")
+            print(f"Decode token (eos_id): {eos_id}")
+            print(f"input_ids shape: {input_ids.shape}")
+            try:
+                decoded = self.tokenizer.decode(
+                    input_ids[0].tolist(), skip_special_tokens=False
+                )
+                print(f"Decoded input_ids[0]: {decoded}")
+            except Exception as e:
+                print(f"(Could not decode input_ids: {e})")
+            print(f"attention_mask shape: {attention_mask.shape}")
+            print(f"cache_position: {cache_position}")
+            print("use_cache: True")
+            print("=== END DEBUG ===\n")
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "past_key_values": static_cache,
+            "cache_position": cache_position,
+            "use_cache": True,
+        }
 
     def decode_output(self, max_new_tokens, model, inputs, tokenizer):
         """Generates text .
