@@ -154,12 +154,21 @@ class ModelLoader(ForgeModel):
         max_length = self._variant_config.max_length
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
-        input_prompt = prompt or self.sample_text
-        inputs = self.tokenizer(
+        input_prompt = [
+            {
+                "role": "user",
+                "content": prompt or self.sample_text,
+            }
+        ]
+        input_text = self.tokenizer.apply_chat_template(
             input_prompt,
+            add_generation_prompt=True,
+            tokenize=False,
+        )
+        inputs = self.tokenizer(
+            [input_text],
             return_tensors="pt",
-            max_length=max_length,
-            padding="max_length",
+            padding=True,
             truncation=True,
         )
         for key in inputs:
