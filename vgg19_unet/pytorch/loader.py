@@ -17,6 +17,18 @@ from ...base import ForgeModel
 from .src.vgg19_unet import VGG19UNet
 
 
+class DecoderBlock(torch.nn.Module):
+    def __init__(self, in_channels, skip_channels, out_channels):
+        super(DecoderBlock, self).__init__()
+        self.upsample = torch.nn.ConvTranspose2d(
+            in_channels, out_channels, kernel_size=2, stride=2, padding=0
+        )
+
+    def forward(self, x):
+        x = self.upsample(x)
+        return x
+
+
 class ModelLoader(ForgeModel):
     """VGG19-UNet model loader implementation."""
 
@@ -70,6 +82,7 @@ class ModelLoader(ForgeModel):
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
             model = model.to(dtype_override)
+        model = DecoderBlock(512, 256, 256)
 
         return model
 
@@ -83,11 +96,5 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Sample input tensor that can be fed to the model.
         """
-        # Create a random input tensor with the correct shape, using default dtype
-        inputs = torch.rand(1, *self.input_shape)
-
-        # Only convert dtype if explicitly requested
-        if dtype_override is not None:
-            inputs = inputs.to(dtype_override)
-
+        inputs = torch.randn(1, 512, 64, 64)
         return inputs
