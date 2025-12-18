@@ -6,6 +6,8 @@ Gemma model loader implementation for causal language modeling.
 """
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+import torch
+from transformers.cache_utils import StaticCache
 from typing import Optional
 
 from ...config import (
@@ -19,7 +21,7 @@ from ...config import (
 )
 from ...base import ForgeModel
 from .src.model_utils import pad_inputs
-from ...tools.utils import cast_input_to_type
+from ...tools.utils import cast_input_to_type, get_simple_decode_token_id
 
 
 class ModelVariant(StrEnum):
@@ -231,3 +233,37 @@ class ModelLoader(ForgeModel):
         )
 
         return self.config
+
+    def load_inputs_decode(self, dtype_override=None, batch_size=1):
+        """Load decode-step inputs (single token + static KV cache).
+        Attention mask is intentionally omitted for single-batch decode. Defaults to steady-state decode.
+        """
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+        if not hasattr(self, "config") or self.config is None:
+            self.load_config()
+
+        cache_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        max_cache_len = getattr(self._variant_config, "max_length", None) or 128
+        static_cache = StaticCache(
+            config=self.config,
+            max_batch_size=batch_size,
+            max_cache_len=max_cache_len,
+            device="cpu",
+            dtype=cache_dtype,
+        )
+
+        token_id = get_simple_decode_token_id(self.tokenizer, self.config)
+        input_ids = torch.full((batch_size, 1), fill_value=token_id, dtype=torch.long)
+
+        # Decode write pos: steady-state at end-of-buffer; set to k to emulate prefill length k.
+        cache_position = torch.tensor([max_cache_len - 1], dtype=torch.long)
+        # seq_len is retained for downstream helpers
+        self.seq_len = 1
+
+        return {
+            "input_ids": input_ids,
+            "past_key_values": static_cache,
+            "cache_position": cache_position,
+            "use_cache": True,
+        }
