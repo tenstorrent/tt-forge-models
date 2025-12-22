@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available PHI1_5 model variants."""
 
-    PHI1_5 = "microsoft/phi-1_5"
+    PHI_1_5 = "microsoft/phi-1_5"
 
 
 class ModelLoader(ForgeModel):
@@ -31,14 +31,14 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.PHI1_5: LLMModelConfig(
+        ModelVariant.PHI_1_5: LLMModelConfig(
             pretrained_model_name="microsoft/phi-1_5",
             max_length=256,
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.PHI1_5
+    DEFAULT_VARIANT = ModelVariant.PHI_1_5
 
     # Shared configuration parameters
     sample_text = "Africa is an emerging economy because"

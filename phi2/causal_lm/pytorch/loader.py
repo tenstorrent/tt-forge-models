@@ -23,8 +23,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available PHI2 model variants."""
 
-    PHI2 = "microsoft/phi-2"
-    PHI2_PYTDML = "microsoft/phi-2-pytdml"
+    PHI_2 = "microsoft/phi-2"
+    PHI_2_PYTDML = "microsoft/phi-2-pytdml"
 
 
 class ModelLoader(ForgeModel):
@@ -32,16 +32,16 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.PHI2: LLMModelConfig(
+        ModelVariant.PHI_2: LLMModelConfig(
             pretrained_model_name="microsoft/phi-2",
         ),
-        ModelVariant.PHI2_PYTDML: LLMModelConfig(
+        ModelVariant.PHI_2_PYTDML: LLMModelConfig(
             pretrained_model_name="microsoft/phi-2-pytdml",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.PHI2
+    DEFAULT_VARIANT = ModelVariant.PHI_2
 
     # Shared configuration parameters
     sample_text = "Write a detailed analogy between mathematics and a lighthouse."
@@ -72,7 +72,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         # Determine group and priority based on variant
-        if variant == ModelVariant.PHI2:
+        if variant == ModelVariant.PHI_2:
             group = ModelGroup.RED
         else:
             group = ModelGroup.GENERALITY
