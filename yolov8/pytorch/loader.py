@@ -5,10 +5,11 @@
 YOLOv8 model loader implementation
 """
 import torch
-import cv2
-import numpy as np
 from typing import Optional
-from ...tools.utils import get_file
+from PIL import Image
+from torchvision import transforms
+from datasets import load_dataset
+
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -19,10 +20,8 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from torch.hub import load_state_dict_from_url
-from torchvision import transforms
-from datasets import load_dataset
-from ...tools.utils import yolo_postprocess
+from ...tools.utils import VisionPreprocessor
+from ultralytics import YOLO
 
 
 class ModelVariant(StrEnum):
@@ -56,6 +55,8 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
+        self.model = None
+        self._preprocessor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -95,57 +96,98 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The YOLOv8 model instance.
         """
-        # Get the model name from the instance's variant config
-        variant = self._variant_config.pretrained_model_name
-        model = DetectionModel(cfg=weights["model"].yaml)
-        model.load_state_dict(weights["model"].float().state_dict())
-        model.eval()
+        if self.model is None:
+            # Get the model name from the instance's variant config
+            model_name = self._variant_config.pretrained_model_name
+            
+            # Load YOLOv8 model using ultralytics
+            yolo_model = YOLO(f"{model_name}.pt")
+            # Get the underlying PyTorch model
+            model = yolo_model.model
+            model.eval()
+            
+            # Store model for potential use in preprocessing
+            self.model = model
+            
+            # Update preprocessor with cached model if it exists
+            if self._preprocessor is not None:
+                self._preprocessor.set_cached_model(model)
 
-        # Only convert dtype if explicitly requested
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+            # Only convert dtype if explicitly requested
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+                self.model = model
 
-        return model
+        return self.model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the YOLOv8 model with default settings.
+    def input_preprocess(self, dtype_override=None, batch_size=1, image=None):
+        """Preprocess input image(s) and return model-ready input tensor.
 
         Args:
-            dtype_override: Optional torch.dtype to override the inputs' default dtype.
-                           If not provided, inputs will use the default dtype (typically float32).
-            batch_size: Optional batch size to override the default batch size of 1.
+            dtype_override: Optional torch.dtype override (default: float32).
+            batch_size: Batch size (ignored if image is a list).
+            image: PIL Image, URL string, tensor, list of images/URLs, or None (uses default dataset image).
 
         Returns:
-            torch.Tensor: Sample input tensor that can be fed to the model.
+            torch.Tensor: Preprocessed input tensor.
         """
+        if self._preprocessor is None:
+            # YOLOv8 uses custom preprocessing: resize to 640x640 and ToTensor
+            def custom_preprocess_fn(img: Image.Image) -> torch.Tensor:
+                transform = transforms.Compose(
+                    [
+                        transforms.Resize((640, 640)),
+                        transforms.ToTensor(),
+                    ]
+                )
+                return transform(img)
 
-        # Load sample image and preprocess
-        dataset = load_dataset("huggingface/cats-image", split="test[:1]")
-        image = dataset[0]["image"]
-        preprocess = transforms.Compose(
-            [
-                transforms.Resize((640, 640)),
-                transforms.ToTensor(),
-            ]
+            self._preprocessor = VisionPreprocessor(
+                model_source=ModelSource.CUSTOM,
+                model_name="yolov8",
+                custom_preprocess_fn=custom_preprocess_fn,
+            )
+
+            if hasattr(self, "model") and self.model is not None:
+                self._preprocessor.set_cached_model(self.model)
+
+        # If image is None, use huggingface cats-image dataset (backward compatibility)
+        if image is None:
+            dataset = load_dataset("huggingface/cats-image", split="test[:1]")
+            image = dataset[0]["image"]
+
+        return self._preprocessor.preprocess(
+            image=image,
+            dtype_override=dtype_override,
+            batch_size=batch_size,
         )
-        batch_tensor = preprocess(image).unsqueeze(0)
 
-        # Replicate tensors for batch size
-        batch_tensor = batch_tensor.repeat_interleave(batch_size, dim=0)
-
-        # Only convert dtype if explicitly requested
-        if dtype_override is not None:
-            batch_tensor = batch_tensor.to(dtype_override)
-
-        return batch_tensor
-
-    def post_process(self, co_out):
-        """Post-process YOLOv8 model outputs to extract detection results.
+    def load_inputs(self, dtype_override=None, batch_size=1, image=None):
+        """Load and return sample inputs for the model.
 
         Args:
-            co_out: Raw model output tensor from YOLOv8 forward pass.
+            dtype_override: Optional torch.dtype override.
+            batch_size: Batch size (default: 1).
+            image: Optional input image.
 
         Returns:
-            Post-processed detection results.
+            torch.Tensor: Preprocessed input tensor.
         """
-        return yolo_postprocess(co_out)
+        return self.input_preprocess(
+            image=image,
+            dtype_override=dtype_override,
+            batch_size=batch_size,
+        )
+
+    def output_postprocess(self, output):
+        """Post-process model outputs.
+
+        Args:
+            output: Model output tensor.
+
+        Returns:
+            torch.Tensor: Post-processed output tensor (raw output for YOLOv8).
+        """
+        # YOLOv8 outputs are already in the correct format
+        # Return the output as-is (can be extended with NMS if needed)
+        return output
