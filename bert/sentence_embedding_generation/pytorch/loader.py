@@ -166,7 +166,10 @@ class ModelLoader(ForgeModel):
         # Handle HuggingFace model output objects
         if hasattr(fwd_output, "last_hidden_state"):
             tensors.append(fwd_output.last_hidden_state.flatten())
-        if hasattr(fwd_output, "pooler_output") and fwd_output.pooler_output is not None:
+        if (
+            hasattr(fwd_output, "pooler_output")
+            and fwd_output.pooler_output is not None
+        ):
             tensors.append(fwd_output.pooler_output.flatten())
 
         if tensors:
