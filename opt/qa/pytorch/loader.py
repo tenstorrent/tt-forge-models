@@ -124,6 +124,8 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        torch.manual_seed(4)
+
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -159,7 +161,7 @@ class ModelLoader(ForgeModel):
             self.sample_question,
             self.sample_context,
             max_length=self._variant_config.max_length,
-            padding="max_length",
+            padding=True,
             truncation=True,
             return_tensors="pt",
         )
