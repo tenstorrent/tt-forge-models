@@ -7,7 +7,7 @@ Qwen 2.5 VL model loader implementation for vision-language tasks.
 import torch
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AwqConfig
 from typing import Optional
-from qwen_vl_utils import process_vision_info
+
 
 from ...base import ForgeModel
 from ...config import (
@@ -99,7 +99,9 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="qwen_2_5_vl",
             variant=variant,
-            group=ModelGroup.RED,
+            group=ModelGroup.RED
+            if variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT
+            else ModelGroup.GENERALITY,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -180,6 +182,8 @@ class ModelLoader(ForgeModel):
         text = self.processor.apply_chat_template(
             self.messages, tokenize=False, add_generation_prompt=True
         )
+
+        from qwen_vl_utils import process_vision_info
 
         # Process vision inputs
         image_inputs, video_inputs = process_vision_info(self.messages)
