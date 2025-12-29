@@ -79,6 +79,7 @@ class ModelSource(StrEnum):
     """Where the model was sourced from"""
 
     HUGGING_FACE = "huggingface"
+    EASYDEL = "easydel"
     TORCH_HUB = "torch_hub"
     CUSTOM = "custom"
     TORCHVISION = "torchvision"
@@ -120,13 +121,6 @@ class ModelInfo:
     source: ModelSource
     framework: Framework
 
-    def __post_init__(self):
-        if not isinstance(self.variant, StrEnum):
-            # TODO - Change to raise TypeError once all models updated.
-            print(
-                f"Warning: ModelInfo.variant should be a StrEnum, not {type(self.variant).__name__}"
-            )
-
     @property
     def name(self) -> str:
         """Generate a standardized model identifier"""
@@ -141,6 +135,9 @@ class ModelInfo:
             "model_arch": self.model,
             "variant_name": str(self.variant),
         }
+
+    def is_easydel(self) -> bool:
+        return self.source == ModelSource.EASYDEL
 
 
 @dataclass
