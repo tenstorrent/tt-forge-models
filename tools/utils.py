@@ -705,16 +705,16 @@ class VisionPostprocessor:
         """
         if hasattr(output, "logits"):
             # HuggingFace ModelOutput object
-            return output.logits
+            return output.logits.to("cpu")
         elif isinstance(output, (list, tuple)):
             # Some models return tuple/list of outputs
             if len(output) > 0:
-                return output[0]
+                return output[0].to("cpu")
             else:
                 raise ValueError("Empty output list/tuple")
         elif isinstance(output, torch.Tensor):
             # Already a tensor
-            return output
+            return output.to("cpu")
         else:
             raise TypeError(
                 f"Unsupported output type: {type(output)}. "
@@ -831,8 +831,35 @@ class VisionPostprocessor:
         if not isinstance(logits, torch.Tensor):
             raise TypeError(f"Expected torch.Tensor, got {type(logits)}")
 
-        # Apply softmax to get probabilities
-        probabilities = torch.softmax(logits, dim=-1)
+        # Check if input is already probabilities (values in [0,1] range and sum to ~1)
+        # If the tensor is already probabilities, use it directly instead of applying softmax
+        # This prevents double-softmax which would reduce confidence incorrectly
+        logits_min = logits.min().item()
+        logits_max = logits.max().item()
+        # Check if values are in probability range [0,1]
+        values_in_range = logits_min >= -0.01 and logits_max <= 1.01
+
+        # Check if the tensor sums to ~1 along the last dimension (normalized probabilities)
+        if values_in_range and logits.dim() > 0:
+            if logits.dim() == 1:
+                # 1D tensor: check if sum is close to 1
+                sum_check = torch.allclose(
+                    logits.sum(), torch.tensor(1.0, device=logits.device), atol=0.01
+                )
+            else:
+                # 2D+ tensor: check if sum along last dim is close to 1 for each item
+                sums = logits.sum(dim=-1)
+                sum_check = torch.allclose(sums, torch.ones_like(sums), atol=0.01)
+            is_already_prob = sum_check
+        else:
+            is_already_prob = False
+
+        if is_already_prob:
+            # Input is already probabilities, use directly
+            probabilities = logits
+        else:
+            # Apply softmax to get probabilities
+            probabilities = torch.softmax(logits, dim=-1)
 
         # Handle batch dimension
         if probabilities.dim() > 1:
@@ -844,9 +871,19 @@ class VisionPostprocessor:
         top_k = min(top_k, probs_for_batch.numel())
         top_probs, top_indices = torch.topk(probs_for_batch, k=top_k)
 
-        # Convert to lists
-        top_probs_list = (top_probs * 100).tolist()  # Convert to percentage
-        top_indices_list = top_indices.tolist()
+        # Convert to lists - ensure we extract scalar values from tensors
+        # top_probs is a tensor, convert to percentage and extract values
+        if top_probs.dim() > 0:
+            top_probs_list = (top_probs * 100).tolist()  # Convert to percentage
+        else:
+            # Scalar tensor
+            top_probs_list = [(top_probs * 100).item()]
+
+        if top_indices.dim() > 0:
+            top_indices_list = top_indices.tolist()
+        else:
+            # Scalar tensor
+            top_indices_list = [top_indices.item()]
 
         # Get labels
         labels = [self._get_label(idx) for idx in top_indices_list]
@@ -1012,3 +1049,24 @@ def create_vision_postprocessor(
         imagenet_class_index_url=imagenet_class_index_url,
         imagenet_21k_labels_url=imagenet_21k_labels_url,
     )
+
+
+def extract_tensors_recursive(obj, tensors):
+    """Recursively extract tensors from nested structures.
+
+    This utility function traverses nested data structures (dicts, lists, tuples)
+    and extracts all torch.Tensor objects, flattening them and appending to the
+    provided list. Useful for unpacking complex model outputs for training.
+
+    Args:
+        obj: Object to extract tensors from (tensor, dict, list, or tuple)
+        tensors: List to append extracted flattened tensors to
+    """
+    if isinstance(obj, torch.Tensor):
+        tensors.append(obj.flatten())
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            extract_tensors_recursive(v, tensors)
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            extract_tensors_recursive(item, tensors)
