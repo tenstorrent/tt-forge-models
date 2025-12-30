@@ -300,7 +300,9 @@ class ModelLoader(ForgeModel):
 
         # New usage: return dict from output tensor
         if output is not None:
-            return self._postprocessor.postprocess(output, top_k=top_k, return_dict=True)
+            return self._postprocessor.postprocess(
+                output, top_k=top_k, return_dict=True
+            )
 
         # Legacy usage: print results (backward compatibility)
         self._postprocessor.print_results(
