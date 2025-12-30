@@ -8,6 +8,7 @@ Llama model loader implementation for causal language modeling.
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 import torch
+from transformers.cache_utils import StaticCache
 
 from ....config import (
     LLMModelConfig,
@@ -19,7 +20,7 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
-from ....tools.utils import pad_inputs, cast_input_to_type
+from ....tools.utils import pad_inputs, cast_input_to_type, get_simple_decode_token_id
 
 
 class ModelVariant(StrEnum):
@@ -142,6 +143,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.seq_len = None
+        self.config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -283,6 +285,44 @@ class ModelLoader(ForgeModel):
         inputs["input_ids"] = padded_input_ids
         inputs["attention_mask"] = padded_attention_mask
         return inputs
+
+    def load_inputs_decode(self, dtype_override=None, batch_size=1):
+        """Load decode-step inputs (single token + static KV cache).
+        Attention mask is intentionally omitted for single-batch decode. Defaults to steady-state decode.
+        """
+
+        # Ensure tokenizer and config are initialized
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+        if self.config is None:
+            self.load_config()
+
+        # Create zero-initialized static cache for decode
+        cache_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        max_cache_len = self._variant_config.max_length
+        static_cache = StaticCache(
+            config=self.config,
+            max_batch_size=batch_size,
+            max_cache_len=max_cache_len,
+            device="cpu",
+            dtype=cache_dtype,
+        )
+
+        # Single decode token per batch (deterministic non-EOS token)
+        token_id = get_simple_decode_token_id(self.tokenizer, self.config)
+        input_ids = torch.full((batch_size, 1), fill_value=token_id, dtype=torch.long)
+
+        # Decode write pos: steady-state at end-of-buffer; set to k to emulate prefill length k.
+        # seq_len is retained for downstream helpers
+        cache_position = torch.tensor([max_cache_len - 1], dtype=torch.long)
+        self.seq_len = 1
+
+        return {
+            "input_ids": input_ids,
+            "past_key_values": static_cache,
+            "cache_position": cache_position,
+            "use_cache": True,
+        }
 
     def decode_output(self, max_new_tokens, model, inputs, tokenizer):
         """Generates text .

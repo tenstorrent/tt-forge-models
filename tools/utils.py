@@ -254,6 +254,30 @@ def cast_input_to_type(
     return tensor
 
 
+def get_simple_decode_token_id(tokenizer, config=None) -> int:
+    """
+    Returns a deterministic, non-special token id suitable for decode testing.
+    """
+    eos_id = getattr(tokenizer, "eos_token_id", None)
+    vocab_size = getattr(config, "vocab_size", None) or getattr(
+        tokenizer, "vocab_size", None
+    )
+
+    special_ids = set(getattr(tokenizer, "all_special_ids", []) or [])
+    if eos_id is not None:
+        special_ids.add(int(eos_id))
+
+    # Try a few deterministic candidates or fall back to small non-zero id
+    if isinstance(vocab_size, int) and vocab_size > 0:
+        # Try a few candidates deterministically
+        for offset in range(1, 8):
+            candidate = (int(eos_id or 0) + offset) % vocab_size
+            if candidate != 0 and candidate not in special_ids:
+                return candidate
+
+    return 1
+
+
 # Vision utilities for image preprocessing and postprocessing
 # These classes provide unified input/output processing for vision models
 
