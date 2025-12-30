@@ -336,7 +336,6 @@ class ModelLoader(ForgeModel):
         # New usage: return dict from output tensor
         if output is not None:
             return self._postprocessor.postprocess(output, top_k=1, return_dict=True)
-
         # Legacy usage: print results (backward compatibility)
         self._postprocessor.print_results(
             co_out=co_out,
@@ -350,3 +349,4 @@ class ModelLoader(ForgeModel):
     def print_cls_results(self, compiled_model_out):
         """Legacy method for backward compatibility."""
         print_compiled_model_results(compiled_model_out)
+
