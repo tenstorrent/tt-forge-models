@@ -18,7 +18,7 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
-from ...pytorch.src.model_utils import pad_inputs
+from .src.model_utils import pad_inputs
 from ....tools.utils import cast_input_to_type
 
 
