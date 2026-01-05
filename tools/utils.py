@@ -278,6 +278,52 @@ def get_simple_decode_token_id(tokenizer, config=None) -> int:
     return 1
 
 
+def get_static_cache_decode_inputs(
+    *,
+    tokenizer,
+    config,
+    batch_size: int = 1,
+    max_cache_len: int = 128,
+    dtype: Optional[torch.dtype] = None,
+    device: str = "cpu",
+    cache_position: Optional[int] = None,
+    include_attention_mask: bool = False,
+) -> dict:
+    """Build minimal decode-step inputs (single token + StaticCache + cache_position).
+
+    This centralizes StaticCache construction to reduce copy/paste across model loaders.
+    Attention mask is intentionally omitted by default for single-token decode.
+    """
+    # Import lazily so non-LLM users of utils don't pay this import cost at module import time.
+    from transformers.cache_utils import StaticCache
+
+    cache_dtype = dtype if dtype is not None else torch.bfloat16
+    static_cache = StaticCache(
+        config=config,
+        max_batch_size=batch_size,
+        max_cache_len=max_cache_len,
+        device=device,
+        dtype=cache_dtype,
+    )
+
+    token_id = get_simple_decode_token_id(tokenizer, config)
+    input_ids = torch.full((batch_size, 1), fill_value=token_id, dtype=torch.long)
+
+    pos = (max_cache_len - 1) if cache_position is None else int(cache_position)
+    cache_position_t = torch.tensor([pos], dtype=torch.long)
+
+    inputs = {
+        "input_ids": input_ids,
+        "past_key_values": static_cache,
+        "cache_position": cache_position_t,
+        "use_cache": True,
+    }
+    if include_attention_mask:
+        inputs["attention_mask"] = torch.ones((batch_size, 1), dtype=torch.long)
+
+    return inputs
+
+
 # Vision utilities for image preprocessing and postprocessing
 # These classes provide unified input/output processing for vision models
 
