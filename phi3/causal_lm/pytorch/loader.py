@@ -76,12 +76,20 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, prompt: Optional[str] = None):
         self._ensure_tokenizer()
-        input_prompt = prompt or "Africa is an emerging economy because"
+        input_prompt = [
+            {
+                "role": "user",
+                "content": prompt
+                or "Can you provide ways to eat combinations of bananas and dragonfruits?",
+            }
+        ]
+        text = self.tokenizer.apply_chat_template(
+            input_prompt, add_generation_prompt=True, tokenize=False
+        )
         inputs = self.tokenizer(
-            input_prompt,
+            [text],
             return_tensors="pt",
-            max_length=256,
-            padding="max_length",
+            padding=True,
             truncation=True,
         )
         input_ids = inputs["input_ids"]

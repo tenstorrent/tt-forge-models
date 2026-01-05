@@ -705,16 +705,16 @@ class VisionPostprocessor:
         """
         if hasattr(output, "logits"):
             # HuggingFace ModelOutput object
-            return output.logits
+            return output.logits.to("cpu")
         elif isinstance(output, (list, tuple)):
             # Some models return tuple/list of outputs
             if len(output) > 0:
-                return output[0]
+                return output[0].to("cpu")
             else:
                 raise ValueError("Empty output list/tuple")
         elif isinstance(output, torch.Tensor):
             # Already a tensor
-            return output
+            return output.to("cpu")
         else:
             raise TypeError(
                 f"Unsupported output type: {type(output)}. "
@@ -1049,3 +1049,24 @@ def create_vision_postprocessor(
         imagenet_class_index_url=imagenet_class_index_url,
         imagenet_21k_labels_url=imagenet_21k_labels_url,
     )
+
+
+def extract_tensors_recursive(obj, tensors):
+    """Recursively extract tensors from nested structures.
+
+    This utility function traverses nested data structures (dicts, lists, tuples)
+    and extracts all torch.Tensor objects, flattening them and appending to the
+    provided list. Useful for unpacking complex model outputs for training.
+
+    Args:
+        obj: Object to extract tensors from (tensor, dict, list, or tuple)
+        tensors: List to append extracted flattened tensors to
+    """
+    if isinstance(obj, torch.Tensor):
+        tensors.append(obj.flatten())
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            extract_tensors_recursive(v, tensors)
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            extract_tensors_recursive(item, tensors)
