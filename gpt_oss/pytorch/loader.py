@@ -50,15 +50,20 @@ class ModelLoader(ForgeModel):
         {"role": "user", "content": "Who are you?"},
     ]
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
+        self.config = None
         self.tokenizer = None
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -102,15 +107,11 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The gpt-oss model instance for causal language modeling.
         """
         # Load config with modifications
-        config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
-        )
-        config.quantization_config["quant_method"] = "none"
-        config.use_cache = False
+        self.load_config()
 
         # Prepare model kwargs
         model_kwargs = {
-            "config": config,
+            "config": self.config,
             "low_cpu_mem_usage": True,
             "trust_remote_code": True,
             "attn_implementation": "eager",
@@ -151,6 +152,77 @@ class ModelLoader(ForgeModel):
             tokenize=True,
             return_dict=True,
             return_tensors="pt",
+            padding="max_length",
+            max_length=128,
         )
 
         return inputs
+
+    def get_mesh_config(self, num_devices: int):
+        """Get mesh configuration for tensor parallelism.
+
+        Args:
+            num_devices: Number of devices to use for tensor parallelism
+
+        Returns:
+            Tuple of (mesh_shape, axis_names)
+        """
+        mesh_shape = (1, num_devices)
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        """Load shard specifications for tensor parallelism.
+
+        Args:
+            model: The gpt-oss model instance
+
+        Returns:
+            Dictionary mapping model parameters to their shard specifications,
+            or None if sharding is not needed for this variant
+        """
+        shard_specs = {}
+        for layer in model.model.layers:
+            # Self-attention weights
+            # q_proj, k_proj, v_proj: column-wise sharding
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            # o_proj: row-wise sharding
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+
+            # MoE MLP components
+            # Router is replicated across all devices
+            shard_specs[layer.mlp.router.weight] = ("batch", "batch")
+
+            # Expert weights - sharded across the expert dimension
+            # These are 3D tensors with shape (num_experts, hidden_size, intermediate_size)
+            shard_specs[layer.mlp.experts.gate_up_proj] = (
+                "model",
+                "batch",
+                "batch",
+            )
+            shard_specs[layer.mlp.experts.gate_up_proj_bias] = ("model", "batch")
+            shard_specs[layer.mlp.experts.down_proj] = (
+                "model",
+                "batch",
+                "batch",
+            )
+            shard_specs[layer.mlp.experts.down_proj_bias] = ("model", "batch")
+
+        return shard_specs
+
+    def load_config(self):
+        """Load and return the configuration for the gpt-oss model with this instance's variant.
+
+        Returns:
+            The configuration object for the gpt-oss model.
+        """
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name, trust_remote_code=True
+        )
+        if self.num_layers is not None:
+            self.config.num_hidden_layers = self.num_layers
+
+        self.config.quantization_config["quant_method"] = "none"
+        self.config.use_cache = False
+        return self.config
