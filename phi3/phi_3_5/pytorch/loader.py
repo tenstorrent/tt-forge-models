@@ -34,9 +34,11 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MINI_INSTRUCT: ModelConfig(
             pretrained_model_name="microsoft/Phi-3.5-mini-instruct",
+            max_length=256,
         ),
         ModelVariant.MOE_INSTRUCT: ModelConfig(
             pretrained_model_name="microsoft/Phi-3.5-MoE-instruct",
+            max_length=256,
         ),
     }
 
@@ -102,7 +104,7 @@ class ModelLoader(ForgeModel):
         prompt = [
             {
                 "role": "user",
-                "content": "Can you provide ways to eat combinations of bananas and dragonfruits?",
+                "content": """Artificial intelligence is rapidly transforming many areas of society, offering unprecedented opportunities for innovation. Machine learning algorithms can now analyse vast amounts of data, revealing patterns and insights that were previously impossible to detect. In healthcare, AI is helping doctors diagnose diseases earlier, predict patient outcomes, and design personalized treatment plans. Climate scientists use AI to model complex environmental systems and forecast the effects of climate change with remarkable accuracy. In education, adaptive learning systems provide personalized instruction, catering to each student’s strengths and weaknesses. Businesses leverage AI for smarter decision-making, optimizing operations and improving customer experiences. At the same time, AI raises important ethical questions, such as bias in algorithms, privacy concerns, and the potential displacement of jobs. Responsible governance, transparency, and ethical guidelines are essential to ensure that AI benefits society as a whole. Researchers emphasize collaboration between humans and machines, using AI to augment human capabilities rather than replace them. As AI technology advances, it is crucial to approach its development thoughtfully, balancing innovation with careful consideration of societal impacts. The conversation about AI’s role in our future continues to grow, highlighting both its promise and the challenges it presents.""",
             },
         ]
         text = self.tokenizer.apply_chat_template(
@@ -111,7 +113,8 @@ class ModelLoader(ForgeModel):
         inputs = self.tokenizer(
             [text],
             return_tensors="pt",
-            padding=True,
+            max_length=self._variant_config.max_length,
+            padding="max_length",
             truncation=True,
         )
         for key in inputs:

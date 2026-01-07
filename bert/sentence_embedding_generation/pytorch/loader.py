@@ -34,7 +34,7 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.EMRECAN_BERT_BASE_TURKISH_CASED_MEAN_NLI_STSB_TR: LLMModelConfig(
             pretrained_model_name="emrecan/bert-base-turkish-cased-mean-nli-stsb-tr",
-            max_length=16,
+            max_length=256,
         ),
     }
 
@@ -53,8 +53,8 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.model_name = pretrained_model_name
-        self.sentence = "Bu örnek bir cümle"
-        self.max_length = 16
+        self.sentence = """Yapay zeka teknolojisi, günümüzde toplumun her alanında devrim niteliğinde değişiklikler yaratmaktadır. Makine öğrenmesi algoritmaları giderek daha karmaşık hale geldikçe, sağlık hizmetlerinden eğitime, ulaşımdan finansal hizmetlere kadar birçok sektörde yenilikçi çözümler sunmaktadır. Özellikle derin öğrenme modelleri, büyük veri setlerini analiz ederek insan beyninin yapamayacağı hızda ve doğrulukta sonuçlar üretebilmektedir. Tıp alanında yapay zeka, hastalıkların erken teşhisinde ve kişiselleştirilmiş tedavi planlarının geliştirilmesinde kritik bir rol oynamaktadır. Görüntü işleme teknolojileri sayesinde radyoloji görüntüleri daha hızlı ve doğru analiz edilebilmekte, bu da hastaların daha etkili tedavi almalarını sağlamaktadır. Eğitim sistemlerinde ise yapay zeka destekli platformlar, öğrencilerin bireysel öğrenme hızlarına göre uyarlanabilir içerikler sunarak eğitim kalitesini artırmaktadır. Ancak bu teknolojinin hızlı gelişimi beraberinde etik soruları da getirmektedir. Veri gizliliği, algoritmik önyargılar ve iş gücü piyasasındaki potansiyel değişimler, toplum olarak üzerinde dikkatlice düşünmemiz gereken konulardır. Yapay zekanın faydalarından maksimum düzeyde yararlanabilmek için, teknolojik gelişmeleri insan değerleri ve etik ilkelerle dengelemek gerekmektedir. Gelecekte yapay zeka teknolojilerinin nasıl şekilleneceği, bugün aldığımız kararlara bağlı olacaktır."""
+        self.max_length = 256
         self.tokenizer = None
 
     @classmethod

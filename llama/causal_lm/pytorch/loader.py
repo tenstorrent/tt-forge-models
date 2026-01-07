@@ -61,68 +61,68 @@ class ModelLoader(ForgeModel):
         # Llama 3 variants
         ModelVariant.LLAMA_3_8B: LLMModelConfig(
             pretrained_model_name="meta-llama/Meta-Llama-3-8B",
-            max_length=128,
+            max_length=256,
         ),
         ModelVariant.LLAMA_3_8B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Meta-Llama-3-8B-Instruct",
-            max_length=128,
+            max_length=256,
         ),
         # Llama 3.1 variants
         ModelVariant.LLAMA_3_1_8B: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.1-8B",
-            max_length=128,
+            max_length=256,
         ),
         ModelVariant.LLAMA_3_1_8B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.1-8B-Instruct",
-            max_length=128,
+            max_length=256,
         ),
         ModelVariant.LLAMA_3_1_70B: LLMModelConfig(
             pretrained_model_name="meta-llama/Meta-Llama-3.1-70B",
-            max_length=128,
+            max_length=256,
         ),
         ModelVariant.LLAMA_3_1_70B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Meta-Llama-3.1-70B-Instruct",
-            max_length=128,
+            max_length=256,
         ),
         ModelVariant.LLAMA_3_1_405B: LLMModelConfig(
             pretrained_model_name="meta-llama/Meta-Llama-3.1-405B",
-            max_length=128,
+            max_length=256,
         ),
         ModelVariant.LLAMA_3_1_405B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Meta-Llama-3.1-405B-Instruct",
-            max_length=128,
+            max_length=256,
         ),
         # Llama 3.2 variants
         ModelVariant.LLAMA_3_2_1B: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.2-1B",
-            max_length=128,
+            max_length=256,
         ),
         ModelVariant.LLAMA_3_2_1B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.2-1B-Instruct",
-            max_length=128,
+            max_length=256,
         ),
         ModelVariant.LLAMA_3_2_3B: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.2-3B",
-            max_length=128,
+            max_length=256,
         ),
         ModelVariant.LLAMA_3_2_3B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.2-3B-Instruct",
-            max_length=128,
+            max_length=256,
         ),
         # Llama 3.3 variants
         ModelVariant.LLAMA_3_3_70B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.3-70B-Instruct",
-            max_length=128,
+            max_length=256,
         ),
         # HuggingFace community variants
         ModelVariant.HUGGYLLAMA_7B: LLMModelConfig(
             pretrained_model_name="huggyllama/llama-7b",
-            max_length=128,
+            max_length=256,
         ),
         # TinyLlama variants
         ModelVariant.TINYLLAMA_V1_1: LLMModelConfig(
             pretrained_model_name="TinyLlama/TinyLlama_v1.1",
-            max_length=128,
+            max_length=256,
         ),
     }
 
@@ -130,7 +130,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.LLAMA_3_2_1B_INSTRUCT
 
     # Sample text for causal LM
-    sample_text = "Hey how are you doing today?"
+    sample_text = """Artificial intelligence is rapidly transforming many areas of society, offering unprecedented opportunities for innovation. Machine learning algorithms can now analyse vast amounts of data, revealing patterns and insights that were previously impossible to detect. In healthcare, AI is helping doctors diagnose diseases earlier, predict patient outcomes, and design personalized treatment plans. Climate scientists use AI to model complex environmental systems and forecast the effects of climate change with remarkable accuracy. In education, adaptive learning systems provide personalized instruction, catering to each student’s strengths and weaknesses. Businesses leverage AI for smarter decision-making, optimizing operations and improving customer experiences. At the same time, AI raises important ethical questions, such as bias in algorithms, privacy concerns, and the potential displacement of jobs. Responsible governance, transparency, and ethical guidelines are essential to ensure that AI benefits society as a whole. Researchers emphasize collaboration between humans and machines, using AI to augment human capabilities rather than replace them. As AI technology advances, it is crucial to approach its development thoughtfully, balancing innovation with careful consideration of societal impacts. The conversation about AI’s role in our future continues to grow, highlighting both its promise and the challenges it presents."""
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -262,6 +262,9 @@ class ModelLoader(ForgeModel):
         # For causal LM, we need both input_ids and attention_mask
         inputs = self.tokenizer(
             self.sample_text,
+            max_length=self._variant_config.max_length,
+            padding="max_length",
+            truncation=True,
             return_tensors="pt",
         )
 
