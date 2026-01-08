@@ -186,11 +186,12 @@ class ModelLoader(ForgeModel):
         Returns:
             PartitionSpec for input activations (sharded on batch dimension)
         """
-        
+
         if np.prod(list(mesh.shape.values())) == 1:
             return (PartitionSpec(),)
 
         return (PartitionSpec(axis_name),)
+
     def load_parameters_partition_spec(
         self,
         model_for_multichip=None,
