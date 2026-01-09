@@ -18,6 +18,10 @@ from ....config import (
     StrEnum,
 )
 from ....tools.jax_utils import cast_hf_model_to_type
+import flax.nnx as nnx
+from jax.sharding import PartitionSpec
+import jax.numpy as jnp
+import numpy as np
 
 
 class ModelVariant(StrEnum):
@@ -80,31 +84,9 @@ class ModelLoader(ForgeModel):
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_IMAGE_CAPT,
-            source=ModelSource.HUGGING_FACE,
+            source=ModelSource.EASYDEL,
             framework=Framework.JAX,
         )
-
-    def _load_processor(self, dtype_override=None):
-        """Load image processor for the current variant.
-        Args:
-            dtype_override: Optional dtype to override the processor's default dtype.
-        Returns:
-            processor: The loaded image processor instance
-        """
-        from transformers import CLIPProcessor
-
-        # Initialize processor with dtype_override if provided
-
-        processor_kwargs = {"do_rescale": False}
-        if dtype_override is not None:
-            processor_kwargs["dtype"] = dtype_override
-
-        # Load the processor
-        self._processor = CLIPProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
-        )
-
-        return self._processor
 
     def load_model(self, dtype_override=None):
         """Load and return the CLIP model instance for this instance's variant.
@@ -115,13 +97,9 @@ class ModelLoader(ForgeModel):
             model: The loaded model instance
         """
 
-        from transformers import FlaxCLIPModel
+        from easydel import CLIPModel
 
         pretrained_model_name = self._variant_config.pretrained_model_name
-
-        # Ensure processor is loaded
-        if self._processor is None:
-            self._load_processor(dtype_override)
 
         # Initialize model kwargs
         model_kwargs = {}
@@ -132,7 +110,7 @@ class ModelLoader(ForgeModel):
         from_pt = pretrained_model_name == "openai/clip-vit-large-patch14-336"
 
         # Load the model
-        model = FlaxCLIPModel.from_pretrained(
+        model = CLIPModel.from_pretrained(
             pretrained_model_name, from_pt=from_pt, **model_kwargs
         )
 
@@ -142,18 +120,35 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self, dtype_override=None, mesh=None):
         """Load and return sample inputs for the CLIP model with this instance's variant settings.
         Args:
             dtype_override: Optional dtype to override the model's default dtype.
+
+            mesh: Optional device mesh for sharding (DataParallel mode).
         Returns:
             inputs: Input tensors that can be fed to the model.
         """
-        from datasets import load_dataset
 
-        # Ensure processor is initialized
-        if self._processor is None:
-            self._load_processor(dtype_override=dtype_override)
+        from datasets import load_dataset
+        from transformers import AutoImageProcessor
+
+        if mesh is not None:
+            # For multi-device, use a fixed batch size that's divisible by device count
+            # This matches the original test which used batch_size=8
+            num_devices = np.prod(list(mesh.shape.values())) if mesh.shape else 1
+            batch_size = 8  # Fixed batch size, will be sharded across devices
+            # Ensure batch size is divisible by number of devices
+            if batch_size % num_devices != 0:
+                batch_size = num_devices * (batch_size // num_devices + 1)
+        else:
+            # Default to 8 for single device too, for consistency
+            batch_size = 8
+
+        # Initialize tokenizer with dtype override if specified
+        tokenizer_kwargs = {}
+        if dtype_override is not None:
+            tokenizer_kwargs["dtype"] = dtype_override
 
         # Load a sample image from Hugging Face cats-image dataset
 
@@ -161,14 +156,53 @@ class ModelLoader(ForgeModel):
         # Get the first image from the dataset
         image = dataset[0]["image"]
 
+        processor = AutoImageProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        )
+
         # Process the inputs
-        inputs = self._processor(
+        inputs = processor(
             text=self.sample_text,
             images=image,
             return_tensors="jax",
         )
 
-        return inputs
+        input_ids = jnp.repeat(inputs.input_ids, batch_size, axis=0)
+        return input_ids
+
+    def get_input_activations_partition_spec(self, mesh, axis_name="X"):
+        """Get partition specification for input activations.
+
+        Args:
+            mesh: The device mesh for sharding.
+            axis_name: Name of the sharding axis.
+
+        Returns:
+            PartitionSpec for input activations (sharded on batch dimension)
+        """
+        if np.prod(list(mesh.shape.values())) == 1:
+            return PartitionSpec()
+
+        return PartitionSpec(axis_name)
+
+    def load_parameters_partition_spec(
+        self,
+        model_for_multichip=None,
+        cpu_mesh=None,
+        input_activations_partition_specs=None,
+        inputs=None,
+        dtype_override=None,
+    ):
+        # Get the model state
+        state = nnx.split(model_for_multichip)[1]
+
+        partition_rules = ((r".*", PartitionSpec()),)  # Everything replicated
+
+        from infra.utilities import make_easydel_parameters_partition_specs
+
+        return make_easydel_parameters_partition_specs(
+            model_state=state, partition_rules=partition_rules
+        )
 
     def wrapper_model(self, f):
         """Wrapper for model forward method that extracts the appropriate output.
