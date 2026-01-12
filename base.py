@@ -19,9 +19,9 @@ class ForgeModel(ABC):
 
     # This is intended to be overridden by subclasses to define available model variants
     # Format: {ModelVariant: ModelConfig(...), ...}
-    _VARIANTS: Dict[
-        StrEnum, ModelConfig
-    ] = {}  # Empty by default for models without variants
+    _VARIANTS: Dict[StrEnum, ModelConfig] = (
+        {}
+    )  # Empty by default for models without variants
     DEFAULT_VARIANT = None
 
     def __init__(self, variant=None):
