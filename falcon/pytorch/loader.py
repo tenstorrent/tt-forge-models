@@ -24,11 +24,11 @@ from ...tools.utils import get_static_cache_decode_inputs
 class ModelVariant(StrEnum):
     """Available Falcon model variants."""
 
-    FALCON_1B = "tiiuae/Falcon3-1B-Base"
-    FALCON_3B = "tiiuae/Falcon3-3B-Base"
-    FALCON_7B = "tiiuae/Falcon3-7B-Base"
-    FALCON_10B = "tiiuae/Falcon3-10B-Base"
-    FALCON_MAMBA_7B = "tiiuae/Falcon3-Mamba-7B-Base"
+    FALCON_3_1B = "tiiuae/Falcon3-1B-Base"
+    FALCON_3_3B = "tiiuae/Falcon3-3B-Base"
+    FALCON_3_7B = "tiiuae/Falcon3-7B-Base"
+    FALCON_3_10B = "tiiuae/Falcon3-10B-Base"
+    FALCON_3_MAMBA_7B = "tiiuae/Falcon3-Mamba-7B-Base"
     FALCON_7B_INSTRUCT = "tiiuae/falcon-7b-instruct"
 
 
@@ -37,19 +37,19 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.FALCON_1B: ModelConfig(
+        ModelVariant.FALCON_3_1B: ModelConfig(
             pretrained_model_name="tiiuae/Falcon3-1B-Base",
         ),
-        ModelVariant.FALCON_3B: ModelConfig(
+        ModelVariant.FALCON_3_3B: ModelConfig(
             pretrained_model_name="tiiuae/Falcon3-3B-Base",
         ),
-        ModelVariant.FALCON_7B: ModelConfig(
+        ModelVariant.FALCON_3_7B: ModelConfig(
             pretrained_model_name="tiiuae/Falcon3-7B-Base",
         ),
-        ModelVariant.FALCON_10B: ModelConfig(
+        ModelVariant.FALCON_3_10B: ModelConfig(
             pretrained_model_name="tiiuae/Falcon3-10B-Base",
         ),
-        ModelVariant.FALCON_MAMBA_7B: ModelConfig(
+        ModelVariant.FALCON_3_MAMBA_7B: ModelConfig(
             pretrained_model_name="tiiuae/Falcon3-Mamba-7B-Base",
         ),
         ModelVariant.FALCON_7B_INSTRUCT: ModelConfig(
@@ -58,7 +58,7 @@ class ModelLoader(ForgeModel):
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.FALCON_1B
+    DEFAULT_VARIANT = ModelVariant.FALCON_3_1B
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -73,10 +73,10 @@ class ModelLoader(ForgeModel):
         """
 
         if variant in [
-            ModelVariant.FALCON_1B,
-            ModelVariant.FALCON_3B,
-            ModelVariant.FALCON_7B,
-            ModelVariant.FALCON_10B,
+            ModelVariant.FALCON_3_1B,
+            ModelVariant.FALCON_3_3B,
+            ModelVariant.FALCON_3_7B,
+            ModelVariant.FALCON_3_10B,
         ]:
             group = ModelGroup.RED
         else:
@@ -91,7 +91,16 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def __init__(self, variant=None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional ModelVariant specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
+        """
         super().__init__(variant)
 
         # Configuration parameters
@@ -100,6 +109,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.input_text_2 = "Hello, my dog is cute"
+        self.num_layers = num_layers
 
     def load_model(self, dtype_override=None):
         """Load and return the Falcon model instance.
@@ -120,12 +130,17 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **tokenizer_kwargs
         )
 
+        # Load config and optionally limit number of hidden layers
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
         # Load pre-trained model from HuggingFace
-        model_kwargs = {"use_cache": False}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         self.config = model.config
         return model
@@ -180,7 +195,7 @@ class ModelLoader(ForgeModel):
             return (1, 1), ("batch", "model")
 
         # Variant-specific mesh decisions for clarity and robustness
-        if self._variant == ModelVariant.FALCON_MAMBA_7B:
+        if self._variant == ModelVariant.FALCON_3_MAMBA_7B:
             assert (
                 num_devices % 2 == 0
             ), "Mamba requires an even number of devices for (2, N/2) mesh"
@@ -195,8 +210,8 @@ class ModelLoader(ForgeModel):
             mesh_shape = (2, num_devices // 2)
 
         shard_attention = self._variant in [
-            ModelVariant.FALCON_7B,
-            ModelVariant.FALCON_10B,
+            ModelVariant.FALCON_3_7B,
+            ModelVariant.FALCON_3_10B,
         ]
         if shard_attention:
             assert (
@@ -205,7 +220,7 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
-        if self._variant in [ModelVariant.FALCON_1B, ModelVariant.FALCON_3B]:
+        if self._variant in [ModelVariant.FALCON_3_1B, ModelVariant.FALCON_3_3B]:
             return None
 
         shard_specs = {}
@@ -224,7 +239,7 @@ class ModelLoader(ForgeModel):
                 f"Unsupported base container for {type(base).__name__}; expected `layers` or `h`."
             )
 
-        if self._variant in [ModelVariant.FALCON_7B, ModelVariant.FALCON_10B]:
+        if self._variant in [ModelVariant.FALCON_3_7B, ModelVariant.FALCON_3_10B]:
             for layer in layers_container:
                 shard_specs[layer.mlp.up_proj.weight] = ("model", None)
                 shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
@@ -238,7 +253,7 @@ class ModelLoader(ForgeModel):
             for layer in layers_container:
                 shard_specs[layer.mlp.dense_h_to_4h.weight] = ("model", None)
                 shard_specs[layer.mlp.dense_4h_to_h.weight] = (None, "model")
-        elif self._variant == ModelVariant.FALCON_MAMBA_7B:
+        elif self._variant == ModelVariant.FALCON_3_MAMBA_7B:
             for layer in layers_container:
                 shard_specs[layer.mixer.in_proj.weight] = ("model", None)
                 shard_specs[layer.mixer.x_proj.weight] = ("model", None)

@@ -5,7 +5,7 @@
 PHI2 model loader implementation for causal language modeling.
 """
 import torch
-from transformers import PhiForCausalLM, AutoTokenizer
+from transformers import PhiForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -23,8 +23,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available PHI2 model variants."""
 
-    PHI2 = "microsoft/phi-2"
-    PHI2_PYTDML = "microsoft/phi-2-pytdml"
+    PHI_2 = "microsoft/phi-2"
+    PHI_2_PYTDML = "microsoft/phi-2-pytdml"
 
 
 class ModelLoader(ForgeModel):
@@ -32,29 +32,33 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.PHI2: LLMModelConfig(
+        ModelVariant.PHI_2: LLMModelConfig(
             pretrained_model_name="microsoft/phi-2",
         ),
-        ModelVariant.PHI2_PYTDML: LLMModelConfig(
+        ModelVariant.PHI_2_PYTDML: LLMModelConfig(
             pretrained_model_name="microsoft/phi-2-pytdml",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.PHI2
+    DEFAULT_VARIANT = ModelVariant.PHI_2
 
     # Shared configuration parameters
     sample_text = "Write a detailed analogy between mathematics and a lighthouse."
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
         self.tokenizer = None
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -68,7 +72,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         # Determine group and priority based on variant
-        if variant == ModelVariant.PHI2:
+        if variant == ModelVariant.PHI_2:
             group = ModelGroup.RED
         else:
             group = ModelGroup.GENERALITY
@@ -128,7 +132,16 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model = PhiForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
+        # Load config and optionally limit number of hidden layers
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
+        model = PhiForCausalLM.from_pretrained(
+            pretrained_model_name, config=config, **model_kwargs
+        )
 
         return model
 
