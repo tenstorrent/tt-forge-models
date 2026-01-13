@@ -343,9 +343,11 @@ class Detect(nn.Module):
                     ) * self.stride[
                         i
                     ]  # xy
-                    y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i].to(
+                    # Use multiplication instead of ** 2 to avoid metadata extraction issues
+                    y_wh_scaled = y[..., 2:4] * 2
+                    y[..., 2:4] = y_wh_scaled * y_wh_scaled * self.anchor_grid[i].to(
                         x[i].device
-                    )  # wh
+                    )
                 z.append(y.view(bs, -1, self.no))
 
         if self.training:
