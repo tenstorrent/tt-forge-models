@@ -4,24 +4,42 @@
 """
 Mistral Pixtral model loader implementation
 """
-
-
 import torch
-from transformers import LlavaForConditionalGeneration  # , AutoProcessor
+from transformers import LlavaForConditionalGeneration, AutoProcessor
 from ....config import (
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
+    ModelConfig,
 )
+from typing import Optional
 from ....base import ForgeModel
+from ....tools.utils import cast_input_to_type
+
+
+class ModelVariant(StrEnum):
+    """Available Pixtral model variants."""
+
+    PIXTRAL_12B = "pixtral-12b"
 
 
 class ModelLoader(ForgeModel):
     """Pixtral model loader implementation."""
 
-    def __init__(self, variant=None):
+    # Dictionary of available model variants
+    _VARIANTS = {
+        ModelVariant.PIXTRAL_12B: ModelConfig(
+            pretrained_model_name="mistral-community/pixtral-12b",
+        ),
+    }
+
+    # Default variant to use
+    DEFAULT_VARIANT = ModelVariant.PIXTRAL_12B
+
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
@@ -29,13 +47,12 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
-
-        # Configuration parameters
-        self.model_name = "mistral-community/pixtral-12b"
-        # self.processor = None
+        self.processor = None
+        self.model = None
+        self.config = None
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting.
 
         Args:
@@ -44,16 +61,24 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
         return ModelInfo(
-            model="mistral-community/pixtral-12b",
-            variant=variant_name,
+            model="mistral-community",
+            variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.MM_VISUAL_QA,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
+
+    def _load_processor(self, dtype_override=None):
+        """Load processor for the current variant."""
+        kwargs = {}
+        if dtype_override is not None:
+            kwargs["torch_dtype"] = dtype_override
+        self.processor = AutoProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name, **kwargs
+        )
+        return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Mistral Pixtral model instance with default settings.
@@ -66,22 +91,23 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The Mistral Pixtral model instance.
 
         """
-        # self.processor = AutoProcessor.from_pretrained(self.model_name)
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        if self.processor is None:
+            self._load_processor(dtype_override)
 
-        # Load pre-trained model from HuggingFace
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = LlavaForConditionalGeneration.from_pretrained(
-            self.model_name, **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
         self.model = model
         self.config = model.config
         return model
 
-    def load_inputs(self, batch_size=1):
+    def load_inputs(self, batch_size=1, dtype_override=None):
         """Load and return sample inputs for the Mistral Pixtral model with default settings.
 
         Args:
@@ -90,26 +116,33 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
+        if self.processor is None:
+            self._load_processor(dtype_override)
+        url_dog = "https://picsum.photos/id/237/200/300"
+        url_mountain = "https://picsum.photos/seed/picsum/200/300"
+        chat = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "content": "Can this animal"},
+                    {"type": "image"},
+                    {"type": "text", "content": "live here?"},
+                    {"type": "image"},
+                ],
+            }
+        ]
+        prompt = self.processor.apply_chat_template(chat)
+        inputs = self.processor(
+            text=prompt, images=[url_dog, url_mountain], return_tensors="pt"
+        )
 
-        # https://github.com/tenstorrent/tt-torch/issues/904
-        inputs = {
-            "input_ids": torch.tensor(
-                [[1, 3, 12483, 1593, 11386, 10, 51883, 3226, 1063, 10, 4]],
-                dtype=torch.long,
-            ),
-            "attention_mask": torch.tensor(
-                [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], dtype=torch.long
-            ),
-        }
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        # Use repeat_interleave to expand batch dimension
-        inputs = {
-            "input_ids": inputs["input_ids"].repeat_interleave(batch_size, dim=0),
-            "attention_mask": inputs["attention_mask"].repeat_interleave(
-                batch_size, dim=0
-            ),
-        }
-
+        if dtype_override is not None:
+            for key in inputs:
+                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
         return inputs
 
     def get_mesh_config(self, num_devices: int):
