@@ -133,6 +133,23 @@ class ModelInfo:
         """Generate a standardized model identifier"""
         return f"{self.framework}_{self.model}_{self.variant}_{self.task}_{self.source}"
 
+    @property
+    def type(self) -> str:
+        """High-level model type derived from task."""
+        task_value = str(self.task)
+        if (
+            task_value.startswith("cv_")
+            or task_value.startswith("mm_")
+            or "_map_" in task_value
+            or task_value == "conditional_generation"
+        ):
+            return "Vision"
+        if task_value.startswith("nlp_") or task_value.startswith("audio_"):
+            return "Language"
+        if task_value == "atomic_ml":
+            return "Other"
+        return "Unknown"
+
     def to_report_dict(self) -> dict:
         """Represents self as dict suitable for pytest reporting pipeline."""
         return {
@@ -141,6 +158,7 @@ class ModelInfo:
             "framework": str(self.framework),
             "model_arch": self.model,
             "variant_name": str(self.variant),
+            "type": self.type,
         }
 
     def is_easydel(self) -> bool:
