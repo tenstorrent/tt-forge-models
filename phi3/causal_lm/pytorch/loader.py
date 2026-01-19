@@ -76,18 +76,16 @@ class ModelLoader(ForgeModel):
     def load_model(self, dtype_override=None):
         self._ensure_tokenizer()
 
-        # Load config and optionally limit number of hidden layers
-        config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
-        )
+        model_kwargs = {"trust_remote_code": True, "use_cache": False}
         if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, trust_remote_code=True
+            )
             config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            config=config,
-            trust_remote_code=True,
-            use_cache=False,
+            self._variant_config.pretrained_model_name, **model_kwargs
         )
         if dtype_override is not None:
             model = model.to(dtype_override)
