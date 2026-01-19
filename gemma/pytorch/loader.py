@@ -66,11 +66,21 @@ class ModelLoader(ForgeModel):
 
     sample_text = "What is your favorite city?"
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional ModelVariant specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
+        """
         super().__init__(variant)
         self.tokenizer = None
         self.seq_len = None
         self.config = None
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -128,6 +138,12 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
