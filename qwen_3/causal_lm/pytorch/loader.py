@@ -126,13 +126,13 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, dtype_override=None, num_layers=None):
         """Load and return the Qwen 3 model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
-
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         Returns:
             torch.nn.Module: The Qwen 3 model instance for causal language modeling.
         """
@@ -152,6 +152,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        if num_layers is not None:
+            model.model.layers = model.model.layers[:num_layers]
         self.config = model.config
 
         return model
@@ -217,7 +219,7 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
+        # shard_specs[model.lm_head.weight] = ("model", "batch")
 
         return shard_specs
 

@@ -85,8 +85,11 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self):
+    def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
 
         Returns:
             The loaded tokenizer instance
@@ -96,18 +99,22 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, dtype_override=None, num_layers=None):
         """Load and return the gpt-oss model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use bfloat16 as default.
-
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         Returns:
             torch.nn.Module: The gpt-oss model instance for causal language modeling.
         """
         # Load config with modifications
         self.load_config()
+
+        # Ensure tokenizer is loaded
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
 
         # Prepare model kwargs
         model_kwargs = {
@@ -128,6 +135,9 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **model_kwargs
         )
         model.eval()
+
+        if num_layers is not None:
+            model.model.layers = model.model.layers[:num_layers]
 
         return model
 
