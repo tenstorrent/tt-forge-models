@@ -5,7 +5,7 @@
 BERT model loader implementation for sentence embedding generation.
 """
 import torch
-from transformers import BertModel, BertTokenizer
+from transformers import BertModel, BertTokenizer, AutoConfig
 from typing import Optional
 
 from third_party.tt_forge_models.config import (
@@ -42,16 +42,20 @@ class ModelLoader(ForgeModel):
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.EMRECAN_BERT_BASE_TURKISH_CASED_MEAN_NLI_STSB_TR
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
         self.model = None
         self.tokenizer = None
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -106,11 +110,16 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
 
         # Load pre-trained model from HuggingFace
-        model_kwargs = {}
+        model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model = BertModel.from_pretrained(model_name, use_cache=False, **model_kwargs)
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(model_name)
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
+
+        model = BertModel.from_pretrained(model_name, **model_kwargs)
         model.eval()
 
         # Store model for potential use in decode_output
