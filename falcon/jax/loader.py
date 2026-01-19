@@ -15,7 +15,7 @@ from ...config import (
     Framework,
     StrEnum,
     ModelConfig,
-    Parallelism
+    Parallelism,
 )
 from ...base import ForgeModel
 
@@ -164,7 +164,7 @@ class ModelLoader(ForgeModel):
                 max_length=self.max_length,
                 truncation=True,
             )
-                    
+
             inputs_ids = jnp.repeat(input_ids, batch_size, axis=0)
 
         return inputs_ids
@@ -180,7 +180,10 @@ class ModelLoader(ForgeModel):
         Returns:
             PartitionSpec for input activations (sharded on batch dimension)
         """
-        if parallelism.name == Parallelism.TENSOR_PARALLEL.name or np.prod(list(mesh.shape.values())) == 1:
+        if (
+            parallelism.name == Parallelism.TENSOR_PARALLEL.name
+            or np.prod(list(mesh.shape.values())) == 1
+        ):
             return PartitionSpec()
 
         return PartitionSpec(axis_name)
@@ -198,7 +201,10 @@ class ModelLoader(ForgeModel):
         # Get the model state
         state = nnx.split(model_for_multichip)[1]
 
-        if(parallelism.name == Parallelism.DATA_PARALLEL.name or parallelism.name == Parallelism.SINGLE_DEVICE.name):
+        if (
+            parallelism.name == Parallelism.DATA_PARALLEL.name
+            or parallelism.name == Parallelism.SINGLE_DEVICE.name
+        ):
             # In data parallel mode, use fully replicated partitioning
             partition_rules = ((r".*", PartitionSpec()),)
         else:
