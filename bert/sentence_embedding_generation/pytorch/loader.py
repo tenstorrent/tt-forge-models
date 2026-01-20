@@ -110,7 +110,7 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
 
         # Load pre-trained model from HuggingFace
-        model_kwargs = {"use_cache": False}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
