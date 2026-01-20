@@ -129,14 +129,15 @@ class ModelLoader(ForgeModel):
         )
 
         # Load pre-trained model from HuggingFace
-        model_kwargs = {"use_cache": False}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.use_cache = False
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
