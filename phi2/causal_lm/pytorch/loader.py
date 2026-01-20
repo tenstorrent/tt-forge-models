@@ -34,9 +34,11 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.PHI2: LLMModelConfig(
             pretrained_model_name="microsoft/phi-2",
+            max_length=256,
         ),
         ModelVariant.PHI2_PYTDML: LLMModelConfig(
             pretrained_model_name="microsoft/phi-2-pytdml",
+            max_length=256,
         ),
     }
 
@@ -44,7 +46,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.PHI2
 
     # Shared configuration parameters
-    sample_text = "Write a detailed analogy between mathematics and a lighthouse."
+    sample_text = """Artificial intelligence is rapidly transforming many areas of society, offering unprecedented opportunities for innovation. Machine learning algorithms can now analyse vast amounts of data, revealing patterns and insights that were previously impossible to detect. In healthcare, AI is helping doctors diagnose diseases earlier, predict patient outcomes, and design personalized treatment plans. Climate scientists use AI to model complex environmental systems and forecast the effects of climate change with remarkable accuracy. In education, adaptive learning systems provide personalized instruction, catering to each student’s strengths and weaknesses. Businesses leverage AI for smarter decision-making, optimizing operations and improving customer experiences. At the same time, AI raises important ethical questions, such as bias in algorithms, privacy concerns, and the potential displacement of jobs. Responsible governance, transparency, and ethical guidelines are essential to ensure that AI benefits society as a whole. Researchers emphasize collaboration between humans and machines, using AI to augment human capabilities rather than replace them."""
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -149,7 +151,8 @@ class ModelLoader(ForgeModel):
         inputs = self.tokenizer(
             self.sample_text,
             return_tensors="pt",
-            padding=True,
+            max_length=self._variant_config.max_length,
+            padding="max_length",
             truncation=True,
         )
 

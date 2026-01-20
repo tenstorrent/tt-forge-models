@@ -43,9 +43,11 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GEMMA_1_1_2B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_1_1_2B_IT),
+            max_length=256,
         ),
         ModelVariant.GEMMA_1_1_7B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_1_1_7B_IT),
+            max_length=256,
         ),
         ModelVariant.GEMMA_2B: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_2B),
@@ -53,18 +55,21 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GEMMA_2_2B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_2_2B_IT),
+            max_length=256,
         ),
         ModelVariant.GEMMA_2_9B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_2_9B_IT),
+            max_length=256,
         ),
         ModelVariant.GEMMA_2_27B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_2_27B_IT),
+            max_length=256,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_1_1_2B_IT
 
-    sample_text = "What is your favorite city?"
+    sample_text = """Artificial intelligence is rapidly transforming many areas of society, offering unprecedented opportunities for innovation. Machine learning algorithms can now analyse vast amounts of data, revealing patterns and insights that were previously impossible to detect. In healthcare, AI is helping doctors diagnose diseases earlier, predict patient outcomes, and design personalized treatment plans. Climate scientists use AI to model complex environmental systems and forecast the effects of climate change with remarkable accuracy. In education, adaptive learning systems provide personalized instruction, catering to each student’s strengths and weaknesses. Businesses leverage AI for smarter decision-making, optimizing operations and improving customer experiences. At the same time, AI raises important ethical questions, such as bias in algorithms, privacy concerns, and the potential displacement of jobs. Responsible governance, transparency, and ethical guidelines are essential to ensure that AI benefits society as a whole. Researchers emphasize collaboration between humans and machines, using AI to augment human capabilities rather than replace them."""
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -158,7 +163,7 @@ class ModelLoader(ForgeModel):
                 input_prompt,
                 return_tensors="pt",
                 max_length=max_length,
-                padding=True,
+                padding="max_length",
                 truncation=True,
             )
         else:
@@ -176,7 +181,8 @@ class ModelLoader(ForgeModel):
             inputs = self.tokenizer(
                 [input_text],
                 return_tensors="pt",
-                padding=True,
+                max_length=max_length,
+                padding="max_length",
                 truncation=True,
             )
             for key in inputs:

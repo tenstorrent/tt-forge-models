@@ -144,11 +144,7 @@ class ModelLoader(ForgeModel):
             dict: Input tensors (input_ids, attention_mask) and generation_config that can be fed to the model.
         """
 
-        prompt = (
-            "In a shocking finding, scientists discovered a herd of unicorns living in a remote, "
-            "previously unexplored valley, in the Andes Mountains. Even more surprising to the "
-            "researchers was the fact that the unicorns spoke perfect English."
-        )
+        prompt = """Artificial intelligence is rapidly transforming many areas of society, offering unprecedented opportunities for innovation. Machine learning algorithms can now analyse vast amounts of data, revealing patterns and insights that were previously impossible to detect. In healthcare, AI is helping doctors diagnose diseases earlier, predict patient outcomes, and design personalized treatment plans. Climate scientists use AI to model complex environmental systems and forecast the effects of climate change with remarkable accuracy. In education, adaptive learning systems provide personalized instruction, catering to each student’s strengths and weaknesses. Businesses leverage AI for smarter decision-making, optimizing operations and improving customer experiences. At the same time, AI raises important ethical questions, such as bias in algorithms, privacy concerns, and the potential displacement of jobs. Responsible governance, transparency, and ethical guidelines are essential to ensure that AI benefits society as a whole. Researchers emphasize collaboration between humans and machines, using AI to augment human capabilities rather than replace them."""
 
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
@@ -161,7 +157,7 @@ class ModelLoader(ForgeModel):
             prompt,
             return_tensors="pt",
             max_length=max_length,
-            padding=True,
+            padding="max_length",
             truncation=True,
         )
         generation_config = GenerationConfig(
