@@ -24,7 +24,7 @@ from ...config import (
 )
 from ...base import ForgeModel
 from .src.model import Model
-from ...tools.utils import get_file
+from ...tools.utils import get_file, VisionPreprocessor
 
 
 @dataclass
@@ -89,6 +89,20 @@ class ModelLoader(ForgeModel):
         ModelVariant.RETINANET_RESNET50_FPN_V2: "RetinaNet_ResNet50_FPN_V2_Weights",
     }
 
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+        self.model = None
+        self._preprocessor = None
+
+        # Configuration parameters
+        self._cleanup_files = []  # Track files to cleanup
+
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting.
@@ -114,18 +128,6 @@ class ModelLoader(ForgeModel):
             source=source,
             framework=Framework.TORCH,
         )
-
-    def __init__(self, variant=None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional string specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
-        super().__init__(variant)
-
-        # Configuration parameters
-        self._cleanup_files = []  # Track files to cleanup
 
     def _download_nvidia_model(self, variant_name):
         """Download and extract NVIDIA RetinaNet model."""
@@ -183,6 +185,13 @@ class ModelLoader(ForgeModel):
 
         model.eval()
 
+        # Store model for potential use in input preprocessing
+        self.model = model
+
+        # Update preprocessor with cached model if it exists
+        if self._preprocessor is not None:
+            self._preprocessor.set_cached_model(model)
+
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
             if model_name == "retinanet_resnet50_fpn_v2":
@@ -195,67 +204,122 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the RetinaNet model with this instance's variant settings.
+    def input_preprocess(self, dtype_override=None, batch_size=1, image=None):
+        """Preprocess input image(s) and return model-ready input tensor.
 
         Args:
-            dtype_override: Optional torch.dtype to override the inputs' default dtype.
-                           If not provided, inputs will use the default dtype (typically float32).
-                           NOTE: This parameter is currently ignored for retinanet_resnet50_fpn_v2(model always uses float32).
-                           TODO (@ppadjinTT): remove this when torchvision starts supporting torchvision.ops.nms for bfloat16
-            batch_size: Optional batch size to override the default batch size of 1.
+            dtype_override: Optional torch.dtype override (default: float32).
+            batch_size: Batch size (ignored if image is a list).
+            image: PIL Image, URL string, tensor, list of images/URLs, or None (uses default COCO image).
 
         Returns:
-            torch.Tensor: Preprocessed input tensor suitable for RetinaNet.
+            torch.Tensor: Preprocessed input tensor.
         """
-        # Get the pretrained model name  amd source from the instance's variant config
-        source = self._variant_config.source
+        if self._preprocessor is None:
+            model_name = self._variant_config.pretrained_model_name
+            source = self._variant_config.source
+
+            if source == ModelSource.TORCHVISION:
+                # Use torchvision weights transforms
+                weight_name = self._TORCHVISION_WEIGHTS[self._variant]
+                weights = getattr(models.detection, weight_name).DEFAULT
+                preprocess = weights.transforms()
+
+                def custom_preprocess_fn(img: Image.Image) -> torch.Tensor:
+                    return preprocess(img)
+
+                self._preprocessor = VisionPreprocessor(
+                    model_source=ModelSource.CUSTOM,
+                    model_name=model_name,
+                    custom_preprocess_fn=custom_preprocess_fn,
+                    default_image_url="http://images.cocodataset.org/val2017/000000039769.jpg",
+                )
+            elif source == ModelSource.CUSTOM:
+                # Custom preprocessing for NVIDIA RetinaNet models
+                def custom_preprocess_fn(img: Image.Image) -> torch.Tensor:
+                    # Resize to (640, 480) for NVIDIA models
+                    new_size = (640, 480)
+                    img_resized = img.resize(new_size, resample=Image.BICUBIC)
+
+                    preprocess = transforms.Compose(
+                        [
+                            transforms.ToTensor(),
+                            transforms.Normalize(
+                                mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                            ),
+                        ]
+                    )
+                    return preprocess(img_resized)
+
+                self._preprocessor = VisionPreprocessor(
+                    model_source=ModelSource.CUSTOM,
+                    model_name=model_name,
+                    custom_preprocess_fn=custom_preprocess_fn,
+                    default_image_url="https://i.ytimg.com/vi/q71MCWAEfL8/maxresdefault.jpg",
+                )
+
+            if hasattr(self, "model") and self.model is not None:
+                self._preprocessor.set_cached_model(self.model)
+
+        return self._preprocessor.preprocess(
+            image=image,
+            dtype_override=dtype_override,
+            batch_size=batch_size,
+        )
+
+    def load_inputs(self, dtype_override=None, batch_size=1, image=None):
+        """Load and return sample inputs (backward compatibility wrapper for input_preprocess).
+
+        Args:
+            dtype_override: Optional torch.dtype override.
+            batch_size: Batch size (default: 1).
+            image: Optional input image.
+
+        Returns:
+            torch.Tensor: Preprocessed input tensor.
+        """
         model_name = self._variant_config.pretrained_model_name
 
-        if source == ModelSource.TORCHVISION:
-            weight_name = self._TORCHVISION_WEIGHTS[self._variant]
-            weights = getattr(models.detection, weight_name).DEFAULT
-            preprocess = weights.transforms()
+        # Get preprocessed inputs
+        batch_t = self.input_preprocess(
+            image=image,
+            dtype_override=dtype_override,
+            batch_size=batch_size,
+        )
 
-            # Load COCO image
-            input_image = get_file(
-                "http://images.cocodataset.org/val2017/000000039769.jpg"
-            )
-            image = Image.open(str(input_image)).convert("RGB")
-            img_t = preprocess(image)
-            batch_t = torch.unsqueeze(img_t, 0).contiguous()
-        elif source == ModelSource.CUSTOM:
-            url = "https://i.ytimg.com/vi/q71MCWAEfL8/maxresdefault.jpg"
-            pil_img = Image.open(requests.get(url, stream=True).raw)
-            new_size = (640, 480)
-            pil_img = pil_img.resize(new_size, resample=Image.BICUBIC)
-
-            preprocess = transforms.Compose(
-                [
-                    transforms.ToTensor(),
-                    transforms.Normalize(
-                        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                    ),
-                ]
-            )
-
-            img = preprocess(pil_img)
-            batch_t = img.unsqueeze(0)
-
-        # Replicate tensors for batch size
-        batch_t = batch_t.repeat_interleave(batch_size, dim=0)
-
-        # Only convert dtype if explicitly requested
+        # Handle dtype override warnings for torchvision variant
         if dtype_override is not None:
             if model_name == "retinanet_resnet50_fpn_v2":
                 # TODO (@ppadjinTT): remove this when torchvision starts supporting torchvision.ops.nms for bfloat16
                 print(
                     "NOTE: dtype_override ignored - batched_nms lacks BFloat16 support"
                 )
-            else:
-                batch_t = batch_t.to(dtype_override)
 
         return batch_t
+
+    def output_postprocess(self, output):
+        """Post-process model outputs.
+
+        Args:
+            output: Model output tensor from RetinaNet forward pass.
+
+        Returns:
+            dict: Dictionary containing detection results.
+        """
+        # RetinaNet outputs are typically in format: List[Dict[str, Tensor]]
+        # Each dict contains 'boxes', 'scores', 'labels'
+        if isinstance(output, (list, tuple)) and len(output) > 0:
+            # Return structured results
+            return {
+                "output": output,
+                "num_detections": sum(len(det.get("boxes", [])) for det in output),
+            }
+        elif isinstance(output, dict):
+            # If output is already a dict, return it
+            return output
+        else:
+            # Fallback: wrap output in dict
+            return {"output": output}
 
     def cleanup(self):
         """Clean up downloaded files."""
