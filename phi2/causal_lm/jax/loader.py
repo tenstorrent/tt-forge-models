@@ -27,6 +27,7 @@ import numpy as np
 
 class ModelVariant(StrEnum):
     """Available PHI2 model variants."""
+
     PHI2 = "microsoft/phi-2"
     PHI2_PYTDML = "microsoft/phi-2-pytdml"
 
@@ -77,7 +78,9 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
 
         # Configuration parameters
-        self.input_text = "Write a detailed analogy between mathematics and a lighthouse."
+        self.input_text = (
+            "Write a detailed analogy between mathematics and a lighthouse."
+        )
         self.tokenizer = None
         self._model_name = self._variant_config.pretrained_model_name
 
@@ -130,7 +133,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._model_name, **tokenizer_kwargs
         )
-        
+
         # Add pad token if not present
         if self.tokenizer.pad_token is None:
             self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})

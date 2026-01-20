@@ -27,6 +27,7 @@ import numpy as np
 
 class ModelVariant(StrEnum):
     """Available PHI3 model variants."""
+
     MINI_128K = "microsoft/Phi-3-mini-128k-instruct"
     MINI_4K = "microsoft/Phi-3-mini-4k-instruct"
 
@@ -71,7 +72,9 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
 
         # Configuration parameters
-        self.input_text = "Can you provide ways to eat combinations of bananas and dragonfruits?"
+        self.input_text = (
+            "Can you provide ways to eat combinations of bananas and dragonfruits?"
+        )
         self.tokenizer = None
         self._model_name = self._variant_config.pretrained_model_name
 
@@ -124,7 +127,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._model_name, **tokenizer_kwargs
         )
-        
+
         # Add pad token if not present
         if self.tokenizer.pad_token is None:
             self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
@@ -134,7 +137,7 @@ class ModelLoader(ForgeModel):
         text = self.tokenizer.apply_chat_template(
             input_prompt, add_generation_prompt=True, tokenize=False
         )
-        
+
         inputs = self.tokenizer(
             text,
             return_tensors="jax",

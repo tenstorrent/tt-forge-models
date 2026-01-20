@@ -27,6 +27,7 @@ import numpy as np
 
 class ModelVariant(StrEnum):
     """Available PHI1 model variants."""
+
     PHI1 = "microsoft/phi-1"
 
 
@@ -121,7 +122,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._model_name, **tokenizer_kwargs
         )
-        
+
         # Add pad token if not present
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
