@@ -120,6 +120,152 @@ def get_file(path):
     return file_path
 
 
+# =============================================================================
+# Google Drive Utilities
+# =============================================================================
+
+
+def get_gdrive_cache_dir() -> Path:
+    """Get the Google Drive cache directory.
+
+    Returns:
+        Path: The cache directory for Google Drive files
+    """
+    cache_dir = os.environ.get("GDRIVE_CACHE_DIR")
+    if cache_dir:
+        return Path(cache_dir)
+    return Path.home() / ".cache" / "gdrive_models"
+
+
+def get_gdrive_file_cache_path(file_id: str, filename: str = None) -> Path:
+    """Get the cache path for a Google Drive file.
+
+    Args:
+        file_id: Google Drive file ID
+        filename: Optional filename (if not provided, uses file_id)
+
+    Returns:
+        Path: The cache path for the file
+    """
+    cache_dir = get_gdrive_cache_dir()
+    if filename:
+        return cache_dir / f"{file_id}_{filename}"
+    return cache_dir / file_id
+
+
+def is_gdrive_file_cached(file_id: str, filename: str = None) -> bool:
+    """Check if a Google Drive file is cached locally.
+
+    Args:
+        file_id: Google Drive file ID
+        filename: Optional filename
+
+    Returns:
+        bool: True if file is cached, False otherwise
+    """
+    cache_path = get_gdrive_file_cache_path(file_id, filename)
+    return cache_path.exists() and cache_path.stat().st_size > 0
+
+
+def download_from_gdrive(
+    file_id: str,
+    filename: str = None,
+    force_download: bool = False,
+) -> Path:
+    """Download a file from Google Drive with cache-first logic.
+
+    This function checks if the file is already cached locally.
+    If cached, returns the cached path. Otherwise, downloads from Google Drive.
+
+    Args:
+        file_id: Google Drive file ID (from the shareable link)
+        filename: Optional filename to save as
+        force_download: If True, re-download even if cached
+
+    Returns:
+        Path: Path to the downloaded/cached file
+
+    Example:
+        # Google Drive link: https://drive.google.com/file/d/1ABC123xyz/view
+        # file_id is: 1ABC123xyz
+        path = download_from_gdrive("1ABC123xyz", "model_weights.pt")
+    """
+    cache_dir = get_gdrive_cache_dir()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    cache_path = get_gdrive_file_cache_path(file_id, filename)
+
+    # Check cache first
+    if not force_download and is_gdrive_file_cached(file_id, filename):
+        print(f"[GDrive Cache] Loading file '{filename or file_id}' from local cache", flush=True)
+        return cache_path
+
+    print(f"[GDrive Download] Downloading file '{filename or file_id}' from Google Drive...", flush=True)
+
+    # Google Drive direct download URL
+    download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+
+    try:
+        # First request to get confirmation token for large files
+        session = requests.Session()
+        response = session.get(download_url, stream=True, timeout=(15, 300))
+
+        # Check for virus scan warning (large files)
+        for key, value in response.cookies.items():
+            if key.startswith("download_warning"):
+                download_url = f"https://drive.google.com/uc?export=download&confirm={value}&id={file_id}"
+                response = session.get(download_url, stream=True, timeout=(15, 300))
+                break
+
+        response.raise_for_status()
+
+        # Download with progress indication
+        total_size = int(response.headers.get("content-length", 0))
+        downloaded = 0
+
+        with open(cache_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0:
+                        percent = (downloaded / total_size) * 100
+                        print(f"\r[GDrive Download] Progress: {percent:.1f}%", end="", flush=True)
+
+        print(f"\n[GDrive Download] File '{filename or file_id}' downloaded and cached", flush=True)
+        return cache_path
+
+    except Exception as e:
+        # Clean up partial download
+        if cache_path.exists():
+            cache_path.unlink()
+        raise RuntimeError(f"Failed to download from Google Drive: {str(e)}")
+
+
+def load_model_from_gdrive(
+    file_id: str,
+    filename: str = "model_weights.pt",
+    map_location: str = "cpu",
+) -> dict:
+    """Load PyTorch model weights from Google Drive with cache-first logic.
+
+    Args:
+        file_id: Google Drive file ID
+        filename: Filename to save as
+        map_location: Device to load weights to
+
+    Returns:
+        dict: The loaded state dict
+
+    Example:
+        state_dict = load_model_from_gdrive("1ABC123xyz", "gpt2_weights.pt")
+        model.load_state_dict(state_dict)
+    """
+    weights_path = download_from_gdrive(file_id, filename)
+    print(f"[GDrive] Loading weights from {weights_path}", flush=True)
+    return torch.load(weights_path, map_location=map_location, weights_only=True)
+
+
 def load_class_labels(file_path):
     """Load class labels from a JSON or TXT file."""
     if file_path.endswith(".json"):
