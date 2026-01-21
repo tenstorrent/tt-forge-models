@@ -2,19 +2,18 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-YOLOS-Small model loader implementation for object detection.
+DINOv2 model loader implementation for image classification.
 """
 import torch
 from transformers import (
-    YolosImageProcessor,
-    YolosFeatureExtractor,
-    YolosForObjectDetection,
+    AutoImageProcessor,
+    AutoModelForImageClassification,
 )
 from typing import Optional
 from PIL import Image
 
-from ...base import ForgeModel
-from ...config import (
+from ....base import ForgeModel
+from ....config import (
     ModelConfig,
     ModelInfo,
     ModelGroup,
@@ -23,30 +22,34 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import get_file
+from ....tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
-    """Available YOLOS-Small model variants for object detection."""
+    """Available DINOv2 model variants for image classification."""
 
     SMALL = "small"
-    SMALL_DWR = "small_dwr"
-    SMALL_300 = "small_300"
+    BASE = "base"
+    LARGE = "large"
+    GIANT = "giant"
 
 
 class ModelLoader(ForgeModel):
-    """YOLOS model loader implementation for object detection tasks."""
+    """DINOv2 model loader implementation for image classification tasks."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.SMALL: ModelConfig(
-            pretrained_model_name="hustvl/yolos-small",
+            pretrained_model_name="facebook/dinov2-small-imagenet1k-1-layer",
         ),
-        ModelVariant.SMALL_DWR: ModelConfig(
-            pretrained_model_name="hustvl/yolos-small-dwr",
+        ModelVariant.BASE: ModelConfig(
+            pretrained_model_name="facebook/dinov2-base-imagenet1k-1-layer",
         ),
-        ModelVariant.SMALL_300: ModelConfig(
-            pretrained_model_name="hustvl/yolos-small-300",
+        ModelVariant.LARGE: ModelConfig(
+            pretrained_model_name="facebook/dinov2-large-imagenet1k-1-layer",
+        ),
+        ModelVariant.GIANT: ModelConfig(
+            pretrained_model_name="facebook/dinov2-giant-imagenet1k-1-layer",
         ),
     }
 
@@ -83,41 +86,36 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="yolos",
+            model="dinov2",
             variant=variant,
             group=group,
-            task=ModelTask.CV_OBJECT_DET,
+            task=ModelTask.CV_IMAGE_CLS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
     def _load_processor(self):
-        """Load feature extractor or image processor for the current variant.
+        """Load image processor for the current variant.
 
         Returns:
             The loaded processor instance
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Load YolosImageProcessor based on variant
-        if pretrained_model_name == "hustvl/yolos-small-300":
-            self.processor = YolosImageProcessor.from_pretrained(pretrained_model_name)
-        else:
-            self.processor = YolosFeatureExtractor.from_pretrained(
-                pretrained_model_name
-            )
+        # Load AutoImageProcessor
+        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
 
         return self.processor
 
     def load_model(self, dtype_override=None):
-        """Load and return the YOLOS model instance for this instance's variant.
+        """Load and return the DINOv2 model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The YOLOS model instance for object detection.
+            torch.nn.Module: The DINOv2 model instance for image classification.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -127,7 +125,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model = YolosForObjectDetection.from_pretrained(
+        model = AutoModelForImageClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
@@ -135,7 +133,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the YOLOS model with this instance's variant settings.
+        """Load and return sample inputs for the DINOv2 model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -162,6 +160,8 @@ class ModelLoader(ForgeModel):
 
         # Convert the input dtype to dtype_override if specified
         if dtype_override is not None:
-            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+            for key in inputs:
+                if torch.is_tensor(inputs[key]) and inputs[key].dtype.is_floating_point:
+                    inputs[key] = inputs[key].to(dtype_override)
 
         return inputs
