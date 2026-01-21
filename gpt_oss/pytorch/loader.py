@@ -4,8 +4,12 @@
 """
 gpt-oss model loader implementation for causal language modeling tasks.
 """
+import types
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.cache_utils import DynamicCache
+from transformers.masking_utils import create_causal_mask, create_sliding_window_causal_mask
+from transformers.modeling_outputs import MoeModelOutputWithPast
 from typing import Optional
 
 from ...base import ForgeModel
@@ -26,6 +30,72 @@ class ModelVariant(StrEnum):
     GPT_OSS_20B = "gpt_oss_20b"
     GPT_OSS_120B = "gpt_oss_120b"
 
+NUM_LAYERS_TO_RUN = 16  # Number of layers to execute during forward pass
+
+
+def limited_forward(
+    self,
+    input_ids=None,
+    attention_mask=None,
+    position_ids=None,
+    past_key_values=None,
+    inputs_embeds=None,
+    use_cache=None,
+    cache_position=None,
+    **kwargs,
+):
+    if (input_ids is None) ^ (inputs_embeds is not None):
+        raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
+
+    if use_cache and past_key_values is None:
+        past_key_values = DynamicCache(config=self.config)
+
+    if inputs_embeds is None:
+        inputs_embeds = self.embed_tokens(input_ids)
+
+    if cache_position is None:
+        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+        cache_position = torch.arange(
+            past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
+        )
+    if position_ids is None:
+        position_ids = cache_position.unsqueeze(0)
+
+    # It may already have been prepared by e.g. `generate`
+    if not isinstance(causal_mask_mapping := attention_mask, dict):
+        mask_kwargs = {
+            "config": self.config,
+            "input_embeds": inputs_embeds,
+            "attention_mask": attention_mask,
+            "cache_position": cache_position,
+            "past_key_values": past_key_values,
+        }
+        causal_mask_mapping = {
+            "full_attention": create_causal_mask(**mask_kwargs),
+            "sliding_attention": create_sliding_window_causal_mask(**mask_kwargs),
+        }
+
+    hidden_states = inputs_embeds
+    position_embeddings = self.rotary_emb(hidden_states, position_ids)
+
+    # Only iterate through the first NUM_LAYERS_TO_RUN layers
+    for decoder_layer in self.layers[:NUM_LAYERS_TO_RUN]:
+        hidden_states = decoder_layer(
+            hidden_states,
+            attention_mask=causal_mask_mapping[decoder_layer.attention_type],
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
+            cache_position=cache_position,
+            position_embeddings=position_embeddings,
+            **kwargs,
+        )
+
+    hidden_states = self.norm(hidden_states)
+    return MoeModelOutputWithPast(
+        last_hidden_state=hidden_states,
+        past_key_values=past_key_values,
+    )
 
 class ModelLoader(ForgeModel):
     """gpt-oss model loader implementation for causal language modeling tasks."""
@@ -128,6 +198,9 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **model_kwargs
         )
         model.eval()
+
+        # Replace forward to only execute limited layers (uses NUM_LAYERS_TO_RUN constant)
+        model.model.forward = types.MethodType(limited_forward, model.model)
 
         return model
 
