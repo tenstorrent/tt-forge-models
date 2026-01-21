@@ -196,7 +196,14 @@ class ModelLoader(ForgeModel):
         Returns:
             Tuple of (mesh_shape, axis_names)
         """
-        mesh_shape = (1, num_devices)
+        # Support different mesh configurations based on number of devices
+        if num_devices == 32:  # Galaxy
+            mesh_shape = (8, 4)
+        elif num_devices == 8:  # llmbox
+            mesh_shape = (2, 4)
+        else:
+            raise ValueError(f"Gpt-oss is only supported on llmbox and galaxy")
+
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
@@ -210,34 +217,57 @@ class ModelLoader(ForgeModel):
             or None if sharding is not needed for this variant
         """
         shard_specs = {}
+
+        # Embedding and output layerss
+        shard_specs[model.model.embed_tokens.weight] = (None, "batch")
+        shard_specs[model.model.norm.weight] = ("batch",)
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+
+        # Apply tensor parallel sharding to each transformer layer
         for layer in model.model.layers:
-            # Self-attention weights
-            # q_proj, k_proj, v_proj: column-wise sharding
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", None)
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", None)
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", None)
-            # o_proj: row-wise sharding
-            shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
+            # Attention layer sharding
+            # q_proj weight shape: [2880, 4096]
+            # Sharded column-wise (head-parallel): [2880, 4096/num_devices]
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
+
+            # k_proj weight shape: [2880, 512]
+            # Sharded column-wise (head-parallel): [2880, 512/num_devices]
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
+
+            # v_proj weight shape: [2880, 512]
+            # Sharded column-wise (head-parallel): [2880, 512/num_devices]
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
+
+            # o_proj weight shape: [4096, 2880]
+            # Sharded row-wise: [4096/num_devices, 2880]
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            shard_specs[layer.self_attn.o_proj.bias] = ("batch",)
+
+            # sinks shape: [4096]
+            # Local replication per device (row-wise)
             shard_specs[layer.self_attn.sinks] = (None,)
 
-            # MoE MLP components
-            # Router is replicated across all devices
-            shard_specs[layer.mlp.router.weight] = (None, None)
+            # MLP layer sharding
+            # Router weight is replicated with batch sharding
+            shard_specs[layer.mlp.router.weight] = (None, "batch")
 
-            # Expert weights - sharded across the expert dimension
-            # These are 3D tensors with shape (num_experts, hidden_size, intermediate_size)
-            shard_specs[layer.mlp.experts.gate_up_proj] = (
-                "model",
-                None,
-                None,
-            )
+            # Shard experts across devices
+            # For example: 32 experts / 8 devices = 4 experts per device
+            # [num_experts, hidden_size, 2 * expert_dim]
+            shard_specs[layer.mlp.experts.gate_up_proj] = ("model", "batch", None)
+            # [num_experts, 2 * expert_dim]
             shard_specs[layer.mlp.experts.gate_up_proj_bias] = ("model", None)
-            shard_specs[layer.mlp.experts.down_proj] = (
-                "model",
-                None,
-                None,
-            )
-            shard_specs[layer.mlp.experts.down_proj_bias] = ("model", None)
+            # [num_experts, expert_dim, hidden_size]
+            shard_specs[layer.mlp.experts.down_proj] = ("model", None, "batch")
+            # [num_experts, hidden_size]
+            shard_specs[layer.mlp.experts.down_proj_bias] = ("model", "batch")
+
+            # Layer normalization weights
+            shard_specs[layer.input_layernorm.weight] = ("batch",)
+            shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
 
         return shard_specs
 
