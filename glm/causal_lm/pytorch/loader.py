@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Llama model loader implementation for causal language modeling.
+Model loader implementation for causal language modeling.
 """
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
@@ -27,7 +27,7 @@ from ....tools.utils import (
 
 
 class ModelVariant(StrEnum):
-    """Available Llama model variants for causal LM."""
+    """Available model variants for causal LM."""
 
     GLM_4_7 = "GLM-4.7"
     GLM_4_5 = "GLM-4.5"
@@ -35,11 +35,10 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Llama model loader implementation for causal language modeling tasks."""
+    """Model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        # Llama 3 variants
         ModelVariant.GLM_4_7: LLMModelConfig(
             pretrained_model_name="zai-org/GLM-4.7",
             max_length=128,
@@ -118,22 +117,22 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **tokenizer_kwargs
         )
 
-        # Set pad token to eos token for Llama models
+        # Set pad token to eos token for models
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, dtype_override=None, num_layers=None):
-        """Load and return the Llama model instance for this instance's variant.
+        """Load and return the model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
+            num_layers: Optional number of layers to load. If not provided, all layers are loaded.
 
         Returns:
-            torch.nn.Module: The Llama model instance for causal LM.
+            torch.nn.Module: The model instance for causal LM.
         """
-        # num_layers = 1
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -159,7 +158,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Llama model with this instance's variant settings.
+        """Load and return sample inputs for the model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
@@ -284,10 +283,10 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        """Load and return the configuration for the Llama model variant.
+        """Load and return the configuration for the model variant.
 
         Returns:
-            The configuration object for the Llama model.
+            The configuration object for the model.
         """
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
