@@ -187,11 +187,13 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Preprocessed input tensor.
         """
-        return self.input_preprocess(
+        inputs = self.input_preprocess(
             image=image,
             dtype_override=dtype_override,
             batch_size=batch_size,
         )
+        inputs = inputs.contiguous()
+        return inputs
 
     def output_postprocess(
         self,
