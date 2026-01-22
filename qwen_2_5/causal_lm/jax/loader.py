@@ -27,6 +27,7 @@ import numpy as np
 
 class ModelVariant(StrEnum):
     """Available Qwen2.5 model variants for causal language modeling."""
+
     QWEN_2_5_0_5B = "0_5b"
     QWEN_2_5_0_5B_INSTRUCT = "0_5b_instruct"
     QWEN_2_5_1_5B = "1_5b"
@@ -127,9 +128,14 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         # Determine group based on variant size
-        if variant in [ModelVariant.QWEN_2_5_0_5B, ModelVariant.QWEN_2_5_0_5B_INSTRUCT,
-                       ModelVariant.QWEN_2_5_1_5B, ModelVariant.QWEN_2_5_1_5B_INSTRUCT,
-                       ModelVariant.QWEN_2_5_3B, ModelVariant.QWEN_2_5_3B_INSTRUCT]:
+        if variant in [
+            ModelVariant.QWEN_2_5_0_5B,
+            ModelVariant.QWEN_2_5_0_5B_INSTRUCT,
+            ModelVariant.QWEN_2_5_1_5B,
+            ModelVariant.QWEN_2_5_1_5B_INSTRUCT,
+            ModelVariant.QWEN_2_5_3B,
+            ModelVariant.QWEN_2_5_3B_INSTRUCT,
+        ]:
             group = ModelGroup.RED
         else:
             group = ModelGroup.GENERALITY
@@ -201,7 +207,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._model_name, **tokenizer_kwargs
         )
-        
+
         # Add pad token if not present
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
