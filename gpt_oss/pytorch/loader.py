@@ -198,9 +198,9 @@ class ModelLoader(ForgeModel):
         """
         # Support different mesh configurations based on number of devices
         if num_devices == 32:  # Galaxy
-            mesh_shape = (8, 4)  # 8 batch parallel, 4 model parallel
+            mesh_shape = (8, 4)
         elif num_devices == 8:  # llmbox
-            mesh_shape = (1, num_devices)
+            mesh_shape = (2, 4)
         else:
             raise ValueError(f"Gpt-oss is only supported on llmbox and galaxy")
 
