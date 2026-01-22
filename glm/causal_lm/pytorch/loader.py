@@ -29,7 +29,6 @@ from ....tools.utils import (
 class ModelVariant(StrEnum):
     """Available Llama model variants for causal LM."""
 
-
     GLM_4_7 = "GLM-4.7"
     GLM_4_5 = "GLM-4.5"
     GLM_4_5_AIR = "GLM-4.5-Air"
@@ -255,11 +254,11 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
         if num_devices == 32:
-          mesh_shape = (8, 4)
+            mesh_shape = (8, 4)
         elif num_devices == 8:
-          mesh_shape = (4, 2)
+            mesh_shape = (4, 2)
         else:
-          raise ValueError(f"Unsupported number of devices: {num_devices}")
+            raise ValueError(f"Unsupported number of devices: {num_devices}")
 
         return mesh_shape, ("model", "batch")
 
@@ -271,16 +270,16 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.input_layernorm.weight] = ("batch", )
-            shard_specs[layer.post_attention_layernorm.weight] = ("batch", )
+            shard_specs[layer.input_layernorm.weight] = ("batch",)
+            shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model", )
+            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model", )
+            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model", )
+            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.model.norm.weight] = ("batch", )
+        shard_specs[model.model.norm.weight] = ("batch",)
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
