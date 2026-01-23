@@ -72,8 +72,8 @@ class ModelLoader(ForgeModel):
         if variant in [
             ModelVariant.FALCON_1B,
             ModelVariant.FALCON_3B,
-            ModelVariant.FALCON_7B,
-            ModelVariant.FALCON_10B,
+            # ModelVariant.FALCON_7B,
+            # ModelVariant.FALCON_10B,
         ]:
             group = ModelGroup.RED
         else:
