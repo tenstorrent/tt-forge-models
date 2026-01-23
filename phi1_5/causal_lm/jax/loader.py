@@ -137,7 +137,7 @@ class ModelLoader(ForgeModel):
         )
 
         input_ids = jnp.repeat(input_ids, batch_size, axis=0)
-        return input_ids
+        return {"input_ids": input_ids}
 
     def get_input_activations_partition_spec(self, mesh, parallelism, axis_name="X"):
         """Get partition specification for input activations.
@@ -154,9 +154,9 @@ class ModelLoader(ForgeModel):
             parallelism.name == Parallelism.TENSOR_PARALLEL.name
             or np.prod(list(mesh.shape.values())) == 1
         ):
-            return PartitionSpec()
+            return (PartitionSpec(),)
 
-        return PartitionSpec(axis_name)
+        return (PartitionSpec(axis_name),)
 
     def load_parameters_partition_spec(
         self,

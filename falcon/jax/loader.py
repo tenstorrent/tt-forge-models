@@ -30,10 +30,9 @@ class ModelVariant(StrEnum):
 
     FALCON_1B = "tiiuae/Falcon3-1B-Base"
     FALCON_3B = "tiiuae/Falcon3-3B-Base"
-    FALCON_7B = "tiiuae/Falcon3-7B-Base"
-    FALCON_10B = "tiiuae/Falcon3-10B-Base"
-    FALCON_MAMBA_7B = "tiiuae/Falcon3-Mamba-7B-Base"
-    FALCON_7B_INSTRUCT = "tiiuae/falcon-7b-instruct"
+    ## Too large
+    # FALCON_7B = "tiiuae/Falcon3-7B-Base"
+    # FALCON_10B = "tiiuae/Falcon3-10B-Base"
 
 
 class ModelLoader(ForgeModel):
@@ -47,18 +46,12 @@ class ModelLoader(ForgeModel):
         ModelVariant.FALCON_3B: ModelConfig(
             pretrained_model_name="tiiuae/Falcon3-3B-Base",
         ),
-        ModelVariant.FALCON_7B: ModelConfig(
-            pretrained_model_name="tiiuae/Falcon3-7B-Base",
-        ),
-        ModelVariant.FALCON_10B: ModelConfig(
-            pretrained_model_name="tiiuae/Falcon3-10B-Base",
-        ),
-        ModelVariant.FALCON_MAMBA_7B: ModelConfig(
-            pretrained_model_name="tiiuae/Falcon3-Mamba-7B-Base",
-        ),
-        ModelVariant.FALCON_7B_INSTRUCT: ModelConfig(
-            pretrained_model_name="tiiuae/falcon-7b-instruct",
-        ),
+        # ModelVariant.FALCON_7B: ModelConfig(
+        #     pretrained_model_name="tiiuae/Falcon3-7B-Base",
+        # ),
+        # ModelVariant.FALCON_10B: ModelConfig(
+        #     pretrained_model_name="tiiuae/Falcon3-10B-Base",
+        # ),
     }
 
     # Default variant to use
@@ -102,7 +95,6 @@ class ModelLoader(ForgeModel):
         self.input_text_1 = "Write a function to calculate the factorial of a number"
         self.max_length = 512
         self.tokenizer = None
-        self.input_text_2 = "Hello, my dog is cute"
         self._model_name = self._variant_config.pretrained_model_name
 
     def load_model(self, dtype_override=None):
@@ -153,21 +145,17 @@ class ModelLoader(ForgeModel):
             self._model_name, **tokenizer_kwargs
         )
 
-        if self._variant == ModelVariant.FALCON_7B_INSTRUCT:
-            inputs = self.tokenizer(self.input_text_2, return_tensors="jax")
-            input_ids = jnp.repeat(inputs.input_ids, batch_size, axis=0)
-        else:
-            input_ids = self.tokenizer.encode(
-                self.input_text_1,
-                add_special_tokens=True,
-                return_tensors="jax",
-                max_length=self.max_length,
-                truncation=True,
-            )
+        input_ids = self.tokenizer.encode(
+            self.input_text_1,
+            add_special_tokens=True,
+            return_tensors="jax",
+            max_length=self.max_length,
+            truncation=True,
+        )
 
-            inputs_ids = jnp.repeat(input_ids, batch_size, axis=0)
+        input_ids = jnp.repeat(input_ids, batch_size, axis=0)
 
-        return inputs_ids
+        return {"input_ids": input_ids}
 
     def get_input_activations_partition_spec(self, mesh, parallelism, axis_name="X"):
         """Get partition specification for input activations.
@@ -184,9 +172,9 @@ class ModelLoader(ForgeModel):
             parallelism.name == Parallelism.TENSOR_PARALLEL.name
             or np.prod(list(mesh.shape.values())) == 1
         ):
-            return PartitionSpec()
+            return (PartitionSpec(),)
 
-        return PartitionSpec(axis_name)
+        return (PartitionSpec(axis_name),)
 
     def load_parameters_partition_spec(
         self,
