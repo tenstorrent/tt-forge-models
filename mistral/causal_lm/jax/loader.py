@@ -218,10 +218,12 @@ class ModelLoader(ForgeModel):
         Returns:
             PartitionSpec for input activations (sharded on batch dimension)
         """
-
-        if parallelism.name == Parallelism.TENSOR_PARALLEL.name or np.prod(list(mesh.shape.values())) == 1:
+        if (
+            parallelism.name == Parallelism.TENSOR_PARALLEL.name
+            or np.prod(list(mesh.shape.values())) == 1
+        ):
             return (PartitionSpec(),)
-
+        
         return (PartitionSpec(axis_name),)
 
     def load_parameters_partition_spec(
@@ -237,16 +239,19 @@ class ModelLoader(ForgeModel):
         # Get the model state
         state = nnx.split(model_for_multichip)[1]
 
-        if(parallelism.name == Parallelism.DATA_PARALLEL.name or parallelism.name == Parallelism.SINGLE_DEVICE.name):
+        if (
+            parallelism.name == Parallelism.DATA_PARALLEL.name
+            or parallelism.name == Parallelism.SINGLE_DEVICE.name
+        ):
             # In data parallel mode, use fully replicated partitioning
             partition_rules = ((r".*", PartitionSpec()),)
         else:
             # Use EasyDel's MistralConfig to get proper partition rules
             from easydel.modules.mistral import MistralConfig
-            
+
             mistral_config = MistralConfig()
             partition_rules = mistral_config.get_partition_rules()
-            
+
             # # Override lm_head/kernel to use replicated partitioning instead of ('fsdp', 'sp'), 'tp'
             # partition_rules = list(partition_rules)  # Convert to mutable list
             # for i, (pattern, spec) in enumerate(partition_rules):
@@ -254,12 +259,9 @@ class ModelLoader(ForgeModel):
             #         partition_rules[i] = (pattern, PartitionSpec())
             #         break
             # partition_rules = tuple(partition_rules)  # Convert back to tuple
-            
 
         from infra.utilities import make_easydel_parameters_partition_specs
 
         return make_easydel_parameters_partition_specs(
             model_state=state, partition_rules=partition_rules, axis_name=axis_name
         )
-
-

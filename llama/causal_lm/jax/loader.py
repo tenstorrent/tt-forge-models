@@ -183,8 +183,10 @@ class ModelLoader(ForgeModel):
         Returns:
             PartitionSpec for input activations (sharded on batch dimension)
         """
-        
-        if parallelism.name == Parallelism.TENSOR_PARALLEL.name or np.prod(list(mesh.shape.values())) == 1:
+        if (
+            parallelism.name == Parallelism.TENSOR_PARALLEL.name
+            or np.prod(list(mesh.shape.values())) == 1
+        ):
             return (PartitionSpec(),)
 
         return (PartitionSpec(axis_name),)
@@ -202,7 +204,10 @@ class ModelLoader(ForgeModel):
         # Get the model state
         state = nnx.split(model_for_multichip)[1]
 
-        if(parallelism.name == Parallelism.DATA_PARALLEL.name or parallelism.name == Parallelism.SINGLE_DEVICE.name):
+        if (
+            parallelism.name == Parallelism.DATA_PARALLEL.name
+            or parallelism.name == Parallelism.SINGLE_DEVICE.name
+        ):
             # In data parallel mode, use fully replicated partitioning
             partition_rules = ((r".*", PartitionSpec()),)
         else:
@@ -217,4 +222,3 @@ class ModelLoader(ForgeModel):
         return make_easydel_parameters_partition_specs(
             model_state=state, partition_rules=partition_rules, axis_name=axis_name
         )
-
