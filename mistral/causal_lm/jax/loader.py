@@ -252,14 +252,6 @@ class ModelLoader(ForgeModel):
             mistral_config = MistralConfig()
             partition_rules = mistral_config.get_partition_rules()
 
-            # # Override lm_head/kernel to use replicated partitioning instead of ('fsdp', 'sp'), 'tp'
-            # partition_rules = list(partition_rules)  # Convert to mutable list
-            # for i, (pattern, spec) in enumerate(partition_rules):
-            #     if pattern == 'lm_head/kernel':
-            #         partition_rules[i] = (pattern, PartitionSpec())
-            #         break
-            # partition_rules = tuple(partition_rules)  # Convert back to tuple
-
         from infra.utilities import make_easydel_parameters_partition_specs
 
         return make_easydel_parameters_partition_specs(
