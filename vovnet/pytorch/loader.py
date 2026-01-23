@@ -4,6 +4,7 @@
 """
 VovNet model loader implementation
 """
+
 from typing import Optional
 
 import torch
@@ -153,7 +154,8 @@ class ModelLoader(ForgeModel):
         source = cfg.source
 
         if source == ModelSource.OSMR:
-            model = ptcv_get_model(model_name, pretrained=True)
+            # Use randomly initialized weights (no pretrained download)
+            model = ptcv_get_model(model_name, pretrained=False)
         elif source == ModelSource.TIMM:
             model, _ = download_model(preprocess_timm_model, model_name)
         elif source == ModelSource.TORCH_HUB:
