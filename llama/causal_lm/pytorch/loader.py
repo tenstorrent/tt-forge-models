@@ -227,6 +227,12 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Llama model instance for causal LM.
         """
+        if num_layers is None:
+            import os
+
+            if "NUM_LAYERS" in os.environ:
+                num_layers = int(os.environ["NUM_LAYERS"])
+
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -346,7 +352,7 @@ class ModelLoader(ForgeModel):
         return answer
 
     def get_mesh_config(self, num_devices: int):
-        if self._variant in [
+        if True or self._variant in [
             ModelVariant.LLAMA_3_1_70B,
             ModelVariant.LLAMA_3_1_70B_INSTRUCT,
         ]:
