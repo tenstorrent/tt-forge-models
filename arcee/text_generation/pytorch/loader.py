@@ -106,7 +106,6 @@ class ModelLoader(ForgeModel):
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
-        print("pretrained_model_name", pretrained_model_name)
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -120,9 +119,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         self.config = model.config
-        print("config", self.config)
         model.eval()
-        print("model", model)
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -161,7 +158,6 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-        print("inputs", inputs)
         return inputs
 
     def get_mesh_config(self, num_devices: int):
@@ -200,10 +196,10 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        """Load and return the configuration for the Olmo 3 model variant.
+        """Load and return the configuration for the Arcee model variant.
 
         Returns:
-            The configuration object for the Olmo 3 model.
+            The configuration object for the Arcee model.
         """
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
