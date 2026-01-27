@@ -176,7 +176,9 @@ class ModelLoader(ForgeModel):
         )
         return inputs
 
-    def get_input_activations_partition_spec(self, mesh, axis_name="X"):
+    def get_input_activations_partition_spec(
+        self, mesh, axis_name="X", parallelism=None
+    ):
         """Get partition specification for input activations.
 
         Args:
@@ -198,6 +200,7 @@ class ModelLoader(ForgeModel):
         input_activations_partition_specs=None,
         inputs=None,
         dtype_override=None,
+        parallelism=None,
     ):
         # Get the model state
         state = nnx.split(model_for_multichip)[1]

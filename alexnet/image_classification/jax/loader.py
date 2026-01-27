@@ -230,6 +230,7 @@ class ModelLoader(ForgeModel):
         input_activations_partition_specs=None,
         inputs=None,
         dtype_override=None,
+        parallelism=None,
     ):
         """Load and return parameter partition specifications for multi-chip configurations.
 
@@ -302,7 +303,9 @@ class ModelLoader(ForgeModel):
             param_dtype=param_dtype,
         )
 
-    def get_input_activations_partition_spec(self, mesh, axis_name="X"):
+    def get_input_activations_partition_spec(
+        self, mesh, axis_name="X", parallelism=None
+    ):
         """Get partition specification for input activations.
 
         Args:
