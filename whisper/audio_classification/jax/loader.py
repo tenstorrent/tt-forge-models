@@ -176,7 +176,9 @@ class ModelLoader(ForgeModel):
         )
         return inputs
 
-    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None):
+    def get_input_activations_partition_spec(
+        self, mesh, axis_name="X", parallelism=None
+    ):
         """Get partition specification for input activations.
 
         Args:
