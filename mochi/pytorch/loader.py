@@ -2,7 +2,17 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Mochi VAE model loader for tt_forge_models."""
+"""
+Mochi model loader for tt_forge_models.
+
+Mochi is a video generation model by Genmo with ~10B transformer + VAE.
+Repository: https://huggingface.co/genmo/mochi-1-preview
+
+Available subfolders:
+- vae: AutoencoderKLMochi
+- transformer: MochiTransformer3DModel (~10B params, 40.1GB)
+- text_encoder: T5EncoderModel (T5-XXL)
+"""
 
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -19,12 +29,24 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from .src.vae_utils import normalize_latents
+from .src.utils import (
+    load_pipeline,
+    load_vae,
+    load_transformer,
+    load_text_encoder,
+    load_vae_encoder_inputs,
+    load_vae_decoder_inputs,
+    load_transformer_inputs,
+    load_text_encoder_inputs,
+)
+
+# Supported subfolders for loading individual components
+SUPPORTED_SUBFOLDERS = {"vae", "transformer", "text_encoder"}
 
 
 @dataclass
-class MochiVAEConfig(ModelConfig):
-    """Configuration for Mochi VAE variants."""
+class MochiConfig(ModelConfig):
+    """Configuration for Mochi variants."""
 
     source: ModelSource
     enable_tiling: bool = False
@@ -35,34 +57,35 @@ class MochiVAEConfig(ModelConfig):
 
 
 class ModelVariant(StrEnum):
-    """Available Mochi VAE variants."""
+    """Available Mochi variants."""
 
-    MOCHI_VAE_DECODER = "mochi_vae_decoder"
-    MOCHI_VAE_DECODER_TILED = "mochi_vae_decoder_tiled"
+    MOCHI = "mochi"
+    MOCHI_TILED = "mochi_tiled"
 
 
 class ModelLoader(ForgeModel):
     """
-    Loader for Mochi VAE decoder model.
+    Loader for Mochi model.
 
-    Mochi is a video generation model with a VAE that compresses video frames
-    into latent representations. The decoder takes latents [B, 12, t, h, w] and
-    produces RGB video frames [B, 3, T, H, W] with:
-    - 6x temporal expansion
-    - 8x8 spatial expansion
+    Mochi is a video generation model (~10B transformer + VAE). This loader supports:
+    - Loading the full pipeline (subfolder=None)
+    - Loading specific components via subfolder:
+        - 'vae': AutoencoderKLMochi (~362M encoder + 1.45GB decoder)
+        - 'transformer': MochiTransformer3DModel (~10B params)
+        - 'text_encoder': T5EncoderModel (T5-XXL)
 
     Variants:
-    - MOCHI_VAE_DECODER: Non-tiled decoder (memory intensive)
-    - MOCHI_VAE_DECODER_TILED: Tiled decoder (memory efficient)
+    - MOCHI: Non-tiled mode
+    - MOCHI_TILED: Tiled mode (memory efficient for VAE)
     """
 
     _VARIANTS = {
-        ModelVariant.MOCHI_VAE_DECODER: MochiVAEConfig(
+        ModelVariant.MOCHI: MochiConfig(
             pretrained_model_name="genmo/mochi-1-preview",
             source=ModelSource.HUGGING_FACE,
             enable_tiling=False,
         ),
-        ModelVariant.MOCHI_VAE_DECODER_TILED: MochiVAEConfig(
+        ModelVariant.MOCHI_TILED: MochiConfig(
             pretrained_model_name="genmo/mochi-1-preview",
             source=ModelSource.HUGGING_FACE,
             enable_tiling=True,
@@ -73,7 +96,28 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.MOCHI_VAE_DECODER
+    DEFAULT_VARIANT = ModelVariant.MOCHI
+
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, subfolder: Optional[str] = None
+    ):
+        """
+        Initialize the model loader.
+
+        Args:
+            variant: Model variant to load
+            subfolder: Optional subfolder to load specific component:
+                - None: Load full MochiPipeline
+                - 'vae': Load AutoencoderKLMochi
+                - 'transformer': Load MochiTransformer3DModel (~10B params)
+                - 'text_encoder': Load T5EncoderModel (T5-XXL)
+        """
+        super().__init__(variant)
+        if subfolder is not None and subfolder not in SUPPORTED_SUBFOLDERS:
+            raise ValueError(
+                f"Unknown subfolder: {subfolder}. Supported: {SUPPORTED_SUBFOLDERS}"
+            )
+        self._subfolder = subfolder
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -81,7 +125,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="mochi_vae",
+            model="mochi",
             variant=variant,
             group=ModelGroup.PRIORITY,
             task=ModelTask.MM_VIDEO_TTT,  # Video generation task
@@ -89,88 +133,72 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None) -> torch.nn.Module:
-        """
-        Load Mochi VAE decoder model.
-
-        Args:
-            dtype_override: Optional dtype override (e.g., torch.bfloat16)
-
-        Returns:
-            For tiled variant: Full VAE model with tiling enabled
-            For non-tiled variant: VAE decoder module only
-        """
-        from diffusers import AutoencoderKLMochi
-
+    def load_model(self, dtype_override=None):
         config = self._variant_config
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        # Load VAE from HuggingFace (subfolder='vae' gets ~362M params, not full 11B)
-        vae = AutoencoderKLMochi.from_pretrained(
-            config.pretrained_model_name, subfolder="vae", torch_dtype=dtype
-        )
-
-        if config.enable_tiling:
-            # Enable tiling for memory efficiency
-            vae.enable_tiling(
+        if self._subfolder is None:
+            return load_pipeline(
+                config.pretrained_model_name,
+                dtype,
+                enable_tiling=config.enable_tiling,
                 tile_sample_min_height=config.tile_sample_min_height,
                 tile_sample_min_width=config.tile_sample_min_width,
                 tile_sample_stride_height=config.tile_sample_stride_height,
                 tile_sample_stride_width=config.tile_sample_stride_width,
             )
-            # Keep all temporal frames
-            vae.drop_last_temporal_frames = False
-            model = vae
+        elif self._subfolder == "vae":
+            return load_vae(
+                config.pretrained_model_name,
+                dtype,
+                enable_tiling=config.enable_tiling,
+                tile_sample_min_height=config.tile_sample_min_height,
+                tile_sample_min_width=config.tile_sample_min_width,
+                tile_sample_stride_height=config.tile_sample_stride_height,
+                tile_sample_stride_width=config.tile_sample_stride_width,
+            )
+        elif self._subfolder == "transformer":
+            return load_transformer(config.pretrained_model_name, dtype)
+        elif self._subfolder == "text_encoder":
+            return load_text_encoder(config.pretrained_model_name, dtype)
         else:
-            # Use decoder module directly for non-tiled execution
-            model = vae.decoder
+            raise ValueError(f"Unknown subfolder: {self._subfolder}")
 
-        model.eval()
-        return model
-
-    def load_inputs(self, dtype_override=None, **kwargs) -> torch.Tensor:
-        """
-        Load sample inputs for Mochi VAE decoder.
-
-        Returns normalized latent tensor of shape [1, 12, 2, 16, 16] which
-        will produce output shape [1, 3, 12, 128, 128] after decoding:
-        - 12 latent channels
-        - 2 frames -> 12 frames (6x temporal expansion)
-        - 16x16 spatial -> 128x128 (8x8 spatial expansion)
-
-        Args:
-            dtype_override: Optional dtype override (e.g., torch.bfloat16)
-
-        Returns:
-            Normalized latent tensor ready for decoder input
-        """
+    def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        # [batch, channels, time, height, width]
-        latent = torch.randn(1, 12, 2, 16, 16, dtype=dtype)
-
-        latent_normalized = normalize_latents(latent, dtype=dtype)
-
-        return latent_normalized
+        if self._subfolder == "vae":
+            # in kwards we should have vae_type as "decoder" or "encoder"
+            if kwargs.get("vae_type") == "decoder":
+                return load_vae_decoder_inputs(dtype)
+            elif kwargs.get("vae_type") == "encoder":
+                return load_vae_encoder_inputs(dtype)
+            else:
+                raise ValueError(f"Unknown vae_type: {kwargs.get('vae_type')}")
+        elif self._subfolder == "transformer":
+            return load_transformer_inputs(dtype)
+        elif self._subfolder == "text_encoder":
+            return load_text_encoder_inputs(dtype)
+        else:
+            raise RuntimeError(
+                "Full pipeline is currently not supported for input loading"
+            )
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:
         """
         Unpack model output to extract tensor.
 
-        For tiled execution, output is an object with .sample attribute.
-        For non-tiled execution, output is tuple (output, conv_cache) where output is a tensor.
-
         Args:
             output: Model forward pass output
 
         Returns:
-            Output tensor of shape [B, 3, T, H, W]
+            Output tensor
         """
         if hasattr(output, "sample"):
-            # Tiled decoder returns object with .sample attribute
             return output.sample
-        else:
-            # Non-tiled decoder returns tensor directly
-            if isinstance(output, tuple):
-                return output[0]
-            return output
+        elif hasattr(output, "last_hidden_state"):
+            # T5EncoderModel output
+            return output.last_hidden_state
+        elif isinstance(output, tuple):
+            return output[0]
+        return output
