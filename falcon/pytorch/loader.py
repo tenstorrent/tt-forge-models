@@ -101,7 +101,7 @@ class ModelLoader(ForgeModel):
         self.config = None
         self.input_text_2 = "Hello, my dog is cute"
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Falcon model instance.
 
         Args:
@@ -124,6 +124,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
