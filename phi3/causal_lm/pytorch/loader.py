@@ -73,7 +73,7 @@ class ModelLoader(ForgeModel):
             if self.tokenizer.pad_token is None:
                 self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         self._ensure_tokenizer()
 
         model_kwargs = {"trust_remote_code": True, "use_cache": False}
@@ -83,6 +83,7 @@ class ModelLoader(ForgeModel):
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs

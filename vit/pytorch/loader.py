@@ -127,7 +127,7 @@ class ModelLoader(ForgeModel):
         self._preprocessor = None
         self._postprocessor = None
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the ViT model instance for this instance's variant.
 
         Args:
@@ -143,7 +143,7 @@ class ModelLoader(ForgeModel):
 
         if source == ModelSource.HUGGING_FACE:
             # Load model from HuggingFace
-            model = ViTForImageClassification.from_pretrained(model_name)
+            model = ViTForImageClassification.from_pretrained(model_name, **kwargs)
 
         elif source == ModelSource.TORCHVISION:
             # Load model from torchvision
