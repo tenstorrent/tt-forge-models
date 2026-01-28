@@ -112,7 +112,7 @@ class ModelLoader(ForgeModel):
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Gemma model instance for this instance's variant.
 
         Args:
@@ -128,6 +128,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )

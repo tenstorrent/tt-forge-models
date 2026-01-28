@@ -63,12 +63,15 @@ class ModelLoader(ForgeModel):
             if self.tokenizer.pad_token is None:
                 self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         self._ensure_tokenizer()
+        model_kwargs = {
+            "trust_remote_code": True,
+            "use_cache": False,
+        }
+        model_kwargs |= kwargs
         model = AutoModelForCausalLM.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            use_cache=False,
+            self._variant_config.pretrained_model_name, **model_kwargs
         )
         if dtype_override is not None:
             model = model.to(dtype_override)

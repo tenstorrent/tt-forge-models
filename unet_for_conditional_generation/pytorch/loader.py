@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the UNet for Conditional Generation model instance for this instance's variant.
 
         Args:
@@ -62,11 +62,15 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override or torch.bfloat16
 
+        model_kwargs = {
+            "subfolder": "unet",
+            "torch_dtype": dtype,
+            "variant": "fp16",
+        }
+        model_kwargs |= kwargs
+
         model = UNet2DConditionModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            subfolder="unet",
-            torch_dtype=dtype,
-            variant="fp16",
+            self._variant_config.pretrained_model_name, **model_kwargs
         )
 
         self.in_channels = model.in_channels

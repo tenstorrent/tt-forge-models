@@ -181,7 +181,7 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Mistral model instance for this instance's variant.
 
         Args:
@@ -201,6 +201,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         # Load pre-trained model from HuggingFace
         if self._variant in self._USE_Mistral3ForConditionalGeneration_VARIANTS:
