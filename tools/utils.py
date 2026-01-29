@@ -120,6 +120,188 @@ def get_file(path):
     return file_path
 
 
+def get_huggingface_model_cache_dir(model_name: str) -> Path:
+    """Get the HuggingFace cache directory for a given model.
+
+    This function determines where HuggingFace models are cached based on
+    environment variables and returns the expected cache path for the model.
+
+    Args:
+        model_name: HuggingFace model identifier (e.g., "microsoft/phi-1")
+
+    Returns:
+        Path: The cache directory path for the model
+    """
+    # Get HF cache directory from environment or use default
+    hf_home = os.environ.get("HF_HOME")
+    if not hf_home:
+        hf_cache = os.environ.get("HUGGINGFACE_HUB_CACHE")
+        if not hf_cache:
+            hf_home = os.path.expanduser("~/.cache/huggingface")
+            hf_cache = os.path.join(hf_home, "hub")
+    else:
+        hf_cache = os.path.join(hf_home, "hub")
+
+    # HuggingFace stores models in a format like: models--org--model-name
+    model_folder = "models--" + model_name.replace("/", "--")
+    return Path(hf_cache) / model_folder
+
+
+def is_huggingface_model_cached(model_name: str) -> bool:
+    """Check if a HuggingFace model is available in the local cache.
+
+    This function checks if the model has been previously downloaded and
+    cached by HuggingFace transformers library.
+
+    Args:
+        model_name: HuggingFace model identifier (e.g., "microsoft/phi-1")
+
+    Returns:
+        bool: True if the model is cached and usable, False otherwise
+    """
+    cache_dir = get_huggingface_model_cache_dir(model_name)
+
+    if not cache_dir.exists():
+        return False
+
+    # Check for snapshots directory which indicates successful download
+    snapshots_dir = cache_dir / "snapshots"
+    if not snapshots_dir.exists():
+        return False
+
+    # Check if there's at least one snapshot with model files
+    try:
+        for snapshot in snapshots_dir.iterdir():
+            if snapshot.is_dir():
+                # Look for common model files that indicate a complete download
+                has_config = (snapshot / "config.json").exists()
+                has_model = any(
+                    (snapshot / f).exists()
+                    for f in [
+                        "model.safetensors",
+                        "pytorch_model.bin",
+                        "model.safetensors.index.json",
+                        "pytorch_model.bin.index.json",
+                    ]
+                )
+                if has_config and has_model:
+                    return True
+    except (PermissionError, OSError):
+        return False
+
+    return False
+
+
+def load_huggingface_model(
+    model_class,
+    model_name: str,
+    trust_remote_code: bool = False,
+    **kwargs,
+):
+    """Load a HuggingFace model, using cache if available.
+
+    This function first checks if the model is available in the HuggingFace cache.
+    If cached, it loads from cache (offline mode). Otherwise, it downloads from
+    HuggingFace Hub. On subsequent runs, the cached model will be used automatically.
+
+    Args:
+        model_class: The HuggingFace model class to use (e.g., AutoModelForCausalLM)
+        model_name: HuggingFace model identifier (e.g., "microsoft/phi-1")
+        trust_remote_code: Whether to trust remote code for custom models
+        **kwargs: Additional arguments passed to from_pretrained()
+
+    Returns:
+        The loaded model instance
+
+    Example:
+        from transformers import AutoModelForCausalLM
+        model = load_huggingface_model(
+            AutoModelForCausalLM,
+            "microsoft/phi-1",
+            torch_dtype=torch.float16
+        )
+    """
+    is_cached = is_huggingface_model_cached(model_name)
+
+    if is_cached:
+        print(f"[HF Cache] Loading model '{model_name}' from local cache (no download needed)", flush=True)
+        try:
+            model = model_class.from_pretrained(
+                model_name,
+                local_files_only=True,
+                trust_remote_code=trust_remote_code,
+                **kwargs,
+            )
+            print(f"[HF Cache] Model '{model_name}' loaded successfully from cache", flush=True)
+            return model
+        except Exception as e:
+            print(f"[HF Cache] Warning: Failed to load from cache, will download: {e}", flush=True)
+            # Fall through to download
+
+    print(f"[HF Download] Downloading model '{model_name}' from HuggingFace Hub...", flush=True)
+    model = model_class.from_pretrained(
+        model_name,
+        trust_remote_code=trust_remote_code,
+        **kwargs,
+    )
+    print(f"[HF Download] Model '{model_name}' downloaded and cached for future use", flush=True)
+    return model
+
+
+def load_huggingface_tokenizer(
+    tokenizer_class,
+    model_name: str,
+    trust_remote_code: bool = False,
+    **kwargs,
+):
+    """Load a HuggingFace tokenizer, using cache if available.
+
+    This function first checks if the tokenizer is available in the HuggingFace cache.
+    If cached, it loads from cache (offline mode). Otherwise, it downloads from
+    HuggingFace Hub. On subsequent runs, the cached tokenizer will be used automatically.
+
+    Args:
+        tokenizer_class: The HuggingFace tokenizer class to use (e.g., AutoTokenizer)
+        model_name: HuggingFace model identifier (e.g., "microsoft/phi-1")
+        trust_remote_code: Whether to trust remote code for custom tokenizers
+        **kwargs: Additional arguments passed to from_pretrained()
+
+    Returns:
+        The loaded tokenizer instance
+
+    Example:
+        from transformers import AutoTokenizer
+        tokenizer = load_huggingface_tokenizer(
+            AutoTokenizer,
+            "microsoft/phi-1"
+        )
+    """
+    is_cached = is_huggingface_model_cached(model_name)
+
+    if is_cached:
+        print(f"[HF Cache] Loading tokenizer '{model_name}' from local cache", flush=True)
+        try:
+            tokenizer = tokenizer_class.from_pretrained(
+                model_name,
+                local_files_only=True,
+                trust_remote_code=trust_remote_code,
+                **kwargs,
+            )
+            return tokenizer
+        except Exception as e:
+            print(f"[HF Cache] Warning: Failed to load tokenizer from cache, will download: {e}", flush=True)
+            # Fall through to download
+
+    print(f"[HF Download] Downloading tokenizer '{model_name}' from HuggingFace Hub...", flush=True)
+    tokenizer = tokenizer_class.from_pretrained(
+        model_name,
+        trust_remote_code=trust_remote_code,
+        **kwargs,
+    )
+    print(f"[HF Download] Tokenizer '{model_name}' downloaded and cached for future use", flush=True)
+    return tokenizer
+
+
 def load_class_labels(file_path):
     """Load class labels from a JSON or TXT file."""
     if file_path.endswith(".json"):
