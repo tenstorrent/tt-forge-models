@@ -76,7 +76,7 @@ class ModelLoader(ForgeModel):
         self.model = None
         self._preprocessor = None
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the YOLOv3 model instance with default settings.
 
         Args:

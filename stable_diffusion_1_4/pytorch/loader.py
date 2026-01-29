@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Stable Diffusion pipeline from Hugging Face.
 
         Args:
@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override or torch.bfloat16
         pipe = StableDiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, torch_dtype=dtype
+            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
         )
         return pipe
 

@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MPLUG-Owl2 model instance for this instance's variant.
 
         Args:

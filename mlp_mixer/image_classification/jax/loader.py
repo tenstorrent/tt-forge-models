@@ -86,7 +86,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.JAX,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MLP Mixer model instance for this instance's variant.
 
         Args:

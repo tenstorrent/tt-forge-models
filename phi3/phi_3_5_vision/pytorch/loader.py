@@ -86,7 +86,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = self.processor.tokenizer
         return self.processor
 
-    def load_model(self):
+    def load_model(self, **kwargs):
         """Load and return the Phi 3.5 Vision model instance for this instance's variant.
 
         Returns:
@@ -101,7 +101,10 @@ class ModelLoader(ForgeModel):
 
         # Load pre-trained model from HuggingFace
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, _attn_implementation="eager"
+            pretrained_model_name,
+            trust_remote_code=True,
+            _attn_implementation="eager",
+            **kwargs
         )
 
         self.model = model

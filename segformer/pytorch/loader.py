@@ -101,7 +101,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Segformer model instance for this instance's variant.
 
         Args:
@@ -115,13 +115,13 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
 
         # Load configuration
-        config = SegformerConfig.from_pretrained(model_name)
+        config = SegformerConfig.from_pretrained(model_name, **kwargs)
         config_dict = config.to_dict()
         config = SegformerConfig(**config_dict)
 
         # Load model from HuggingFace
         model = SegformerForImageClassification.from_pretrained(
-            model_name, config=config
+            model_name, config=config, **kwargs
         )
         model.eval()
 

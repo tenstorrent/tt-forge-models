@@ -185,7 +185,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the VGG model instance for this instance's variant.
 
         Args:
@@ -215,7 +215,7 @@ class ModelLoader(ForgeModel):
         elif source == ModelSource.OSMR:
             model = ptcv_get_model(model_name, pretrained=True)
         elif source == ModelSource.HUGGING_FACE:
-            model = HFVGG.from_pretrained(model_name)
+            model = HFVGG.from_pretrained(model_name, **kwargs)
         elif source == ModelSource.TORCHVISION:
             weights = getattr(tv_models, self._variant_config.weights_class).DEFAULT
             model = getattr(tv_models, self._variant_config.model_function)(

@@ -79,13 +79,13 @@ class ModelLoader(ForgeModel):
             return ["你好，我的狗很可爱"]
         return ["Hello, my dog is cute"]
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load Paddle BERT model for sequence classification."""
         model_name = self._variant_config.pretrained_model_name
-        self.tokenizer = BertTokenizer.from_pretrained(model_name)
+        self.tokenizer = BertTokenizer.from_pretrained(model_name, **kwargs)
 
         self.model = BertForSequenceClassification.from_pretrained(
-            model_name, num_classes=2
+            model_name, num_classes=2, **kwargs
         )
         return self.model
 

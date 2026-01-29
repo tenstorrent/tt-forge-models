@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the BEiT model instance for this instance's variant.
 
         Args:
@@ -107,7 +107,9 @@ class ModelLoader(ForgeModel):
             self._load_processor()
 
         # Load pre-trained model from HuggingFace
-        model = BeitForImageClassification.from_pretrained(pretrained_model_name)
+        model = BeitForImageClassification.from_pretrained(
+            pretrained_model_name, **kwargs
+        )
 
         if dtype_override is not None:
             model = model.to(dtype_override)

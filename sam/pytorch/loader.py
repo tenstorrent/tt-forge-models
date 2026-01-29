@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SAM model instance for this instance's variant.
 
         Args:
@@ -97,10 +97,10 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
 
         # Load SAM model from transformers
-        framework_model = SamModel.from_pretrained(model_name).to("cpu")
+        framework_model = SamModel.from_pretrained(model_name, **kwargs).to("cpu")
 
         # Load processor for this variant
-        self.processor = SamProcessor.from_pretrained(model_name)
+        self.processor = SamProcessor.from_pretrained(model_name, **kwargs)
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:

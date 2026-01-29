@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.JAX,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the AlexNet model instance for this instance's variant.
 
         Args:
@@ -215,7 +215,7 @@ class ModelLoader(ForgeModel):
             )
         else:
             # Single-chip variant uses standard initialization
-            model = self.load_model(dtype_override)
+            model = self.load_model(dtype_override=dtype_override)
 
             # Use provided inputs or load default ones
             if inputs is None:

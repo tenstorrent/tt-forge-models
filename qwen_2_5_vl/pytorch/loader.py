@@ -126,7 +126,7 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Qwen 2.5 VL model instance for this instance's variant.
 
         Args:
@@ -155,6 +155,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         else:
             model_kwargs["torch_dtype"] = torch.float32
+        model_kwargs |= kwargs
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs

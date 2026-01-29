@@ -61,12 +61,13 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name, trust_remote_code=True
             )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         self._ensure_tokenizer()
         model = Phi3ForTokenClassification.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
             use_cache=False,
+            **kwargs,
         )
         if dtype_override is not None:
             model = model.to(dtype_override)

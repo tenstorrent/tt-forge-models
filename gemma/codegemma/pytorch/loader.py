@@ -90,7 +90,7 @@ def calculate_age(birth_year):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Code Gemma model instance for this instance's variant.
 
         Args:
@@ -106,6 +106,7 @@ def calculate_age(birth_year):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs

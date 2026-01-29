@@ -175,7 +175,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained MLP Mixer model for this instance's variant.
 
         Args:
@@ -247,7 +247,7 @@ class ModelLoader(ForgeModel):
             if hasattr(self, "_cached_model") and self._cached_model is not None:
                 model_for_config = self._cached_model
             else:
-                model_for_config = self.load_model(dtype_override)
+                model_for_config = self.load_model(dtype_override=dtype_override)
 
             # Preprocess image using model's data config
             data_config = resolve_data_config({}, model=model_for_config)

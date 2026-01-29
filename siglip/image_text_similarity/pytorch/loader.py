@@ -127,7 +127,7 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SigLIP model instance for this instance's variant.
 
         Args:
@@ -145,6 +145,7 @@ class ModelLoader(ForgeModel):
         # Load the model with dtype override if specified
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()

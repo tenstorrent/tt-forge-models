@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
             )
         return self._processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the RegNet model instance for this instance's variant.
 
         Args:
@@ -106,6 +106,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"from_pt": True}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = FlaxRegNetForImageClassification.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs

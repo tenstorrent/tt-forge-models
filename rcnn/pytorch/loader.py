@@ -108,7 +108,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.num_classes = num_classes
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the RCNN model instance for this instance's variant.
 
         Args:

@@ -255,7 +255,7 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override)
 
         if self.model is None:
-            self.load_model(dtype_override)
+            self.load_model(dtype_override=dtype_override)
 
         # Set up sample input
         test_input = "How often does the letter r occur in Mistral?"

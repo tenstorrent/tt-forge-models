@@ -139,7 +139,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
         model_kwargs |= kwargs
-        
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )

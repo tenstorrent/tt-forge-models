@@ -105,7 +105,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Deit model instance for this instance's variant.
 
         Args:
@@ -121,7 +121,9 @@ class ModelLoader(ForgeModel):
 
         if source == ModelSource.HUGGING_FACE:
             # Load pre-trained model from HuggingFace
-            model = ViTForImageClassification.from_pretrained(pretrained_model_name)
+            model = ViTForImageClassification.from_pretrained(
+                pretrained_model_name, **kwargs
+            )
         else:
             raise ValueError(f"Unsupported source for DeiT: {source}")
 

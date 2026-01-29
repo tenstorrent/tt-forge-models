@@ -100,7 +100,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, variant: Optional["ModelVariant"] = None, **kwargs):
+    def load_model(self, *, variant: Optional["ModelVariant"] = None, **kwargs):
         """Load and return the BEVFormer model instance with default settings.
         Returns:
             Torch model: The BEVFormer model instance.

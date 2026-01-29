@@ -52,7 +52,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self):
+    def load_model(self, **kwargs):
         from FlagEmbedding import BGEM3FlagModel
 
         model_name = self._variant_config.pretrained_model_name

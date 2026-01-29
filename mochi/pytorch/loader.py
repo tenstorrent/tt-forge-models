@@ -133,7 +133,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         config = self._variant_config
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
