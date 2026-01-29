@@ -1,11 +1,11 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Qwen 1.5 model loader implementation for causal language modeling.
+ ARCEE model loader implementation for causal language modeling.
 """
 import torch
-from transformers import Qwen2ForCausalLM, Qwen2Tokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -21,50 +21,37 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen 1.5 model variants for causal language modeling."""
+    """Available ARCEE model variants for causal language modeling."""
 
-    QWEN_1_5_0_5B = "0_5b"
-    QWEN_1_5_0_5B_CHAT = "0_5b_chat"
+    ARCEE_Spark = "arcee_Spark"
 
 
 class ModelLoader(ForgeModel):
-    """Qwen 1.5 model loader implementation for causal language modeling tasks."""
+    """ARCEE model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.QWEN_1_5_0_5B: LLMModelConfig(
-            pretrained_model_name="Qwen/Qwen1.5-0.5B",
+        ModelVariant.ARCEE_Spark: LLMModelConfig(
+            pretrained_model_name="arcee-ai/Arcee-Spark",
             max_length=128,
-        ),
-        ModelVariant.QWEN_1_5_0_5B_CHAT: LLMModelConfig(
-            pretrained_model_name="Qwen/Qwen1.5-0.5B-Chat",
-            max_length=512,
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.QWEN_1_5_0_5B
+    DEFAULT_VARIANT = ModelVariant.ARCEE_Spark
 
     # Shared configuration parameters
-    sample_text = "My name is Jim Keller and"
-    chat_messages = [
-        {"role": "system", "content": "You are Jim Keller, the CEO of Tenstorrent"},
-        {"role": "user", "content": "Introduce yourself please!"},
-    ]
+    sample_text = "Give me a short introduction to large language model."
 
-    def __init__(
-        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
-    ):
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
-            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
         self.tokenizer = None
-        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -78,9 +65,9 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="qwen_1_5",
+            model="arcee_ai",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -101,30 +88,24 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         # Load the tokenizer
-        self.tokenizer = Qwen2Tokenizer.from_pretrained(
+        self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
-
-        # Set pad token to eos token if not already set
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
 
         return self.tokenizer
 
     def load_model(self, dtype_override=None):
-        """Load and return the Qwen 1.5 model instance for this instance's variant.
+        """Load and return the ARCEE model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The Qwen 1.5 model instance for causal language modeling.
+            torch.nn.Module: The ARCEE model instance for causal language modeling.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
-
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -134,21 +115,15 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = Qwen2ForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
-
-        # Disable DynamicCache
-        model._supports_cache_class = False
+        model = AutoModelForCausalLM.from_pretrained(
+            pretrained_model_name, **model_kwargs
+        )
+        self.config = model.config
         model.eval()
-
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Qwen 1.5 model with this instance's variant settings.
+        """Load and return sample inputs for the ARCEE model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -164,25 +139,12 @@ class ModelLoader(ForgeModel):
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
-        # Auto-detect if we should use chat template based on variant name
-        use_chat_template = "chat" in str(self._variant).lower()
-
-        from loguru import logger
-
-        logger.info("use_chat_template ={}", use_chat_template)
-
-        if use_chat_template:
-            # Use chat template
-            batch_messages = [self.chat_messages] * batch_size
-            prompts = [
-                self.tokenizer.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
-                )
-                for messages in batch_messages
-            ]
-        else:
-            # Use regular text
-            prompts = [self.sample_text] * batch_size
+        # Use chat template for input text
+        messages = [{"role": "user", "content": self.sample_text}]
+        text = self.tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True, enable_thinking=True
+        )
+        prompts = [text]
 
         inputs = self.tokenizer(
             prompts,
@@ -192,4 +154,55 @@ class ModelLoader(ForgeModel):
             max_length=max_length,
         )
 
+        # Add batch dimension
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
         return inputs
+
+    def get_mesh_config(self, num_devices: int):
+
+        # Prefer (1, N) when heads divide N, otherwise try (2, N/2)
+        if self.config.num_attention_heads % num_devices == 0:
+            mesh_shape = (1, num_devices)
+        elif (
+            self.config.num_attention_heads % (num_devices // 2) == 0
+            and num_devices % 2 == 0
+        ):
+            mesh_shape = (2, num_devices // 2)
+        else:
+            raise ValueError(
+                f"Cannot evenly distribute {self.config.num_attention_heads} heads across {num_devices} devices"
+            )
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            shard_specs[layer.self_attn.o_proj.bias] = ("model",)
+
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+
+        return shard_specs
+
+    def load_config(self):
+        """Load and return the configuration for the Arcee model variant.
+
+        Returns:
+            The configuration object for the Arcee model.
+        """
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+
+        return self.config

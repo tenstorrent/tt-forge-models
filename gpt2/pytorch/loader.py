@@ -50,9 +50,12 @@ class ModelLoader(ForgeModel):
 
     sample_text = "This is a sample text from "
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         super().__init__(variant)
         self.tokenizer = None
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -94,6 +97,8 @@ class ModelLoader(ForgeModel):
             config_dict["use_cache"] = True
             if dtype_override is not None:
                 config_dict["torch_dtype"] = dtype_override
+            if self.num_layers is not None:
+                config_dict["num_hidden_layers"] = self.num_layers
             config = GPT2Config(**config_dict)
             model = GPT2LMHeadModel.from_pretrained(model_name, config=config)
         else:
