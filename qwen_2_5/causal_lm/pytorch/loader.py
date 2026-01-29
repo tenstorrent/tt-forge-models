@@ -26,21 +26,21 @@ from ....tools.utils import get_static_cache_decode_inputs
 class ModelVariant(StrEnum):
     """Available Qwen 2.5 model variants for causal language modeling."""
 
-    QWEN_2_5_0_5B = "0_5b"
-    QWEN_2_5_0_5B_INSTRUCT = "0_5b_instruct"
-    QWEN_2_5_1_5B = "1_5b"
-    QWEN_2_5_1_5B_INSTRUCT = "1_5b_instruct"
-    QWEN_2_5_3B = "3b"
-    QWEN_2_5_3B_INSTRUCT = "3b_instruct"
-    QWEN_2_5_7B = "7b"
-    QWEN_2_5_7B_INSTRUCT = "7b_instruct"
-    QWEN_2_5_7B_INSTRUCT_1M = "7b_instruct_1m"
-    QWEN_2_5_14B = "14b"
-    QWEN_2_5_14B_INSTRUCT = "14b_instruct"
-    QWEN_2_5_14B_INSTRUCT_1M = "14b_instruct_1m"
-    QWEN_2_5_32B_INSTRUCT = "32b_instruct"
-    QWEN_2_5_72B_INSTRUCT = "72b_instruct"
-    QWEN_2_5_MATH_7B = "math_7b"
+    QWEN_2_5_0_5B = "0.5B"
+    QWEN_2_5_0_5B_INSTRUCT = "0.5B Instruct"
+    QWEN_2_5_1_5B = "1.5B"
+    QWEN_2_5_1_5B_INSTRUCT = "1.5B Instruct"
+    QWEN_2_5_3B = "3B"
+    QWEN_2_5_3B_INSTRUCT = "3B Instruct"
+    QWEN_2_5_7B = "7B"
+    QWEN_2_5_7B_INSTRUCT = "7B Instruct"
+    QWEN_2_5_7B_INSTRUCT_1M = "7B Instruct 1M"
+    QWEN_2_5_14B = "14B"
+    QWEN_2_5_14B_INSTRUCT = "14B Instruct"
+    QWEN_2_5_14B_INSTRUCT_1M = "14B Instruct 1M"
+    QWEN_2_5_32B_INSTRUCT = "32B Instruct"
+    QWEN_2_5_72B_INSTRUCT = "72B Instruct"
+    QWEN_2_5_MATH_7B = "Math 7B"
 
 
 class ModelLoader(ForgeModel):
@@ -152,7 +152,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.RED
 
         return ModelInfo(
-            model="qwen_2_5",
+            model="Qwen 2.5",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,

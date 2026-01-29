@@ -29,10 +29,10 @@ import jax.numpy as jnp
 class ModelVariant(StrEnum):
     """Available GPT2 model variants."""
 
-    BASE = "base"
-    LARGE = "large"
-    MEDIUM = "medium"
-    XL = "xl"
+    BASE = "Base"
+    LARGE = "Large"
+    MEDIUM = "Medium"
+    XL = "Xl"
 
 
 class ModelLoader(ForgeModel):
@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="gpt2",
+            model="GPT-2",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

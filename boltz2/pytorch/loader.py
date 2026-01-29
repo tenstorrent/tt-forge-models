@@ -29,7 +29,7 @@ from third_party.tt_forge_models.boltz2.pytorch.src.model_utils import (
 class ModelVariant(StrEnum):
     """Available Boltz model variants."""
 
-    BOLTZ2 = "boltz2"
+    BOLTZ2 = "Default"
 
 
 class ModelLoader(ForgeModel):
@@ -51,7 +51,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="boltz",
+            model="Boltz2",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.ATOMIC_ML,

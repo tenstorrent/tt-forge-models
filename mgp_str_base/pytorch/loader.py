@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="mgp_str_base",
+            model="MGP-STR Base",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_FE,

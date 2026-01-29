@@ -25,10 +25,10 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available RT-DETR model variants for object detection."""
 
-    RTDETR_R18VD = "rtdetr-r18vd"
-    RTDETR_R34VD = "rtdetr-r34vd"
-    RTDETR_R50VD = "rtdetr-r50vd"
-    RTDETR_R101VD = "rtdetr-r101vd"
+    RTDETR_R18VD = "R18vd"
+    RTDETR_R34VD = "R34vd"
+    RTDETR_R50VD = "R50vd"
+    RTDETR_R101VD = "R101vd"
 
 
 class ModelLoader(ForgeModel):
@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="rt_detr",
+            model="RT-DETR",
             variant=variant,
             group=group,
             task=ModelTask.CV_OBJECT_DET,

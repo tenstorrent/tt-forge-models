@@ -22,8 +22,8 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available DPR Context Encoder model variants."""
 
-    DPR_SINGLE_NQ_BASE = "facebook/dpr-reader-single-nq-base"
-    DPR_MULTISET_BASE = "facebook/dpr-reader-multiset-base"
+    DPR_SINGLE_NQ_BASE = "Reader Single Nq Base"
+    DPR_MULTISET_BASE = "Reader Multiset Base"
 
 
 class ModelLoader(ForgeModel):
@@ -74,7 +74,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="DPR-Reader",
+            model="DPR",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_QA,

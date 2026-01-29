@@ -25,7 +25,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available SqueezeBERT model variants."""
 
-    BASE = "base"
+    BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
@@ -65,7 +65,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="squeezebert",
+            model="SqueezeBERT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,

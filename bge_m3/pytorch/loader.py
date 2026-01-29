@@ -23,7 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available BGE M3 variants."""
 
-    BASE = "base"
+    BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
@@ -44,7 +44,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="bge_m3",
+            model="BGE-M3",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_EMBED_GEN,

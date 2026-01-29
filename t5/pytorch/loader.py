@@ -24,12 +24,12 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available T5 model variants."""
 
-    SMALL = "t5-small"
-    BASE = "t5-base"
-    LARGE = "t5-large"
-    FLAN_T5_SMALL = "google/flan-t5-small"
-    FLAN_T5_BASE = "google/flan-t5-base"
-    FLAN_T5_LARGE = "google/flan-t5-large"
+    SMALL = "Small"
+    BASE = "Base"
+    LARGE = "Large"
+    FLAN_T5_SMALL = "Flan T5 Small"
+    FLAN_T5_BASE = "Flan T5 Base"
+    FLAN_T5_LARGE = "Flan T5 Large"
 
 
 class ModelLoader(ForgeModel):
@@ -95,7 +95,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="t5",
+            model="T5",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

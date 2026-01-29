@@ -24,8 +24,8 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available RoBERTa model variants."""
 
-    BASE = "base"
-    LARGE = "large"
+    BASE = "Base"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -62,7 +62,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="roberta",
+            model="RoBERTa",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,

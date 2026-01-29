@@ -26,7 +26,7 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available RMBG model variants."""
 
-    RMBG_2_0 = "2_0"
+    RMBG_2_0 = "2.0"
 
 
 class ModelLoader(ForgeModel):

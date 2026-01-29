@@ -29,9 +29,9 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available YOLOS-Small model variants for object detection."""
 
-    SMALL = "small"
-    SMALL_DWR = "small_dwr"
-    SMALL_300 = "small_300"
+    SMALL = "Small"
+    SMALL_DWR = "Small Dwr"
+    SMALL_300 = "Small 300"
 
 
 class ModelLoader(ForgeModel):
@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="yolos",
+            model="YOLOS Small",
             variant=variant,
             group=group,
             task=ModelTask.CV_OBJECT_DET,
