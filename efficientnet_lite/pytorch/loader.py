@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self._cached_model = None
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         model_name = self._variant_config.pretrained_model_name
         model = timm.create_model(model_name, pretrained=True)
         model.eval()
@@ -100,7 +100,7 @@ class ModelLoader(ForgeModel):
         model_for_config = (
             self._cached_model
             if self._cached_model is not None
-            else self.load_model(dtype_override)
+            else self.load_model(dtype_override=dtype_override)
         )
 
         data_config = resolve_data_config({}, model=model_for_config)
