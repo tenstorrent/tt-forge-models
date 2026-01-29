@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Llama model loader implementation for causal language modeling.
+Model loader implementation for causal language modeling.
 """
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
@@ -27,111 +27,34 @@ from ....tools.utils import (
 
 
 class ModelVariant(StrEnum):
-    """Available Llama model variants for causal LM."""
+    """Available model variants for causal LM."""
 
-    # Llama 3 variants
-    LLAMA_3_8B = "llama_3_8b"
-    LLAMA_3_8B_INSTRUCT = "llama_3_8b_instruct"
-
-    # Llama 3.1 variants
-    LLAMA_3_1_8B = "llama_3_1_8b"
-    LLAMA_3_1_8B_INSTRUCT = "llama_3_1_8b_instruct"
-    LLAMA_3_1_70B = "llama_3_1_70b"
-    LLAMA_3_1_70B_INSTRUCT = "llama_3_1_70b_instruct"
-    LLAMA_3_1_405B = "llama_3_1_405b"
-    LLAMA_3_1_405B_INSTRUCT = "llama_3_1_405b_instruct"
-
-    # Llama 3.2 variants
-    LLAMA_3_2_1B = "llama_3_2_1b"
-    LLAMA_3_2_1B_INSTRUCT = "llama_3_2_1b_instruct"
-    LLAMA_3_2_3B = "llama_3_2_3b"
-    LLAMA_3_2_3B_INSTRUCT = "llama_3_2_3b_instruct"
-
-    # Llama 3.3 variants
-    LLAMA_3_3_70B_INSTRUCT = "llama_3_3_70b_instruct"
-
-    # HuggingFace community variants
-    HUGGYLLAMA_7B = "huggyllama_7b"
-
-    # TinyLlama variants
-    TINYLLAMA_V1_1 = "TinyLlama_v1.1"
+    GLM_4_7 = "GLM-4.7"
+    GLM_4_5 = "GLM-4.5"
+    GLM_4_5_AIR = "GLM-4.5-Air"
 
 
 class ModelLoader(ForgeModel):
-    """Llama model loader implementation for causal language modeling tasks."""
+    """Model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        # Llama 3 variants
-        ModelVariant.LLAMA_3_8B: LLMModelConfig(
-            pretrained_model_name="meta-llama/Meta-Llama-3-8B",
+        ModelVariant.GLM_4_7: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-4.7",
             max_length=128,
         ),
-        ModelVariant.LLAMA_3_8B_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="meta-llama/Meta-Llama-3-8B-Instruct",
+        ModelVariant.GLM_4_5: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-4.5",
             max_length=128,
         ),
-        # Llama 3.1 variants
-        ModelVariant.LLAMA_3_1_8B: LLMModelConfig(
-            pretrained_model_name="meta-llama/Llama-3.1-8B",
-            max_length=128,
-        ),
-        ModelVariant.LLAMA_3_1_8B_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="meta-llama/Llama-3.1-8B-Instruct",
-            max_length=128,
-        ),
-        ModelVariant.LLAMA_3_1_70B: LLMModelConfig(
-            pretrained_model_name="meta-llama/Meta-Llama-3.1-70B",
-            max_length=128,
-        ),
-        ModelVariant.LLAMA_3_1_70B_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="meta-llama/Meta-Llama-3.1-70B-Instruct",
-            max_length=128,
-        ),
-        ModelVariant.LLAMA_3_1_405B: LLMModelConfig(
-            pretrained_model_name="meta-llama/Meta-Llama-3.1-405B",
-            max_length=128,
-        ),
-        ModelVariant.LLAMA_3_1_405B_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="meta-llama/Meta-Llama-3.1-405B-Instruct",
-            max_length=128,
-        ),
-        # Llama 3.2 variants
-        ModelVariant.LLAMA_3_2_1B: LLMModelConfig(
-            pretrained_model_name="meta-llama/Llama-3.2-1B",
-            max_length=128,
-        ),
-        ModelVariant.LLAMA_3_2_1B_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="meta-llama/Llama-3.2-1B-Instruct",
-            max_length=128,
-        ),
-        ModelVariant.LLAMA_3_2_3B: LLMModelConfig(
-            pretrained_model_name="meta-llama/Llama-3.2-3B",
-            max_length=128,
-        ),
-        ModelVariant.LLAMA_3_2_3B_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="meta-llama/Llama-3.2-3B-Instruct",
-            max_length=128,
-        ),
-        # Llama 3.3 variants
-        ModelVariant.LLAMA_3_3_70B_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="meta-llama/Llama-3.3-70B-Instruct",
-            max_length=128,
-        ),
-        # HuggingFace community variants
-        ModelVariant.HUGGYLLAMA_7B: LLMModelConfig(
-            pretrained_model_name="huggyllama/llama-7b",
-            max_length=128,
-        ),
-        # TinyLlama variants
-        ModelVariant.TINYLLAMA_V1_1: LLMModelConfig(
-            pretrained_model_name="TinyLlama/TinyLlama_v1.1",
+        ModelVariant.GLM_4_5_AIR: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-4.5-Air",
             max_length=128,
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.LLAMA_3_2_1B_INSTRUCT
+    DEFAULT_VARIANT = ModelVariant.GLM_4_7
 
     # Sample text for causal LM
     sample_text = "Hey how are you doing today?"
@@ -162,27 +85,9 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        # Set group based on variant (instruct variants are RED priority except llama_3_8b_instruct and llama_3_1_405b_instruct variant)
-        if (
-            (
-                "instruct" in variant.value
-                and (
-                    variant
-                    not in [
-                        ModelVariant.LLAMA_3_8B_INSTRUCT,
-                        ModelVariant.LLAMA_3_1_405B_INSTRUCT,
-                    ]
-                )
-            )
-            or "70b" in variant.value
-            or variant == ModelVariant.LLAMA_3_1_405B
-        ):
-            group = ModelGroup.RED
-        else:
-            group = ModelGroup.GENERALITY
-
+        group = ModelGroup.RED
         return ModelInfo(
-            model="llama_causal_lm",
+            model="glm_causal_lm",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -212,20 +117,21 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **tokenizer_kwargs
         )
 
-        # Set pad token to eos token for Llama models
+        # Set pad token to eos token for models
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, dtype_override=None, num_layers=None):
-        """Load and return the Llama model instance for this instance's variant.
+        """Load and return the model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
-            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
+            num_layers: Optional number of layers to load. If not provided, all layers are loaded.
+
         Returns:
-            torch.nn.Module: The Llama model instance for causal LM.
+            torch.nn.Module: The model instance for causal LM.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -252,7 +158,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Llama model with this instance's variant settings.
+        """Load and return sample inputs for the model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
@@ -346,48 +252,41 @@ class ModelLoader(ForgeModel):
         return answer
 
     def get_mesh_config(self, num_devices: int):
-        if self._variant in [
-            ModelVariant.LLAMA_3_1_70B,
-            ModelVariant.LLAMA_3_1_70B_INSTRUCT,
-        ]:
-            mesh_shape = (2, num_devices // 2)
+        if num_devices == 32:
+            mesh_shape = (8, 4)
+        elif num_devices == 8:
+            mesh_shape = (4, 2)
         else:
-            mesh_shape = (1, num_devices)
+            raise ValueError(f"Unsupported number of devices: {num_devices}")
 
-        return mesh_shape, ("batch", "model")
+        return mesh_shape, ("model", "batch")
 
     def load_shard_spec(self, model):
-        if self._variant in [
-            ModelVariant.LLAMA_3_2_1B,
-            ModelVariant.LLAMA_3_2_1B_INSTRUCT,
-            ModelVariant.LLAMA_3_2_3B,
-            ModelVariant.LLAMA_3_2_3B_INSTRUCT,
-            ModelVariant.HUGGYLLAMA_7B,
-        ]:
-            return None
-
         shard_specs = {}
         shard_specs[model.model.embed_tokens.weight] = (None, "batch")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
-        shard_specs[model.model.norm.weight] = ("batch",)
         for layer in model.model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
             shard_specs[layer.input_layernorm.weight] = ("batch",)
             shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        shard_specs[model.model.norm.weight] = ("batch",)
+        shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
-        """Load and return the configuration for the Llama model variant.
+        """Load and return the configuration for the model variant.
 
         Returns:
-            The configuration object for the Llama model.
+            The configuration object for the model.
         """
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name

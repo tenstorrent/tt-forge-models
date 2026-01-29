@@ -1,25 +1,24 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-
 """
-Llama model loader implementation for causal language modeling.
+PHI3 model loader implementation for causal language modeling using EasyDL/JAX.
 """
-
 from typing import Optional
+from transformers import AutoTokenizer
 
-from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
     StrEnum,
+    ModelConfig,
     Parallelism,
 )
-from ....tools.jax_utils import cast_hf_model_to_type
+from ....base import ForgeModel
+
 import flax.nnx as nnx
 from jax.sharding import PartitionSpec
 import jax.numpy as jnp
@@ -27,42 +26,31 @@ import numpy as np
 
 
 class ModelVariant(StrEnum):
-    """Available Llama model variants."""
+    """Available PHI3 model variants."""
 
-    _1B_TINY = "1B_TINY"
-    _3B_V2 = "3b-v2"
+    MINI_128K = "microsoft/Phi-3-mini-128k-instruct"
+    MINI_4K = "microsoft/Phi-3-mini-4k-instruct"
 
 
 class ModelLoader(ForgeModel):
-    """Llama model loader implementation for causal language modeling."""
+    """PHI3 model loader implementation for causal LM tasks using EasyDL."""
 
+    # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant._1B_TINY: LLMModelConfig(
-            pretrained_model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        ModelVariant.MINI_128K: ModelConfig(
+            pretrained_model_name="microsoft/Phi-3-mini-128k-instruct",
         ),
-        ModelVariant._3B_V2: LLMModelConfig(
-            pretrained_model_name="openlm-research/open_llama_3b_v2",
+        ModelVariant.MINI_4K: ModelConfig(
+            pretrained_model_name="microsoft/Phi-3-mini-4k-instruct",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant._3B_V2
-
-    sample_text = "Hello there fellow traveller"
-
-    def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
-        super().__init__(variant)
-        self._tokenizer = None
-        self._model_name = self._variant_config.pretrained_model_name
+    # Default variant to use
+    DEFAULT_VARIANT = ModelVariant.MINI_128K
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Implementation method for getting model info with validated variant.
+        """Get model information for dashboard and metrics reporting.
 
         Args:
             variant: Optional ModelVariant specifying which variant to use.
@@ -71,88 +59,58 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
-
         return ModelInfo(
-            model="llama",
+            model="phi3",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.EASYDEL,
             framework=Framework.JAX,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        """Load tokenizer for the current variant.
+    def __init__(self, variant=None):
+        super().__init__(variant)
 
-        Args:
-            dtype_override: Optional dtype to override the tokenizer's default dtype.
-
-        Returns:
-            tokenizer: The loaded tokenizer instance
-        """
-
-        from transformers import AutoTokenizer
-
-        # Initialize tokenizer with dtype_override if provided
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["dtype"] = dtype_override
-
-        # Load the tokenizer
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self._model_name, **tokenizer_kwargs
+        # Configuration parameters
+        self.input_text = (
+            "Can you provide ways to eat combinations of bananas and dragonfruits?"
         )
-
-        return self._tokenizer
+        self.tokenizer = None
+        self._model_name = self._variant_config.pretrained_model_name
 
     def load_model(self, dtype_override=None):
-        """Load and return the Llama model instance for this instance's variant.
+        """Load and return the PHI3 model instance.
 
         Args:
             dtype_override: Optional dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            model: The loaded model instance
+            model: The PHI3 model instance for causal LM.
         """
-
         from easydel import AutoEasyDeLModelForCausalLM
 
-        # Ensure tokenizer is loaded
-        if self._tokenizer is None:
-            self._load_tokenizer(dtype_override)
-
-        # Initialize model kwargs
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
 
-        partition_rules = ((r".*", PartitionSpec()),)
-
-        # Load the model
         model = AutoEasyDeLModelForCausalLM.from_pretrained(
-            self._model_name, partition_rules=partition_rules, **model_kwargs
+            self._model_name, **model_kwargs
         )
-
-        # Cast the model to the dtype_override if provided
-        if dtype_override is not None:
-            model = cast_hf_model_to_type(model, dtype_override)
 
         return model
 
     def load_inputs(self, dtype_override=None, mesh=None):
-        """Load and return sample inputs for the Llama model with this instance's variant settings.
+        """Load and return sample inputs for the PHI3 model with default settings.
 
         Args:
-            dtype_override: Optional dtype to override the model's default dtype.
-            mesh: Optional device mesh for sharding (DataParallel mode).
-        Returns:
-            inputs: Input tensors that can be fed to the model.
-        """
+            dtype_override: Optional dtype to override the input dtype.
+            mesh: Optional device mesh for sharding.
 
+        Returns:
+            input_ids: Input tensors that can be fed to the model.
+        """
         if mesh is not None:
             # For multi-device, use a fixed batch size that's divisible by device count
-            # This matches the original test which used batch_size=8
             num_devices = np.prod(list(mesh.shape.values())) if mesh.shape else 1
             batch_size = 8  # Fixed batch size, will be sharded across devices
             # Ensure batch size is divisible by number of devices
@@ -162,12 +120,30 @@ class ModelLoader(ForgeModel):
             # Default to 8 for single device too, for consistency
             batch_size = 8
 
-        # Ensure tokenizer is initialized
-        if self._tokenizer is None:
-            self._load_tokenizer(dtype_override)
+        tokenizer_kwargs = {"trust_remote_code": True}
+        if dtype_override is not None:
+            tokenizer_kwargs["dtype"] = dtype_override
 
-        # Create tokenized inputs
-        inputs = self._tokenizer(self.sample_text, return_tensors="jax")
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self._model_name, **tokenizer_kwargs
+        )
+
+        # Add pad token if not present
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+
+        # Create chat template input similar to torch version
+        input_prompt = [{"role": "user", "content": self.input_text}]
+        text = self.tokenizer.apply_chat_template(
+            input_prompt, add_generation_prompt=True, tokenize=False
+        )
+
+        inputs = self.tokenizer(
+            text,
+            return_tensors="jax",
+            padding=True,
+            truncation=True,
+        )
 
         input_ids = jnp.repeat(inputs.input_ids, batch_size, axis=0)
         return {"input_ids": input_ids}
@@ -211,11 +187,11 @@ class ModelLoader(ForgeModel):
             # In data parallel mode, use fully replicated partitioning
             partition_rules = ((r".*", PartitionSpec()),)
         else:
-            # Use EasyDel's LlamaConfig to get proper partition rules
-            from easydel.modules.llama import LlamaConfig
+            # Use EasyDL's Phi3Config to get proper partition rules
+            from easydel.modules.phi3 import Phi3Config
 
-            llama_config = LlamaConfig()
-            partition_rules = llama_config.get_partition_rules()
+            phi3_config = Phi3Config()
+            partition_rules = phi3_config.get_partition_rules()
 
         from infra.utilities import make_easydel_parameters_partition_specs
 
