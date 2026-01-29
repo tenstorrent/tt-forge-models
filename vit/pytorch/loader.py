@@ -34,15 +34,15 @@ class ModelVariant(StrEnum):
     """Available ViT model variants."""
 
     # HuggingFace variants
-    BASE = "base"
-    LARGE = "large"
+    BASE = "Base"
+    LARGE = "Large"
 
     # Torchvision variants
-    VIT_B_16 = "vit_b_16"
-    VIT_B_32 = "vit_b_32"
-    VIT_L_16 = "vit_l_16"
-    VIT_L_32 = "vit_l_32"
-    VIT_H_14 = "vit_h_14"
+    VIT_B_16 = "B 16"
+    VIT_B_32 = "B 32"
+    VIT_L_16 = "L 16"
+    VIT_L_32 = "L 32"
+    VIT_H_14 = "H 14"
 
 
 class ModelLoader(ForgeModel):
@@ -103,7 +103,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="vit",
+            model="ViT",
             variant=variant,
             group=(
                 ModelGroup.RED

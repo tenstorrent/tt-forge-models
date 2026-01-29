@@ -23,9 +23,9 @@ from ....base import ForgeModel
 class ModelVariant(StrEnum):
     """Available GPT-Neo model variants."""
 
-    GPT_NEO_125M = "gpt_neo_125M"
-    GPT_NEO_1_3B = "gpt_neo_1_3B"
-    GPT_NEO_2_7B = "gpt_neo_2_7B"
+    GPT_NEO_125M = "125M"
+    GPT_NEO_1_3B = "1 3B"
+    GPT_NEO_2_7B = "2 7B"
 
 
 class ModelLoader(ForgeModel):
@@ -74,7 +74,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="gpt_neo",
+            model="GPT-Neo",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

@@ -23,7 +23,7 @@ from third_party.tt_forge_models.config import (
 class ModelVariant(StrEnum):
     """Available BERT model variants for question answering."""
 
-    PHIYODR_BERT_LARGE_FINETUNED_SQUAD2 = "phiyodr/bert-large-finetuned-squad2"
+    PHIYODR_BERT_LARGE_FINETUNED_SQUAD2 = "Large Finetuned Squad2"
     BERT_LARGE_CASED_WHOLE_WORD_MASKING_FINETUNED_SQUAD = (
         "bert-large-cased-whole-word-masking-finetuned-squad"
     )
@@ -87,7 +87,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="BERT-QuestionAnswering",
+            model="BERT",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_QA,

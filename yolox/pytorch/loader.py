@@ -29,13 +29,13 @@ from .src.utils import _forward_patch, _decode_outputs
 class ModelVariant(StrEnum):
     """Available YOLOX model variants."""
 
-    YOLOX_NANO = "yolox_nano"
-    YOLOX_TINY = "yolox_tiny"
-    YOLOX_S = "yolox_s"
-    YOLOX_M = "yolox_m"
-    YOLOX_L = "yolox_l"
-    YOLOX_DARKNET = "yolox_darknet"
-    YOLOX_X = "yolox_x"
+    YOLOX_NANO = "Nano"
+    YOLOX_TINY = "Tiny"
+    YOLOX_S = "S"
+    YOLOX_M = "M"
+    YOLOX_L = "L"
+    YOLOX_DARKNET = "Darknet"
+    YOLOX_X = "X"
 
 
 class ModelLoader(ForgeModel):
@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="yolox",
+            model="YOLOX",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,

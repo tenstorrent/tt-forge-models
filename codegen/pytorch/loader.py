@@ -22,9 +22,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 class ModelVariant(StrEnum):
     """Available Codegen model variants."""
 
-    CODEGEN_350M_MONO = "Salesforce/codegen-350M-mono"
-    CODEGEN_350M_MULTI = "Salesforce/codegen-350M-multi"
-    CODEGEN_350M_NL = "Salesforce/codegen-350M-nl"
+    CODEGEN_350M_MONO = "350M Mono"
+    CODEGEN_350M_MULTI = "350M Multi"
+    CODEGEN_350M_NL = "350M Nl"
 
 
 class ModelLoader(ForgeModel):
@@ -74,7 +74,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="codegen",
+            model="CodeGen",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

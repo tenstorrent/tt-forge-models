@@ -41,9 +41,9 @@ class ModelVariant(StrEnum):
     """Available Panoptic FPN model variants."""
 
     # COCO variants
-    RESNET_50_1X_COCO = "resnet50_1x_coco"
-    RESNET_50_3X_COCO = "resnet50_3x_coco"
-    RESNET_101_3X_COCO = "resnet101_3x_coco"
+    RESNET_50_1X_COCO = "ResNet50 Backbone 1x COCO"
+    RESNET_50_3X_COCO = "ResNet50 Backbone 3x COCO"
+    RESNET_101_3X_COCO = "ResNet101 Backbone 3x COCO"
 
 
 # COCO class definitions for metadata
@@ -238,7 +238,7 @@ class ModelLoader(ForgeModel):
         variant = variant or cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="panoptic_fpn",
+            model="Panoptic Segmentation",
             variant=variant,
             framework=Framework.TORCH,
             task=ModelTask.CV_PANOPTIC_SEG,

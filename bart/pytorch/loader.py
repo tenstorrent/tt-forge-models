@@ -23,7 +23,7 @@ from transformers.models.bart.modeling_bart import shift_tokens_right
 class ModelVariant(StrEnum):
     """Available BART model variants."""
 
-    LARGE = "large"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="bart",
+            model="BART",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,

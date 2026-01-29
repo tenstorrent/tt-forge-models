@@ -23,8 +23,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available PHI2 model variants."""
 
-    PHI2 = "microsoft/phi-2"
-    PHI2_PYTDML = "microsoft/phi-2-pytdml"
+    PHI2 = "Phi 2"
+    PHI2_PYTDML = "Phi 2 Pytdml"
 
 
 class ModelLoader(ForgeModel):
@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="phi2",
+            model="Phi-2",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,

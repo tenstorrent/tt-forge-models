@@ -94,7 +94,7 @@ class FuyuModelWrapper(nn.Module):
 class ModelVariant(StrEnum):
     """Available Fuyu model variants."""
 
-    FUYU_8B = "adept/fuyu-8b"
+    FUYU_8B = "8B"
 
 
 class ModelLoader(ForgeModel):
@@ -120,7 +120,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="fuyu",
+            model="Fuyu",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_QA,

@@ -25,9 +25,9 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available Deformable DETR model variants for object detection."""
 
-    DEFORMABLE_DETR = "deformable-detr"
-    DEFORMABLE_DETR_SINGLE_SCALE = "deformable-detr-single-scale"
-    DEFORMABLE_DETR_WITH_BOX_REFINE = "deformable-detr-with-box-refine"
+    DEFORMABLE_DETR = "Deformable Detr"
+    DEFORMABLE_DETR_SINGLE_SCALE = "Single Scale"
+    DEFORMABLE_DETR_WITH_BOX_REFINE = "With Box Refine"
     DEFORMABLE_DETR_WITH_BOX_REFINE_TWO_STAGE = (
         "deformable-detr-with-box-refine-two-stage"
     )
@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="deformable_detr",
+            model="Deformable DETR",
             variant=variant,
             group=group,
             task=ModelTask.CV_OBJECT_DET,

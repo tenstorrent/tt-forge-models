@@ -23,8 +23,8 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     """Available XGLM model variants."""
 
-    XGLM_564M = "xglm-564M"
-    XGLM_1_7B = "xglm-1.7B"
+    XGLM_564M = "564M"
+    XGLM_1_7B = "1.7b"
 
 
 class ModelLoader(ForgeModel):
@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="xglm",
+            model="XGLM",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

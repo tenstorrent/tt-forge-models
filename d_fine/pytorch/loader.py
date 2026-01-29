@@ -25,11 +25,11 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available D-Fine model variants."""
 
-    NANO = "nano"
-    SMALL = "small"
-    MEDIUM = "medium"
-    LARGE = "large"
-    XLARGE = "xlarge"
+    NANO = "Nano"
+    SMALL = "Small"
+    MEDIUM = "Medium"
+    LARGE = "Large"
+    XLARGE = "Xlarge"
 
 
 class ModelLoader(ForgeModel):
@@ -81,7 +81,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="d-fine",
+            model="D-FINE",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,

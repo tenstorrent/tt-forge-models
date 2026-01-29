@@ -14,7 +14,7 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available Transfuser model variants for autonomous driving."""
 
-    TRANSFUSER = "transfuser"
+    TRANSFUSER = "Default"
 
 
 class ModelLoader(ForgeModel):
@@ -46,7 +46,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="transfuser",
+            model="TransFuser",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,

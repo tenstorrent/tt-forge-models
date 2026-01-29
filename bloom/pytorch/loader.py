@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="bloom",
+            model="BLOOM",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

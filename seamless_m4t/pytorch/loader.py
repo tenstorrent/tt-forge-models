@@ -24,7 +24,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available SeamlessM4T model variants."""
 
-    LARGE = "large"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="seamless-m4t",
+            model="SeamlessM4T",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.AUDIO_ASR,

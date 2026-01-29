@@ -37,15 +37,15 @@ from ...tools.utils import extract_tensors_recursive
 class ModelVariant(StrEnum):
     """Available MAPTR model variants."""
 
-    TINY_R50_24E_BEVFORMER = "tiny_r50_24e_bevformer"
-    TINY_R50_24E_BEVFORMER_T4 = "tiny_r50_24e_bevformer_t4"
-    TINY_R50_24E = "tiny_r50_24e"
-    TINY_R50_110E = "tiny_r50_110e"
-    TINY_R50_24E_T4 = "tiny_r50_24e_t4"
-    NANO_R18_110E = "nano_r18_110e"
-    TINY_R50_24E_BEVPOOL = "tiny_r50_24e_bevpool"
-    TINY_FUSION_24E = "tiny_fusion_24e"
-    TINY_R50_24E_AV2 = "tiny_r50_24e_av2"
+    TINY_R50_24E_BEVFORMER = "Tiny R50 24e Bevformer"
+    TINY_R50_24E_BEVFORMER_T4 = "Tiny R50 24e Bevformer T4"
+    TINY_R50_24E = "Tiny R50 24e"
+    TINY_R50_110E = "Tiny R50 110e"
+    TINY_R50_24E_T4 = "Tiny R50 24e T4"
+    NANO_R18_110E = "Nano R18 110e"
+    TINY_R50_24E_BEVPOOL = "Tiny R50 24e Bevpool"
+    TINY_FUSION_24E = "Tiny Fusion 24e"
+    TINY_R50_24E_AV2 = "Tiny R50 24e Av2"
 
 
 class ModelLoader(ForgeModel):
@@ -108,7 +108,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="maptr",
+            model="MapTR",
             variant=variant,
             group=(
                 ModelGroup.RED

@@ -24,7 +24,7 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available MarianMT model variants."""
 
-    OPUS_MT_EN_DE = "opus-mt-en-de"
+    OPUS_MT_EN_DE = "Opus Mt En De"
 
 
 class ModelLoader(ForgeModel):
@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="marianmt",
+            model="MarianMT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,
