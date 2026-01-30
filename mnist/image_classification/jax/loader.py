@@ -257,6 +257,7 @@ class ModelLoader(ForgeModel):
         input_activations_partition_specs=None,
         inputs=None,
         dtype_override=None,
+        parallelism=None,
     ):
         """Load and return parameter partition specifications for multi-chip configurations.
 
@@ -338,19 +339,21 @@ class ModelLoader(ForgeModel):
             param_dtype=param_dtype,
         )
 
-    def get_input_activations_partition_spec(self, mesh, axis_name="X"):
+    def get_input_activations_partition_spec(
+        self, mesh, axis_name="X", parallelism=None
+    ):
         """Get partition specification for input activations.
 
         Args:
             axis_name: Name of the sharding axis.
 
         Returns:
-            PartitionSpec for input activations (replicated for MNIST MLP)
+            Tuple with PartitionSpec for input activations (replicated for MNIST MLP)
         """
         from jax.sharding import PartitionSpec
 
         # No data parallelism utilized in MNIST MLP model - inputs are replicated
-        return PartitionSpec()
+        return (PartitionSpec(),)
 
     def get_forward_method_name(self):
         """Get the name of the forward method for the model.
