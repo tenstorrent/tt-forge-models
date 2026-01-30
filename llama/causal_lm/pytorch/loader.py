@@ -24,6 +24,7 @@ from ....tools.utils import (
     cast_input_to_type,
     get_static_cache_decode_inputs,
 )
+from .prefill_inputs import get_prefill_input, PREFILL_INPUTS
 
 
 class ModelVariant(StrEnum):
@@ -312,6 +313,73 @@ class ModelLoader(ForgeModel):
             max_cache_len=max_cache_len,
             dtype=dtype_override,
         )
+
+    # Class variable to track if we've printed the summary
+    _prefill_summary_printed = False
+
+    def load_inputs_prefill(self, dtype_override=None, batch_size=1, seq_len=128):
+        """Load prefill inputs for the given sequence length and batch size.
+
+        For batch_size > 1, uses separate unique examples per batch item (not replicated).
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+            batch_size: Batch size for the inputs. Each batch item gets a unique example.
+            seq_len: Target sequence length. Input will be padded/truncated to this length.
+
+        Returns:
+            dict: Input tensors (input_ids, attention_mask) padded to seq_len.
+        """
+        # Ensure tokenizer is initialized
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+
+        # Print summary of all (seq_len, batch_size) configurations once
+        if not ModelLoader._prefill_summary_printed:
+            print("\n" + "=" * 70)
+            print("PREFILL INPUTS SUMMARY - Real token counts for all configurations:")
+            print("=" * 70)
+            for (sl, bs) in sorted(PREFILL_INPUTS.keys()):
+                texts = PREFILL_INPUTS[(sl, bs)]
+                token_counts = []
+                for text in texts:
+                    tokens = self.tokenizer(text, return_tensors="pt")
+                    token_counts.append(tokens["input_ids"].shape[1])
+                avg_count = sum(token_counts) / len(token_counts)
+                pct = (avg_count / sl) * 100
+                counts_str = ", ".join(str(c) for c in token_counts)
+                print(f"  seq_len={sl:5d}, batch={bs}: [{counts_str}] tokens (avg {pct:5.1f}%)")
+            print("=" * 70 + "\n")
+            ModelLoader._prefill_summary_printed = True
+
+        # Get the list of input texts for this (seq_len, batch_size) combination
+        input_texts = get_prefill_input(seq_len, batch_size)
+
+        # Tokenize all texts with padding and truncation to exact seq_len
+        inputs = self.tokenizer(
+            input_texts,
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=seq_len,
+        )
+
+        # Debug: print token counts for this specific test
+        print(f"[PREFILL DEBUG] Target seq_len: {seq_len}, batch_size: {batch_size}")
+        for i in range(batch_size):
+            real_count = (inputs["attention_mask"][i] == 1).sum().item()
+            print(f"[PREFILL DEBUG] Batch item {i}: {real_count} real tokens (non-padding)")
+        print(f"[PREFILL DEBUG] Final input_ids shape: {inputs['input_ids'].shape}")
+
+        # Only convert dtype if explicitly requested
+        if dtype_override is not None:
+            for key in inputs:
+                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
+
+        # Store actual token count from first batch item (for decode_output compatibility)
+        self.seq_len = (inputs["attention_mask"][0] == 1).sum().item()
+
+        return inputs
 
     def decode_output(self, max_new_tokens, model, inputs, tokenizer):
         """Generates text .
