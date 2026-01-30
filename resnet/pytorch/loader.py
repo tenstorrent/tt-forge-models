@@ -41,20 +41,20 @@ class ModelVariant(StrEnum):
     """Available ResNet model variants."""
 
     # HuggingFace variants
-    RESNET_50_HF = "resnet_50_hf"
-    RESNET_50_HF_HIGH_RES = "resnet_50_hf_high_res"
+    RESNET_50_HF = "50 HF"
+    RESNET_50_HF_HIGH_RES = "50 HF High Res"
 
     # TIMM variants
-    RESNET_50_TIMM = "resnet50_timm"
-    RESNET_50_TIMM_HIGH_RES = "resnet50_timm_high_res"
+    RESNET_50_TIMM = "50 Timm"
+    RESNET_50_TIMM_HIGH_RES = "50 Timm High Res"
 
     # Torchvision variants
-    RESNET_18 = "resnet18"
-    RESNET_34 = "resnet34"
-    RESNET_50 = "resnet50"
-    RESNET_50_HIGH_RES = "resnet50_high_res"
-    RESNET_101 = "resnet101"
-    RESNET_152 = "resnet152"
+    RESNET_18 = "18"
+    RESNET_34 = "34"
+    RESNET_50 = "50"
+    RESNET_50_HIGH_RES = "50 High Res"
+    RESNET_101 = "101"
+    RESNET_152 = "152"
 
 
 class ModelLoader(ForgeModel):
@@ -150,7 +150,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="resnet",
+            model="ResNet",
             variant=variant,
             group=group,
             task=ModelTask.CV_IMAGE_CLS,

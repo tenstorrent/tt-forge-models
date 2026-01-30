@@ -32,7 +32,7 @@ DEFAULT_IMAGE_PATH = "forge/test/models/files/samples/images/car.jpg"
 class ModelVariant(StrEnum):
     """Available RCNN model variants."""
 
-    ALEXNET = "alexnet"
+    ALEXNET = "Alexnet"
 
 
 class RCNNModel(nn.Module):
@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="rcnn",
+            model="R-CNN",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,

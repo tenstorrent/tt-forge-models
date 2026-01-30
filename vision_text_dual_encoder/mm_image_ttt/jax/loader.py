@@ -19,7 +19,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available VisionTextDualEncoder model variants for image-text tasks."""
 
-    BASE = "base"
+    BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
@@ -61,7 +61,7 @@ class ModelLoader(ForgeModel):
             variant_name = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="vision_text_dual_encoder",
+            model="Vision Text Dual Encoder",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_IMAGE_TTT,

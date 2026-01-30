@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="xglm",
+            model="XGLM",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

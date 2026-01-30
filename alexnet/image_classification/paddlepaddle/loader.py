@@ -26,7 +26,7 @@ from ....tools.utils import print_compiled_model_results
 class ModelVariant(StrEnum):
     """Available AlexNet model variants (Paddle)."""
 
-    DEFAULT = "alexnet"
+    DEFAULT = "Default"
 
 
 class ModelLoader(ForgeModel):
@@ -48,7 +48,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="alexnet",
+            model="AlexNet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

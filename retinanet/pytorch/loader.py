@@ -38,14 +38,14 @@ class ModelVariant(StrEnum):
     """Available RetinaNet model variants."""
 
     # NVIDIA variants (custom model implementation)
-    RETINANET_RN18FPN = "retinanet_rn18fpn"
-    RETINANET_RN34FPN = "retinanet_rn34fpn"
-    RETINANET_RN50FPN = "retinanet_rn50fpn"
-    RETINANET_RN101FPN = "retinanet_rn101fpn"
-    RETINANET_RN152FPN = "retinanet_rn152fpn"
+    RETINANET_RN18FPN = "Rn18fpn"
+    RETINANET_RN34FPN = "Rn34fpn"
+    RETINANET_RN50FPN = "Rn50fpn"
+    RETINANET_RN101FPN = "Rn101fpn"
+    RETINANET_RN152FPN = "Rn152fpn"
 
     # Torchvision variants
-    RETINANET_RESNET50_FPN_V2 = "retinanet_resnet50_fpn_v2"
+    RETINANET_RESNET50_FPN_V2 = "Resnet50 Fpn v2"
 
 
 class ModelLoader(ForgeModel):
@@ -107,7 +107,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="retinanet",
+            model="RetinaNet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,

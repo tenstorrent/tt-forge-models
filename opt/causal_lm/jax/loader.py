@@ -22,9 +22,9 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available OPT model variants."""
 
-    _1_3B = "1.3B"
-    _2_7B = "2.7B"
-    _6_7B = "6.7B"
+    _1_3B = "1.3b"
+    _2_7B = "2.7b"
+    _6_7B = "6.7b"
     _125M = "125M"
     _350M = "350M"
 
@@ -77,7 +77,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="opt",
+            model="OPT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

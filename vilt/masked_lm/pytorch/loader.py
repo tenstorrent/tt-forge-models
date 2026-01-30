@@ -25,7 +25,7 @@ from ....tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available ViLT model variants for masked language modeling."""
 
-    MLM = "mlm"
+    MLM = "Mlm"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="vilt_mlm",
+            model="ViLT Masked LM",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_MASKED_LM,

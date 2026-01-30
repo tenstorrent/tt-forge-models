@@ -12,7 +12,7 @@ from diffusers import UNet2DConditionModel
 class ModelVariant(StrEnum):
     """Available UNet for Conditional Generation model variants."""
 
-    BASE = "base"
+    BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         return ModelInfo(
-            model="unet_for_conditional_generation",
+            model="U-Net for Conditional Generation",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CONDITIONAL_GENERATION,

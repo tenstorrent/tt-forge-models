@@ -37,11 +37,11 @@ class ModelVariant(StrEnum):
     """Available Inception model variants."""
 
     # TIMM variants
-    INCEPTION_V4 = "inception_v4"
-    INCEPTION_V4_TF_IN1K = "inception_v4.tf_in1k"
+    INCEPTION_V4 = "v4"
+    INCEPTION_V4_TF_IN1K = "V4.tf In1k"
 
     # OSMR variants
-    INCEPTION_V4_OSMR = "inceptionv4"
+    INCEPTION_V4_OSMR = "v4"
 
 
 class ModelLoader(ForgeModel):
@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="inception",
+            model="Inception",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

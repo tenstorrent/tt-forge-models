@@ -34,7 +34,7 @@ class GoogleNetConfig(ModelConfig):
 class ModelVariant(StrEnum):
     """Available GoogleNet model variants."""
 
-    GOOGLENET = "googlenet"
+    GOOGLENET = "Default"
 
 
 class ModelLoader(ForgeModel):
@@ -81,7 +81,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="googlenet",
+            model="GoogLeNet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
