@@ -261,7 +261,7 @@ class ModelLoader(ForgeModel):
             return path_without_prefix
         return s3_path
 
-    def load_model(self, dtype_override=None, pretrained_path=None):
+    def load_model(self, *, dtype_override=None, pretrained_path=None, **kwargs):
         """Load and return the Arnold DQN model instance.
 
         Args:

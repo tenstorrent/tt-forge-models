@@ -111,7 +111,7 @@ class ModelLoader(ForgeModel):
         self.feature_extractor = None
         self.model = None
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load a Whisper model from Hugging Face."""
 
         # Get the pretrained model name from the instance's variant config
@@ -121,6 +121,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self._variant == ModelVariant.WHISPER_LARGE_V3:
             self.model = WhisperModel.from_pretrained(

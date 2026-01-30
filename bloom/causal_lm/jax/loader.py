@@ -114,7 +114,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Bloom model instance for this instance's variant.
 
         Args:
@@ -135,6 +135,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         # Load the model with from_pt=True for loading PyTorch weights
         model = FlaxBloomForCausalLM.from_pretrained(

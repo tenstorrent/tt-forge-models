@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load BERT model for masked language modeling from Hugging Face.
 
         Args:
@@ -93,6 +93,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = BertForMaskedLM.from_pretrained(self.model_name, **model_kwargs)
         model.eval()

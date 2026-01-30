@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the T5 model instance for this instance's variant.
 
         Args:
@@ -115,6 +115,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = FlaxT5ForConditionalGeneration.from_pretrained(
             self._model_name, **model_kwargs

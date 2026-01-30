@@ -74,7 +74,7 @@ class ModelLoader(ForgeModel):
         self.prompt = "A beautiful mountain landscape during sunset"
         self.num_inference_steps = 30
 
-    def load_model(self):
+    def load_model(self, **kwargs):
         """Load and return the OFT Stable Diffusion pipeline.
 
         Returns:

@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
         self.model_name = "FinancialSupport/NanoGPT"
         self.num_layers = num_layers
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained NanoGPT model."""
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -89,6 +89,7 @@ class ModelLoader(ForgeModel):
             config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+        model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()

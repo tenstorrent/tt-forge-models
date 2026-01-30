@@ -221,7 +221,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None, num_layers=None):
+    def load_model(self, *, dtype_override=None, num_layers=None, **kwargs):
         """Load and return the Llama model instance for this instance's variant.
 
         Args:
@@ -242,6 +242,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)

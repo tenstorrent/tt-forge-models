@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
         self.input_text_2 = "Hello, my dog is cute"
         self.num_layers = num_layers
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Falcon model instance.
 
         Args:
@@ -138,6 +138,7 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
+        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs

@@ -97,7 +97,7 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the gpt-oss model instance for this instance's variant.
 
         Args:
@@ -125,6 +125,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         else:
             model_kwargs["torch_dtype"] = torch.bfloat16
+        model_kwargs |= kwargs
 
         # Load model
         model = AutoModelForCausalLM.from_pretrained(

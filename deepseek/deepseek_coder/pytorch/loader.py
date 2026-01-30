@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the DeepSeek Coder model instance."""
 
         model_kwargs = {
@@ -99,6 +99,7 @@ class ModelLoader(ForgeModel):
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs

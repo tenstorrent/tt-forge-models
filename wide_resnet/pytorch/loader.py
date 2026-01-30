@@ -106,7 +106,7 @@ class ModelLoader(ForgeModel):
         self._preprocessor = None
         self._postprocessor = None
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load a WideResnet model from Torch Hub or TIMM depending on variant source."""
 
         # Get the pretrained model name and source from the instance's variant config

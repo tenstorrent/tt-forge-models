@@ -155,7 +155,7 @@ class ModelLoader(ForgeModel):
 
         return checkpoint_path
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the RetinaNet model instance for this instance's variant.
 
         Args:

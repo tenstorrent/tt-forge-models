@@ -185,7 +185,7 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Mistral model instance for this instance's variant.
 
         Args:
@@ -205,6 +205,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
@@ -254,7 +255,7 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override)
 
         if self.model is None:
-            self.load_model(dtype_override)
+            self.load_model(dtype_override=dtype_override)
 
         # Set up sample input
         test_input = "How often does the letter r occur in Mistral?"

@@ -73,15 +73,17 @@ class ModelLoader(ForgeModel):
 
         return tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the DeepSeek Math model."""
         model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name,
             device_map="cpu",
             trust_remote_code=True,
+            **kwargs,
         )
         model.generation_config = GenerationConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name,
+            **kwargs,
         )
         model.generation_config.pad_token_id = model.generation_config.eos_token_id
         model.generation_config.use_cache = False  # Disable KV cache

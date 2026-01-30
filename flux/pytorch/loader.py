@@ -116,7 +116,7 @@ class ModelLoader(ForgeModel):
 
         return self.pipe
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the FLUX transformer model instance for this instance's variant.
 
         Args:

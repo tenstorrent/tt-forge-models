@@ -158,7 +158,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the ResNet model instance for this instance's variant.
 
         Args:
@@ -174,7 +174,7 @@ class ModelLoader(ForgeModel):
 
         if source == ModelSource.HUGGING_FACE:
             # Load model from HuggingFace
-            model = ResNetForImageClassification.from_pretrained(model_name)
+            model = ResNetForImageClassification.from_pretrained(model_name, **kwargs)
 
         elif source == ModelSource.TIMM:
             # Load model using timm

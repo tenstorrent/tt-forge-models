@@ -88,7 +88,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(
-        self, dtype_override: Optional[torch.dtype] = None
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
     ) -> torch.nn.Module:
         """
         Load the Ultra-Fast-Lane-Detection-v2 TuSimple34 model.
