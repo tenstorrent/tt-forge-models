@@ -4,6 +4,7 @@
 import torch
 import queue
 from pocket_tts.models.tts_model import TTSModel
+from pocket_tts.models.flow_lm import FlowLMModel
 from pocket_tts.modules.stateful_module import increment_steps
 
 # ======================================================
@@ -89,47 +90,17 @@ def post_process(self):
     return self._cached_audio
 
 
-def _run_flow_lm_and_increment_step(
-    self,
-    model_state: dict,
-    text_tokens: torch.Tensor | None = None,
-    backbone_input_latents: torch.Tensor | None = None,
-    audio_conditioning: torch.Tensor | None = None,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """First one is the backbone output, second one is the audio decoding output."""
-    if text_tokens is not None:
-        device = text_tokens.device
-    elif backbone_input_latents is not None:
-        device = backbone_input_latents.device
-    elif audio_conditioning is not None:
-        device = audio_conditioning.device
-    else:
-        device = self.flow_lm.device
-    if text_tokens is None:
-        text_tokens = torch.zeros((1, 0), dtype=torch.int64, device=device)
-    if backbone_input_latents is None:
-        backbone_input_latents = torch.empty(
-            (1, 0, self.flow_lm.ldim), dtype=self.flow_lm.dtype, device=device
-        )
-    if audio_conditioning is None:
-        audio_conditioning = torch.empty(
-            (1, 0, self.flow_lm.dim), dtype=self.flow_lm.dtype, device=device
-        )
-    output = self._run_flow_lm(
-        text_tokens=text_tokens,
-        backbone_input_latents=backbone_input_latents,
-        model_state=model_state,
-        audio_conditioning=audio_conditioning,
-    )
-    increment_by = (
-        text_tokens.shape[1]
-        + backbone_input_latents.shape[1]
-        + audio_conditioning.shape[1]
-    )
-    increment_steps(self.flow_lm, model_state, increment=increment_by)
-    return output
+@property
+def device(self) -> str:
+    """
+    Return the full torch.device instead of just the device type.
+
+    This ensures correct device resolution for backends such as XLA
+    (e.g., 'xla:0' instead of 'xla').
+    """
+    return str(next(self.parameters()).device)
 
 
-TTSModel._run_flow_lm_and_increment_step = _run_flow_lm_and_increment_step
 TTSModel.forward = forward
 TTSModel.post_process = post_process
+FlowLMModel.device = device
