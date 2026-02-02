@@ -9,7 +9,6 @@ Each text is designed to tokenize to approximately seq_len tokens to minimize pa
 For batch_size > 1, use multiple texts from the same seq_len bucket.
 """
 
-
 _TEXT_128_0 = """The history of artificial intelligence began in antiquity, with myths, stories and rumors of artificial beings endowed with intelligence or consciousness by master craftsmen. The seeds of modern AI were planted by classical philosophers who attempted to describe the process of human thinking as the mechanical manipulation of symbols. This work culminated in the invention of the programmable digital computer in the 1940s, a machine based on the abstract essence of mathematical reasoning. This device and the ideas behind it inspired a handful of scientists to begin seriously discussing the possibility of building an electronic brain."""
 
 _TEXT_128_1 = """Machine learning is a subset of artificial intelligence that provides systems the ability to automatically learn and improve from experience without being explicitly programmed. Machine learning focuses on the development of computer programs that can access data and use it to learn for themselves. The process of learning begins with observations or data, such as examples, direct experience, or instruction, in order to look for patterns in data and make better decisions in the future based on the examples that we provide. The primary aim is to allow the computers to learn automatically without human intervention."""
@@ -54,7 +53,9 @@ Security has become a critical concern as computers handle sensitive information
 The future of computer science promises continued rapid change. Quantum computing may solve problems intractable for classical computers. Brain-computer interfaces could create new modes of human-machine interaction. Edge computing brings processing closer to data sources. Whatever specific technologies emerge, the fundamental principles of computer science will continue to guide their development."""
 
 
-_TEXT_2048_0 = _TEXT_1024_0 + """
+_TEXT_2048_0 = (
+    _TEXT_1024_0
+    + """
 
 The intersection of artificial intelligence and scientific discovery represents one of the most exciting frontiers in modern research. AI systems are now being used to accelerate drug discovery, predict protein structures, and analyze astronomical data. The AlphaFold system, developed by DeepMind, solved the protein folding problem that had challenged biologists for decades. This breakthrough demonstrates how AI can tackle problems that were previously considered intractable.
 
@@ -67,8 +68,11 @@ The healthcare industry is undergoing a transformation driven by AI technologies
 Autonomous systems represent another area of rapid AI advancement. Self-driving cars, once the domain of science fiction, are now being tested on public roads. Autonomous drones are being used for delivery, agriculture, and search and rescue operations. Robots powered by AI are becoming more capable in manufacturing, logistics, and even household tasks. These systems combine perception, planning, and control in increasingly sophisticated ways.
 
 The economics of AI are reshaping industries and labor markets. Automation powered by AI is changing the nature of work, displacing some jobs while creating others. Companies that effectively leverage AI gain competitive advantages, leading to market concentration in some sectors. Policymakers are grappling with questions about how to ensure that the benefits of AI are widely shared while managing the disruptions it causes."""
+)
 
-_TEXT_2048_1 = _TEXT_1024_1 + """
+_TEXT_2048_1 = (
+    _TEXT_1024_1
+    + """
 
 The evolution of programming paradigms has profoundly influenced how we think about and construct software. Structured programming, introduced in the 1960s and 1970s, emphasized the use of control structures like loops and conditionals rather than arbitrary jumps. This approach made programs easier to understand and maintain, establishing principles that remain relevant today.
 
@@ -81,9 +85,12 @@ The rise of web development created new challenges and opportunities for softwar
 Mobile computing introduced additional complexity with its constraints on power, bandwidth, and screen size. Developing applications that work across different devices and platforms became a significant challenge. Native development, web-based approaches, and cross-platform frameworks each offered different tradeoffs. The app economy created new business models and distribution channels for software.
 
 Cloud computing transformed how software is deployed and operated. Rather than managing physical servers, developers can provision virtual resources on demand. Services like compute instances, databases, and message queues are available as commodities. This shift enabled new architectures, including microservices and serverless computing, that emphasize scalability and resilience. DevOps practices emerged to manage the complexity of continuous deployment and operation."""
+)
 
 
-_TEXT_4096_0 = _TEXT_2048_0 + """
+_TEXT_4096_0 = (
+    _TEXT_2048_0
+    + """
 
 The philosophical implications of artificial intelligence extend far beyond its technical achievements. Questions about consciousness, understanding, and the nature of mind have taken on new urgency as AI systems become more sophisticated. When a language model generates coherent text, is there any sense in which it understands what it is saying? This question connects to ancient philosophical debates about the relationship between language and thought.
 
@@ -106,8 +113,11 @@ The concentration of AI capabilities in a small number of large technology compa
 International competition in AI has become a significant geopolitical issue. Nations view AI leadership as essential to economic competitiveness and national security. This competition has led to increased investment in AI research and development, but also to concerns about an AI arms race. The governance of AI across national boundaries presents complex challenges that existing international institutions may not be equipped to handle.
 
 Education and workforce development must adapt to a world increasingly shaped by AI. Some skills become less valuable as AI systems automate tasks that previously required human expertise. Other skills, particularly those that complement AI capabilities, become more valuable. Lifelong learning becomes essential as the pace of technological change accelerates. Educational institutions are experimenting with new approaches to prepare students for an uncertain future."""
+)
 
-_TEXT_4096_1 = _TEXT_2048_1 + """
+_TEXT_4096_1 = (
+    _TEXT_2048_1
+    + """
 
 The architecture of modern software systems reflects decades of accumulated wisdom about how to build reliable, scalable, and maintainable applications. Layered architectures separate concerns into distinct levels of abstraction. Presentation layers handle user interaction, business logic layers implement domain rules, and data access layers manage persistent storage. This separation facilitates testing, maintenance, and evolution of each layer independently.
 
@@ -128,9 +138,12 @@ The practice of continuous integration and continuous deployment has accelerated
 Infrastructure as code brings software engineering practices to the management of computing infrastructure. Declarative configurations describe the desired state of infrastructure resources. Version control tracks changes and enables rollback to previous configurations. Automated tools ensure that actual infrastructure matches the declared state. This approach reduces errors, improves reproducibility, and enables infrastructure to evolve safely.
 
 The security of software systems requires attention throughout the development and operation lifecycle. Secure development practices identify and mitigate vulnerabilities early in the development process. Static and dynamic analysis tools detect common security flaws. Dependency management ensures that third-party components are kept up to date and free of known vulnerabilities. Security monitoring detects and responds to attacks on running systems."""
+)
 
 
-_TEXT_8192_0 = _TEXT_4096_0 + """
+_TEXT_8192_0 = (
+    _TEXT_4096_0
+    + """
 
 The history of computing is marked by periodic paradigm shifts that fundamentally changed how we think about and use computers. The transition from mainframes to personal computers democratized access to computing power. The rise of the internet transformed computers from isolated tools into nodes in a global network. Mobile computing made computing ubiquitous and personal. Each shift created new opportunities and disrupted existing business models.
 
@@ -159,8 +172,11 @@ Participatory approaches to technology governance seek to include diverse voices
 The future of computing is being shaped by decisions made today. Research priorities determine which technologies receive investment and attention. Educational programs prepare the next generation of computing professionals. Policy choices shape the incentives and constraints that guide technology development. By engaging thoughtfully with these decisions, we can help ensure that the future of computing reflects our highest aspirations.
 
 Computing has always been about more than just machines and algorithms. It is fundamentally about amplifying human capabilities and addressing human needs. The most successful technologies are those that empower people to do things they could not do before. As we develop ever more powerful computing technologies, we must keep this human-centered perspective at the forefront of our work."""
+)
 
-_TEXT_8192_1 = _TEXT_4096_1 + """
+_TEXT_8192_1 = (
+    _TEXT_4096_1
+    + """
 
 The art and science of software engineering encompasses not just technical skills but also practices for organizing human effort. Software projects fail more often from organizational and communication problems than from purely technical challenges. Understanding how teams work effectively, how requirements are gathered and refined, and how quality is assured are essential aspects of software engineering practice.
 
@@ -193,6 +209,7 @@ Software ethics has become an increasingly important topic as software systems t
 The craft of software development is a continuous journey of learning and improvement. New languages, frameworks, and tools emerge regularly. Best practices evolve as the field gains experience. Individual developers must invest in their skills to remain effective. Organizations must create environments that support learning and experimentation.
 
 Software development is ultimately a human endeavor, shaped by the people who participate in it. Diversity and inclusion matter for both ethical reasons and because diverse teams produce better outcomes. Psychological safety enables people to take risks, raise concerns, and learn from failures. Building software well requires attending to both technical and human dimensions of the work."""
+)
 
 # Dictionary mapping (seq_len) -> list of texts for different batch indices
 PREFILL_TEXTS = {
@@ -206,35 +223,41 @@ PREFILL_TEXTS = {
 
 def get_prefill_text(seq_len: int, batch_idx: int = 0) -> str:
     """Get prefill text for a given sequence length and batch index.
-    
+
     Args:
         seq_len: Target sequence length (128, 1024, etc.)
         batch_idx: Index within the batch (0 or 1 for batch_size <= 2)
-    
+
     Returns:
         Text string designed to tokenize close to seq_len tokens.
-    
+
     Raises:
         KeyError: If seq_len is not supported.
         IndexError: If batch_idx exceeds available texts.
     """
     if seq_len not in PREFILL_TEXTS:
-        raise KeyError(f"seq_len {seq_len} not supported. Available: {list(PREFILL_TEXTS.keys())}")
+        raise KeyError(
+            f"seq_len {seq_len} not supported. Available: {list(PREFILL_TEXTS.keys())}"
+        )
     texts = PREFILL_TEXTS[seq_len]
     if batch_idx >= len(texts):
-        raise IndexError(f"batch_idx {batch_idx} exceeds available texts ({len(texts)}) for seq_len {seq_len}")
+        raise IndexError(
+            f"batch_idx {batch_idx} exceeds available texts ({len(texts)}) for seq_len {seq_len}"
+        )
     return texts[batch_idx]
 
 
 def get_prefill_texts_for_batch(seq_len: int, batch_size: int) -> list:
     """Get list of prefill texts for a given sequence length and batch size.
-    
+
     Args:
         seq_len: Target sequence length
         batch_size: Number of texts needed
-    
+
     Returns:
         List of text strings for the batch.
     """
-    return [get_prefill_text(seq_len, i % len(PREFILL_TEXTS[seq_len])) for i in range(batch_size)]
-
+    return [
+        get_prefill_text(seq_len, i % len(PREFILL_TEXTS[seq_len]))
+        for i in range(batch_size)
+    ]
