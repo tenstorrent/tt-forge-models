@@ -5,7 +5,8 @@
 Roberta model implementation for Tenstorrent projects.
 """
 
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, AutoConfig
+from typing import Optional
 from ...config import (
     ModelInfo,
     ModelGroup,
@@ -57,12 +58,13 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def __init__(self, variant=None):
+    def __init__(self, variant=None, num_layers: Optional[int] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional string specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
 
@@ -70,6 +72,7 @@ class ModelLoader(ForgeModel):
         self.text = """Great road trip views! @ Shartlesville, Pennsylvania"""
         self.max_length = 128
         self.tokenizer = None
+        self.num_layers = num_layers
 
     def load_model(self, dtype_override=None):
         """Load a Roberta model from Hugging Face."""
@@ -90,6 +93,11 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
 
         model = AutoModelForSequenceClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
