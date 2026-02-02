@@ -306,10 +306,30 @@ def get_static_cache_decode_inputs(
         dtype=cache_dtype,
     )
 
+    # Calculate the head dimension for key/value tensors (already calculated, but for clarity)
+    head_dim = config.hidden_size // config.num_attention_heads
+
+    # Define the shape for keys and values (same for all layers)
+    # The shape is (batch_size, num_key_value_heads, max_cache_len, head_dim)
+    key_value_shape = (
+        1,
+        config.num_key_value_heads,
+        static_cache.max_cache_len,
+        head_dim,
+    )
+
+    # Iterate through all layers in static_cache and assign zero tensors
+    for i, layer in enumerate(static_cache.layers):
+        zero_keys = torch.zeros(key_value_shape)
+        zero_values = torch.zeros(key_value_shape)
+
+        layer.keys = zero_keys
+        layer.values = zero_values
+
     token_id = get_simple_decode_token_id(tokenizer, config)
     input_ids = torch.full((batch_size, 1), fill_value=token_id, dtype=torch.long)
 
-    pos = (max_cache_len - 1) if cache_position is None else int(cache_position)
+    pos = 0 if cache_position is None else int(cache_position)
     cache_position_t = torch.tensor([pos], dtype=torch.long)
 
     inputs = {
@@ -320,7 +340,7 @@ def get_static_cache_decode_inputs(
     }
     if include_attention_mask:
         inputs["attention_mask"] = torch.ones((batch_size, 1), dtype=torch.long)
-
+    print("inputs", inputs)
     return inputs
 
 
