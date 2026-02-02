@@ -1,6 +1,6 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 # MiniCPM-o-2_6 Inference Requirements
-torchaudio @ https://download.pytorch.org/whl/cpu/torchaudio-2.7.1%2Bcpu-cp311-cp311-manylinux_2_28_x86_64.whl ; python_version == "3.11"
+torchaudio==2.9.0
 
 # Model-specific dependencies
 vector_quantize_pytorch>=1.18.5
