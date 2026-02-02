@@ -321,7 +321,6 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional torch.dtype to override the model's default dtype.
             batch_size: Batch size for the inputs.
             seq_len: Target sequence length. Texts are chosen to minimize padding.
-                     Supported values: 128, 1024 (more can be added to prefill_inputs.py).
 
         Returns:
             dict: Input tensors (input_ids, attention_mask) padded to seq_len.

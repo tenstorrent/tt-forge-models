@@ -9,12 +9,12 @@ Each text is designed to tokenize to approximately seq_len tokens to minimize pa
 For batch_size > 1, use multiple texts from the same seq_len bucket.
 """
 
-# Texts designed to be approximately 100-120 tokens (for seq_len=128)
+
 _TEXT_128_0 = """The history of artificial intelligence began in antiquity, with myths, stories and rumors of artificial beings endowed with intelligence or consciousness by master craftsmen. The seeds of modern AI were planted by classical philosophers who attempted to describe the process of human thinking as the mechanical manipulation of symbols. This work culminated in the invention of the programmable digital computer in the 1940s, a machine based on the abstract essence of mathematical reasoning. This device and the ideas behind it inspired a handful of scientists to begin seriously discussing the possibility of building an electronic brain."""
 
 _TEXT_128_1 = """Machine learning is a subset of artificial intelligence that provides systems the ability to automatically learn and improve from experience without being explicitly programmed. Machine learning focuses on the development of computer programs that can access data and use it to learn for themselves. The process of learning begins with observations or data, such as examples, direct experience, or instruction, in order to look for patterns in data and make better decisions in the future based on the examples that we provide. The primary aim is to allow the computers to learn automatically without human intervention."""
 
-# Texts designed to be approximately 900-1000 tokens (for seq_len=1024)
+
 _TEXT_1024_0 = """The development of artificial intelligence has been one of the most transformative technological achievements of the modern era. From its theoretical foundations laid by Alan Turing in the 1950s to the sophisticated neural networks of today, AI has evolved through several distinct phases, each marked by breakthrough discoveries and persistent challenges.
 
 The field began with the ambitious goal of creating machines that could think like humans. Early pioneers such as John McCarthy, Marvin Minsky, and Claude Shannon believed that human intelligence could be precisely described and replicated in machines. This optimism led to significant early achievements, including programs that could play chess, prove mathematical theorems, and engage in simple conversations.
@@ -53,7 +53,7 @@ Security has become a critical concern as computers handle sensitive information
 
 The future of computer science promises continued rapid change. Quantum computing may solve problems intractable for classical computers. Brain-computer interfaces could create new modes of human-machine interaction. Edge computing brings processing closer to data sources. Whatever specific technologies emerge, the fundamental principles of computer science will continue to guide their development."""
 
-# Texts designed to be approximately 1800-2000 tokens (for seq_len=2048)
+
 _TEXT_2048_0 = _TEXT_1024_0 + """
 
 The intersection of artificial intelligence and scientific discovery represents one of the most exciting frontiers in modern research. AI systems are now being used to accelerate drug discovery, predict protein structures, and analyze astronomical data. The AlphaFold system, developed by DeepMind, solved the protein folding problem that had challenged biologists for decades. This breakthrough demonstrates how AI can tackle problems that were previously considered intractable.
@@ -82,7 +82,7 @@ Mobile computing introduced additional complexity with its constraints on power,
 
 Cloud computing transformed how software is deployed and operated. Rather than managing physical servers, developers can provision virtual resources on demand. Services like compute instances, databases, and message queues are available as commodities. This shift enabled new architectures, including microservices and serverless computing, that emphasize scalability and resilience. DevOps practices emerged to manage the complexity of continuous deployment and operation."""
 
-# Texts designed to be approximately 3500-4000 tokens (for seq_len=4096)
+
 _TEXT_4096_0 = _TEXT_2048_0 + """
 
 The philosophical implications of artificial intelligence extend far beyond its technical achievements. Questions about consciousness, understanding, and the nature of mind have taken on new urgency as AI systems become more sophisticated. When a language model generates coherent text, is there any sense in which it understands what it is saying? This question connects to ancient philosophical debates about the relationship between language and thought.
@@ -129,7 +129,7 @@ Infrastructure as code brings software engineering practices to the management o
 
 The security of software systems requires attention throughout the development and operation lifecycle. Secure development practices identify and mitigate vulnerabilities early in the development process. Static and dynamic analysis tools detect common security flaws. Dependency management ensures that third-party components are kept up to date and free of known vulnerabilities. Security monitoring detects and responds to attacks on running systems."""
 
-# Texts designed to be approximately 7000-8000 tokens (for seq_len=8192)
+
 _TEXT_8192_0 = _TEXT_4096_0 + """
 
 The history of computing is marked by periodic paradigm shifts that fundamentally changed how we think about and use computers. The transition from mainframes to personal computers democratized access to computing power. The rise of the internet transformed computers from isolated tools into nodes in a global network. Mobile computing made computing ubiquitous and personal. Each shift created new opportunities and disrupted existing business models.
