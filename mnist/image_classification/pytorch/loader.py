@@ -153,7 +153,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load MNIST model for image classification.
 
         Args:

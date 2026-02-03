@@ -76,7 +76,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.PADDLE,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained ResNet model for this instance's variant (Paddle)."""
         variant = self._variant
         if variant == ModelVariant.RESNET18:

@@ -93,10 +93,12 @@ class ModelLoader(ForgeModel):
 
     def load_model(
         self,
+        *,
         dtype_override: Optional[torch.dtype] = None,
         device_map: str = "cpu",
         low_cpu_mem_usage: bool = True,
         extra_pipe_kwargs: Optional[Dict[str, Any]] = None,
+        **kwargs,
     ):
         """
         Load and return the Wan diffusion pipeline (DiffusionPipeline).
