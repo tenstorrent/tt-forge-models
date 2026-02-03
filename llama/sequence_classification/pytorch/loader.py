@@ -4,7 +4,6 @@
 """
 Llama model loader implementation for sequence classification.
 """
-
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from typing import Optional
 

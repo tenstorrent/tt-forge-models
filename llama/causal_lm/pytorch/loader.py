@@ -330,15 +330,12 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         # Get appropriate texts for this seq_len and batch_size
-        # Fall back to default seq_len if requested one is not available
         if seq_len not in PREFILL_TEXTS:
-            available = list(PREFILL_TEXTS.keys())
-            # Use largest available that's <= seq_len, or smallest if seq_len is too small
-            candidates = [s for s in available if s <= seq_len]
-            fallback_seq_len = max(candidates) if candidates else min(available)
-            texts = get_prefill_texts_for_batch(fallback_seq_len, batch_size)
-        else:
-            texts = get_prefill_texts_for_batch(seq_len, batch_size)
+            available = sorted(PREFILL_TEXTS.keys())
+            raise ValueError(
+                f"seq_len={seq_len} is not supported. Available sequence lengths: {available}"
+            )
+        texts = get_prefill_texts_for_batch(seq_len, batch_size)
 
         # Tokenize all texts in the batch with padding to exact seq_len
         inputs = self.tokenizer(
