@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SpeechT5 HiFiGAN Vocoder model instance.
 
         Args:
@@ -85,6 +85,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = SpeechT5HifiGan.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
