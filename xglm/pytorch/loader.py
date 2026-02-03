@@ -6,7 +6,7 @@ XGLM model loader implementation
 """
 
 import torch
-from transformers import AutoTokenizer, XGLMForCausalLM
+from transformers import AutoTokenizer, XGLMForCausalLM, AutoConfig
 from typing import Optional
 from ...config import (
     ModelInfo,
@@ -61,12 +61,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def __init__(self, variant: Optional[ModelVariant] = None) -> ModelInfo:
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional string specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
 
@@ -75,8 +78,9 @@ class ModelLoader(ForgeModel):
         self.text = "My name is Thomas and my main"
         self.max_length = 256
         self.tokenizer = None
+        self.num_layers = num_layers
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load a XGLM model from Hugging Face."""
 
         # Initialize tokenizer first with default or overridden dtype
@@ -89,13 +93,17 @@ class ModelLoader(ForgeModel):
         )
 
         # Load pre-trained model from HuggingFace
-        model_kwargs = {}
+        model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
-        model = XGLMForCausalLM.from_pretrained(
-            self.model_name, use_cache=False, **model_kwargs
-        )
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(self.model_name)
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
+
+        model = XGLMForCausalLM.from_pretrained(self.model_name, **model_kwargs)
         model.eval()
         return model
 

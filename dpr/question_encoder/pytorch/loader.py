@@ -81,7 +81,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the DPR Question Encoder model instance with default settings.
 
         Args:
@@ -100,6 +100,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = DPRQuestionEncoder.from_pretrained(self.model_name, **model_kwargs)
         return model

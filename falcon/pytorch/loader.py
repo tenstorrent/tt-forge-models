@@ -91,17 +91,25 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def __init__(self, variant=None):
+    def __init__(self, variant=None, num_layers: Optional[int] = None):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional ModelVariant specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
+        """
         super().__init__(variant)
 
         # Configuration parameters
-        self.input_text_1 = "In a shocking discovery, scientists stumbled upon a herd of unicorns living in a remote, unexplored valley in the Andes Mountains. To their astonishment, these unicorns could speak perfect English. Describe the scientists’ reactions, the unicorns’ personalities, and the conversations that unfold between them. Include vivid details of the valley, the unicorns’ appearance, and any surprising or magical behaviors they display."
+        self.input_text_1 = "In a shocking discovery, scientists stumbled upon a herd of unicorns living in a remote, unexplored valley in the Andes Mountains. To their astonishment, these unicorns could speak perfect English. Describe the scientists' reactions, the unicorns' personalities, and the conversations that unfold between them. Include vivid details of the valley, the unicorns' appearance, and any surprising or magical behaviors they display."
         self.max_length = 512
         self.tokenizer = None
         self.config = None
         self.input_text_2 = "Hello, my dog is cute"
+        self.num_layers = num_layers
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Falcon model instance.
 
         Args:
@@ -121,12 +129,21 @@ class ModelLoader(ForgeModel):
         )
 
         # Load pre-trained model from HuggingFace
-        model_kwargs = {"use_cache": False}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.use_cache = False
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+        model_kwargs["config"] = config
+        model_kwargs |= kwargs
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        self.model = model
         self.config = model.config
         return model
 

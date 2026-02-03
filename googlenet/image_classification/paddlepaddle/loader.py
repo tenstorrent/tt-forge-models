@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.PADDLE,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained GoogleNet model (Paddle)."""
         model = googlenet(pretrained=True)
         return model
