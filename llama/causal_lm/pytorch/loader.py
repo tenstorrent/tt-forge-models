@@ -24,6 +24,7 @@ from ....tools.utils import (
     cast_input_to_type,
     get_static_cache_decode_inputs,
 )
+from .prefill_inputs import get_prefill_texts_for_batch, PREFILL_TEXTS
 
 
 class ModelVariant(StrEnum):
@@ -322,6 +323,46 @@ class ModelLoader(ForgeModel):
             max_cache_len=max_cache_len,
             dtype=dtype_override,
         )
+
+    def load_inputs_prefill(self, dtype_override=None, batch_size=1, seq_len=128):
+        """Load prefill-step inputs with texts sized appropriately for the target sequence length.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+            batch_size: Batch size for the inputs.
+            seq_len: Target sequence length. Texts are chosen to minimize padding.
+
+        Returns:
+            dict: Input tensors (input_ids, attention_mask) padded to seq_len.
+        """
+        # Ensure tokenizer is initialized
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+
+        # Get appropriate texts for this seq_len and batch_size
+        if seq_len not in PREFILL_TEXTS:
+            available = sorted(PREFILL_TEXTS.keys())
+            raise ValueError(
+                f"seq_len={seq_len} is not supported. Available sequence lengths: {available}"
+            )
+        texts = get_prefill_texts_for_batch(seq_len, batch_size)
+
+        # Tokenize all texts in the batch with padding to exact seq_len
+        inputs = self.tokenizer(
+            texts,
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=seq_len,
+        )
+
+        # Only convert dtype if explicitly requested
+        if dtype_override is not None:
+            for key in inputs:
+                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
+
+        self.seq_len = seq_len
+        return inputs
 
     def decode_output(self, max_new_tokens, model, inputs, tokenizer):
         """Generates text .
