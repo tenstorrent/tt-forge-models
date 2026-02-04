@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self):
+    def load_model(self, **kwargs):
         """Load and return the OFT model instance with default settings.
 
         Returns:

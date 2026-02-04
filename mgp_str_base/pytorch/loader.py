@@ -54,10 +54,10 @@ class ModelLoader(ForgeModel):
         # Configuration parameters
         self.model_name = "alibaba-damo/mgp-str-base"
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained MGP-STR model."""
 
-        model = MgpstrForSceneTextRecognition.from_pretrained(self.model_name)
+        model = MgpstrForSceneTextRecognition.from_pretrained(self.model_name, **kwargs)
         model.eval()
 
         # Only convert dtype if explicitly requested

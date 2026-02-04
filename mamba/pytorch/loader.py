@@ -70,20 +70,24 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional string specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
 
         # Configuration parameters
         self.text = "Hey how are you doing?"
         self.tokenizer = None
+        self.num_layers = num_layers
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load a Mamba model from Hugging Face."""
 
         # Initialize tokenizer first with default or overridden dtype
@@ -99,6 +103,16 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
+
+        if self.num_layers is not None:
+            from transformers import AutoConfig
+
+            config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
 
         model = MambaForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name, use_cache=False, **model_kwargs

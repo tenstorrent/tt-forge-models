@@ -39,12 +39,12 @@ class ModelVariant(StrEnum):
     """Available RegNet model variants."""
 
     # HuggingFace variants
-    Y_040 = "Y 040" 
+    Y_040 = "Y 040"
     Y_064 = "Y 064"
-    Y_080 = "Y 080" 
-    Y_120 = "Y 120" 
-    Y_160 = "Y 160" 
-    Y_320 = "Y 320" 
+    Y_080 = "Y 080"
+    Y_120 = "Y 120"
+    Y_160 = "Y 160"
+    Y_320 = "Y 320"
 
     # Torchvision variants
     Y_400MF = "Y 400mf"
@@ -198,7 +198,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the RegNet model instance for this instance's variant.
 
         Args:
@@ -214,7 +214,7 @@ class ModelLoader(ForgeModel):
 
         if source == ModelSource.HUGGING_FACE:
             # Load model from HuggingFace
-            model = RegNetForImageClassification.from_pretrained(model_name)
+            model = RegNetForImageClassification.from_pretrained(model_name, **kwargs)
 
         elif source == ModelSource.TORCHVISION:
             # Load model from torchvision

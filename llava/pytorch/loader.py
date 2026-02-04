@@ -71,10 +71,10 @@ class ModelLoader(ForgeModel):
         )
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the LLaVA model instance."""
         model_name = self._variant_config.pretrained_model_name
-        model = LlavaForConditionalGeneration.from_pretrained(str(model_name))
+        model = LlavaForConditionalGeneration.from_pretrained(str(model_name), **kwargs)
         model.eval()
 
         if dtype_override:

@@ -116,7 +116,7 @@ class ModelLoader(ForgeModel):
         """Check if the current variant is v0.2 or later (requires sliding window fix)."""
         return self._variant in [ModelVariant.V0_2_INSTRUCT, ModelVariant.V0_3_INSTRUCT]
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Mistral model instance for this instance's variant.
         Args:
             dtype_override: Optional dtype to override the default dtype.
@@ -136,6 +136,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         partition_rules = ((r".*", PartitionSpec()),)
 

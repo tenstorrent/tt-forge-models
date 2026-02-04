@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the BART model instance for this instance's variant.
 
         Args:
@@ -119,6 +119,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = BartForSequenceClassification.from_pretrained(
             pretrained_model_name, **model_kwargs

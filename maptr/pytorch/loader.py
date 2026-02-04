@@ -120,7 +120,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self):
+    def load_model(self, **kwargs):
         """Load pretrained MAPTR model for this instance's variant.
 
         Returns:

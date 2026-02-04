@@ -66,11 +66,21 @@ class ModelLoader(ForgeModel):
 
     sample_text = "What is your favorite city?"
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional ModelVariant specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
+        """
         super().__init__(variant)
         self.tokenizer = None
         self.seq_len = None
         self.config = None
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -112,7 +122,7 @@ class ModelLoader(ForgeModel):
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Gemma model instance for this instance's variant.
 
         Args:
@@ -125,9 +135,17 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
-        model_kwargs = {"use_cache": False}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.use_cache = False
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+        model_kwargs["config"] = config
+        model_kwargs |= kwargs
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )

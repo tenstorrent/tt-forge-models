@@ -97,7 +97,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SqueezeBERT model instance for this instance's variant.
 
         Args:
@@ -120,7 +120,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["dtype"] = dtype_override
 
         # Load the model
-        config = SqueezeBertConfig.from_pretrained(self._model_name)
+        config = SqueezeBertConfig.from_pretrained(self._model_name, **kwargs)
         self._model = SqueezeBertForMaskedLM(config)
 
         return self._model

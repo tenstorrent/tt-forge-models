@@ -78,13 +78,13 @@ class ModelLoader(ForgeModel):
             return ["中国的首都是哪里？"]
         return ["What is the capital of China?"]
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load Paddle BERT model for question answering."""
         model_name = self._variant_config.pretrained_model_name
         # Initialize tokenizer
-        self.tokenizer = BertTokenizer.from_pretrained(model_name)
+        self.tokenizer = BertTokenizer.from_pretrained(model_name, **kwargs)
 
-        model = BertForQuestionAnswering.from_pretrained(model_name)
+        model = BertForQuestionAnswering.from_pretrained(model_name, **kwargs)
         model.eval()
         return model
 

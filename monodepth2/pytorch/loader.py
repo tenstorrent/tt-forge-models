@@ -110,7 +110,7 @@ class ModelLoader(ForgeModel):
         self._height = None
         self._width = None
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained Monodepth2 model."""
 
         # Get the pretrained model name from the instance's variant config

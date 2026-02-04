@@ -146,7 +146,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load a VovNet model based on the configured source for this variant."""
         cfg = self._variant_config
         model_name = cfg.pretrained_model_name

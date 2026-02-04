@@ -80,13 +80,13 @@ class ModelLoader(ForgeModel):
     def _get_max_length(self) -> int:
         return getattr(self._variant_config, "max_length", 128) or 128
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load Paddle BERT model for masked language modeling."""
         model_name = self._variant_config.pretrained_model_name
         # Initialize tokenizer
-        self.tokenizer = BertTokenizer.from_pretrained(model_name)
+        self.tokenizer = BertTokenizer.from_pretrained(model_name, **kwargs)
 
-        model = BertForMaskedLM.from_pretrained(model_name)
+        model = BertForMaskedLM.from_pretrained(model_name, **kwargs)
         return model
 
     def load_inputs(self, dtype_override=None) -> List[paddle.Tensor]:

@@ -169,7 +169,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None) -> torch.nn.Module:
+    def load_model(self, *, dtype_override=None, **kwargs) -> torch.nn.Module:
         """Load the Ultra-Fast-Lane-Detection model.
 
         Args:

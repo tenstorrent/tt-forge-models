@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.PADDLE,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained MobileNetV2 model (Paddle)."""
         model = mobilenet_v2(pretrained=True)
         return model

@@ -16,7 +16,8 @@ from ...config import (
 )
 from ...base import ForgeModel
 
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, AutoConfig
+from typing import Optional
 
 
 class ModelVariant(StrEnum):
@@ -60,28 +61,37 @@ class ModelLoader(ForgeModel):
 
     """Loads NanoGPT model and sample input."""
 
-    def __init__(self, variant=None):
+    def __init__(self, variant=None, num_layers: Optional[int] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional string specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
 
         # Configuration parameters
         self.model_name = "FinancialSupport/NanoGPT"
+        self.num_layers = num_layers
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained NanoGPT model."""
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model = AutoModel.from_pretrained(
-            pretrained_model_name,
-            ignore_mismatched_sizes=True,
-            use_cache=False,
-        )
+        model_kwargs = {
+            "ignore_mismatched_sizes": True,
+            "use_cache": False,
+        }
+
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
+        model_kwargs |= kwargs
+
+        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         # Only convert dtype if explicitly requested

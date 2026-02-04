@@ -103,7 +103,7 @@ class ModelLoader(ForgeModel):
         )
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Segformer for Semantic Segmentation model instance for this instance's variant.
 
         Args:
@@ -121,7 +121,9 @@ class ModelLoader(ForgeModel):
             self._load_processor()
 
         # Load pre-trained model from HuggingFace
-        model = SegformerForSemanticSegmentation.from_pretrained(pretrained_model_name)
+        model = SegformerForSemanticSegmentation.from_pretrained(
+            pretrained_model_name, **kwargs
+        )
 
         if dtype_override is not None:
             model = model.to(dtype_override)

@@ -93,7 +93,7 @@ class ModelLoader(ForgeModel):
 
         return self.feature_extractor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MaskFormer model instance for this instance's variant.
 
         Args:
@@ -112,6 +112,7 @@ class ModelLoader(ForgeModel):
         # issue with bfloat16. See: https://github.com/tenstorrent/tt-xla/issues/1959
         # if dtype_override is not None:
         #     model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = MaskFormerForInstanceSegmentation.from_pretrained(
             pretrained_model_name, **model_kwargs

@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         from .src.utils import init_detector, Config, get_base_cfg
         from .src.model import MODELS
 
