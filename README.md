@@ -41,7 +41,7 @@ Each model in tt-forge-models follows the same standardized interface pattern. A
 
 ```python
 # Import specifically from the PyTorch implementation
-from third_party.tt_forge_models.yolov4.pytorch import ModelLoader
+from third_party.tt_forge_models.yolov4.object_detection.pytorch import ModelLoader
 import torch
 
 # Load model with default settings (uses PyTorch default dtype, typically float32)
@@ -307,12 +307,12 @@ When this repository is used as a git submodule or dependency in other projects,
 
 ```python
 # All models use the consistent ModelLoader class name
-from third_party.tt_forge_models.yolov4.pytorch import ModelLoader
-from third_party.tt_forge_models.bert.pytorch import ModelLoader
+from third_party.tt_forge_models.yolov4.object_detection.pytorch import ModelLoader
+from third_party.tt_forge_models.bert.masked_lm.pytorch import ModelLoader
 
 # To use multiple models in the same file, use aliases
-from third_party.tt_forge_models.yolov4.pytorch import ModelLoader as YOLOv4Loader, ModelVariant as YOLOv4Variant
-from third_party.tt_forge_models.bert.pytorch import ModelLoader as BertLoader, ModelVariant as BertVariant
+from third_party.tt_forge_models.yolov4.object_detection.pytorch import ModelLoader as YOLOv4Loader, ModelVariant as YOLOv4Variant
+from third_party.tt_forge_models.bert.masked_lm.pytorch import ModelLoader as BertLoader, ModelVariant as BertVariant
 
 # For base classes and utilities
 from third_party.tt_forge_models.base import ForgeModel
