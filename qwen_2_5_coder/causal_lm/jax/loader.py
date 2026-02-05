@@ -122,7 +122,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self._model_name = self._variant_config.pretrained_model_name
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Qwen2.5-Coder model instance.
 
         Args:
@@ -136,6 +136,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoEasyDeLModelForCausalLM.from_pretrained(
             self._model_name, **model_kwargs

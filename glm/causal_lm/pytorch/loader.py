@@ -59,17 +59,21 @@ class ModelLoader(ForgeModel):
     # Sample text for causal LM
     sample_text = "Hey how are you doing today?"
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
         self.tokenizer = None
         self.seq_len = None
         self.config = None
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -122,13 +126,12 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None, num_layers=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
-            num_layers: Optional number of layers to load. If not provided, all layers are loaded.
 
         Returns:
             torch.nn.Module: The model instance for causal LM.
@@ -145,11 +148,17 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
+        model_kwargs |= kwargs
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        if num_layers is not None:
-            model.model.layers = model.model.layers[:num_layers]
+        if self.num_layers is not None:
+            model.model.layers = model.model.layers[: self.num_layers]
 
         model.eval()
         self.model = model

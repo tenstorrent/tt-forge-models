@@ -65,13 +65,13 @@ class ModelLoader(ForgeModel):
         """Return the sample masked sentence used by the test."""
         return ["一，[MASK]，三，四"]
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load Paddle ALBERT model for masked language modeling."""
         model_name = self._variant_config.pretrained_model_name
         # Initialize tokenizer
-        self.tokenizer = AlbertTokenizer.from_pretrained(model_name)
+        self.tokenizer = AlbertTokenizer.from_pretrained(model_name, **kwargs)
 
-        base_model = AlbertForMaskedLM.from_pretrained(model_name)
+        base_model = AlbertForMaskedLM.from_pretrained(model_name, **kwargs)
 
         class AlbertWrapper(paddle.nn.Layer):
             def __init__(self, model):

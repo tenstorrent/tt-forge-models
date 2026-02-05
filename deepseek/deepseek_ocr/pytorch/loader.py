@@ -96,7 +96,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the DeepSeek OCR model instance for this instance's variant.
 
         Args:
@@ -132,6 +132,7 @@ class ModelLoader(ForgeModel):
             model_path,
             local_files_only=True,
             trust_remote_code=True,
+            **kwargs,
         )
 
         # Configure model settings

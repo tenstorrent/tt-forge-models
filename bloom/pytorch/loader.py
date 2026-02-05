@@ -14,18 +14,20 @@ from ...config import (
     Framework,
 )
 from ...base import ForgeModel
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from typing import Optional
 
 
 class ModelLoader(ForgeModel):
     """Bloom model loader implementation."""
 
-    def __init__(self, variant=None):
+    def __init__(self, variant=None, num_layers: Optional[int] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional string specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
 
@@ -33,6 +35,7 @@ class ModelLoader(ForgeModel):
         self.model_name = "bigscience/bloom-1b1"
         self.tokenizer = None
         self.test_input = "This is a sample text from "
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -55,7 +58,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Bloom model instance with default settings.
 
         Args:
@@ -78,6 +81,12 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
+
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(self.model_name)
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
 

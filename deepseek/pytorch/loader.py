@@ -9,6 +9,7 @@ import os
 from unittest.mock import patch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from transformers.dynamic_module_utils import get_imports
+from typing import Optional
 from ...config import (
     ModelInfo,
     ModelGroup,
@@ -29,12 +30,13 @@ def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
 class ModelLoader(ForgeModel):
     """Deepseek model loader implementation."""
 
-    def __init__(self, variant=None):
+    def __init__(self, variant=None, num_layers: Optional[int] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional string specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
 
@@ -42,6 +44,7 @@ class ModelLoader(ForgeModel):
         self.model_name = "deepseek-ai/DeepSeek-V3"
         self.tokenizer = None
         self.text = "What is machine learning?"
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -64,7 +67,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Deepseek model instance with default settings.
 
         Args:
@@ -79,7 +82,10 @@ class ModelLoader(ForgeModel):
             config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
 
             # Modify config
-            config.num_hidden_layers = 6
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            else:
+                config.num_hidden_layers = 6
             config.num_attention_heads = 16
             config.hidden_size = 1024
             config.num_key_value_heads = 16
@@ -91,6 +97,7 @@ class ModelLoader(ForgeModel):
             model_kwargs = {"attn_implementation": "eager", "trust_remote_code": True}
             if dtype_override is not None:
                 model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
 
             model = AutoModelForCausalLM.from_config(config, **model_kwargs)
 

@@ -198,7 +198,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the RegNet model instance for this instance's variant.
 
         Args:
@@ -214,7 +214,7 @@ class ModelLoader(ForgeModel):
 
         if source == ModelSource.HUGGING_FACE:
             # Load model from HuggingFace
-            model = RegNetForImageClassification.from_pretrained(model_name)
+            model = RegNetForImageClassification.from_pretrained(model_name, **kwargs)
 
         elif source == ModelSource.TORCHVISION:
             # Load model from torchvision

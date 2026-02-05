@@ -5,6 +5,7 @@
 """
 Openpose V2 model loader implementation
 """
+
 from PIL import Image
 from pytorchcv.model_provider import get_model as ptcv_get_model
 from torchvision import transforms
@@ -55,20 +56,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Openpose V2 model instance with default settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                            If not provided, the model will use its default dtype (typically float32).
+                            NOTE: This parameter is currently ignored (model always uses float32).
 
         Returns:
             torch.nn.Module: The Openpose V2 model instance.
 
         """
         model = ptcv_get_model(self.model_name, pretrained=True)
+
+        # Skip bfp16 conversion - Conv2d->BatchNorm2d chains amplify rounding errors in bfloat16
+        # Reference: https://github.com/tenstorrent/tt-metal/issues/36394#issuecomment-3810036978
         if dtype_override is not None:
-            model = model.to(dtype_override)
+            print(
+                "NOTE: dtype_override ignored - Conv2d+BatchNorm2d rounding amplification in bfloat16"
+            )
+        #     model = model.to(dtype_override)
 
         return model
 
@@ -77,7 +84,7 @@ class ModelLoader(ForgeModel):
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                            If not provided, the model will use its default dtype (typically float32).
+                            NOTE: This parameter is currently ignored (model always uses float32).
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
@@ -104,7 +111,13 @@ class ModelLoader(ForgeModel):
         )  # create a mini-batch as expected by the model
 
         batch_input = input_batch.repeat_interleave(batch_size, dim=0)
+
+        # Skip bfp16 conversion - Conv2d->BatchNorm2d chains amplify rounding errors in bfloat16
+        # Reference: https://github.com/tenstorrent/tt-metal/issues/36394#issuecomment-3810036978
         if dtype_override is not None:
-            batch_input = batch_input.to(dtype_override)
+            print(
+                "NOTE: dtype_override ignored - Conv2d+BatchNorm2d rounding amplification in bfloat16"
+            )
+        #     batch_input = batch_input.to(dtype_override)
 
         return batch_input

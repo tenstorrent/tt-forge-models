@@ -93,7 +93,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = self.processor.tokenizer
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Llama 3.2 Vision model instance for this instance's variant.
 
         Args:
@@ -114,6 +114,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"trust_remote_code": True, "_attn_implementation": "eager"}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs

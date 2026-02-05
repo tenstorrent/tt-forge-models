@@ -6,6 +6,7 @@ gpt-oss model loader implementation for causal language modeling tasks.
 """
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.utils.quantization_config import Mxfp4Config
 from typing import Optional
 
 from ...base import ForgeModel
@@ -96,7 +97,7 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the gpt-oss model instance for this instance's variant.
 
         Args:
@@ -107,11 +108,13 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The gpt-oss model instance for causal language modeling.
         """
         # Load config with modifications
+        quantization_config = Mxfp4Config(dequantize=True)
         self.load_config()
 
         # Prepare model kwargs
         model_kwargs = {
             "config": self.config,
+            "quantization_config": quantization_config,
             "low_cpu_mem_usage": True,
             "trust_remote_code": True,
             "attn_implementation": "eager",
@@ -122,6 +125,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         else:
             model_kwargs["torch_dtype"] = torch.bfloat16
+        model_kwargs |= kwargs
 
         # Load model
         model = AutoModelForCausalLM.from_pretrained(
@@ -224,6 +228,4 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             self.config.num_hidden_layers = self.num_layers
 
-        self.config.quantization_config["quant_method"] = "none"
-        self.config.use_cache = False
         return self.config

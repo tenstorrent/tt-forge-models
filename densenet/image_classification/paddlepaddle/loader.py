@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.PADDLE,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained Densenet model (Paddle)."""
         model = eval("densenet121")(pretrained=True)
         return model
