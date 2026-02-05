@@ -11,6 +11,7 @@ from PIL import Image
 from torchvision import transforms
 import requests
 import torch
+from datasets import load_dataset
 from ...config import (
     ModelInfo,
     ModelGroup,
@@ -20,7 +21,6 @@ from ...config import (
 )
 from ...base import ForgeModel
 from ...tools.utils import print_compiled_model_results
-from ...tools.utils import get_file
 
 
 class ModelLoader(ForgeModel):
@@ -92,8 +92,9 @@ class ModelLoader(ForgeModel):
             dict: Input tensors and attention masks that can be fed to the model.
         """
 
-        file_path = get_file("https://github.com/pytorch/hub/raw/master/images/dog.jpg")
-        input_image = Image.open(file_path)
+        # Load image from HuggingFace dataset
+        dataset = load_dataset("huggingface/cats-image")["test"]
+        input_image = dataset[0]["image"]
         preprocess = transforms.Compose(
             [
                 transforms.Resize(256),
