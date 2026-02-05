@@ -86,15 +86,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self):
+    def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
 
         Returns:
             The loaded tokenizer instance
         """
+        # Initialize tokenizer with dtype override if specified
+        tokenizer_kwargs = {}
+        if dtype_override is not None:
+            tokenizer_kwargs["torch_dtype"] = dtype_override
+
+        # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+        self.tokenizer.pad_token = self.tokenizer.eos_token
+
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -107,6 +118,10 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The gpt-oss model instance for causal language modeling.
         """
+        # Ensure tokenizer is loaded
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+
         # Load config with modifications
         quantization_config = Mxfp4Config(dequantize=True)
         self.load_config()
@@ -147,7 +162,7 @@ class ModelLoader(ForgeModel):
         """
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
-            self._load_tokenizer()
+            self._load_tokenizer(dtype_override=dtype_override)
 
         # Create tokenized inputs
         inputs = self.tokenizer.apply_chat_template(
@@ -159,6 +174,13 @@ class ModelLoader(ForgeModel):
             padding="max_length",
             max_length=128,
         )
+        if (
+            hasattr(self.model.config, "sliding_window")
+            and self.model.config.sliding_window is not None
+        ):
+            # if the model uses sliding window attention, match sliding window value to input size so it
+            # does not go out of bounds when updating the cache
+            self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
         return inputs
 
