@@ -106,7 +106,7 @@ class ModelLoader(ForgeModel):
 
         return self._processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the CLIP model instance for this instance's variant.
         Args:
             dtype_override: Optional dtype to override the model's default dtype.
@@ -127,6 +127,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         # Check if we need to load from PyTorch weights
         from_pt = pretrained_model_name == "openai/clip-vit-large-patch14-336"

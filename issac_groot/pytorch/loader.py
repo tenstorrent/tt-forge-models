@@ -96,7 +96,7 @@ class ModelLoader(ForgeModel):
             self._modality_config = data_config_obj.modality_config()
             self._modality_transform = data_config_obj.transform()
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """
         Load and return the Isaac GR00T policy model.
 

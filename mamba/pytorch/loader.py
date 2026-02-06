@@ -87,7 +87,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.num_layers = num_layers
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load a Mamba model from Hugging Face."""
 
         # Initialize tokenizer first with default or overridden dtype
@@ -103,6 +103,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             from transformers import AutoConfig

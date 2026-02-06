@@ -64,9 +64,11 @@ class ModelLoader(ForgeModel):
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         self._ensure_tokenizer()
-        cfg = Phi3Config.from_pretrained(self._variant_config.pretrained_model_name)
+        cfg = Phi3Config.from_pretrained(
+            self._variant_config.pretrained_model_name, **kwargs
+        )
         cfg_dict = cfg.to_dict()
         cfg_dict["use_cache"] = False
         cfg_dict["pad_token_id"] = self.tokenizer.pad_token_id  # Set to match tokenizer
@@ -76,6 +78,7 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
             config=cfg,
+            **kwargs,
         )
         if dtype_override is not None:
             model = model.to(dtype_override)

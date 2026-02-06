@@ -93,7 +93,7 @@ class ModelLoader(ForgeModel):
         self.model = None
         self._preprocessor = None
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         cfg = self._variant_config
         source = cfg.source
 

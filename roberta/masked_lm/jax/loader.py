@@ -93,7 +93,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the RoBERTa model instance for this instance's variant.
 
         Args:
@@ -113,6 +113,7 @@ class ModelLoader(ForgeModel):
         model = FlaxRobertaForMaskedLM.from_pretrained(
             self._model_name,
             dtype=dtype_override,
+            **kwargs,
         )
 
         # Cast the model to the dtype_override if provided
