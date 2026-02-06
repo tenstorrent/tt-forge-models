@@ -180,6 +180,7 @@ class ModelLoader(ForgeModel):
         ):
             # if the model uses sliding window attention, match sliding window value to input size so it
             # does not go out of bounds when updating the cache
+            # Issue: https://github.com/tenstorrent/tt-xla/issues/3186
             self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
         return inputs
