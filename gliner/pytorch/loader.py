@@ -61,12 +61,12 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self):
+    def load_model(self, **kwargs):
         """Load and return the GLiNER model callable (batch_predict_entities)."""
         from gliner import GLiNER
 
         model_name = self._variant_config.pretrained_model_name
-        model = GLiNER.from_pretrained(model_name)
+        model = GLiNER.from_pretrained(model_name, **kwargs)
         self.model = model
         return self.model.eval()
 

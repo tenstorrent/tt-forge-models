@@ -149,7 +149,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained MobileNetV2 model for this instance's variant.
 
         Args:
@@ -173,10 +173,14 @@ class ModelLoader(ForgeModel):
             # Load model using HuggingFace transformers
             if "deeplabv3" in model_name.lower():
                 # For DeepLabV3 models, use semantic segmentation model
-                model = MobileNetV2ForSemanticSegmentation.from_pretrained(model_name)
+                model = MobileNetV2ForSemanticSegmentation.from_pretrained(
+                    model_name, **kwargs
+                )
             else:
                 # For standard classification models
-                model = AutoModelForImageClassification.from_pretrained(model_name)
+                model = AutoModelForImageClassification.from_pretrained(
+                    model_name, **kwargs
+                )
 
         elif source == ModelSource.TIMM:
             # Load model using timm

@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Codegen model instance with default settings.
 
         Args:
@@ -101,6 +101,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(self.model_name)

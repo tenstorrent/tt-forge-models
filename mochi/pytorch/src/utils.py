@@ -26,6 +26,11 @@ VAE_STD_CHANNELS = [
 ]
 
 
+LATENT_HEIGHT = 12
+LATENT_WIDTH = 12
+LATENT_DEPTH = 2
+
+
 def normalize_latents(latent: torch.Tensor, device=None, dtype=None) -> torch.Tensor:
     """
     Normalize VAE latents with channel-wise standard deviations.
@@ -188,10 +193,10 @@ def load_vae_decoder_inputs(dtype: torch.dtype = torch.bfloat16) -> torch.Tensor
         dtype: Data type for the tensor (default: torch.bfloat16)
 
     Returns:
-        Normalized latent tensor of shape [1, 12, 2, 16, 16]
+        Normalized latent tensor of shape [1, 12, LATENT_DEPTH, LATENT_HEIGHT, LATENT_WIDTH]
     """
     # [batch, channels, time, height, width]
-    latent = torch.randn(1, 12, 2, 16, 16, dtype=dtype)
+    latent = torch.randn(1, 12, LATENT_DEPTH, LATENT_HEIGHT, LATENT_WIDTH, dtype=dtype)
     return normalize_latents(latent, dtype=dtype)
 
 
@@ -203,17 +208,19 @@ def load_vae_encoder_inputs(dtype: torch.dtype = torch.bfloat16) -> torch.Tensor
         dtype: Data type for the tensor (default: torch.bfloat16)
 
     Returns:
-        RGB video tensor of shape [1, 3, 12, 128, 128]
+        RGB video tensor of shape [1, 3, LATENT_DEPTH * 6, LATENT_HEIGHT * 8, LATENT_WIDTH * 8]
         (batch, channels, frames, height, width)
 
     Note:
         The encoder compresses:
         - Temporal: 6x (12 frames -> 2 latent frames)
-        - Spatial: 8x8 (128x128 -> 16x16)
+        - Spatial: 8x8 (96x96 -> 12x12)
     """
     # [batch, channels, frames, height, width]
     # Using small test dimensions that match decoder output expectations
-    return torch.randn(1, 3, 12, 128, 128, dtype=dtype)
+    return torch.randn(
+        1, 3, LATENT_DEPTH * 6, LATENT_HEIGHT * 8, LATENT_WIDTH * 8, dtype=dtype
+    )
 
 
 def load_transformer_inputs(dtype: torch.dtype = torch.bfloat16) -> dict:
@@ -232,9 +239,9 @@ def load_transformer_inputs(dtype: torch.dtype = torch.bfloat16) -> dict:
     """
     batch_size = 1
     num_channels = 12  # in_channels
-    num_frames = 2
-    height = 16
-    width = 16
+    num_frames = LATENT_DEPTH
+    height = LATENT_HEIGHT
+    width = LATENT_WIDTH
     seq_len = 128  # max_sequence_length
     text_embed_dim = 4096
 
