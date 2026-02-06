@@ -923,7 +923,6 @@ class SemSegFPNHead(nn.Module):
         return self.predictor(x)
 
     def losses(self, predictions, targets):
-        predictions = predictions.float()
         predictions = F.interpolate(
             predictions,
             scale_factor=self.common_stride,
@@ -1110,12 +1109,11 @@ class Boxes:
             tensor = torch.as_tensor(
                 tensor, dtype=torch.float32, device=torch.device("cpu")
             )
-        else:
-            tensor = tensor.to(torch.float32)
+
         if tensor.numel() == 0:
             # Use reshape, so we don't end up creating a new tensor that does not depend on
             # the inputs (and consequently confuses jit)
-            tensor = tensor.reshape((-1, 4)).to(dtype=torch.float32)
+            tensor = tensor.reshape((-1, 4))
         assert tensor.dim() == 2 and tensor.size(-1) == 4, tensor.size()
 
         self.tensor = tensor
@@ -2148,7 +2146,14 @@ class ROIAlign(nn.Module):
         assert rois.dim() == 2 and rois.size(1) == 5
         if input.is_quantized:
             input = input.dequantize()
-        return roi_align(
+
+        # roi_align doesn't support float16/bfloat16, convert inputs to float32
+        orig_dtype = input.dtype
+        if orig_dtype in (torch.float16, torch.bfloat16):
+            input = input.float()
+            rois = rois.float()
+
+        output = roi_align(
             input,
             rois.to(dtype=input.dtype),
             self.output_size,
@@ -2156,6 +2161,12 @@ class ROIAlign(nn.Module):
             self.sampling_ratio,
             self.aligned,
         )
+
+        # Convert inputs back to original dtype
+        if orig_dtype in (torch.float16, torch.bfloat16):
+            output = output.to(orig_dtype)
+
+        return output
 
     def __repr__(self):
         tmpstr = self.__class__.__name__ + "("
@@ -2177,7 +2188,8 @@ class ROIAlignRotated(nn.Module):
     def forward(self, input, rois):
         assert rois.dim() == 2 and rois.size(1) == 6
         orig_dtype = input.dtype
-        if orig_dtype == torch.float16:
+        # Convert float16 or bfloat16 to float32 for ROIAlign operation
+        if orig_dtype in (torch.float16, torch.bfloat16):
             input = input.float()
             rois = rois.float()
         output_size = _pair(self.output_size)
@@ -2437,7 +2449,8 @@ class BitMasks:
         ]
         rois = torch.cat([batch_inds, boxes], dim=1)  # Nx5
 
-        bit_masks = self.tensor.to(dtype=torch.float32)
+        # Use boxes dtype to preserve dtype
+        bit_masks = self.tensor.to(dtype=boxes.dtype)
         rois = rois.to(device=device)
         output = (
             ROIAlign((mask_size, mask_size), 1.0, 0, aligned=True)
@@ -2448,7 +2461,13 @@ class BitMasks:
         return output
 
     def get_bounding_boxes(self) -> Boxes:
-        boxes = torch.zeros(self.tensor.shape[0], 4, dtype=torch.float32)
+        # Use float32 as default, or preserve dtype from tensor if it's floating point
+        box_dtype = (
+            self.tensor.dtype if self.tensor.dtype.is_floating_point else torch.float32
+        )
+        boxes = torch.zeros(
+            self.tensor.shape[0], 4, dtype=box_dtype, device=self.tensor.device
+        )
         x_any = torch.any(self.tensor, dim=1)
         y_any = torch.any(self.tensor, dim=2)
         for idx in range(self.tensor.shape[0]):
@@ -2456,7 +2475,9 @@ class BitMasks:
             y = torch.where(y_any[idx, :])[0]
             if len(x) > 0 and len(y) > 0:
                 boxes[idx, :] = torch.as_tensor(
-                    [x[0], y[0], x[-1] + 1, y[-1] + 1], dtype=torch.float32
+                    [x[0], y[0], x[-1] + 1, y[-1] + 1],
+                    dtype=box_dtype,
+                    device=self.tensor.device,
                 )
         return Boxes(boxes)
 
@@ -2525,7 +2546,6 @@ class Box2BoxTransform:
         return deltas
 
     def apply_deltas(self, deltas, boxes):
-        deltas = deltas.float()  # ensure fp32 for decoding precision
         boxes = boxes.to(deltas.dtype)
 
         widths = boxes[:, 2] - boxes[:, 0]
@@ -2649,7 +2669,15 @@ def batched_nms(
     boxes: torch.Tensor, scores: torch.Tensor, idxs: torch.Tensor, iou_threshold: float
 ):
     assert boxes.shape[-1] == 4
-    return box_ops.batched_nms(boxes.float(), scores, idxs, iou_threshold)
+
+    # Convert to float32 if bfloat16, as torchvision's batched_nms doesn't support bfloat16
+    if boxes.dtype == torch.bfloat16:
+        boxes = boxes.to(torch.float32)
+    if scores.dtype == torch.bfloat16:
+        scores = scores.to(torch.float32)
+
+    # Output conversion not needed as batched_nms returns int64 indices
+    return box_ops.batched_nms(boxes, scores, idxs, iou_threshold)
 
 
 def fast_rcnn_inference_single_image(
@@ -2865,10 +2893,10 @@ class FastRCNNOutputLayers(nn.Module):
         self, gt_classes, num_fed_loss_classes, num_classes, weight
     ):
         unique_gt_classes = torch.unique(gt_classes)
-        prob = unique_gt_classes.new_ones(num_classes + 1).float()
+        prob = unique_gt_classes.new_ones(num_classes + 1, dtype=weight.dtype)
         prob[-1] = 0
         if len(unique_gt_classes) < num_fed_loss_classes:
-            prob[:num_classes] = weight.float().clone()
+            prob[:num_classes] = weight.clone()
             prob[unique_gt_classes] = 0
             sampled_negative_classes = torch.multinomial(
                 prob, num_fed_loss_classes - len(unique_gt_classes), replacement=False
@@ -2903,7 +2931,11 @@ class FastRCNNOutputLayers(nn.Module):
             fed_loss_classes_mask = fed_loss_classes.new_zeros(K + 1)
             fed_loss_classes_mask[fed_loss_classes] = 1
             fed_loss_classes_mask = fed_loss_classes_mask[:K]
-            weight = fed_loss_classes_mask.view(1, K).expand(N, K).float()
+            weight = (
+                fed_loss_classes_mask.view(1, K)
+                .expand(N, K)
+                .to(pred_class_logits.dtype)
+            )
         else:
             weight = 1
 
@@ -3018,8 +3050,11 @@ def _do_paste_mask(masks, boxes, img_h: int, img_w: int, skip_empty: bool = True
 
     N = masks.shape[0]
 
-    img_y = torch.arange(y0_int, y1_int, device=device, dtype=torch.float32) + 0.5
-    img_x = torch.arange(x0_int, x1_int, device=device, dtype=torch.float32) + 0.5
+    # Use boxes dtype to match model dtype
+    target_dtype = boxes.dtype
+
+    img_y = torch.arange(y0_int, y1_int, device=device, dtype=target_dtype) + 0.5
+    img_x = torch.arange(x0_int, x1_int, device=device, dtype=target_dtype) + 0.5
     img_y = (img_y - y0) / (y1 - y0) * 2 - 1
     img_x = (img_x - x0) / (x1 - x0) * 2 - 1
     # img_x, img_y have shapes (N, w), (N, h)
@@ -3028,9 +3063,10 @@ def _do_paste_mask(masks, boxes, img_h: int, img_w: int, skip_empty: bool = True
     gy = img_y[:, :, None].expand(N, img_y.size(1), img_x.size(1))
     grid = torch.stack([gx, gy], dim=3)
 
+    # Convert masks to target dtype if not already floating point
     if not torch.jit.is_scripting():
         if not masks.dtype.is_floating_point:
-            masks = masks.float()
+            masks = masks.to(target_dtype)
     img_masks = F.grid_sample(masks, grid.to(masks.dtype), align_corners=False)
 
     if skip_empty and not torch.jit.is_scripting():
@@ -3236,8 +3272,8 @@ def detector_postprocess(
 ):
 
     if isinstance(output_width, torch.Tensor):
-        output_width_tmp = output_width.float()
-        output_height_tmp = output_height.float()
+        output_width_tmp = output_width
+        output_height_tmp = output_height
         new_size = torch.stack([output_height, output_width])
     else:
         new_size = (output_height, output_width)
@@ -3708,15 +3744,21 @@ def _create_grid_offsets(
     size: List[int], stride: int, offset: float, target_device_tensor: torch.Tensor
 ):
     grid_height, grid_width = size
+    # Use dtype from target tensor to preserve dtype
+    target_dtype = (
+        target_device_tensor.dtype
+        if target_device_tensor.dtype.is_floating_point
+        else torch.float32
+    )
     shifts_x = move_device_like(
         torch.arange(
-            offset * stride, grid_width * stride, step=stride, dtype=torch.float32
+            offset * stride, grid_width * stride, step=stride, dtype=target_dtype
         ),
         target_device_tensor,
     )
     shifts_y = move_device_like(
         torch.arange(
-            offset * stride, grid_height * stride, step=stride, dtype=torch.float32
+            offset * stride, grid_height * stride, step=stride, dtype=target_dtype
         ),
         target_device_tensor,
     )
@@ -3773,8 +3815,7 @@ class DefaultAnchorGenerator(nn.Module):
 
     def _calculate_anchors(self, sizes, aspect_ratios):
         cell_anchors = [
-            self.generate_cell_anchors(s, a).float()
-            for s, a in zip(sizes, aspect_ratios)
+            self.generate_cell_anchors(s, a) for s, a in zip(sizes, aspect_ratios)
         ]
         return BufferList(cell_anchors)
 
@@ -3859,7 +3900,7 @@ class RotatedAnchorGenerator(nn.Module):
 
     def _calculate_anchors(self, sizes, aspect_ratios, angles):
         cell_anchors = [
-            self.generate_cell_anchors(size, aspect_ratio, angle).float()
+            self.generate_cell_anchors(size, aspect_ratio, angle)
             for size, aspect_ratio, angle in zip(sizes, aspect_ratios, angles)
         ]
         return BufferList(cell_anchors)
@@ -4181,7 +4222,7 @@ class RPN(nn.Module):
         valid_mask = gt_labels >= 0
         objectness_loss = F.binary_cross_entropy_with_logits(
             cat(pred_objectness_logits, dim=1)[valid_mask],
-            gt_labels[valid_mask].to(torch.float32),
+            gt_labels[valid_mask],
             reduction="sum",
         )
         normalizer = self.batch_size_per_image * num_images
@@ -4393,7 +4434,6 @@ def mask_rcnn_loss(
     else:
         # Here we allow gt_masks to be float as well (depend on the implementation of rasterize())
         gt_masks_bool = gt_masks > 0.5
-    gt_masks = gt_masks.to(dtype=torch.float32)
 
     # Log the training accuracy (using gt classes and sigmoid(0.0) == 0.5 threshold)
     mask_incorrect = (pred_mask_logits > 0.0) != gt_masks_bool
@@ -5096,12 +5136,18 @@ class GeneralizedRCNN(nn.Module):
 
     def preprocess_image(self, batched_inputs: List[Dict[str, torch.Tensor]]):
         images = [self._move_to_current_device(x["image"]) for x in batched_inputs]
+
+        # Convert images to match model's dtype (from pixel_mean/pixel_std buffers)
+        target_dtype = self.pixel_mean.dtype
+        images = [x.to(target_dtype) for x in images]
+
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
-        return ImageList.from_tensors(
+        result = ImageList.from_tensors(
             images,
             size_divisibility=self.backbone.size_divisibility,
             padding_constraints=self.backbone.padding_constraints,
         )
+        return result
 
     def forward(self, batched_inputs: List[Dict[str, torch.Tensor]]):
         if not self.training:
@@ -5347,7 +5393,7 @@ def combine_semantic_and_instance_outputs(
         )
 
     # Add semantic results to remaining empty areas
-    semantic_labels = torch.unique(semantic_results).cpu().tolist()
+    semantic_labels = torch.unique(semantic_results).tolist()
     for semantic_label in semantic_labels:
         if semantic_label == 0:  # 0 is a special "thing" class
             continue
