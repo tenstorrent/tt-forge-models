@@ -54,8 +54,12 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, **kwargs):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Transfuser model instance with default settings.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                           If not provided, the model will use its default dtype (typically float32).
 
         Returns:
             Torch model: The Transfuser model instance.
@@ -79,10 +83,18 @@ class ModelLoader(ForgeModel):
         model.load_state_dict(new_state_dict, strict=False)
         model.eval()
 
+        # Only convert dtype if explicitly requested
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
         return model
 
-    def load_inputs(self, **kwargs):
+    def load_inputs(self, dtype_override=None, **kwargs):
         """Return sample inputs for the Transfuser model with default settings.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the inputs' default dtype.
+                           If not provided, inputs will use the default dtype (typically float32).
 
         Returns:
             dict: A dictionary of input tensors and metadata suitable for the model.
@@ -101,6 +113,10 @@ class ModelLoader(ForgeModel):
             "target_point_image": target_point_image,
             "ego_vel": ego_vel,
         }
+
+        # Only convert dtype if explicitly requested
+        if dtype_override is not None:
+            kwargs = {k: v.to(dtype_override) for k, v in kwargs.items()}
 
         return kwargs
 
