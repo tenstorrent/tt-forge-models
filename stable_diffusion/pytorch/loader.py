@@ -23,9 +23,9 @@ from .src.model_utils import load_pipe, stable_diffusion_preprocessing_v35
 class ModelVariant(StrEnum):
     """Available Stable Diffusion v3.5 model variants."""
 
-    STABLE_DIFFUSION_3_5_MEDIUM = "3.5 Medium"
-    STABLE_DIFFUSION_3_5_LARGE = "3.5 Large"
-    STABLE_DIFFUSION_3_5_LARGE_TURBO = "3.5 Large Turbo"
+    STABLE_DIFFUSION_3_5_MEDIUM = "stable-diffusion-3.5-medium"
+    STABLE_DIFFUSION_3_5_LARGE = "stable-diffusion-3.5-large"
+    STABLE_DIFFUSION_3_5_LARGE_TURBO = "stable-diffusion-3.5-large-turbo"
 
 
 class ModelLoader(ForgeModel):
@@ -74,7 +74,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Stable Diffusion",
+            model="stable_diffusion_v35",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CONDITIONAL_GENERATION,

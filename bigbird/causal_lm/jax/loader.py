@@ -23,7 +23,7 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available BigBird model variants for causal language modeling."""
 
-    LARGE = "Large"
+    LARGE = "large"
 
 
 class ModelLoader(ForgeModel):
@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="BigBird",
+            model="bigbird",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

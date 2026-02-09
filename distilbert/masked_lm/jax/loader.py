@@ -24,7 +24,7 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available DistilBERT model variants."""
 
-    BASE_UNCASED = "Base Uncased"
+    BASE_UNCASED = "base-uncased"
 
 
 class ModelLoader(ForgeModel):
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="DistilBERT",
+            model="distilbert",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,

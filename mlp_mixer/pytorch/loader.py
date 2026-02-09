@@ -40,20 +40,20 @@ class ModelVariant(StrEnum):
     """Available MLP Mixer model variants."""
 
     # TIMM variants
-    MIXER_B16_224 = "Mixer B16 224"
-    MIXER_B16_224_IN21K = "Mixer B16 224 In21k"
-    MIXER_B16_224_MIIL = "Mixer B16 224 Miil"
-    MIXER_B16_224_MIIL_IN21K = "Mixer B16 224 Miil In21k"
-    MIXER_B32_224 = "Mixer B32 224"
-    MIXER_L16_224 = "Mixer L16 224"
-    MIXER_L16_224_IN21K = "Mixer L16 224 In21k"
-    MIXER_L32_224 = "Mixer L32 224"
-    MIXER_S16_224 = "Mixer S16 224"
-    MIXER_S32_224 = "Mixer S32 224"
-    MIXER_B16_224_GOOG_IN21K = "Mixer B16 224.goog In21k"
+    MIXER_B16_224 = "mixer_b16_224"
+    MIXER_B16_224_IN21K = "mixer_b16_224_in21k"
+    MIXER_B16_224_MIIL = "mixer_b16_224_miil"
+    MIXER_B16_224_MIIL_IN21K = "mixer_b16_224_miil_in21k"
+    MIXER_B32_224 = "mixer_b32_224"
+    MIXER_L16_224 = "mixer_l16_224"
+    MIXER_L16_224_IN21K = "mixer_l16_224_in21k"
+    MIXER_L32_224 = "mixer_l32_224"
+    MIXER_S16_224 = "mixer_s16_224"
+    MIXER_S32_224 = "mixer_s32_224"
+    MIXER_B16_224_GOOG_IN21K = "mixer_b16_224.goog_in21k"
 
     # GitHub variants
-    MIXER_GITHUB = "Mixer Github"
+    MIXER_GITHUB = "mixer_github"
 
 
 class ModelLoader(ForgeModel):
@@ -167,7 +167,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="MLP-Mixer",
+            model="mlp_mixer",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

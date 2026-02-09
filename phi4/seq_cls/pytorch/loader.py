@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Phi 4 model variants."""
 
-    PHI_4 = "Phi 4"
+    PHI_4 = "microsoft/phi-4"
 
 
 class ModelLoader(ForgeModel):
@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Phi-4",
+            model="phi-4",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,

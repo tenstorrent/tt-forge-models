@@ -49,7 +49,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="OFT",
+            model="oft",
             variant=variant_name,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,

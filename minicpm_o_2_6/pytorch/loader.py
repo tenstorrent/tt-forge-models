@@ -64,7 +64,7 @@ class MiniCPMConfig(ModelConfig):
 class ModelVariant(StrEnum):
     """Available MiniCPM-o-2_6 model variants."""
 
-    DEFAULT = "Default"
+    DEFAULT = "default"
 
 
 # Model variants configuration
@@ -93,7 +93,7 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[StrEnum] = None) -> ModelInfo:
         """Get model information for MiniCPM-o-2_6."""
         return ModelInfo(
-            model="MiniCPM-o 2.6",
+            model="MiniCPM-o-2_6",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_IMAGE_TO_TEXT,

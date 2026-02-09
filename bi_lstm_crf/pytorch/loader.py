@@ -27,7 +27,7 @@ from .src.model_utils import (
 class ModelVariant(StrEnum):
     """Available BiLSTM-CRF model variants."""
 
-    DEFAULT = "Default"
+    DEFAULT = "default"
 
 
 class ModelLoader(ForgeModel):
@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="BiLSTM-CRF",
+            model="bi_lstm_crf",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_TOKEN_CLS,

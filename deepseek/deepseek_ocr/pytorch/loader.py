@@ -27,7 +27,7 @@ from huggingface_hub import snapshot_download
 class ModelVariant(StrEnum):
     """Available DeepSeek OCR model variants."""
 
-    DEEPSEEK_OCR = "Ocr"
+    DEEPSEEK_OCR = "deepseek_ocr"
 
 
 class ModelLoader(ForgeModel):
@@ -74,7 +74,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="DeepSeek",
+            model="deepseek_ocr",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_DOC_OCR,

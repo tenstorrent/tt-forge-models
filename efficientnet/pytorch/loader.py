@@ -43,24 +43,24 @@ class ModelVariant(StrEnum):
     """Available EfficientNet model variants."""
 
     # Torchvision variants
-    B0 = "B0"
-    B1 = "B1"
-    B2 = "B2"
-    B3 = "B3"
-    B4 = "B4"
-    B5 = "B5"
-    B6 = "B6"
-    B7 = "B7"
+    B0 = "efficientnet_b0"
+    B1 = "efficientnet_b1"
+    B2 = "efficientnet_b2"
+    B3 = "efficientnet_b3"
+    B4 = "efficientnet_b4"
+    B5 = "efficientnet_b5"
+    B6 = "efficientnet_b6"
+    B7 = "efficientnet_b7"
 
     # TIMM variants (values are identifiers for reporting; pretrained model names live in config)
-    TIMM_EFFICIENTNET_B0 = "Timm Efficientnet B0"
-    TIMM_EFFICIENTNET_B4 = "Timm Efficientnet B4"
-    HF_TIMM_EFFICIENTNET_B0_RA_IN1K = "HF Hub Timm Efficientnet B0 Ra In1k"
-    HF_TIMM_EFFICIENTNET_B4_RA2_IN1K = "HF Hub Timm Efficientnet B4 Ra2 In1k"
-    HF_TIMM_EFFICIENTNET_B5_IN12K_FT_IN1K = "HF Hub Timm Efficientnet B5 In12k Ft In1k"
-    HF_TIMM_TF_EFFICIENTNET_B0_AA_IN1K = "HF Hub Timm Tf Efficientnet B0 Aa In1k"
-    HF_TIMM_EFFICIENTNETV2_RW_S_RA2_IN1K = "HF Hub Timm Efficientnetv2 Rw S Ra2 In1k"
-    HF_TIMM_TF_EFFICIENTNETV2_S_IN21K = "HF Hub Timm Tf Efficientnetv2 S In21k"
+    TIMM_EFFICIENTNET_B0 = "timm_efficientnet_b0"
+    TIMM_EFFICIENTNET_B4 = "timm_efficientnet_b4"
+    HF_TIMM_EFFICIENTNET_B0_RA_IN1K = "hf_hub_timm_efficientnet_b0_ra_in1k"
+    HF_TIMM_EFFICIENTNET_B4_RA2_IN1K = "hf_hub_timm_efficientnet_b4_ra2_in1k"
+    HF_TIMM_EFFICIENTNET_B5_IN12K_FT_IN1K = "hf_hub_timm_efficientnet_b5_in12k_ft_in1k"
+    HF_TIMM_TF_EFFICIENTNET_B0_AA_IN1K = "hf_hub_timm_tf_efficientnet_b0_aa_in1k"
+    HF_TIMM_EFFICIENTNETV2_RW_S_RA2_IN1K = "hf_hub_timm_efficientnetv2_rw_s_ra2_in1k"
+    HF_TIMM_TF_EFFICIENTNETV2_S_IN21K = "hf_hub_timm_tf_efficientnetv2_s_in21k"
 
 
 class ModelLoader(ForgeModel):
@@ -226,7 +226,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         source = cls._VARIANTS[variant].source
         return ModelInfo(
-            model="EfficientNet",
+            model="efficientnet",
             variant=variant,
             group=(
                 ModelGroup.RED if variant == ModelVariant.B0 else ModelGroup.GENERALITY

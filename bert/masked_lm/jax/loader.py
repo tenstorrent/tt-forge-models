@@ -25,8 +25,8 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available BERT model variants."""
 
-    BASE = "Base"
-    LARGE = "Large"
+    BASE = "base"
+    LARGE = "large"
 
 
 class ModelLoader(ForgeModel):
@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="BERT",
+            model="bert",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,

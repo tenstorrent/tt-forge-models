@@ -27,7 +27,7 @@ from transformers.dynamic_module_utils import get_imports
 class ModelVariant(StrEnum):
     """Available DeepSeek Coder model variants."""
 
-    DEEPSEEK_1_3B_INSTRUCT = "1 3B Instruct"
+    DEEPSEEK_1_3B_INSTRUCT = "1_3b_instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant.
         """
         return ModelInfo(
-            model="DeepSeek",
+            model="deepseek_coder",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_QA,

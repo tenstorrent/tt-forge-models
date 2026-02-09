@@ -33,12 +33,12 @@ from third_party.tt_forge_models.tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available YOLOv7 model variants (detection)."""
 
-    YOLOV7 = "Default"
-    YOLOV7X = "X"
-    YOLOV7_W6 = "W6"
-    YOLOV7_E6 = "E6"
-    YOLOV7_D6 = "D6"
-    YOLOV7_E6E = "E6e"
+    YOLOV7 = "yolov7"
+    YOLOV7X = "yolov7x"
+    YOLOV7_W6 = "yolov7-w6"
+    YOLOV7_E6 = "yolov7-e6"
+    YOLOV7_D6 = "yolov7-d6"
+    YOLOV7_E6E = "yolov7-e6e"
 
 
 class ModelLoader(ForgeModel):
@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="YOLOv7",
+            model="yolov7",
             variant=variant,
             group=group,
             task=ModelTask.CV_OBJECT_DET,

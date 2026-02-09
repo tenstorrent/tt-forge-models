@@ -31,13 +31,13 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available BEVFormer model variants."""
 
-    BEVFORMER_TINY = "Tiny"
-    BEVFORMER_SMALL = "Small"
-    BEVFORMER_BASE = "Base"
-    BEVFORMER_V2_R50_T1_BASE = "v2 R50 T1 Base"
-    BEVFORMER_V2_R50_T1 = "v2 R50 T1"
-    BEVFORMER_V2_R50_T2 = "v2 R50 T2"
-    BEVFORMER_V2_R50_T8 = "v2 R50 T8"
+    BEVFORMER_TINY = "BEVFormer-tiny"
+    BEVFORMER_SMALL = "BEVFormer-small"
+    BEVFORMER_BASE = "BEVFormer-base"
+    BEVFORMER_V2_R50_T1_BASE = "bevformerv2-r50-t1-base"
+    BEVFORMER_V2_R50_T1 = "bevformerv2-r50-t1"
+    BEVFORMER_V2_R50_T2 = "bevformerv2-r50-t2"
+    BEVFORMER_V2_R50_T8 = "bevformerv2-r50-t8"
 
 
 class ModelLoader(ForgeModel):
@@ -90,7 +90,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="BEVFormer",
+            model="bevformer",
             variant=variant,
             group=ModelGroup.RED
             if variant == ModelVariant.BEVFORMER_TINY

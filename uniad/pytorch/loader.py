@@ -14,7 +14,7 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available UniAD model variants for autonomous driving."""
 
-    UNIAD_E2E = "E2e"
+    UNIAD_E2E = "uniad_e2e"
 
 
 class ModelLoader(ForgeModel):
@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="UniAD",
+            model="uniad",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,
