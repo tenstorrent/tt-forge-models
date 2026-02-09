@@ -27,11 +27,11 @@ from PIL import Image
 class ModelVariant(StrEnum):
     """Available YOLOv5 model variants."""
 
-    YOLOV5N = "yolov5n"
-    YOLOV5S = "yolov5s"
-    YOLOV5M = "yolov5m"
-    YOLOV5L = "yolov5l"
-    YOLOV5X = "yolov5x"
+    YOLOV5N = "N"
+    YOLOV5S = "S"
+    YOLOV5M = "M"
+    YOLOV5L = "L"
+    YOLOV5X = "X"
 
 
 class ModelLoader(ForgeModel):
@@ -82,7 +82,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="yolov5",
+            model="YOLOv5",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,

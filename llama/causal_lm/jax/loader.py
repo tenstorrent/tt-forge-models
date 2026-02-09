@@ -29,8 +29,8 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available Llama model variants."""
 
-    _1B_TINY = "1B_TINY"
-    _3B_V2 = "3b-v2"
+    _1B_TINY = "1B Tiny"
+    _3B_V2 = "3B v2"
 
 
 class ModelLoader(ForgeModel):
@@ -73,7 +73,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="llama",
+            model="Llama",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

@@ -22,9 +22,9 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available DINOv2 model variants."""
 
-    BASE = "base"
-    GIANT = "giant"
-    LARGE = "large"
+    BASE = "Base"
+    GIANT = "Giant"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -68,7 +68,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="dinov2",
+            model="DINOv2",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
