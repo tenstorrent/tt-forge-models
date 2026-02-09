@@ -29,10 +29,10 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available Mistral model variants."""
 
-    V0_1 = "v0 1"
-    V0_1_TINY = "v0 1 Tiny"
-    V0_2_INSTRUCT = "v0 2 Instruct"
-    V0_3_INSTRUCT = "v0 3 Instruct"
+    V0_1 = "v0_1"
+    V0_1_TINY = "v0_1_tiny"
+    V0_2_INSTRUCT = "v0_2_instruct"
+    V0_3_INSTRUCT = "v0_3_instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -79,7 +79,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="Mistral",
+            model="mistral",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

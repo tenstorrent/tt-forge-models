@@ -23,7 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Perceiver model variants."""
 
-    LANGUAGE_PERCEIVER = "Language Perceiver"
+    LANGUAGE_PERCEIVER = "deepmind/language-perceiver"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Perceiver",
+            model="perceiver",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,

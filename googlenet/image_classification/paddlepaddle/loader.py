@@ -26,7 +26,7 @@ from ....tools.utils import print_compiled_model_results
 class ModelVariant(StrEnum):
     """Available GoogleNet model variants (Paddle)."""
 
-    DEFAULT = "Default"
+    DEFAULT = "googlenet"
 
 
 class ModelLoader(ForgeModel):
@@ -49,7 +49,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="GoogLeNet",
+            model="googlenet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

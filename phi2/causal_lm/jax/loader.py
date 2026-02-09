@@ -28,8 +28,8 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available PHI2 model variants."""
 
-    PHI2 = "Phi 2"
-    PHI2_PYTDML = "Phi 2 Pytdml"
+    PHI2 = "microsoft/phi-2"
+    PHI2_PYTDML = "microsoft/phi-2-pytdml"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="Phi-2",
+            model="phi2",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,

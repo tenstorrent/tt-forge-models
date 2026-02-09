@@ -26,11 +26,11 @@ from ...tools.utils import yolo_postprocess
 class ModelVariant(StrEnum):
     """Available YOLOv11 model variants."""
 
-    YOLOV11N = "Yolo11n"
-    YOLOV11S = "Yolo11s"
-    YOLOV11M = "Yolo11m"
-    YOLOV11L = "Yolo11l"
-    YOLOV11X = "Yolo11x"
+    YOLOV11N = "yolo11n"
+    YOLOV11S = "yolo11s"
+    YOLOV11M = "yolo11m"
+    YOLOV11L = "yolo11l"
+    YOLOV11X = "yolo11x"
 
 
 class ModelLoader(ForgeModel):
@@ -88,7 +88,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="YOLOv11",
+            model="yolo11",
             variant=variant,
             group=group,
             task=ModelTask.CV_OBJECT_DET,

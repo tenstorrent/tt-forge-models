@@ -59,8 +59,8 @@ class MochiConfig(ModelConfig):
 class ModelVariant(StrEnum):
     """Available Mochi variants."""
 
-    MOCHI = "Default"
-    MOCHI_TILED = "Tiled"
+    MOCHI = "mochi"
+    MOCHI_TILED = "mochi_tiled"
 
 
 class ModelLoader(ForgeModel):
@@ -125,7 +125,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="Mochi",
+            model="mochi",
             variant=variant,
             group=ModelGroup.PRIORITY,
             task=ModelTask.MM_VIDEO_TTT,  # Video generation task

@@ -29,7 +29,7 @@ from ...tools.utils import VisionPreprocessor, get_file
 class ModelVariant(StrEnum):
     """Available YOLOv3 model variants."""
 
-    BASE = "Base"
+    BASE = "base"
 
 
 class ModelLoader(ForgeModel):
@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="YOLOv3",
+            model="yolov3",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,

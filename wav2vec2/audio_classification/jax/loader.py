@@ -24,7 +24,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Wav2Vec2 model variants."""
 
-    LARGE_LV_60 = "Large Lv 60"
+    LARGE_LV_60 = "large_lv_60"
 
 
 class ModelLoader(ForgeModel):
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="Wav2Vec2",
+            model="wav2vec2",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.AUDIO_CLS,

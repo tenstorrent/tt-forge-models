@@ -23,9 +23,9 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Stereo model variants."""
 
-    SMALL = "Small"
-    MEDIUM = "Medium"
-    LARGE = "Large"
+    SMALL = "small"
+    MEDIUM = "medium"
+    LARGE = "large"
 
 
 class ModelLoader(ForgeModel):
@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="Stereo",
+            model="stereo",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_TTS,

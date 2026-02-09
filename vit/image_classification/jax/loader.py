@@ -22,15 +22,15 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available VIT model variants."""
 
-    BASE_PATCH16_224 = "Base Patch16 224"
-    BASE_PATCH16_384 = "Base Patch16 384"
-    BASE_PATCH32_224_IN_21K = "Base Patch32 224 In 21K"
-    BASE_PATCH32_384 = "Base Patch32 384"
-    HUGE_PATCH14_224_IN_21K = "Huge Patch14 224 In 21K"
-    LARGE_PATCH16_224 = "Large Patch16 224"
-    LARGE_PATCH16_384 = "Large Patch16 384"
-    LARGE_PATCH32_224_IN_21K = "Large Patch32 224 In 21K"
-    LARGE_PATCH32_384 = "Large Patch32 384"
+    BASE_PATCH16_224 = "base_patch16_224"
+    BASE_PATCH16_384 = "base_patch16_384"
+    BASE_PATCH32_224_IN_21K = "base_patch32_224_in_21k"
+    BASE_PATCH32_384 = "base_patch32_384"
+    HUGE_PATCH14_224_IN_21K = "huge_patch14_224_in_21k"
+    LARGE_PATCH16_224 = "large_patch16_224"
+    LARGE_PATCH16_384 = "large_patch16_384"
+    LARGE_PATCH32_224_IN_21K = "large_patch32_224_in_21k"
+    LARGE_PATCH32_384 = "large_patch32_384"
 
 
 class ModelLoader(ForgeModel):
@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="ViT",
+            model="vit",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

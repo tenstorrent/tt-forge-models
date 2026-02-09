@@ -31,10 +31,10 @@ import yaml
 class ModelVariant(StrEnum):
     """Available YOLOv6 model variants."""
 
-    YOLOV6N = "N"
-    YOLOV6S = "S"
-    YOLOV6M = "M"
-    YOLOV6L = "L"
+    YOLOV6N = "yolov6n"
+    YOLOV6S = "yolov6s"
+    YOLOV6M = "yolov6m"
+    YOLOV6L = "yolov6l"
 
 
 class ModelLoader(ForgeModel):
@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="YOLOv6",
+            model="yolov6",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,

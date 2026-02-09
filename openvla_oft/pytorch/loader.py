@@ -26,10 +26,10 @@ from ...openvla.pytorch.src.modeling_prismatic import OpenVLAForActionPrediction
 class ModelVariant(StrEnum):
     """Available OpenVLA-OFT model variants"""
 
-    OPENVLA_OFT_FINETUNED_LIBERO_10 = "Finetuned Libero 10"
-    OPENVLA_OFT_FINETUNED_LIBERO_GOAL = "Finetuned Libero Goal"
-    OPENVLA_OFT_FINETUNED_LIBERO_OBJECT = "Finetuned Libero Object"
-    OPENVLA_OFT_FINETUNED_LIBERO_SPATIAL = "Finetuned Libero Spatial"
+    OPENVLA_OFT_FINETUNED_LIBERO_10 = "openvla_oft_finetuned_libero_10"
+    OPENVLA_OFT_FINETUNED_LIBERO_GOAL = "openvla_oft_finetuned_libero_goal"
+    OPENVLA_OFT_FINETUNED_LIBERO_OBJECT = "openvla_oft_finetuned_libero_object"
+    OPENVLA_OFT_FINETUNED_LIBERO_SPATIAL = "openvla_oft_finetuned_libero_spatial"
     OPENVLA_OFT_FINETUNED_LIBERO_SPATIAL_OBJECT_GOAL_10 = (
         "openvla_oft_finetuned_libero_spatial_object_goal_10"
     )
@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
 
         # All OpenVLA-OFT variants are customer-requested (RED)
         return ModelInfo(
-            model="OpenVLA-OFT",
+            model="openvla_oft",
             variant=variant,
             group=ModelGroup.RED
             if variant == ModelVariant.OPENVLA_OFT_FINETUNED_LIBERO_10

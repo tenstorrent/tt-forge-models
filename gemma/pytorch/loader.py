@@ -27,14 +27,14 @@ class ModelVariant(StrEnum):
     """Available Gemma model variants for causal LM."""
 
     # Gemma 1.x
-    GEMMA_1_1_2B_IT = "1.1 2B IT"
-    GEMMA_1_1_7B_IT = "1.1 7B IT"
-    GEMMA_2B = "2B"
+    GEMMA_1_1_2B_IT = "google/gemma-1.1-2b-it"
+    GEMMA_1_1_7B_IT = "google/gemma-1.1-7b-it"
+    GEMMA_2B = "google/gemma-2b"
 
     # Gemma 2.x
-    GEMMA_2_2B_IT = "2 2B IT"
-    GEMMA_2_9B_IT = "2 9B IT"
-    GEMMA_2_27B_IT = "2 27B IT"
+    GEMMA_2_2B_IT = "google/gemma-2-2b-it"
+    GEMMA_2_9B_IT = "google/gemma-2-9b-it"
+    GEMMA_2_27B_IT = "google/gemma-2-27b-it"
 
 
 class ModelLoader(ForgeModel):
@@ -42,23 +42,23 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GEMMA_1_1_2B_IT: LLMModelConfig(
-            pretrained_model_name="google/gemma-1.1-2b-it",
+            pretrained_model_name=str(ModelVariant.GEMMA_1_1_2B_IT),
         ),
         ModelVariant.GEMMA_1_1_7B_IT: LLMModelConfig(
-            pretrained_model_name="google/gemma-1.1-7b-it",
+            pretrained_model_name=str(ModelVariant.GEMMA_1_1_7B_IT),
         ),
         ModelVariant.GEMMA_2B: LLMModelConfig(
-            pretrained_model_name="google/gemma-2b",
+            pretrained_model_name=str(ModelVariant.GEMMA_2B),
             max_length=256,
         ),
         ModelVariant.GEMMA_2_2B_IT: LLMModelConfig(
-            pretrained_model_name="google/gemma-2-2b-it",
+            pretrained_model_name=str(ModelVariant.GEMMA_2_2B_IT),
         ),
         ModelVariant.GEMMA_2_9B_IT: LLMModelConfig(
-            pretrained_model_name="google/gemma-2-9b-it",
+            pretrained_model_name=str(ModelVariant.GEMMA_2_9B_IT),
         ),
         ModelVariant.GEMMA_2_27B_IT: LLMModelConfig(
-            pretrained_model_name="google/gemma-2-27b-it",
+            pretrained_model_name=str(ModelVariant.GEMMA_2_27B_IT),
         ),
     }
 
@@ -94,7 +94,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="Gemma",
+            model="gemma_causal_lm",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,

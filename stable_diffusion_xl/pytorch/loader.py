@@ -24,7 +24,7 @@ from .src.model_utils import load_pipe, stable_diffusion_preprocessing_xl
 class ModelVariant(StrEnum):
     """Available Stable Diffusion XL model variants."""
 
-    STABLE_DIFFUSION_XL_BASE_1_0 = "Base 1.0"
+    STABLE_DIFFUSION_XL_BASE_1_0 = "stable-diffusion-xl-base-1.0"
 
 
 class ModelLoader(ForgeModel):
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Stable Diffusion XL",
+            model="stable_diffusion_xl",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CONDITIONAL_GENERATION,
