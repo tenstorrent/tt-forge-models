@@ -22,7 +22,7 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     """Available Roberta model variants."""
 
-    ROBERTA_BASE_SENTIMENT = "cardiffnlp/twitter-roberta-base-sentiment"
+    ROBERTA_BASE_SENTIMENT = "Base_Sentiment"
 
 
 class ModelLoader(ForgeModel):
@@ -50,7 +50,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="roberta",
+            model="RoBERTa",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,

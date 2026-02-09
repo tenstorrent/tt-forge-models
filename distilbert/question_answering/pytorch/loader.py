@@ -21,7 +21,7 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available DistilBERT model variants for question answering."""
 
-    DISTILBERT_BASE_CASED_DISTILLED_SQUAD = "distilbert-base-cased-distilled-squad"
+    DISTILBERT_BASE_CASED_DISTILLED_SQUAD = "Base_Cased_Distilled_Squad"
 
 
 class ModelLoader(ForgeModel):
@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="DistilBERT-QuestionAnswering",
+            model="DistilBERT",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_QA,

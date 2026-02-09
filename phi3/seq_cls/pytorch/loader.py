@@ -22,17 +22,17 @@ from ....tools.utils import cast_input_to_type
 
 
 class ModelVariant(StrEnum):
-    MINI_128K = "microsoft/Phi-3-mini-128k-instruct"
-    MINI_4K = "microsoft/Phi-3-mini-4k-instruct"
+    MINI_128K = "Mini_128K_Instruct"
+    MINI_4K = "Mini_4K_Instruct"
 
 
 class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MINI_128K: ModelConfig(
-            pretrained_model_name=str(ModelVariant.MINI_128K)
+            pretrained_model_name="microsoft/Phi-3-mini-128k-instruct"
         ),
         ModelVariant.MINI_4K: ModelConfig(
-            pretrained_model_name=str(ModelVariant.MINI_4K)
+            pretrained_model_name="microsoft/Phi-3-mini-4k-instruct"
         ),
     }
 
@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="phi3_seq_cls",
+            model="Phi-3",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,

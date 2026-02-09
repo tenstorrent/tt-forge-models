@@ -39,12 +39,12 @@ class ModelVariant(StrEnum):
     """Available MobileNetV3 model variants."""
 
     # TORCH_HUB variants
-    MOBILENET_V3_LARGE = "mobilenet_v3_large"
-    MOBILENET_V3_SMALL = "mobilenet_v3_small"
+    MOBILENET_V3_LARGE = "Mobilenet_v3_Large"
+    MOBILENET_V3_SMALL = "Mobilenet_v3_Small"
 
     # TIMM variants
-    MOBILENET_V3_LARGE_100_TIMM = "mobilenetv3_large_100"
-    MOBILENET_V3_SMALL_100_TIMM = "mobilenetv3_small_100"
+    MOBILENET_V3_LARGE_100_TIMM = "Large_100"
+    MOBILENET_V3_SMALL_100_TIMM = "Small_100"
 
 
 class ModelLoader(ForgeModel):
@@ -121,7 +121,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="mobilenetv3",
+            model="MobileNetV3",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

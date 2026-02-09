@@ -39,11 +39,11 @@ class ModelVariant(StrEnum):
     """Available AlexNet model variants."""
 
     # Torchvision variants
-    ALEXNET = "alexnet"
-    ALEXNET_HIGH_RES = "alexnet_high_res"
+    ALEXNET = "Default"
+    ALEXNET_HIGH_RES = "High_Res"
 
     # OSMR variant
-    ALEXNET_OSMR_B = "alexnetb"
+    ALEXNET_OSMR_B = "B"
 
 
 class ModelLoader(ForgeModel):
@@ -101,7 +101,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="alexnet",
+            model="AlexNet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

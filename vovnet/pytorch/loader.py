@@ -50,19 +50,19 @@ class ModelVariant(StrEnum):
     """Available VovNet model variants."""
 
     # OSMR (pytorchcv) image classification variants
-    VOVNET27S = "vovnet27s"
-    VOVNET39 = "vovnet39"
-    VOVNET57 = "vovnet57"
+    VOVNET27S = "27s"
+    VOVNET39 = "39"
+    VOVNET57 = "57"
 
     # TorchHub variant
-    VOVNET39_TORCHHUB = "vovnet39_th"
-    VOVNET57_TORCHHUB = "vovnet57_th"
+    VOVNET39_TORCHHUB = "39_Th"
+    VOVNET57_TORCHHUB = "57_Th"
 
     # TIMM image classification variants (subset)
-    TIMM_VOVNET19B_DW = "ese_vovnet19b_dw"
-    TIMM_VOVNET39B = "ese_vovnet39b"
-    TIMM_VOVNET99B = "ese_vovnet99b"
-    TIMM_VOVNET19B_DW_RAIN1K = "ese_vovnet19b_dw.ra_in1k"
+    TIMM_VOVNET19B_DW = "Ese_Vovnet19b_Dw"
+    TIMM_VOVNET39B = "Ese_Vovnet39b"
+    TIMM_VOVNET99B = "Ese_Vovnet99b"
+    TIMM_VOVNET19B_DW_RAIN1K = "Ese_Vovnet19b_Dw.ra_In1k"
 
 
 class ModelLoader(ForgeModel):
@@ -139,7 +139,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="vovnet",
+            model="VoVNet",
             variant=variant,
             group=group,
             task=ModelTask.CV_IMAGE_CLS,

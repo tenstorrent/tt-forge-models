@@ -38,27 +38,27 @@ class ModelVariant(StrEnum):
     """Available HRNet model variants."""
 
     # TIMM variants
-    HRNET_W18_SMALL = "hrnet_w18_small"
-    HRNET_W18_SMALL_V2 = "hrnet_w18_small_v2"
-    HRNET_W18 = "hrnet_w18"
-    HRNET_W30 = "hrnet_w30"
-    HRNET_W32 = "hrnet_w32"
-    HRNET_W40 = "hrnet_w40"
-    HRNET_W44 = "hrnet_w44"
-    HRNET_W48 = "hrnet_w48"
-    HRNET_W64 = "hrnet_w64"
-    HRNET_W18_MS_AUG_IN1K = "hrnet_w18.ms_aug_in1k"
+    HRNET_W18_SMALL = "W18_Small"
+    HRNET_W18_SMALL_V2 = "W18_Small_v2"
+    HRNET_W18 = "W18"
+    HRNET_W30 = "W30"
+    HRNET_W32 = "W32"
+    HRNET_W40 = "W40"
+    HRNET_W44 = "W44"
+    HRNET_W48 = "W48"
+    HRNET_W64 = "W64"
+    HRNET_W18_MS_AUG_IN1K = "W18.ms_Aug_In1k"
 
     # OSMR (pytorchcv) variants
-    HRNET_W18_SMALL_V1_OSMR = "hrnet_w18_small_v1_osmr"
-    HRNET_W18_SMALL_V2_OSMR = "hrnet_w18_small_v2_osmr"
-    HRNETV2_W18_OSMR = "hrnetv2_w18_osmr"
-    HRNETV2_W30_OSMR = "hrnetv2_w30_osmr"
-    HRNETV2_W32_OSMR = "hrnetv2_w32_osmr"
-    HRNETV2_W40_OSMR = "hrnetv2_w40_osmr"
-    HRNETV2_W44_OSMR = "hrnetv2_w44_osmr"
-    HRNETV2_W48_OSMR = "hrnetv2_w48_osmr"
-    HRNETV2_W64_OSMR = "hrnetv2_w64_osmr"
+    HRNET_W18_SMALL_V1_OSMR = "W18_Small_v1_Osmr"
+    HRNET_W18_SMALL_V2_OSMR = "W18_Small_v2_Osmr"
+    HRNETV2_W18_OSMR = "v2_W18_Osmr"
+    HRNETV2_W30_OSMR = "v2_W30_Osmr"
+    HRNETV2_W32_OSMR = "v2_W32_Osmr"
+    HRNETV2_W40_OSMR = "v2_W40_Osmr"
+    HRNETV2_W44_OSMR = "v2_W44_Osmr"
+    HRNETV2_W48_OSMR = "v2_W48_Osmr"
+    HRNETV2_W64_OSMR = "v2_W64_Osmr"
 
 
 class ModelLoader(ForgeModel):
@@ -173,7 +173,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         source = cls._VARIANTS[variant].source
         return ModelInfo(
-            model="hrnet",
+            model="HRNet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_KEYPOINT_DET,

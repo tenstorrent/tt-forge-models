@@ -47,9 +47,9 @@ class BlipTask(StrEnum):
 class ModelVariant(StrEnum):
     """Available BLIP model variants (Paddle) by task."""
 
-    BLIP_IMAGE_CAPTIONING = "blip_image_captioning"
-    BLIP_TEXT = "blip_text"
-    BLIP_VISION = "blip_vision"
+    BLIP_IMAGE_CAPTIONING = "Image_Captioning"
+    BLIP_TEXT = "Text"
+    BLIP_VISION = "Vision"
 
 
 class ModelLoader(ForgeModel):
@@ -88,7 +88,7 @@ class ModelLoader(ForgeModel):
             model_task = ModelTask.MM_IMAGE_TEXT_SIM
 
         return ModelInfo(
-            model="blip_image_captioning",
+            model="BLIP",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=model_task,

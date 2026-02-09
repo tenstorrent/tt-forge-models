@@ -25,9 +25,9 @@ from ....base import ForgeModel
 class ModelVariant(StrEnum):
     """Available BERT model variants for question answering (Paddle)."""
 
-    BERT_BASE_UNCASED = "bert-base-uncased"
-    BERT_BASE_JAPANESE = "cl-tohoku/bert-base-japanese"
-    CHINESE_ROBERTA_BASE = "uer/chinese-roberta-base"
+    BERT_BASE_UNCASED = "Base_Uncased"
+    BERT_BASE_JAPANESE = "Base_Japanese"
+    CHINESE_ROBERTA_BASE = "Base_Chinese_Roberta"
 
 
 class ModelLoader(ForgeModel):
@@ -61,7 +61,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="bert-qa",
+            model="BERT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_QA,

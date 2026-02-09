@@ -27,7 +27,7 @@ import torchvision.models as models
 class ModelVariant(StrEnum):
     """Available SSDLite320 MobileNetV3 model variants."""
 
-    SSDLITE320_MOBILENET_V3_LARGE = "ssdlite320_mobilenet_v3_large"
+    SSDLITE320_MOBILENET_V3_LARGE = "Ssdlite320_Mobilenet_v3_Large"
 
 
 class ModelLoader(ForgeModel):
@@ -65,7 +65,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="ssdlite320_mobilenetv3",
+            model="SSDLite320-MobileNetV3",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,

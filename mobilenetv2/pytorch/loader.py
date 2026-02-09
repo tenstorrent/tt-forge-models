@@ -49,19 +49,19 @@ class ModelVariant(StrEnum):
     """Available MobileNetV2 model variants."""
 
     # TORCH_HUB variants
-    MOBILENET_V2_TORCH_HUB = "mobilenet_v2"
+    MOBILENET_V2_TORCH_HUB = "Mobilenet_v2"
 
     # HuggingFace variants
-    MOBILENET_V2_035_96_HF = "google/mobilenet_v2_0.35_96"
-    MOBILENET_V2_075_160_HF = "google/mobilenet_v2_0.75_160"
-    MOBILENET_V2_100_224_HF = "google/mobilenet_v2_1.0_224"
-    DEEPLABV3_MOBILENET_V2_HF = "google/deeplabv3_mobilenet_v2_1.0_513"
+    MOBILENET_V2_035_96_HF = "Mobilenet_v2_0.35_96"
+    MOBILENET_V2_075_160_HF = "Mobilenet_v2_0.75_160"
+    MOBILENET_V2_100_224_HF = "Mobilenet_v2_1.0_224"
+    DEEPLABV3_MOBILENET_V2_HF = "Deeplabv3_Mobilenet_v2_1.0_513"
 
     # TIMM variants
-    MOBILENET_V2_100_TIMM = "mobilenetv2_100"
+    MOBILENET_V2_100_TIMM = "100"
 
     # TORCHVISION variants
-    MOBILENET_V2_TORCHVISION = "mobilenet_v2_torchvision"
+    MOBILENET_V2_TORCHVISION = "Mobilenet_v2_Torchvision"
 
 
 class ModelLoader(ForgeModel):
@@ -141,7 +141,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="mobilenetv2",
+            model="MobileNetV2",
             variant=variant,
             group=group,
             task=ModelTask.CV_IMAGE_CLS,

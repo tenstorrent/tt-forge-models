@@ -24,7 +24,7 @@ from ...tools.utils import print_compiled_model_results
 class ModelVariant(StrEnum):
     """Available Attention DenseUNet model variants."""
 
-    BASE = "base"
+    BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="dense_unet_3d",
+            model="Dense UNet 3D",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,
