@@ -25,7 +25,7 @@ from ....tools.utils import cast_input_to_type
 class ModelVariant(StrEnum):
     """Available CodeGemma model variants."""
 
-    CODEGEMMA_2B = "google/codegemma-2b"
+    CODEGEMMA_2B = "2B"
 
 
 class ModelLoader(ForgeModel):
@@ -33,7 +33,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.CODEGEMMA_2B: LLMModelConfig(
-            pretrained_model_name=str(ModelVariant.CODEGEMMA_2B),
+            pretrained_model_name="google/codegemma-2b",
             max_length=256,
         ),
     }
@@ -60,7 +60,7 @@ def calculate_age(birth_year):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="codegemma",
+            model="Gemma",
             variant=variant,
             group=ModelGroup.GENERALITY,  # ML training generality
             task=ModelTask.NLP_QA,
@@ -90,7 +90,7 @@ def calculate_age(birth_year):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Code Gemma model instance for this instance's variant.
 
         Args:
@@ -106,6 +106,7 @@ def calculate_age(birth_year):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs

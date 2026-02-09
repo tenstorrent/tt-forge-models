@@ -94,7 +94,7 @@ class FuyuModelWrapper(nn.Module):
 class ModelVariant(StrEnum):
     """Available Fuyu model variants."""
 
-    FUYU_8B = "adept/fuyu-8b"
+    FUYU_8B = "8B"
 
 
 class ModelLoader(ForgeModel):
@@ -120,7 +120,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="fuyu",
+            model="Fuyu",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_QA,
@@ -146,7 +146,7 @@ class ModelLoader(ForgeModel):
         self.processor = None
         self.model = None
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load a Fuyu model from Hugging Face."""
 
         # Get the pretrained model name from the instance's variant config
@@ -176,6 +176,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         fuyu_model = FuyuForCausalLM.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs

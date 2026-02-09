@@ -24,8 +24,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Llama 3.2 Vision model variants."""
 
-    LLAMA_3_2_11B_VISION = "llama_3_2_11b_vision"
-    LLAMA_3_2_11B_VISION_INSTRUCT = "llama_3_2_11b_vision_instruct"
+    LLAMA_3_2_11B_VISION = "3.2 11B Vision"
+    LLAMA_3_2_11B_VISION_INSTRUCT = "3.2 11B Vision Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -72,7 +72,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="llama-3.2-vision",
+            model="Llama",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.MM_VISUAL_QA,
@@ -93,7 +93,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = self.processor.tokenizer
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Llama 3.2 Vision model instance for this instance's variant.
 
         Args:
@@ -114,6 +114,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"trust_remote_code": True, "_attn_implementation": "eager"}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs

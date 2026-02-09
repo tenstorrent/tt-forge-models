@@ -27,9 +27,9 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available SAM model variants."""
 
-    BASE = "facebook/sam-vit-base"
-    LARGE = "facebook/sam-vit-large"
-    HUGE = "facebook/sam-vit-huge"
+    BASE = "Vit Base"
+    LARGE = "Vit Large"
+    HUGE = "Vit Huge"
 
 
 class ModelLoader(ForgeModel):
@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="sam",
+            model="SAM",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_SEG,
@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SAM model instance for this instance's variant.
 
         Args:
@@ -97,10 +97,10 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
 
         # Load SAM model from transformers
-        framework_model = SamModel.from_pretrained(model_name).to("cpu")
+        framework_model = SamModel.from_pretrained(model_name, **kwargs).to("cpu")
 
         # Load processor for this variant
-        self.processor = SamProcessor.from_pretrained(model_name)
+        self.processor = SamProcessor.from_pretrained(model_name, **kwargs)
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:

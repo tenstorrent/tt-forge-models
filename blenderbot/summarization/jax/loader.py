@@ -23,9 +23,9 @@ class ModelVariant(StrEnum):
     """Available Blenderbot model variants."""
 
     BLENDERBOT_3B = "3B"
-    BLENDERBOT_SMALL_90M = "small-90M"
-    BLENDERBOT_1B_DISTILL = "1B-distill"
-    BLENDERBOT_400M_DISTILL = "400M-distill"
+    BLENDERBOT_SMALL_90M = "Small 90M"
+    BLENDERBOT_1B_DISTILL = "1B Distill"
+    BLENDERBOT_400M_DISTILL = "400M Distill"
 
 
 class ModelLoader(ForgeModel):
@@ -79,7 +79,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="blenderbot",
+            model="BlenderBot",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_SUMMARIZATION,
@@ -110,7 +110,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Blenderbot model instance for this instance's variant.
 
         Args:
@@ -128,6 +128,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         from transformers import FlaxBlenderbotForConditionalGeneration
 

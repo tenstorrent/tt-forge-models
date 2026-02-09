@@ -25,9 +25,9 @@ from ....base import ForgeModel
 class ModelVariant(StrEnum):
     """Available BERT model variants for question answering (Paddle)."""
 
-    BERT_BASE_UNCASED = "bert-base-uncased"
-    BERT_BASE_JAPANESE = "cl-tohoku/bert-base-japanese"
-    CHINESE_ROBERTA_BASE = "uer/chinese-roberta-base"
+    BERT_BASE_UNCASED = "Base Uncased"
+    BERT_BASE_JAPANESE = "Base Japanese"
+    CHINESE_ROBERTA_BASE = "Chinese Roberta Base"
 
 
 class ModelLoader(ForgeModel):
@@ -61,7 +61,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="bert-qa",
+            model="BERT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_QA,
@@ -78,13 +78,13 @@ class ModelLoader(ForgeModel):
             return ["中国的首都是哪里？"]
         return ["What is the capital of China?"]
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load Paddle BERT model for question answering."""
         model_name = self._variant_config.pretrained_model_name
         # Initialize tokenizer
-        self.tokenizer = BertTokenizer.from_pretrained(model_name)
+        self.tokenizer = BertTokenizer.from_pretrained(model_name, **kwargs)
 
-        model = BertForQuestionAnswering.from_pretrained(model_name)
+        model = BertForQuestionAnswering.from_pretrained(model_name, **kwargs)
         model.eval()
         return model
 

@@ -25,9 +25,9 @@ from ....base import ForgeModel
 class ModelVariant(StrEnum):
     """Available BERT model variants for masked language modeling (Paddle)."""
 
-    BERT_BASE_UNCASED = "bert-base-uncased"
-    BERT_BASE_JAPANESE = "cl-tohoku/bert-base-japanese"
-    CHINESE_ROBERTA_BASE = "uer/chinese-roberta-base"
+    BERT_BASE_UNCASED = "Base Uncased"
+    BERT_BASE_JAPANESE = "Base Japanese"
+    CHINESE_ROBERTA_BASE = "Chinese Roberta Base"
 
 
 class ModelLoader(ForgeModel):
@@ -60,7 +60,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="bert-maskedlm",
+            model="BERT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,
@@ -80,13 +80,13 @@ class ModelLoader(ForgeModel):
     def _get_max_length(self) -> int:
         return getattr(self._variant_config, "max_length", 128) or 128
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load Paddle BERT model for masked language modeling."""
         model_name = self._variant_config.pretrained_model_name
         # Initialize tokenizer
-        self.tokenizer = BertTokenizer.from_pretrained(model_name)
+        self.tokenizer = BertTokenizer.from_pretrained(model_name, **kwargs)
 
-        model = BertForMaskedLM.from_pretrained(model_name)
+        model = BertForMaskedLM.from_pretrained(model_name, **kwargs)
         return model
 
     def load_inputs(self, dtype_override=None) -> List[paddle.Tensor]:

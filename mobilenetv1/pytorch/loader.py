@@ -41,14 +41,14 @@ class ModelVariant(StrEnum):
     """Available MobileNetV1 model variants."""
 
     # GitHub variants
-    MOBILENET_V1_GITHUB = "mobilenet_v1"
+    MOBILENET_V1_GITHUB = "Mobilenet v1"
 
     # HuggingFace variants
-    MOBILENET_V1_075_192_HF = "google/mobilenet_v1_0.75_192"
-    MOBILENET_V1_100_224_HF = "google/mobilenet_v1_1.0_224"
+    MOBILENET_V1_075_192_HF = "Mobilenet v1 0.75 192"
+    MOBILENET_V1_100_224_HF = "Mobilenet v1 1.0 224"
 
     # TIMM variants
-    MOBILENET_V1_100_TIMM = "mobilenetv1_100.ra4_e3600_r224_in1k"
+    MOBILENET_V1_100_TIMM = "100.ra4 E3600 R224 In1k"
 
 
 class ModelLoader(ForgeModel):
@@ -108,7 +108,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="mobilenetv1",
+            model="MobileNetV1",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -116,7 +116,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained MobileNetV1 model for this instance's variant.
 
         Args:
@@ -135,7 +135,9 @@ class ModelLoader(ForgeModel):
             model = MobileNetV1(9)
         elif source == ModelSource.HUGGING_FACE:
             # Load model using HuggingFace transformers
-            model = AutoModelForImageClassification.from_pretrained(model_name)
+            model = AutoModelForImageClassification.from_pretrained(
+                model_name, **kwargs
+            )
         elif source == ModelSource.TIMM:
             # Load model using timm
             model = timm.create_model(model_name, pretrained=True)
@@ -181,7 +183,7 @@ class ModelLoader(ForgeModel):
             if hasattr(self, "_cached_model") and self._cached_model is not None:
                 model_for_config = self._cached_model
             else:
-                model_for_config = self.load_model(dtype_override)
+                model_for_config = self.load_model(dtype_override=dtype_override)
 
             # Preprocess image using model's data config
             data_config = resolve_data_config({}, model=model_for_config)

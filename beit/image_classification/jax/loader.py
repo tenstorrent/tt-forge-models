@@ -27,8 +27,8 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available BEiT model variants."""
 
-    BASE = "base"
-    LARGE = "large"
+    BASE = "Base"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="beit",
+            model="BEiT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -96,7 +96,7 @@ class ModelLoader(ForgeModel):
 
         return self._processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the BEiT model instance for this instance's variant.
         Args:
             dtype_override: Optional dtype to override the model's default dtype.
@@ -115,6 +115,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         # Load the model
         model = FlaxBeitForImageClassification.from_pretrained(

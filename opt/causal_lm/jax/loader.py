@@ -22,9 +22,9 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available OPT model variants."""
 
-    _1_3B = "1.3B"
-    _2_7B = "2.7B"
-    _6_7B = "6.7B"
+    _1_3B = "1.3b"
+    _2_7B = "2.7b"
+    _6_7B = "6.7b"
     _125M = "125M"
     _350M = "350M"
 
@@ -77,7 +77,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="opt",
+            model="OPT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -108,7 +108,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the OPT model instance for this instance's variant.
 
         Args:
@@ -127,6 +127,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         # Load the model
         model = FlaxOPTForCausalLM.from_pretrained(self._model_name, **model_kwargs)

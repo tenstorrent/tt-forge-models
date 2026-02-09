@@ -23,14 +23,14 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available ALBERT model variants."""
 
-    BASE_V1 = "base_v1"
-    LARGE_V1 = "large_v1"
-    XLARGE_V1 = "xlarge_v1"
-    XXLARGE_V1 = "xxlarge_v1"
-    BASE_V2 = "base_v2"
-    LARGE_V2 = "large_v2"
-    XLARGE_V2 = "xlarge_v2"
-    XXLARGE_V2 = "xxlarge_v2"
+    BASE_V1 = "Base v1"
+    LARGE_V1 = "Large v1"
+    XLARGE_V1 = "Xlarge v1"
+    XXLARGE_V1 = "Xxlarge v1"
+    BASE_V2 = "Base v2"
+    LARGE_V2 = "Large v2"
+    XLARGE_V2 = "Xlarge v2"
+    XXLARGE_V2 = "Xxlarge v2"
 
 
 class ModelLoader(ForgeModel):
@@ -100,7 +100,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="albert_v2",
+            model="ALBERT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TOKEN_CLS,
@@ -130,7 +130,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the ALBERT model instance for this instance's variant.
 
         Args:
@@ -151,6 +151,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AlbertForTokenClassification.from_pretrained(
             pretrained_model_name, **model_kwargs

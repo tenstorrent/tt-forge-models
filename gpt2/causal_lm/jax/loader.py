@@ -29,10 +29,10 @@ import jax.numpy as jnp
 class ModelVariant(StrEnum):
     """Available GPT2 model variants."""
 
-    BASE = "base"
-    LARGE = "large"
-    MEDIUM = "medium"
-    XL = "xl"
+    BASE = "Base"
+    LARGE = "Large"
+    MEDIUM = "Medium"
+    XL = "Xl"
 
 
 class ModelLoader(ForgeModel):
@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="gpt2",
+            model="GPT-2",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.JAX,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the GPT2 model instance for this instance's variant.
 
         Args:
@@ -107,6 +107,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         partition_rules = ((r".*", PartitionSpec()),)
 

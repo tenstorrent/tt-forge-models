@@ -25,7 +25,7 @@ from ....tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available DETR model variants for segmentation."""
 
-    RESNET_50_PANOPTIC = "resnet_50_panoptic"
+    RESNET_50_PANOPTIC = "ResNet50 Backbone Panoptic"
 
 
 class ModelLoader(ForgeModel):
@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="detr_segmentation",
+            model="DETR",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_PANOPTIC_SEG,
@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
 
         return self.feature_extractor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the DETR model instance for this instance's variant.
 
         Args:
@@ -106,6 +106,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = DetrForSegmentation.from_pretrained(
             pretrained_model_name, **model_kwargs

@@ -23,10 +23,10 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available CLIP model variants."""
 
-    BASE_PATCH16 = "base_patch16"
-    BASE_PATCH32 = "base_patch32"
-    LARGE_PATCH14 = "large_patch14"
-    LARGE_PATCH14_336 = "large_patch14_336"
+    BASE_PATCH16 = "Base Patch16"
+    BASE_PATCH32 = "Base Patch32"
+    LARGE_PATCH14 = "Large Patch14"
+    LARGE_PATCH14_336 = "Large Patch14 336"
 
 
 class ModelLoader(ForgeModel):
@@ -76,7 +76,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="clip",
+            model="CLIP",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_IMAGE_CAPT,
@@ -106,7 +106,7 @@ class ModelLoader(ForgeModel):
 
         return self._processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the CLIP model instance for this instance's variant.
         Args:
             dtype_override: Optional dtype to override the model's default dtype.
@@ -127,6 +127,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         # Check if we need to load from PyTorch weights
         from_pt = pretrained_model_name == "openai/clip-vit-large-patch14-336"

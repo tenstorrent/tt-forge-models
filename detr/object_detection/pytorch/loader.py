@@ -25,7 +25,7 @@ from ....tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available DETR model variants for object detection."""
 
-    RESNET_50 = "resnet_50"
+    RESNET_50 = "ResNet50 Backbone"
 
 
 class ModelLoader(ForgeModel):
@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="detr_detection",
+            model="DETR",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,
@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the DETR model instance for this instance's variant.
 
         Args:
@@ -105,6 +105,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = DetrForObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs

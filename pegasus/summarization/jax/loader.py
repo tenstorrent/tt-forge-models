@@ -23,8 +23,8 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available Pegasus model variants."""
 
-    XSUM = "xsum"
-    LARGE = "large"
+    XSUM = "Xsum"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="pegasus",
+            model="Pegasus",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_SUMMARIZATION,
@@ -102,7 +102,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Pegasus model instance for this instance's variant.
 
         Args:
@@ -121,6 +121,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         # Load the model
         model = FlaxPegasusForConditionalGeneration.from_pretrained(

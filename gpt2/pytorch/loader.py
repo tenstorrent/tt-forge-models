@@ -28,8 +28,8 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available GPT-2 model variants."""
 
-    GPT2_BASE = "gpt2"
-    GPT2_SEQUENCE_CLASSIFICATION = "gpt2_sequence_classification"
+    GPT2_BASE = "Default"
+    GPT2_SEQUENCE_CLASSIFICATION = "Sequence Classification"
 
 
 class ModelLoader(ForgeModel):
@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
         )
 
         return ModelInfo(
-            model="gpt2",
+            model="GPT-2",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=task,
@@ -88,7 +88,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         model_name = self._variant_config.pretrained_model_name
 
         if self._variant == ModelVariant.GPT2_BASE:
@@ -100,7 +100,7 @@ class ModelLoader(ForgeModel):
             if self.num_layers is not None:
                 config_dict["num_hidden_layers"] = self.num_layers
             config = GPT2Config(**config_dict)
-            model = GPT2LMHeadModel.from_pretrained(model_name, config=config)
+            model = GPT2LMHeadModel.from_pretrained(model_name, config=config, **kwargs)
         else:
             model_kwargs = {
                 "trust_remote_code": True,
@@ -108,6 +108,7 @@ class ModelLoader(ForgeModel):
             }
             if dtype_override is not None:
                 model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
             model = AutoModelForSequenceClassification.from_pretrained(
                 model_name, **model_kwargs
             )

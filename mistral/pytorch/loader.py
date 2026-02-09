@@ -29,15 +29,15 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Mistral model variants."""
 
-    MISTRAL_7B = "7b"
-    MISTRAL_7B_INSTRUCT_V03 = "7b_instruct_v03"
-    MINISTRAL_3B = "ministral_3b_instruct"
-    MINISTRAL_8B = "ministral_8b_instruct"
-    MISTRAL_SMALL_24B_INSTRUCT_2501 = "mistral_small_24b_instruct_2501"
-    MISTRAL_LARGE_INSTRUCT_2411 = "mistral_large_instruct_2411"
-    MISTRAL_NEMO_INSTRUCT_2407 = "mistral_nemo_instruct_2407"
-    DEVSTRAL_SMALL_2505 = "devstral_small_2505"
-    MAGISTRAL_SMALL_2506 = "magistral_small_2506"
+    MISTRAL_7B = "7B"
+    MISTRAL_7B_INSTRUCT_V03 = "7B INSTRUCT v03"
+    MINISTRAL_3B = "Ministral 3B Instruct"
+    MINISTRAL_8B = "Ministral 8B Instruct"
+    MISTRAL_SMALL_24B_INSTRUCT_2501 = "Small 24B INSTRUCT 2501"
+    MISTRAL_LARGE_INSTRUCT_2411 = "Large INSTRUCT 2411"
+    MISTRAL_NEMO_INSTRUCT_2407 = "Nemo INSTRUCT 2407"
+    DEVSTRAL_SMALL_2505 = "Devstral Small 2505"
+    MAGISTRAL_SMALL_2506 = "Magistral Small 2506"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
 
@@ -139,7 +139,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="mistral",
+            model="Mistral",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -185,7 +185,7 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Mistral model instance for this instance's variant.
 
         Args:
@@ -205,6 +205,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
@@ -254,7 +255,7 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override)
 
         if self.model is None:
-            self.load_model(dtype_override)
+            self.load_model(dtype_override=dtype_override)
 
         # Set up sample input
         test_input = "How often does the letter r occur in Mistral?"

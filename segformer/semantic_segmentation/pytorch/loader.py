@@ -25,11 +25,11 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Segformer for Semantic Segmentation model variants."""
 
-    B0_FINETUNED = "b0_finetuned_ade_512_512"
-    B1_FINETUNED = "b1_finetuned_ade_512_512"
-    B2_FINETUNED = "b2_finetuned_ade_512_512"
-    B3_FINETUNED = "b3_finetuned_ade_512_512"
-    B4_FINETUNED = "b4_finetuned_ade_512_512"
+    B0_FINETUNED = "B0 Finetuned Ade 512 512"
+    B1_FINETUNED = "B1 Finetuned Ade 512 512"
+    B2_FINETUNED = "B2 Finetuned Ade 512 512"
+    B3_FINETUNED = "B3 Finetuned Ade 512 512"
+    B4_FINETUNED = "B4 Finetuned Ade 512 512"
 
 
 class ModelLoader(ForgeModel):
@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="segformer_semantic_segmentation",
+            model="SegFormer",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_SEG,
@@ -103,7 +103,7 @@ class ModelLoader(ForgeModel):
         )
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Segformer for Semantic Segmentation model instance for this instance's variant.
 
         Args:
@@ -121,7 +121,9 @@ class ModelLoader(ForgeModel):
             self._load_processor()
 
         # Load pre-trained model from HuggingFace
-        model = SegformerForSemanticSegmentation.from_pretrained(pretrained_model_name)
+        model = SegformerForSemanticSegmentation.from_pretrained(
+            pretrained_model_name, **kwargs
+        )
 
         if dtype_override is not None:
             model = model.to(dtype_override)

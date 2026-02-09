@@ -28,8 +28,8 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available PHI2 model variants."""
 
-    PHI2 = "microsoft/phi-2"
-    PHI2_PYTDML = "microsoft/phi-2-pytdml"
+    PHI2 = "Phi 2"
+    PHI2_PYTDML = "Phi 2 Pytdml"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="phi2",
+            model="Phi-2",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self._model_name = self._variant_config.pretrained_model_name
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the PHI2 model instance.
 
         Args:
@@ -98,6 +98,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoEasyDeLModelForCausalLM.from_pretrained(
             self._model_name, **model_kwargs

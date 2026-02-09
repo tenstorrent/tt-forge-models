@@ -24,7 +24,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available SeamlessM4T model variants."""
 
-    LARGE = "large"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="seamless-m4t",
+            model="SeamlessM4T",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.AUDIO_ASR,
@@ -88,7 +88,7 @@ class ModelLoader(ForgeModel):
 
         return self.processor, self.config
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SeamlessM4T text decoder submodule for this instance's variant.
 
         Args:
@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
 
         # Load full model
         self.full_model = SeamlessM4TModel.from_pretrained(
-            model_name, config=self.config
+            model_name, config=self.config, **kwargs
         )
 
         if dtype_override is not None:

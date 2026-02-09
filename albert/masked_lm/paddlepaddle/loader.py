@@ -26,7 +26,7 @@ from pytorch.loader import ModelLoader as PyTorchModelLoader
 class ModelVariant(StrEnum):
     """Available ALBERT model variants for masked language modeling (Paddle)."""
 
-    ALBERT_CHINESE_TINY = "albert-chinese-tiny"
+    ALBERT_CHINESE_TINY = "Chinese Tiny"
 
 
 class ModelLoader(ForgeModel):
@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="albert-maskedlm",
+            model="ALBERT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,
@@ -65,13 +65,13 @@ class ModelLoader(ForgeModel):
         """Return the sample masked sentence used by the test."""
         return ["一，[MASK]，三，四"]
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load Paddle ALBERT model for masked language modeling."""
         model_name = self._variant_config.pretrained_model_name
         # Initialize tokenizer
-        self.tokenizer = AlbertTokenizer.from_pretrained(model_name)
+        self.tokenizer = AlbertTokenizer.from_pretrained(model_name, **kwargs)
 
-        base_model = AlbertForMaskedLM.from_pretrained(model_name)
+        base_model = AlbertForMaskedLM.from_pretrained(model_name, **kwargs)
 
         class AlbertWrapper(paddle.nn.Layer):
             def __init__(self, model):

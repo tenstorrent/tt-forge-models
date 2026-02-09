@@ -35,16 +35,16 @@ class ModelVariant(StrEnum):
     """Available Swin model variants."""
 
     # HuggingFace variants
-    SWIN_TINY_HF = "microsoft/swin-tiny-patch4-window7-224"
-    SWINV2_TINY_HF = "microsoft/swinv2-tiny-patch4-window8-256"
+    SWIN_TINY_HF = "Tiny Patch4 Window7 224"
+    SWINV2_TINY_HF = "v2 Tiny Patch4 Window8 256"
 
     # Torchvision variants
-    SWIN_T = "swin_t"
-    SWIN_S = "swin_s"
-    SWIN_B = "swin_b"
-    SWIN_V2_T = "swin_v2_t"
-    SWIN_V2_S = "swin_v2_s"
-    SWIN_V2_B = "swin_v2_b"
+    SWIN_T = "T"
+    SWIN_S = "S"
+    SWIN_B = "B"
+    SWIN_V2_T = "v2 T"
+    SWIN_V2_S = "v2 S"
+    SWIN_V2_B = "v2 B"
 
 
 class ModelLoader(ForgeModel):
@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="swin",
+            model="Swin",
             variant=variant,
             group=ModelGroup.RED
             if variant == ModelVariant.SWIN_S
@@ -131,7 +131,7 @@ class ModelLoader(ForgeModel):
         self._preprocessor = None
         self._postprocessor = None
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Swin model instance for this instance's variant.
 
         Args:
@@ -147,7 +147,9 @@ class ModelLoader(ForgeModel):
 
         if source == ModelSource.HUGGING_FACE:
             # Load model from HuggingFace
-            model = AutoModelForImageClassification.from_pretrained(model_name)
+            model = AutoModelForImageClassification.from_pretrained(
+                model_name, **kwargs
+            )
 
         elif source == ModelSource.TORCHVISION:
             # Load model from torchvision

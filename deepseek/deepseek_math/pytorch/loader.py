@@ -24,7 +24,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available DeepSeek Math model variants."""
 
-    DEEPSEEK_7B_INSTRUCT = "7b_instruct"
+    DEEPSEEK_7B_INSTRUCT = "7B Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -54,7 +54,7 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Return model info for the selected variant."""
         return ModelInfo(
-            model="deepseek_math",
+            model="DeepSeek",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_QA,
@@ -73,15 +73,17 @@ class ModelLoader(ForgeModel):
 
         return tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the DeepSeek Math model."""
         model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name,
             device_map="cpu",
             trust_remote_code=True,
+            **kwargs,
         )
         model.generation_config = GenerationConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name,
+            **kwargs,
         )
         model.generation_config.pad_token_id = model.generation_config.eos_token_id
         model.generation_config.use_cache = False  # Disable KV cache

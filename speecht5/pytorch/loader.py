@@ -23,7 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available SpeechT5 model variants."""
 
-    TTS = "tts"
+    TTS = "Tts"
 
 
 class ModelLoader(ForgeModel):
@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="speecht5",
+            model="SpeechT5",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_TTS,
@@ -93,7 +93,7 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SpeechT5 model instance for this instance's variant.
 
         Args:
@@ -114,6 +114,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = SpeechT5ForTextToSpeech.from_pretrained(
             pretrained_model_name, **model_kwargs

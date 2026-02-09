@@ -21,9 +21,9 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available DistilBERT model variants for masked language modeling."""
 
-    DISTILBERT_BASE_CASED = "distilbert-base-cased"
-    DISTILBERT_BASE_UNCASED = "distilbert-base-uncased"
-    DISTILBERT_BASE_MULTILINGUAL_CASED = "distilbert-base-multilingual-cased"
+    DISTILBERT_BASE_CASED = "Base Cased"
+    DISTILBERT_BASE_UNCASED = "Base Uncased"
+    DISTILBERT_BASE_MULTILINGUAL_CASED = "Base Multilingual Cased"
 
 
 class ModelLoader(ForgeModel):
@@ -77,7 +77,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="DistilBERT-MaskedLM",
+            model="DistilBERT",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,
@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load DistilBERT model for masked language modeling from Hugging Face.
 
         Args:
@@ -103,6 +103,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = DistilBertForMaskedLM.from_pretrained(self.model_name, **model_kwargs)
         model.eval()

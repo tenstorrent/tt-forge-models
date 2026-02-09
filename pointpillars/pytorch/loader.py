@@ -56,7 +56,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="pointpillars",
+            model="PointPillars",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,
@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self):
+    def load_model(self, **kwargs):
         """Load and return the PointPillars model instance for this instance's variant."""
         checkpoint = get_file(
             "https://raw.githubusercontent.com/zhulf0804/PointPillars/main/pretrained/epoch_160.pth"

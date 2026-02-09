@@ -24,7 +24,7 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available DistilBERT model variants."""
 
-    BASE_UNCASED = "base-uncased"
+    BASE_UNCASED = "Base Uncased"
 
 
 class ModelLoader(ForgeModel):
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="distilbert",
+            model="DistilBERT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,
@@ -99,7 +99,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the DistilBERT model instance for this instance's variant.
 
         Args:
@@ -119,6 +119,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         # Load the model
         model = FlaxDistilBertForMaskedLM.from_pretrained(

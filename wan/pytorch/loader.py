@@ -26,7 +26,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Wan diffusion model variants."""
 
-    WAN22_TI2V_5B = "wan2.2-ti2v-5b"
+    WAN22_TI2V_5B = "2.2 Ti2v 5B"
 
 
 class ModelLoader(ForgeModel):
@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="wan",
+            model="WAN",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.MM_IMAGE_TTT,
@@ -93,10 +93,12 @@ class ModelLoader(ForgeModel):
 
     def load_model(
         self,
+        *,
         dtype_override: Optional[torch.dtype] = None,
         device_map: str = "cpu",
         low_cpu_mem_usage: bool = True,
         extra_pipe_kwargs: Optional[Dict[str, Any]] = None,
+        **kwargs,
     ):
         """
         Load and return the Wan diffusion pipeline (DiffusionPipeline).

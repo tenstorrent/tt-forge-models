@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available BGE M3 variants."""
 
-    BASE = "base"
+    BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
@@ -44,7 +44,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="bge_m3_encode",
+            model="BGE-M3",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_EMBED_GEN,
@@ -52,7 +52,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self):
+    def load_model(self, **kwargs):
         from FlagEmbedding import BGEM3FlagModel
 
         model_name = self._variant_config.pretrained_model_name

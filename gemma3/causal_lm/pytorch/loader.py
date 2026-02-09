@@ -24,8 +24,8 @@ from ....tools.utils import cast_input_to_type
 class ModelVariant(StrEnum):
     """Available Gemma3 model variants for causal LM."""
 
-    GEMMA_3_270M_IT = "google/gemma-3-270m-it"
-    GEMMA_3_1B_IT = "google/gemma-3-1b-it"
+    GEMMA_3_270M_IT = "270M Instruct"
+    GEMMA_3_1B_IT = "1B Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -33,11 +33,11 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GEMMA_3_270M_IT: LLMModelConfig(
-            pretrained_model_name=str(ModelVariant.GEMMA_3_270M_IT),
+            pretrained_model_name="google/gemma-3-270m-it",
             max_length=256,
         ),
         ModelVariant.GEMMA_3_1B_IT: LLMModelConfig(
-            pretrained_model_name=str(ModelVariant.GEMMA_3_1B_IT),
+            pretrained_model_name="google/gemma-3-1b-it",
             max_length=256,
         ),
     }
@@ -62,7 +62,7 @@ class ModelLoader(ForgeModel):
         group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="gemma_3_causal_lm",
+            model="Gemma 3",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -90,7 +90,7 @@ class ModelLoader(ForgeModel):
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Gemma3 causal_lm model instance.
 
         Args:
@@ -112,6 +112,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        model_kwargs |= kwargs
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )

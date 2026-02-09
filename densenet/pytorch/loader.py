@@ -47,13 +47,13 @@ class ModelVariant(StrEnum):
     """Available DenseNet model variants."""
 
     # Torchvision variants
-    DENSENET121 = "densenet121"
-    DENSENET161 = "densenet161"
-    DENSENET169 = "densenet169"
-    DENSENET201 = "densenet201"
+    DENSENET121 = "121"
+    DENSENET161 = "161"
+    DENSENET169 = "169"
+    DENSENET201 = "201"
 
     # X-ray variants
-    DENSENET121_XRAY = "densenet121_xray"
+    DENSENET121_XRAY = "121 Xray"
 
 
 class ModelLoader(ForgeModel):
@@ -118,7 +118,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="densenet",
+            model="DenseNet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -126,7 +126,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained DenseNet model for this instance's variant.
 
         Args:

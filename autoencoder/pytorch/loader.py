@@ -56,7 +56,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="autoencoder",
+            model="Autoencoder",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMG_TO_IMG,
@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Autoencoder model instance for this instance's variant.
 
         Args:

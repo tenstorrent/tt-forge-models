@@ -27,7 +27,7 @@ from .src.model_utils import letterbox_for_img
 class ModelVariant(StrEnum):
     """Available YOLOP model variants."""
 
-    YOLOP = "yolop"
+    YOLOP = "Default"
 
 
 class ModelLoader(ForgeModel):
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="yolop",
+            model="YOLOP",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,
@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the YOLOP model instance for this instance's variant.
 
         Args:

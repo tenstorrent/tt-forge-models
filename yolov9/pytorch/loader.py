@@ -22,11 +22,11 @@ from ...tools.utils import get_file, extract_tensors_recursive
 class ModelVariant(StrEnum):
     """Available YOLOv9 model variants."""
 
-    T = "t"
-    S = "s"
-    M = "m"
-    C = "c"
-    E = "e"
+    T = "T"
+    S = "S"
+    M = "M"
+    C = "C"
+    E = "E"
 
 
 class ModelLoader(ForgeModel):
@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the YOLOv9 model instance for this instance's variant.
 
         Args:

@@ -29,9 +29,9 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available OPT model variants."""
 
-    OPT_125M = "facebook/opt-125m"
-    OPT_350M = "facebook/opt-350m"
-    OPT_1_3B = "facebook/opt-1.3b"
+    OPT_125M = "125M"
+    OPT_350M = "350M"
+    OPT_1_3B = "1.3b"
 
 
 class ModelLoader(ForgeModel):
@@ -82,7 +82,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="opt",
+            model="OPT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,
@@ -111,7 +111,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the OPT model instance for this instance's variant.
 
         Args:
@@ -132,6 +132,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = OPTForSequenceClassification.from_pretrained(
             pretrained_model_name, **model_kwargs

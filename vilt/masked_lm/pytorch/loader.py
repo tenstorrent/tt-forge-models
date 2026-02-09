@@ -25,7 +25,7 @@ from ....tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available ViLT model variants for masked language modeling."""
 
-    MLM = "mlm"
+    MLM = "Mlm"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="vilt_mlm",
+            model="ViLT Masked LM",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_MASKED_LM,
@@ -95,7 +95,7 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the ViLT model instance for this instance's variant.
 
         Args:
@@ -116,6 +116,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = ViltForMaskedLM.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()

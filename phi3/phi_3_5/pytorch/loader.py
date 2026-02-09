@@ -23,8 +23,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Phi 3.5 model variants (non-MoE)."""
 
-    MINI_INSTRUCT = "mini_instruct"
-    MOE_INSTRUCT = "microsoft/Phi-3.5-MoE-instruct"
+    MINI_INSTRUCT = "Mini Instruct"
+    MOE_INSTRUCT = "Phi 3.5 Moe Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting."""
         return ModelInfo(
-            model="phi-3.5",
+            model="Phi-3",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -73,14 +73,14 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
-            **tokenizer_kwargs
+            **tokenizer_kwargs,
         )
         # Ensure padding token is set
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Phi 3.5 model instance for this instance's variant."""
         pretrained_model_name = self._variant_config.pretrained_model_name
         if self.tokenizer is None:
@@ -91,6 +91,7 @@ class ModelLoader(ForgeModel):
             use_cache=False,
             torch_dtype=model_dtype,
             trust_remote_code=True,
+            **kwargs,
         )
         model.eval()
         return model

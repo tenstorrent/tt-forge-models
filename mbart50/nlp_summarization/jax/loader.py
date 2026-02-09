@@ -25,7 +25,7 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available MBart50 model variants."""
 
-    LARGE_MANY_TO_MANY = "large_many_to_many"
+    LARGE_MANY_TO_MANY = "Large Many To Many"
 
 
 class ModelLoader(ForgeModel):
@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="mbart50",
+            model="mBART-50",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_SUMMARIZATION,
@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MBart50 model instance for this instance's variant.
         Args:
             dtype_override: Optional dtype to override the default dtype.
@@ -112,6 +112,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         # Load the model
         model = FlaxMBartForConditionalGeneration.from_pretrained(

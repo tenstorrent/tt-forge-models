@@ -38,19 +38,19 @@ class ModelVariant(StrEnum):
     """Available DLA model variants."""
 
     # Torchvision variants
-    DLA34 = "dla34"
-    DLA46_C = "dla46_c"
-    DLA46X_C = "dla46x_c"
-    DLA60 = "dla60"
-    DLA60X = "dla60x"
-    DLA60X_C = "dla60x_c"
-    DLA102 = "dla102"
-    DLA102X = "dla102x"
-    DLA102X2 = "dla102x2"
-    DLA169 = "dla169"
+    DLA34 = "34"
+    DLA46_C = "46 C"
+    DLA46X_C = "46x C"
+    DLA60 = "60"
+    DLA60X = "60x"
+    DLA60X_C = "60x C"
+    DLA102 = "102"
+    DLA102X = "102x"
+    DLA102X2 = "102x2"
+    DLA169 = "169"
 
     # Timm variants
-    DLA34_IN1K = "dla34.in1k"
+    DLA34_IN1K = "34.in1k"
 
 
 class ModelLoader(ForgeModel):
@@ -136,7 +136,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="dla",
+            model="DLA",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -144,7 +144,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained DLA model for this instance's variant.
 
         Args:
@@ -200,7 +200,7 @@ class ModelLoader(ForgeModel):
             if hasattr(self, "_cached_model") and self._cached_model is not None:
                 model_for_config = self._cached_model
             else:
-                model_for_config = self.load_model(dtype_override)
+                model_for_config = self.load_model(dtype_override=dtype_override)
 
             # Preprocess image using model's data config
             data_config = resolve_data_config({}, model=model_for_config)

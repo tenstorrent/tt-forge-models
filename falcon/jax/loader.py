@@ -28,11 +28,11 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available Falcon model variants."""
 
-    FALCON_1B = "tiiuae/Falcon3-1B-Base"
-    FALCON_3B = "tiiuae/Falcon3-3B-Base"
+    FALCON_1B = "3 1B Base"
+    FALCON_3B = "3 3B Base"
     ## Too large
-    # FALCON_7B = "tiiuae/Falcon3-7B-Base"
-    # FALCON_10B = "tiiuae/Falcon3-10B-Base"
+    # FALCON_7B = "3 7B Base"
+    # FALCON_10B = "3 10B Base"
 
 
 class ModelLoader(ForgeModel):
@@ -80,7 +80,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="falcon",
+            model="Falcon",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -97,7 +97,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self._model_name = self._variant_config.pretrained_model_name
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Falcon model instance.
 
         Args:
@@ -111,6 +111,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
         model = AutoEasyDeLModelForCausalLM.from_pretrained(
             self._model_name, **model_kwargs
         )

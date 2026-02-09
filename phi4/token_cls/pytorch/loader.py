@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Phi 4 model variants."""
 
-    PHI_4 = "microsoft/phi-4"
+    PHI_4 = "Phi 4"
 
 
 class ModelLoader(ForgeModel):
@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="phi-4",
+            model="Phi-4",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TOKEN_CLS,
@@ -90,7 +90,7 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Phi 4 model instance for this instance's variant.
 
         Args:
@@ -111,6 +111,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoModelForTokenClassification.from_pretrained(
             pretrained_model_name, use_cache=False, **model_kwargs

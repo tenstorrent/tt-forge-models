@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Gemma model variants."""
 
-    TRANSLATEGEMMA_4B_IT = "translategemma_4b_it"
+    TRANSLATEGEMMA_4B_IT = "Translategemma 4B IT"
 
 
 class ModelLoader(ForgeModel):
@@ -76,7 +76,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="gemma",
+            model="Gemma",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_IMAGE_TO_TEXT,
@@ -103,7 +103,7 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Gemma model instance for this instance's variant.
 
         Args:
@@ -121,6 +121,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"return_dict": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs

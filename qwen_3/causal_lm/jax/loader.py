@@ -28,14 +28,14 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available Qwen3 model variants for causal language modeling."""
 
-    QWEN_3_0_6B = "0_6b"
-    QWEN_3_1_7B = "1_7b"
-    QWEN_3_4B = "4b"
+    QWEN_3_0_6B = "0 6B"
+    QWEN_3_1_7B = "1 7B"
+    QWEN_3_4B = "4B"
     ## Too large
-    # QWEN_3_8B = "8b"
-    # QWEN_3_14B = "14b"
-    # QWEN_3_32B = "32b"
-    # QWEN_3_30B_A3B = "30b_a3b"
+    # QWEN_3_8B = "8B"
+    # QWEN_3_14B = "14B"
+    # QWEN_3_32B = "32B"
+    # QWEN_3_30B_A3B = "30B A3b"
 
 
 class ModelLoader(ForgeModel):
@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="qwen_3",
+            model="Qwen 3",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -115,7 +115,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self._model_name = self._variant_config.pretrained_model_name
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Qwen3 model instance.
 
         Args:
@@ -129,6 +129,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoEasyDeLModelForCausalLM.from_pretrained(
             self._model_name, **model_kwargs

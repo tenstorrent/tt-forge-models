@@ -24,8 +24,8 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available gpt-oss model variants."""
 
-    GPT_OSS_20B = "gpt_oss_20b"
-    GPT_OSS_120B = "gpt_oss_120b"
+    GPT_OSS_20B = "20B"
+    GPT_OSS_120B = "120B"
 
 
 class ModelLoader(ForgeModel):
@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="gpt_oss",
+            model="GPT-OSS",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -86,18 +86,29 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self):
+    def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
 
         Returns:
             The loaded tokenizer instance
         """
+        # Initialize tokenizer with dtype override if specified
+        tokenizer_kwargs = {}
+        if dtype_override is not None:
+            tokenizer_kwargs["torch_dtype"] = dtype_override
+
+        # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+        self.tokenizer.pad_token = self.tokenizer.eos_token
+
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the gpt-oss model instance for this instance's variant.
 
         Args:
@@ -107,6 +118,10 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The gpt-oss model instance for causal language modeling.
         """
+        # Ensure tokenizer is loaded
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+
         # Load config with modifications
         quantization_config = Mxfp4Config(dequantize=True)
         self.load_config()
@@ -125,6 +140,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         else:
             model_kwargs["torch_dtype"] = torch.bfloat16
+        model_kwargs |= kwargs
 
         # Load model
         model = AutoModelForCausalLM.from_pretrained(
@@ -146,7 +162,7 @@ class ModelLoader(ForgeModel):
         """
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
-            self._load_tokenizer()
+            self._load_tokenizer(dtype_override=dtype_override)
 
         # Create tokenized inputs
         inputs = self.tokenizer.apply_chat_template(
@@ -158,6 +174,14 @@ class ModelLoader(ForgeModel):
             padding="max_length",
             max_length=128,
         )
+        if (
+            hasattr(self.model.config, "sliding_window")
+            and self.model.config.sliding_window is not None
+        ):
+            # if the model uses sliding window attention, match sliding window value to input size so it
+            # does not go out of bounds when updating the cache
+            # Issue: https://github.com/tenstorrent/tt-xla/issues/3186
+            self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
         return inputs
 

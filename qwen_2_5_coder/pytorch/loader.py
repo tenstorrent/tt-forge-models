@@ -25,14 +25,14 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Qwen 2.5 Coder model variants for causal language modeling."""
 
-    QWEN_2_5_CODER_0_5B = "0_5b"
-    QWEN_2_5_CODER_1_5B = "1_5b"
-    QWEN_2_5_CODER_1_5B_INSTRUCT = "1_5b_instruct"
-    QWEN_2_5_CODER_3B = "3b"
-    QWEN_2_5_CODER_3B_INSTRUCT = "3b_instruct"
-    QWEN_2_5_CODER_7B = "7b"
-    QWEN_2_5_CODER_7B_INSTRUCT = "7b_instruct"
-    QWEN_2_5_CODER_32B_INSTRUCT = "32b_instruct"
+    QWEN_2_5_CODER_0_5B = "0.5B"
+    QWEN_2_5_CODER_1_5B = "1.5B"
+    QWEN_2_5_CODER_1_5B_INSTRUCT = "1.5B Instruct"
+    QWEN_2_5_CODER_3B = "3B"
+    QWEN_2_5_CODER_3B_INSTRUCT = "3B Instruct"
+    QWEN_2_5_CODER_7B = "7B"
+    QWEN_2_5_CODER_7B_INSTRUCT = "7B Instruct"
+    QWEN_2_5_CODER_32B_INSTRUCT = "32B Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -102,7 +102,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="qwen_2_5_coder",
+            model="Qwen 2.5 Coder",
             variant=variant,
             group=(
                 ModelGroup.RED
@@ -135,7 +135,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Qwen 2.5 Coder model instance for this instance's variant.
 
         Args:
@@ -156,6 +156,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs

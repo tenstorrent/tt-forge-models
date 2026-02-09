@@ -26,7 +26,7 @@ from ....tools.utils import print_compiled_model_results
 class ModelVariant(StrEnum):
     """Available MobileNetV2 model variants (Paddle)."""
 
-    DEFAULT = "mobilenet_v2"
+    DEFAULT = "Mobilenet v2"
 
 
 class ModelLoader(ForgeModel):
@@ -49,7 +49,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="mobilenetv2",
+            model="MobileNetV2",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.PADDLE,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained MobileNetV2 model (Paddle)."""
         model = mobilenet_v2(pretrained=True)
         return model

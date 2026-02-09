@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
         if variant in [ModelVariant.YOLOv12N]:
             group = ModelGroup.RED
         return ModelInfo(
-            model="yolo12",
+            model="YOLOv12",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,
@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the YOLOv12 model instance with default settings.
 
         Args:

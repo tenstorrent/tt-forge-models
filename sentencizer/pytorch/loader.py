@@ -59,8 +59,8 @@ warnings.filterwarnings("ignore", category=UserWarning)
 class ModelVariant(StrEnum):
     """Available Sentencizer model variants for token classification."""
 
-    XLM_ROBERTA_BASE = "xlm-roberta-base"
-    XLM_ROBERTA_LARGE = "xlm-roberta-large"
+    XLM_ROBERTA_BASE = "Xlm Roberta Base"
+    XLM_ROBERTA_LARGE = "Xlm Roberta Large"
 
 
 class ModelLoader(ForgeModel):
@@ -225,7 +225,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load Sentencizer model for token classification from Hugging Face.
 
         Args:

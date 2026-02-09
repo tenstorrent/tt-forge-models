@@ -72,7 +72,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="bert_sentence_embedding",
+            model="BERT",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_EMBED_GEN,
@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load BERT model for sentence embedding generation from Hugging Face.
 
         Args:
@@ -113,6 +113,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(model_name)

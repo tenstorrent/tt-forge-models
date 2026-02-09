@@ -23,7 +23,7 @@ from transformers.models.bart.modeling_bart import shift_tokens_right
 class ModelVariant(StrEnum):
     """Available BART model variants."""
 
-    LARGE = "large"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="bart",
+            model="BART",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,
@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the BART model instance for this instance's variant.
 
         Args:
@@ -119,6 +119,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = BartForSequenceClassification.from_pretrained(
             pretrained_model_name, **model_kwargs

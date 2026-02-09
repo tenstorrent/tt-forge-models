@@ -47,9 +47,9 @@ class BlipTask(StrEnum):
 class ModelVariant(StrEnum):
     """Available BLIP model variants (Paddle) by task."""
 
-    BLIP_IMAGE_CAPTIONING = "blip_image_captioning"
-    BLIP_TEXT = "blip_text"
-    BLIP_VISION = "blip_vision"
+    BLIP_IMAGE_CAPTIONING = "Image Captioning"
+    BLIP_TEXT = "Text"
+    BLIP_VISION = "Vision"
 
 
 class ModelLoader(ForgeModel):
@@ -88,7 +88,7 @@ class ModelLoader(ForgeModel):
             model_task = ModelTask.MM_IMAGE_TEXT_SIM
 
         return ModelInfo(
-            model="blip_image_captioning",
+            model="BLIP",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=model_task,
@@ -96,21 +96,21 @@ class ModelLoader(ForgeModel):
             framework=Framework.PADDLE,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained BLIP model for this instance's variant (Paddle)."""
         model_name = self._variant_config.pretrained_model_name
         task = self._variant_config.task
 
         if task == BlipTask.TEXT:
-            model = BlipTextModel.from_pretrained(model_name)
+            model = BlipTextModel.from_pretrained(model_name, **kwargs)
             model.eval()
             return model
         elif task == BlipTask.VISION:
-            model = BlipVisionModel.from_pretrained(model_name)
+            model = BlipVisionModel.from_pretrained(model_name, **kwargs)
             model.eval()
             return model
         else:
-            base_model = BlipModel.from_pretrained(model_name)
+            base_model = BlipModel.from_pretrained(model_name, **kwargs)
 
             class BlipWrapper(paddle.nn.Layer):
                 def __init__(self, model: BlipModel):

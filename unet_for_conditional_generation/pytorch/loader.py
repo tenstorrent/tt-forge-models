@@ -12,7 +12,7 @@ from diffusers import UNet2DConditionModel
 class ModelVariant(StrEnum):
     """Available UNet for Conditional Generation model variants."""
 
-    BASE = "base"
+    BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         return ModelInfo(
-            model="unet_for_conditional_generation",
+            model="U-Net for Conditional Generation",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CONDITIONAL_GENERATION,
@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the UNet for Conditional Generation model instance for this instance's variant.
 
         Args:
@@ -62,11 +62,15 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override or torch.bfloat16
 
+        model_kwargs = {
+            "subfolder": "unet",
+            "torch_dtype": dtype,
+            "variant": "fp16",
+        }
+        model_kwargs |= kwargs
+
         model = UNet2DConditionModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            subfolder="unet",
-            torch_dtype=dtype,
-            variant="fp16",
+            self._variant_config.pretrained_model_name, **model_kwargs
         )
 
         self.in_channels = model.in_channels

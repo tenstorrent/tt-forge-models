@@ -38,27 +38,27 @@ class ModelVariant(StrEnum):
     """Available HRNet model variants."""
 
     # TIMM variants
-    HRNET_W18_SMALL = "hrnet_w18_small"
-    HRNET_W18_SMALL_V2 = "hrnet_w18_small_v2"
-    HRNET_W18 = "hrnet_w18"
-    HRNET_W30 = "hrnet_w30"
-    HRNET_W32 = "hrnet_w32"
-    HRNET_W40 = "hrnet_w40"
-    HRNET_W44 = "hrnet_w44"
-    HRNET_W48 = "hrnet_w48"
-    HRNET_W64 = "hrnet_w64"
-    HRNET_W18_MS_AUG_IN1K = "hrnet_w18.ms_aug_in1k"
+    HRNET_W18_SMALL = "W18 Small"
+    HRNET_W18_SMALL_V2 = "W18 Small v2"
+    HRNET_W18 = "W18"
+    HRNET_W30 = "W30"
+    HRNET_W32 = "W32"
+    HRNET_W40 = "W40"
+    HRNET_W44 = "W44"
+    HRNET_W48 = "W48"
+    HRNET_W64 = "W64"
+    HRNET_W18_MS_AUG_IN1K = "W18.ms Aug In1k"
 
     # OSMR (pytorchcv) variants
-    HRNET_W18_SMALL_V1_OSMR = "hrnet_w18_small_v1_osmr"
-    HRNET_W18_SMALL_V2_OSMR = "hrnet_w18_small_v2_osmr"
-    HRNETV2_W18_OSMR = "hrnetv2_w18_osmr"
-    HRNETV2_W30_OSMR = "hrnetv2_w30_osmr"
-    HRNETV2_W32_OSMR = "hrnetv2_w32_osmr"
-    HRNETV2_W40_OSMR = "hrnetv2_w40_osmr"
-    HRNETV2_W44_OSMR = "hrnetv2_w44_osmr"
-    HRNETV2_W48_OSMR = "hrnetv2_w48_osmr"
-    HRNETV2_W64_OSMR = "hrnetv2_w64_osmr"
+    HRNET_W18_SMALL_V1_OSMR = "W18 Small v1 Osmr"
+    HRNET_W18_SMALL_V2_OSMR = "W18 Small v2 Osmr"
+    HRNETV2_W18_OSMR = "v2 W18 Osmr"
+    HRNETV2_W30_OSMR = "v2 W30 Osmr"
+    HRNETV2_W32_OSMR = "v2 W32 Osmr"
+    HRNETV2_W40_OSMR = "v2 W40 Osmr"
+    HRNETV2_W44_OSMR = "v2 W44 Osmr"
+    HRNETV2_W48_OSMR = "v2 W48 Osmr"
+    HRNETV2_W64_OSMR = "v2 W64 Osmr"
 
 
 class ModelLoader(ForgeModel):
@@ -173,7 +173,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         source = cls._VARIANTS[variant].source
         return ModelInfo(
-            model="hrnet",
+            model="HRNet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_KEYPOINT_DET,
@@ -181,7 +181,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained HRNet model for this instance's variant.
 
         Args:
@@ -236,7 +236,7 @@ class ModelLoader(ForgeModel):
             if hasattr(self, "_cached_model") and self._cached_model is not None:
                 model_for_config = self._cached_model
             else:
-                model_for_config = self.load_model(dtype_override)
+                model_for_config = self.load_model(dtype_override=dtype_override)
 
             # Preprocess image using model's data config
             data_config = resolve_data_config({}, model=model_for_config)

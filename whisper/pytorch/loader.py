@@ -31,13 +31,13 @@ from typing import Optional
 class ModelVariant(StrEnum):
     """Available Whisper model variants."""
 
-    WHISPER_TINY = "openai/whisper-tiny"
-    WHISPER_BASE = "openai/whisper-base"
-    WHISPER_SMALL = "openai/whisper-small"
-    WHISPER_MEDIUM = "openai/whisper-medium"
-    WHISPER_LARGE = "openai/whisper-large"
-    WHISPER_LARGE_V3 = "openai/whisper-large-v3"
-    WHISPER_LARGE_V3_TURBO = "openai/whisper-large-v3-turbo"
+    WHISPER_TINY = "Tiny"
+    WHISPER_BASE = "Base"
+    WHISPER_SMALL = "Small"
+    WHISPER_MEDIUM = "Medium"
+    WHISPER_LARGE = "Large"
+    WHISPER_LARGE_V3 = "Large v3"
+    WHISPER_LARGE_V3_TURBO = "Large v3 Turbo"
 
 
 class ModelLoader(ForgeModel):
@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="whisper",
+            model="Whisper",
             variant=variant,
             group=(
                 ModelGroup.RED
@@ -111,7 +111,7 @@ class ModelLoader(ForgeModel):
         self.feature_extractor = None
         self.model = None
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load a Whisper model from Hugging Face."""
 
         # Get the pretrained model name from the instance's variant config
@@ -121,6 +121,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self._variant == ModelVariant.WHISPER_LARGE_V3:
             self.model = WhisperModel.from_pretrained(

@@ -23,8 +23,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available PHI2 model variants."""
 
-    PHI2 = "microsoft/phi-2"
-    PHI2_PYTDML = "microsoft/phi-2-pytdml"
+    PHI2 = "Phi 2"
+    PHI2_PYTDML = "Phi 2 Pytdml"
 
 
 class ModelLoader(ForgeModel):
@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="phi2",
+            model="Phi-2",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TOKEN_CLS,
@@ -101,7 +101,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the PHI2 model instance for this instance's variant.
 
         Args:
@@ -122,6 +122,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = PhiForTokenClassification.from_pretrained(
             pretrained_model_name, **model_kwargs

@@ -22,8 +22,8 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available BigBird model variants for question answering."""
 
-    BASE = "base"
-    LARGE = "large"
+    BASE = "Base"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -73,7 +73,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="bigbird",
+            model="BigBird",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_QA,
@@ -106,7 +106,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return BigBird model for question answering from Hugging Face.
 
         Args:
@@ -124,6 +124,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         from transformers import FlaxBigBirdForQuestionAnswering
 

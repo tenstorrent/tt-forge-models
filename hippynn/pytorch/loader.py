@@ -18,7 +18,7 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     """Available model variants."""
 
-    BASE = "Hippynn"
+    BASE = "Default"
 
 
 class ModelLoader(ForgeModel):
@@ -34,7 +34,7 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: ModelVariant = None):
         """Return model information for Forge dashboards and reporting."""
         return ModelInfo(
-            model="hippynn",
+            model="HIP-NN",
             variant=variant,
             group=ModelGroup.PRIORITY,
             task=ModelTask.ATOMIC_ML,
@@ -42,7 +42,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Hippynn model wrapped in a Torch module.
 
         Args:

@@ -31,9 +31,9 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available PerceiverIO Vision model variants."""
 
-    VISION_PERCEIVER_CONV = "deepmind/vision-perceiver-conv"
-    VISION_PERCEIVER_LEARNED = "deepmind/vision-perceiver-learned"
-    VISION_PERCEIVER_FOURIER = "deepmind/vision-perceiver-fourier"
+    VISION_PERCEIVER_CONV = "Vision Perceiver Conv"
+    VISION_PERCEIVER_LEARNED = "Vision Perceiver Learned"
+    VISION_PERCEIVER_FOURIER = "Vision Perceiver Fourier"
 
 
 class ModelLoader(ForgeModel):
@@ -76,7 +76,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="perceiverio_vision",
+            model="PerceiverIO Vision",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -96,7 +96,7 @@ class ModelLoader(ForgeModel):
         # Configuration parameters
         self.image_processor = None
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load a PerceiverIO Vision model from HuggingFace."""
 
         # Get the pretrained model name from the instance's variant config
@@ -106,11 +106,13 @@ class ModelLoader(ForgeModel):
         model_class = self._MODEL_CLASSES[self._variant]
 
         # Load the model using the appropriate class
-        model = model_class.from_pretrained(pretrained_model_name)
+        model = model_class.from_pretrained(pretrained_model_name, **kwargs)
         model.eval()
 
         # Initialize image processor for this variant
-        self.image_processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        self.image_processor = AutoImageProcessor.from_pretrained(
+            pretrained_model_name, **kwargs
+        )
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:

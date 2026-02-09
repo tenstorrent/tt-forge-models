@@ -24,9 +24,9 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available RoFormer model variants."""
 
-    CHINESE_BASE = "chinese-base"
-    CHINESE_CHAR_SMALL = "chinese-char-small"
-    CHINESE_SMALL = "chinese-small"
+    CHINESE_BASE = "Chinese Base"
+    CHINESE_CHAR_SMALL = "Chinese Char Small"
+    CHINESE_SMALL = "Chinese Small"
 
 
 class ModelLoader(ForgeModel):
@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: ModelInfo object containing model details.
         """
         return ModelInfo(
-            model="roformer",
+            model="RoFormer",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,
@@ -101,7 +101,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the RoFormer model instance for this instance's variant.
 
         Args:
@@ -120,6 +120,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         # Load the model
         model = FlaxRoFormerForMaskedLM.from_pretrained(

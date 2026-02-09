@@ -21,7 +21,7 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available BERT model variants for sequence classification."""
 
-    TEXTATTACK_BERT_BASE_UNCASED_SST_2 = "textattack/bert-base-uncased-SST-2"
+    TEXTATTACK_BERT_BASE_UNCASED_SST_2 = "Base Uncased Sst 2"
 
 
 class ModelLoader(ForgeModel):
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="BERT-SequenceClassification",
+            model="BERT",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,
@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load BERT model for sequence classification from Hugging Face.
 
         Args:
@@ -93,6 +93,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = BertForSequenceClassification.from_pretrained(
             self.model_name, **model_kwargs

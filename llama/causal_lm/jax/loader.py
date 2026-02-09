@@ -29,8 +29,8 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available Llama model variants."""
 
-    _1B_TINY = "1B_TINY"
-    _3B_V2 = "3b-v2"
+    _1B_TINY = "1B Tiny"
+    _3B_V2 = "3B v2"
 
 
 class ModelLoader(ForgeModel):
@@ -73,7 +73,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="llama",
+            model="Llama",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -105,7 +105,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Llama model instance for this instance's variant.
 
         Args:
@@ -126,6 +126,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         partition_rules = ((r".*", PartitionSpec()),)
 

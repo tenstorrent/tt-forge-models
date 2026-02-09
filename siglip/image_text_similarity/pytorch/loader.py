@@ -25,16 +25,16 @@ from ....tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available SigLIP model variants for image-text similarity."""
 
-    BASE_PATCH16_224 = "base_patch16_224"
-    BASE_PATCH16_256 = "base_patch16_256"
-    BASE_PATCH16_384 = "base_patch16_384"
-    BASE_PATCH16_512 = "base_patch16_512"
-    BASE_PATCH16_256_MULTILINGUAL = "base_patch16_256_multilingual"
-    LARGE_PATCH16_256 = "large_patch16_256"
-    LARGE_PATCH16_384 = "large_patch16_384"
-    SO400M_PATCH14_224 = "so400m_patch14_224"
-    SO400M_PATCH14_384 = "so400m_patch14_384"
-    SO400M_PATCH16_256_I18N = "so400m_patch16_256_i18n"
+    BASE_PATCH16_224 = "Base Patch16 224"
+    BASE_PATCH16_256 = "Base Patch16 256"
+    BASE_PATCH16_384 = "Base Patch16 384"
+    BASE_PATCH16_512 = "Base Patch16 512"
+    BASE_PATCH16_256_MULTILINGUAL = "Base Patch16 256 Multilingual"
+    LARGE_PATCH16_256 = "Large Patch16 256"
+    LARGE_PATCH16_384 = "Large Patch16 384"
+    SO400M_PATCH14_224 = "So400m Patch14 224"
+    SO400M_PATCH14_384 = "So400m Patch14 384"
+    SO400M_PATCH16_256_I18N = "So400m Patch16 256 I18n"
 
 
 class ModelLoader(ForgeModel):
@@ -102,7 +102,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="siglip",
+            model="SigLIP",
             variant=variant,
             group=(
                 ModelGroup.RED
@@ -127,7 +127,7 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SigLIP model instance for this instance's variant.
 
         Args:
@@ -145,6 +145,7 @@ class ModelLoader(ForgeModel):
         # Load the model with dtype override if specified
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()

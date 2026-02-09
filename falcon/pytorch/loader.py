@@ -24,12 +24,12 @@ from ...tools.utils import get_static_cache_decode_inputs
 class ModelVariant(StrEnum):
     """Available Falcon model variants."""
 
-    FALCON_1B = "tiiuae/Falcon3-1B-Base"
-    FALCON_3B = "tiiuae/Falcon3-3B-Base"
-    FALCON_7B = "tiiuae/Falcon3-7B-Base"
-    FALCON_10B = "tiiuae/Falcon3-10B-Base"
-    FALCON_MAMBA_7B = "tiiuae/Falcon3-Mamba-7B-Base"
-    FALCON_7B_INSTRUCT = "tiiuae/falcon-7b-instruct"
+    FALCON_1B = "3 1B Base"
+    FALCON_3B = "3 3B Base"
+    FALCON_7B = "3 7B Base"
+    FALCON_10B = "3 10B Base"
+    FALCON_MAMBA_7B = "3 Mamba 7B Base"
+    FALCON_7B_INSTRUCT = "7B Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="falcon",
+            model="Falcon",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
         self.input_text_2 = "Hello, my dog is cute"
         self.num_layers = num_layers
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Falcon model instance.
 
         Args:
@@ -138,6 +138,7 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
+        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs

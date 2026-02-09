@@ -24,7 +24,7 @@ from typing import Optional
 class ModelVariant(StrEnum):
     """Available Swin model variants for masked image modeling."""
 
-    SWINV2_TINY = "microsoft/swinv2-tiny-patch4-window8-256"
+    SWINV2_TINY = "v2 Tiny Patch4 Window8 256"
 
 
 class ModelLoader(ForgeModel):
@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="swin-masked-lm",
+            model="Swin",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMG_TO_IMG,
@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load Swin model for masked image modeling from Hugging Face.
 
         Args:
@@ -95,6 +95,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = Swinv2ForMaskedImageModeling.from_pretrained(
             self.model_name, **model_kwargs

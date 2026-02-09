@@ -27,12 +27,12 @@ from ...tools.utils import VisionPreprocessor, VisionPostprocessor
 class ModelVariant(StrEnum):
     """Available Segformer model variants."""
 
-    MIT_B0 = "mit_b0"
-    MIT_B1 = "mit_b1"
-    MIT_B2 = "mit_b2"
-    MIT_B3 = "mit_b3"
-    MIT_B4 = "mit_b4"
-    MIT_B5 = "mit_b5"
+    MIT_B0 = "Mit B0"
+    MIT_B1 = "Mit B1"
+    MIT_B2 = "Mit B2"
+    MIT_B3 = "Mit B3"
+    MIT_B4 = "Mit B4"
+    MIT_B5 = "Mit B5"
 
 
 class ModelLoader(ForgeModel):
@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="segformer",
+            model="SegFormer",
             variant=variant,
             group=(
                 ModelGroup.RED
@@ -101,7 +101,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Segformer model instance for this instance's variant.
 
         Args:
@@ -115,13 +115,13 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
 
         # Load configuration
-        config = SegformerConfig.from_pretrained(model_name)
+        config = SegformerConfig.from_pretrained(model_name, **kwargs)
         config_dict = config.to_dict()
         config = SegformerConfig(**config_dict)
 
         # Load model from HuggingFace
         model = SegformerForImageClassification.from_pretrained(
-            model_name, config=config
+            model_name, config=config, **kwargs
         )
         model.eval()
 

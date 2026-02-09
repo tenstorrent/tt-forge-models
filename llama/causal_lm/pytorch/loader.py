@@ -24,37 +24,38 @@ from ....tools.utils import (
     cast_input_to_type,
     get_static_cache_decode_inputs,
 )
+from .prefill_inputs import get_prefill_texts_for_batch, PREFILL_TEXTS
 
 
 class ModelVariant(StrEnum):
     """Available Llama model variants for causal LM."""
 
     # Llama 3 variants
-    LLAMA_3_8B = "llama_3_8b"
-    LLAMA_3_8B_INSTRUCT = "llama_3_8b_instruct"
+    LLAMA_3_8B = "3.0 8B"
+    LLAMA_3_8B_INSTRUCT = "3.0 8B Instruct"
 
     # Llama 3.1 variants
-    LLAMA_3_1_8B = "llama_3_1_8b"
-    LLAMA_3_1_8B_INSTRUCT = "llama_3_1_8b_instruct"
-    LLAMA_3_1_70B = "llama_3_1_70b"
-    LLAMA_3_1_70B_INSTRUCT = "llama_3_1_70b_instruct"
-    LLAMA_3_1_405B = "llama_3_1_405b"
-    LLAMA_3_1_405B_INSTRUCT = "llama_3_1_405b_instruct"
+    LLAMA_3_1_8B = "3.1 8B"
+    LLAMA_3_1_8B_INSTRUCT = "3.1 8B Instruct"
+    LLAMA_3_1_70B = "3.1 70B"
+    LLAMA_3_1_70B_INSTRUCT = "3.1 70B Instruct"
+    LLAMA_3_1_405B = "3.1 405B"
+    LLAMA_3_1_405B_INSTRUCT = "3.1 405B Instruct"
 
     # Llama 3.2 variants
-    LLAMA_3_2_1B = "llama_3_2_1b"
-    LLAMA_3_2_1B_INSTRUCT = "llama_3_2_1b_instruct"
-    LLAMA_3_2_3B = "llama_3_2_3b"
-    LLAMA_3_2_3B_INSTRUCT = "llama_3_2_3b_instruct"
+    LLAMA_3_2_1B = "3.2 1B"
+    LLAMA_3_2_1B_INSTRUCT = "3.2 1B Instruct"
+    LLAMA_3_2_3B = "3.2 3B"
+    LLAMA_3_2_3B_INSTRUCT = "3.2 3B Instruct"
 
     # Llama 3.3 variants
-    LLAMA_3_3_70B_INSTRUCT = "llama_3_3_70b_instruct"
+    LLAMA_3_3_70B_INSTRUCT = "3.3 70B Instruct"
 
     # HuggingFace community variants
-    HUGGYLLAMA_7B = "huggyllama_7b"
+    HUGGYLLAMA_7B = "Huggyllama 7B"
 
     # TinyLlama variants
-    TINYLLAMA_V1_1 = "TinyLlama_v1.1"
+    TINYLLAMA_V1_1 = "Tinyllama v1.1"
 
 
 class ModelLoader(ForgeModel):
@@ -182,11 +183,17 @@ class ModelLoader(ForgeModel):
             or variant == ModelVariant.LLAMA_3_1_405B
         ):
             group = ModelGroup.RED
+        elif variant in [
+            ModelVariant.LLAMA_3_2_1B,
+            ModelVariant.LLAMA_3_2_3B,
+            ModelVariant.LLAMA_3_1_8B_INSTRUCT,
+        ]:
+            group = ModelGroup.PRIORITY
         else:
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="llama_causal_lm",
+            model="Llama",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -221,7 +228,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None, num_layers=None):
+    def load_model(self, *, dtype_override=None, num_layers=None, **kwargs):
         """Load and return the Llama model instance for this instance's variant.
 
         Args:
@@ -242,6 +249,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
@@ -321,6 +329,46 @@ class ModelLoader(ForgeModel):
             max_cache_len=max_cache_len,
             dtype=dtype_override,
         )
+
+    def load_inputs_prefill(self, dtype_override=None, batch_size=1, seq_len=128):
+        """Load prefill-step inputs with texts sized appropriately for the target sequence length.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+            batch_size: Batch size for the inputs.
+            seq_len: Target sequence length. Texts are chosen to minimize padding.
+
+        Returns:
+            dict: Input tensors (input_ids, attention_mask) padded to seq_len.
+        """
+        # Ensure tokenizer is initialized
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+
+        # Get appropriate texts for this seq_len and batch_size
+        if seq_len not in PREFILL_TEXTS:
+            available = sorted(PREFILL_TEXTS.keys())
+            raise ValueError(
+                f"seq_len={seq_len} is not supported. Available sequence lengths: {available}"
+            )
+        texts = get_prefill_texts_for_batch(seq_len, batch_size)
+
+        # Tokenize all texts in the batch with padding to exact seq_len
+        inputs = self.tokenizer(
+            texts,
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=seq_len,
+        )
+
+        # Only convert dtype if explicitly requested
+        if dtype_override is not None:
+            for key in inputs:
+                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
+
+        self.seq_len = seq_len
+        return inputs
 
     def decode_output(self, max_new_tokens, model, inputs, tokenizer):
         """Generates text .

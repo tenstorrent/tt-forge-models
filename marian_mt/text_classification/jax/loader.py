@@ -24,7 +24,7 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available MarianMT model variants."""
 
-    OPUS_MT_EN_DE = "opus-mt-en-de"
+    OPUS_MT_EN_DE = "Opus Mt En De"
 
 
 class ModelLoader(ForgeModel):
@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="marianmt",
+            model="MarianMT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,
@@ -94,7 +94,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MarianMT model instance for this instance's variant.
 
         Args:
@@ -112,6 +112,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = FlaxMarianMTModel.from_pretrained(self._model_name, **model_kwargs)
 

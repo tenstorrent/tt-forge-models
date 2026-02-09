@@ -29,7 +29,7 @@ from third_party.tt_forge_models.boltz2.pytorch.src.model_utils import (
 class ModelVariant(StrEnum):
     """Available Boltz model variants."""
 
-    BOLTZ2 = "boltz2"
+    BOLTZ2 = "Default"
 
 
 class ModelLoader(ForgeModel):
@@ -51,7 +51,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="boltz",
+            model="Boltz2",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.ATOMIC_ML,
@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.model: Optional[torch.nn.Module] = None
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         return load_boltz2_model()
 
     def load_inputs(self, dtype_override: Optional[torch.dtype] = torch.float32):

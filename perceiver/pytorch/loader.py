@@ -23,7 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Perceiver model variants."""
 
-    LANGUAGE_PERCEIVER = "deepmind/language-perceiver"
+    LANGUAGE_PERCEIVER = "Language Perceiver"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="perceiver",
+            model="Perceiver",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,
@@ -95,7 +95,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Perceiver model instance for this instance's variant.
 
         Args:
@@ -116,6 +116,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = PerceiverForMaskedLM.from_pretrained(
             pretrained_model_name, **model_kwargs

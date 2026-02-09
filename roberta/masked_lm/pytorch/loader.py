@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available XLMRoberta For Masked LM model variants."""
 
-    XLM_BASE = "xlm_base"
+    XLM_BASE = "Xlm Base"
 
 
 class ModelLoader(ForgeModel):
@@ -61,7 +61,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="roberta_masked_lm",
+            model="RoBERTa",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,
@@ -81,7 +81,7 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the XLMRoberta For Masked LM model instance for this instance's variant.
 
         Args:
@@ -101,6 +101,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         # Load pre-trained model from HuggingFace
         model = XLMRobertaForMaskedLM.from_pretrained(

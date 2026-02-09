@@ -49,19 +49,19 @@ class ModelVariant(StrEnum):
     """Available MobileNetV2 model variants."""
 
     # TORCH_HUB variants
-    MOBILENET_V2_TORCH_HUB = "mobilenet_v2"
+    MOBILENET_V2_TORCH_HUB = "Mobilenet v2"
 
     # HuggingFace variants
-    MOBILENET_V2_035_96_HF = "google/mobilenet_v2_0.35_96"
-    MOBILENET_V2_075_160_HF = "google/mobilenet_v2_0.75_160"
-    MOBILENET_V2_100_224_HF = "google/mobilenet_v2_1.0_224"
-    DEEPLABV3_MOBILENET_V2_HF = "google/deeplabv3_mobilenet_v2_1.0_513"
+    MOBILENET_V2_035_96_HF = "Mobilenet v2 0.35 96"
+    MOBILENET_V2_075_160_HF = "Mobilenet v2 0.75 160"
+    MOBILENET_V2_100_224_HF = "Mobilenet v2 1.0 224"
+    DEEPLABV3_MOBILENET_V2_HF = "Deeplabv3 Mobilenet v2 1.0 513"
 
     # TIMM variants
-    MOBILENET_V2_100_TIMM = "mobilenetv2_100"
+    MOBILENET_V2_100_TIMM = "100"
 
     # TORCHVISION variants
-    MOBILENET_V2_TORCHVISION = "mobilenet_v2_torchvision"
+    MOBILENET_V2_TORCHVISION = "Mobilenet v2 Torchvision"
 
 
 class ModelLoader(ForgeModel):
@@ -141,7 +141,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="mobilenetv2",
+            model="MobileNetV2",
             variant=variant,
             group=group,
             task=ModelTask.CV_IMAGE_CLS,
@@ -149,7 +149,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained MobileNetV2 model for this instance's variant.
 
         Args:
@@ -173,10 +173,14 @@ class ModelLoader(ForgeModel):
             # Load model using HuggingFace transformers
             if "deeplabv3" in model_name.lower():
                 # For DeepLabV3 models, use semantic segmentation model
-                model = MobileNetV2ForSemanticSegmentation.from_pretrained(model_name)
+                model = MobileNetV2ForSemanticSegmentation.from_pretrained(
+                    model_name, **kwargs
+                )
             else:
                 # For standard classification models
-                model = AutoModelForImageClassification.from_pretrained(model_name)
+                model = AutoModelForImageClassification.from_pretrained(
+                    model_name, **kwargs
+                )
 
         elif source == ModelSource.TIMM:
             # Load model using timm

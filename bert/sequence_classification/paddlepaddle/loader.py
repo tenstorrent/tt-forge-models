@@ -26,9 +26,9 @@ from ....base import ForgeModel
 class ModelVariant(StrEnum):
     """Available BERT model variants for sequence classification (Paddle)."""
 
-    BERT_BASE_UNCASED = "bert-base-uncased"
-    BERT_BASE_JAPANESE = "cl-tohoku/bert-base-japanese"
-    CHINESE_ROBERTA_BASE = "uer/chinese-roberta-base"
+    BERT_BASE_UNCASED = "Base Uncased"
+    BERT_BASE_JAPANESE = "Base Japanese"
+    CHINESE_ROBERTA_BASE = "Chinese Roberta Base"
 
 
 class ModelLoader(ForgeModel):
@@ -62,7 +62,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="bert-seqcls",
+            model="BERT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_SEQUENCE_CLASSIFICATION,
@@ -79,13 +79,13 @@ class ModelLoader(ForgeModel):
             return ["你好，我的狗很可爱"]
         return ["Hello, my dog is cute"]
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load Paddle BERT model for sequence classification."""
         model_name = self._variant_config.pretrained_model_name
-        self.tokenizer = BertTokenizer.from_pretrained(model_name)
+        self.tokenizer = BertTokenizer.from_pretrained(model_name, **kwargs)
 
         self.model = BertForSequenceClassification.from_pretrained(
-            model_name, num_classes=2
+            model_name, num_classes=2, **kwargs
         )
         return self.model
 

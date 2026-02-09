@@ -40,8 +40,8 @@ class ModelVariant(StrEnum):
     Currently a single default variant that wraps Surya's detection and recognition predictors.
     """
 
-    OCR_TEXT = "ocr_text"
-    OCR_DETECTION = "ocr_detection"
+    OCR_TEXT = "Ocr Text"
+    OCR_DETECTION = "Ocr Detection"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="suryaocr",
+            model="SuryaOCR",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_IMAGE_CLS,
@@ -80,7 +80,7 @@ class ModelLoader(ForgeModel):
         self._transform = transforms.Compose([transforms.ToTensor()])
         self.image_tensor = None
 
-    def load_model(self, dtype_override=None) -> nn.Module:
+    def load_model(self, *, dtype_override=None, **kwargs) -> nn.Module:
         """Load Surya OCR wrapper model.
 
         Returns:

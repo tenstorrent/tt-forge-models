@@ -28,8 +28,8 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available PHI3 model variants."""
 
-    MINI_128K = "microsoft/Phi-3-mini-128k-instruct"
-    MINI_4K = "microsoft/Phi-3-mini-4k-instruct"
+    MINI_128K = "Phi 3 Mini 128K Instruct"
+    MINI_4K = "Phi 3 Mini 4K Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -60,7 +60,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="phi3",
+            model="Phi-3",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self._model_name = self._variant_config.pretrained_model_name
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the PHI3 model instance.
 
         Args:
@@ -92,6 +92,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = AutoEasyDeLModelForCausalLM.from_pretrained(
             self._model_name, **model_kwargs

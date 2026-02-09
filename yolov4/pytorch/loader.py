@@ -34,7 +34,7 @@ from .src.post_processing import (
 class ModelVariant(StrEnum):
     """Available YOLOv4 model variants."""
 
-    BASE = "base"
+    BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
@@ -73,7 +73,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="yolov4",
+            model="YOLOv4",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,
@@ -81,7 +81,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the YOLOv4 model instance with default settings.
 
         Args:

@@ -40,7 +40,7 @@ from .src.configuration_mplug_owl2 import MPLUGOwl2Config
 class ModelVariant(StrEnum):
     """Available MPLUG-Owl2 model variants."""
 
-    LLAMA2_7B = "llama2_7b"
+    LLAMA2_7B = "Llama2 7B"
 
 
 class ModelLoader(ForgeModel):
@@ -87,7 +87,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="mplug_owl2",
+            model="mPLUG-Owl2",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.MM_CAUSAL_LM,
@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MPLUG-Owl2 model instance for this instance's variant.
 
         Args:

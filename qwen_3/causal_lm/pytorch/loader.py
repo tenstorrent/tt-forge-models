@@ -24,13 +24,13 @@ from ....tools.utils import get_static_cache_decode_inputs
 class ModelVariant(StrEnum):
     """Available Qwen 3 model variants for causal language modeling."""
 
-    QWEN_3_0_6B = "0_6b"
-    QWEN_3_1_7B = "1_7b"
-    QWEN_3_4B = "4b"
-    QWEN_3_8B = "8b"
-    QWEN_3_14B = "14b"
-    QWEN_3_32B = "32b"
-    QWEN_3_30B_A3B = "30b_a3b"
+    QWEN_3_0_6B = "0 6B"
+    QWEN_3_1_7B = "1 7B"
+    QWEN_3_4B = "4B"
+    QWEN_3_8B = "8B"
+    QWEN_3_14B = "14B"
+    QWEN_3_32B = "32B"
+    QWEN_3_30B_A3B = "30B A3b"
 
 
 class ModelLoader(ForgeModel):
@@ -101,7 +101,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="qwen_3",
+            model="Qwen 3",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -130,7 +130,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Qwen 3 model instance for this instance's variant.
 
         Args:
@@ -151,6 +151,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)

@@ -25,11 +25,11 @@ from .src.model import Wrapper
 class ModelVariant(StrEnum):
     """Available Qwen 2.5 VL model variants for vision-language tasks."""
 
-    QWEN_2_5_VL_3B_INSTRUCT = "3b_instruct"
-    QWEN_2_5_VL_7B_INSTRUCT = "7b_instruct"
-    QWEN_2_5_VL_3B_INSTRUCT_AWQ = "3b_instruct_awq"
-    QWEN_2_5_VL_7B_INSTRUCT_AWQ = "7b_instruct_awq"
-    QWEN_2_5_VL_72B_INSTRUCT = "72b_instruct"
+    QWEN_2_5_VL_3B_INSTRUCT = "3B Instruct"
+    QWEN_2_5_VL_7B_INSTRUCT = "7B Instruct"
+    QWEN_2_5_VL_3B_INSTRUCT_AWQ = "3B INSTRUCT Awq"
+    QWEN_2_5_VL_7B_INSTRUCT_AWQ = "7B INSTRUCT Awq"
+    QWEN_2_5_VL_72B_INSTRUCT = "72B Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -97,7 +97,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="qwen_2_5_vl",
+            model="Qwen 2.5-VL",
             variant=variant,
             group=ModelGroup.RED
             if variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT
@@ -126,7 +126,7 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Qwen 2.5 VL model instance for this instance's variant.
 
         Args:
@@ -155,6 +155,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         else:
             model_kwargs["torch_dtype"] = torch.float32
+        model_kwargs |= kwargs
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs

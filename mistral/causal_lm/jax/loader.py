@@ -29,10 +29,10 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available Mistral model variants."""
 
-    V0_1 = "v0_1"
-    V0_1_TINY = "v0_1_tiny"
-    V0_2_INSTRUCT = "v0_2_instruct"
-    V0_3_INSTRUCT = "v0_3_instruct"
+    V0_1 = "v0 1"
+    V0_1_TINY = "v0 1 Tiny"
+    V0_2_INSTRUCT = "v0 2 Instruct"
+    V0_3_INSTRUCT = "v0 3 Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -79,7 +79,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="mistral",
+            model="Mistral",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -116,7 +116,7 @@ class ModelLoader(ForgeModel):
         """Check if the current variant is v0.2 or later (requires sliding window fix)."""
         return self._variant in [ModelVariant.V0_2_INSTRUCT, ModelVariant.V0_3_INSTRUCT]
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Mistral model instance for this instance's variant.
         Args:
             dtype_override: Optional dtype to override the default dtype.
@@ -136,6 +136,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         partition_rules = ((r".*", PartitionSpec()),)
 

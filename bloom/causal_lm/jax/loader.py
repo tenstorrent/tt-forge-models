@@ -24,11 +24,11 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available Bloom model variants."""
 
-    BLOOM_560M = "560m"
+    BLOOM_560M = "560M"
     BLOOM_1B1 = "1b1"
     BLOOM_1B7 = "1b7"
-    BLOOM_3B = "3b"
-    BLOOM_7B = "7b"
+    BLOOM_3B = "3B"
+    BLOOM_7B = "7B"
 
 
 class ModelLoader(ForgeModel):
@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="bloom",
+            model="BLOOM",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -114,7 +114,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Bloom model instance for this instance's variant.
 
         Args:
@@ -135,6 +135,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         # Load the model with from_pt=True for loading PyTorch weights
         model = FlaxBloomForCausalLM.from_pretrained(

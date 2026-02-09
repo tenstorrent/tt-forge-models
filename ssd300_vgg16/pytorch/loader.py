@@ -26,7 +26,7 @@ from .src.utils import SSDPostprocessor
 class ModelVariant(StrEnum):
     """Available SSD300 VGG16 model variants."""
 
-    BASE = "ssd300_vgg16"
+    BASE = "Default"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="ssd300_vgg16",
+            model="SSD300-VGG16",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,
@@ -74,7 +74,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SSD300 VGG16 model instance for this instance's variant.
 
         Args:

@@ -46,7 +46,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="musicgen_small",
+            model="MusicGen Small",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_TTS,
@@ -54,15 +54,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self):
+    def load_model(self, **kwargs):
         """Load and return the Musicgen-small model instance with default settings.
 
         Returns:
             torch.nn.Module: The Musicgen-small model instance.
 
         """
-        self.processor = AutoProcessor.from_pretrained(self.model_name)
-        self.model = MusicgenForConditionalGeneration.from_pretrained(self.model_name)
+        self.processor = AutoProcessor.from_pretrained(self.model_name, **kwargs)
+        self.model = MusicgenForConditionalGeneration.from_pretrained(
+            self.model_name, **kwargs
+        )
         return self.model
 
     def load_inputs(self, batch_size=1):

@@ -23,7 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available DeepCogito model variants."""
 
-    V1_PREVIEW_LLAMA_3B = "v1_preview_llama_3b"
+    V1_PREVIEW_LLAMA_3B = "v1 Preview Llama 3B"
 
 
 class ModelLoader(ForgeModel):
@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="deepcogito",
+            model="DeepCogito",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the DeepCogito model instance for this instance's variant.
 
         Args:
@@ -119,6 +119,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"torch_dtype": torch.float32, "device_map": None}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             from transformers import AutoConfig

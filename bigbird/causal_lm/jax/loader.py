@@ -23,7 +23,7 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available BigBird model variants for causal language modeling."""
 
-    LARGE = "large"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="bigbird",
+            model="BigBird",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
         )
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return BigBird model for causal language modeling from Hugging Face.
 
         Args:
@@ -113,6 +113,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = FlaxBigBirdForCausalLM.from_pretrained(self._model_name, **model_kwargs)
 

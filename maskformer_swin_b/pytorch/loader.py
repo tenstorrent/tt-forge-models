@@ -26,8 +26,8 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available MaskFormer Swin-B model variants for segmentation."""
 
-    SWIN_B_COCO = "swin_base_coco"
-    SWIN_B_ADE = "swin_base_ade"
+    SWIN_B_COCO = "Swin Base Coco"
+    SWIN_B_ADE = "Swin Base Ade"
 
 
 class ModelLoader(ForgeModel):
@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="maskformer_swin_b",
+            model="MaskFormer Swin-B",
             variant=variant,
             group=ModelGroup.RED
             if variant == ModelVariant.SWIN_B_COCO
@@ -93,7 +93,7 @@ class ModelLoader(ForgeModel):
 
         return self.feature_extractor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MaskFormer model instance for this instance's variant.
 
         Args:
@@ -112,6 +112,7 @@ class ModelLoader(ForgeModel):
         # issue with bfloat16. See: https://github.com/tenstorrent/tt-xla/issues/1959
         # if dtype_override is not None:
         #     model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = MaskFormerForInstanceSegmentation.from_pretrained(
             pretrained_model_name, **model_kwargs

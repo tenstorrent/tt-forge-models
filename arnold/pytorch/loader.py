@@ -65,12 +65,12 @@ class ModelVariant(StrEnum):
     """Available Arnold DQN model variants - only variants with matching checkpoints."""
 
     # Feedforward variants with matching checkpoints
-    DEFEND_THE_CENTER_FF = "defend_the_center_ff"
-    HEALTH_GATHERING_FF = "health_gathering_ff"
+    DEFEND_THE_CENTER_FF = "Defend The Center Ff"
+    HEALTH_GATHERING_FF = "Health Gathering Ff"
     # Recurrent variants with matching checkpoints
-    DEATHMATCH_SHOTGUN_RNN = "deathmatch_shotgun_rnn"
-    VIZDOOM_2017_TRACK1_RNN = "vizdoom_2017_track1_rnn"
-    VIZDOOM_2017_TRACK2_RNN = "vizdoom_2017_track2_rnn"
+    DEATHMATCH_SHOTGUN_RNN = "Deathmatch Shotgun Rnn"
+    VIZDOOM_2017_TRACK1_RNN = "Vizdoom 2017 Track1 Rnn"
+    VIZDOOM_2017_TRACK2_RNN = "Vizdoom 2017 Track2 Rnn"
 
 
 class ModelLoader(ForgeModel):
@@ -231,7 +231,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="arnold_dqn",
+            model="ARNOLD",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.ATOMIC_ML,
@@ -261,7 +261,7 @@ class ModelLoader(ForgeModel):
             return path_without_prefix
         return s3_path
 
-    def load_model(self, dtype_override=None, pretrained_path=None):
+    def load_model(self, *, dtype_override=None, pretrained_path=None, **kwargs):
         """Load and return the Arnold DQN model instance.
 
         Args:

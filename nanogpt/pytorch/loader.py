@@ -23,7 +23,7 @@ from typing import Optional
 class ModelVariant(StrEnum):
     """Available NanoGPT model variants."""
 
-    FINANCIAL_SUPPORT_NANOGPT = "FinancialSupport/NanoGPT"
+    FINANCIAL_SUPPORT_NANOGPT = "Default"
 
 
 class ModelLoader(ForgeModel):
@@ -51,7 +51,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="nanogpt",
+            model="NanoGPT",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
         self.model_name = "FinancialSupport/NanoGPT"
         self.num_layers = num_layers
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained NanoGPT model."""
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -89,6 +89,7 @@ class ModelLoader(ForgeModel):
             config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+        model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()

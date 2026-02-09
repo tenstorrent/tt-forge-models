@@ -26,7 +26,7 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available Faster R-CNN model variants for object detection."""
 
-    RESNET50_FPN = "resnet50_fpn"
+    RESNET50_FPN = "ResNet50 Backbone with FPN"
 
 
 class ModelLoader(ForgeModel):
@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="faster_rcnn",
+            model="Faster R-CNN",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,
@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Faster R-CNN model instance for this instance's variant.
 
         Args:

@@ -35,9 +35,9 @@ class GhostNetConfig(ModelConfig):
 class ModelVariant(StrEnum):
     """Available GhostNet model variants."""
 
-    GHOSTNET_100 = "ghostnet_100"
-    GHOSTNET_100_IN1K = "ghostnet_100.in1k"
-    GHOSTNETV2_100_IN1K = "ghostnetv2_100.in1k"
+    GHOSTNET_100 = "100"
+    GHOSTNET_100_IN1K = "100.in1k"
+    GHOSTNETV2_100_IN1K = "v2 100.in1k"
 
 
 class ModelLoader(ForgeModel):
@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="ghostnet",
+            model="GhostNet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -100,7 +100,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load pretrained GhostNet model for this instance's variant.
 
         Args:

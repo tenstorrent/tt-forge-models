@@ -35,12 +35,12 @@ class ModelVariant(StrEnum):
     """Available WideResnet model variants."""
 
     # Torch Hub/Torchvision variants
-    WIDE_RESNET50_2 = "wide_resnet50_2"
-    WIDE_RESNET101_2 = "wide_resnet101_2"
+    WIDE_RESNET50_2 = "50.2"
+    WIDE_RESNET101_2 = "101.2"
 
     # TIMM variants
-    TIMM_WIDE_RESNET50_2 = "wide_resnet50_2.timm"
-    TIMM_WIDE_RESNET101_2 = "wide_resnet101_2.timm"
+    TIMM_WIDE_RESNET50_2 = "50 2.timm"
+    TIMM_WIDE_RESNET101_2 = "101 2.timm"
 
 
 class ModelLoader(ForgeModel):
@@ -86,7 +86,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         source = cls._VARIANTS[variant].source
         return ModelInfo(
-            model="wide_resnet",
+            model="Wide ResNet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -106,7 +106,7 @@ class ModelLoader(ForgeModel):
         self._preprocessor = None
         self._postprocessor = None
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load a WideResnet model from Torch Hub or TIMM depending on variant source."""
 
         # Get the pretrained model name and source from the instance's variant config

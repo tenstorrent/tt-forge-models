@@ -23,10 +23,10 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available ELECTRA model variants."""
 
-    BASE_DISCRIMINATOR = "base-discriminator"
-    BASE_GENERATOR = "base-generator"
-    LARGE_DISCRIMINATOR = "large-discriminator"
-    SMALL_DISCRIMINATOR = "small-discriminator"
+    BASE_DISCRIMINATOR = "Base Discriminator"
+    BASE_GENERATOR = "Base Generator"
+    LARGE_DISCRIMINATOR = "Large Discriminator"
+    SMALL_DISCRIMINATOR = "Small Discriminator"
 
 
 class ModelLoader(ForgeModel):
@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="electra",
+            model="ELECTRA",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -110,7 +110,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the ELECTRA model instance for this instance's variant.
 
         Args:
@@ -131,6 +131,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         # Load the model
         model = FlaxElectraForCausalLM.from_pretrained(self._model_name, **model_kwargs)

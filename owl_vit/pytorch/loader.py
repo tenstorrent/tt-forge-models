@@ -26,7 +26,7 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available OWL-ViT model variants for object detection."""
 
-    BASE_PATCH32 = "base_patch32"
+    BASE_PATCH32 = "Base Patch32"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="owl_vit_detection",
+            model="OWL-ViT",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,
@@ -87,7 +87,7 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the OWL-ViT model instance for this instance's variant.
 
         Args:
@@ -105,6 +105,7 @@ class ModelLoader(ForgeModel):
         # Load the model with dtype override if specified
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = OwlViTForObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs

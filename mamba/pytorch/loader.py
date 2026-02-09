@@ -23,10 +23,10 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     """Available MAMBA model variants."""
 
-    MAMBA_370M = "mamba-370m-hf"
-    MAMBA_790M = "mamba-790m-hf"
-    MAMBA_1_4B = "mamba-1.4b-hf"
-    MAMBA_2_8B = "mamba-2.8b-hf"
+    MAMBA_370M = "370M HF"
+    MAMBA_790M = "790M HF"
+    MAMBA_1_4B = "1.4b HF"
+    MAMBA_2_8B = "2.8b HF"
 
 
 class ModelLoader(ForgeModel):
@@ -62,7 +62,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="mamba",
+            model="Mamba",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -87,7 +87,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.num_layers = num_layers
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load a Mamba model from Hugging Face."""
 
         # Initialize tokenizer first with default or overridden dtype
@@ -103,6 +103,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             from transformers import AutoConfig

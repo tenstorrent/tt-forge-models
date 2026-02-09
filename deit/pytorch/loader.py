@@ -35,10 +35,10 @@ class DeitConfig(ModelConfig):
 class ModelVariant(StrEnum):
     """Available DeiT model variants."""
 
-    BASE = "base"
-    BASE_DISTILLED = "base_distilled"
-    SMALL = "small"
-    TINY = "tiny"
+    BASE = "Base"
+    BASE_DISTILLED = "Base Distilled"
+    SMALL = "Small"
+    TINY = "Tiny"
 
 
 class ModelLoader(ForgeModel):
@@ -97,7 +97,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="deit",
+            model="DeiT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -105,7 +105,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Deit model instance for this instance's variant.
 
         Args:
@@ -121,7 +121,9 @@ class ModelLoader(ForgeModel):
 
         if source == ModelSource.HUGGING_FACE:
             # Load pre-trained model from HuggingFace
-            model = ViTForImageClassification.from_pretrained(pretrained_model_name)
+            model = ViTForImageClassification.from_pretrained(
+                pretrained_model_name, **kwargs
+            )
         else:
             raise ValueError(f"Unsupported source for DeiT: {source}")
 

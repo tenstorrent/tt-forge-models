@@ -24,7 +24,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Isaac GR00T model variants."""
 
-    GROOT_N1_5_3B = "GR00T_n1.5-3b"
+    GROOT_N1_5_3B = "Gr00t N1.5 3B"
 
 
 class ModelLoader(ForgeModel):
@@ -79,7 +79,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="isaac_groot",
+            model="ISAAC-GR00T",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.MM_ACTION_PREDICTION,
@@ -96,7 +96,7 @@ class ModelLoader(ForgeModel):
             self._modality_config = data_config_obj.modality_config()
             self._modality_transform = data_config_obj.transform()
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """
         Load and return the Isaac GR00T policy model.
 

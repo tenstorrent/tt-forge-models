@@ -25,9 +25,9 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available LongT5 model variants."""
 
-    BASE_TGLOBAL = "base-tglobal"
-    LARGE_LOCAL = "large-local"
-    XL_TGLOBAL = "xl-tglobal"
+    BASE_TGLOBAL = "Base Tglobal"
+    LARGE_LOCAL = "Large Local"
+    XL_TGLOBAL = "Xl Tglobal"
 
 
 class ModelLoader(ForgeModel):
@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="longt5",
+            model="LongT5",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,
@@ -101,7 +101,7 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the LongT5 model instance for this instance's variant.
 
         Args:
@@ -118,6 +118,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = FlaxLongT5ForConditionalGeneration.from_pretrained(
             self._model_name, **model_kwargs

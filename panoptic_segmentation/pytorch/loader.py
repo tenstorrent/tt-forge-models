@@ -41,9 +41,9 @@ class ModelVariant(StrEnum):
     """Available Panoptic FPN model variants."""
 
     # COCO variants
-    RESNET_50_1X_COCO = "resnet50_1x_coco"
-    RESNET_50_3X_COCO = "resnet50_3x_coco"
-    RESNET_101_3X_COCO = "resnet101_3x_coco"
+    RESNET_50_1X_COCO = "ResNet50 Backbone 1x COCO"
+    RESNET_50_3X_COCO = "ResNet50 Backbone 3x COCO"
+    RESNET_101_3X_COCO = "ResNet101 Backbone 3x COCO"
 
 
 # COCO class definitions for metadata
@@ -238,7 +238,7 @@ class ModelLoader(ForgeModel):
         variant = variant or cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="panoptic_fpn",
+            model="Panoptic Segmentation",
             variant=variant,
             framework=Framework.TORCH,
             task=ModelTask.CV_PANOPTIC_SEG,
@@ -248,8 +248,12 @@ class ModelLoader(ForgeModel):
             else ModelGroup.GENERALITY,
         )
 
-    def load_model(self, **kwargs):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Panoptic FPN model with DefaultPredictor.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                           If not provided, the model will use its default dtype (typically float32).
 
         Returns:
             DefaultPredictor: The predictor instance ready for inference
@@ -291,6 +295,11 @@ class ModelLoader(ForgeModel):
 
         # Keep reference to the underlying torch.nn.Module for tester expectations
         self._model = self.predictor.model
+
+        # Only convert dtype if explicitly requested
+        if dtype_override is not None:
+            self._model = self._model.to(dtype_override)
+            self.predictor.model = self._model
 
         # Setup metadata for downstream decoding/support tooling
         self._setup_metadata(cfg)

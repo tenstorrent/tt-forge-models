@@ -23,8 +23,8 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     """Available XGLM model variants."""
 
-    XGLM_564M = "xglm-564M"
-    XGLM_1_7B = "xglm-1.7B"
+    XGLM_564M = "564M"
+    XGLM_1_7B = "1.7b"
 
 
 class ModelLoader(ForgeModel):
@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="xglm",
+            model="XGLM",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -80,7 +80,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.num_layers = num_layers
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load a XGLM model from Hugging Face."""
 
         # Initialize tokenizer first with default or overridden dtype
@@ -96,6 +96,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(self.model_name)

@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available MLPMixer lucidrains model variants."""
 
-    BASE = "base"
+    BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
@@ -61,7 +61,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="mlp-mixer-lucidrains",
+            model="MLP-Mixer",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MLPMixer lucidrains model instance for this instance's variant.
 
         Args:

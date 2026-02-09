@@ -22,17 +22,17 @@ from ....tools.utils import cast_input_to_type
 
 
 class ModelVariant(StrEnum):
-    MINI_128K = "microsoft/Phi-3-mini-128k-instruct"
-    MINI_4K = "microsoft/Phi-3-mini-4k-instruct"
+    MINI_128K = "Mini 128K Instruct"
+    MINI_4K = "Mini 4K Instruct"
 
 
 class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MINI_128K: ModelConfig(
-            pretrained_model_name=str(ModelVariant.MINI_128K)
+            pretrained_model_name="microsoft/Phi-3-mini-128k-instruct"
         ),
         ModelVariant.MINI_4K: ModelConfig(
-            pretrained_model_name=str(ModelVariant.MINI_4K)
+            pretrained_model_name="microsoft/Phi-3-mini-4k-instruct"
         ),
     }
 
@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="phi3_token_cls",
+            model="Phi-3",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TOKEN_CLS,
@@ -61,12 +61,13 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name, trust_remote_code=True
             )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         self._ensure_tokenizer()
         model = Phi3ForTokenClassification.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
             use_cache=False,
+            **kwargs,
         )
         if dtype_override is not None:
             model = model.to(dtype_override)

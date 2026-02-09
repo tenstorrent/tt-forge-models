@@ -25,9 +25,9 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available RegNet model variants."""
 
-    REGNET_Y_040 = "y-040"
-    REGNET_Y_160 = "y-160"
-    REGNET_Y_320 = "y-320"
+    REGNET_Y_040 = "Y 040"
+    REGNET_Y_160 = "Y 160"
+    REGNET_Y_320 = "Y 320"
 
 
 class ModelLoader(ForgeModel):
@@ -74,7 +74,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="regnet",
+            model="RegNet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
             )
         return self._processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the RegNet model instance for this instance's variant.
 
         Args:
@@ -106,6 +106,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"from_pt": True}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = FlaxRegNetForImageClassification.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs

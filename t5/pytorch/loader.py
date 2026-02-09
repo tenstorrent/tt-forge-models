@@ -24,12 +24,12 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available T5 model variants."""
 
-    SMALL = "t5-small"
-    BASE = "t5-base"
-    LARGE = "t5-large"
-    FLAN_T5_SMALL = "google/flan-t5-small"
-    FLAN_T5_BASE = "google/flan-t5-base"
-    FLAN_T5_LARGE = "google/flan-t5-large"
+    SMALL = "Small"
+    BASE = "Base"
+    LARGE = "Large"
+    FLAN_T5_SMALL = "Flan T5 Small"
+    FLAN_T5_BASE = "Flan T5 Base"
+    FLAN_T5_LARGE = "Flan T5 Large"
 
 
 class ModelLoader(ForgeModel):
@@ -99,7 +99,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="t5",
+            model="T5",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -128,7 +128,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the T5 model instance for this instance's variant.
 
         Args:
@@ -149,6 +149,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)

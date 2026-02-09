@@ -30,12 +30,12 @@ from .cnn_dropout.model_implementation import MNISTCNNDropoutModel
 class ModelVariant(StrEnum):
     """Available MNIST model architectures."""
 
-    MLP_CUSTOM = "mlp_custom"
-    MLP_CUSTOM_1X2 = "mlp_custom_1x2"
-    MLP_CUSTOM_1X4 = "mlp_custom_1x4"
-    MLP_CUSTOM_1X8 = "mlp_custom_1x8"
-    CNN_BATCHNORM = "cnn_batchnorm"
-    CNN_DROPOUT = "cnn_dropout"
+    MLP_CUSTOM = "Mlp Custom"
+    MLP_CUSTOM_1X2 = "Mlp Custom 1x2"
+    MLP_CUSTOM_1X4 = "Mlp Custom 1x4"
+    MLP_CUSTOM_1X8 = "Mlp Custom 1x8"
+    CNN_BATCHNORM = "Cnn Batchnorm"
+    CNN_DROPOUT = "Cnn Dropout"
 
 
 class ModelLoader(ForgeModel):
@@ -97,7 +97,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="mnist",
+            model="MNIST",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -105,7 +105,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.JAX,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MNIST model instance for this instance's variant.
 
         Args:
@@ -232,7 +232,7 @@ class ModelLoader(ForgeModel):
             )
         else:
             # Single-chip variant uses standard initialization
-            model = self.load_model(dtype_override)
+            model = self.load_model(dtype_override=dtype_override)
 
             # Use provided inputs or load default ones
             if inputs is None:

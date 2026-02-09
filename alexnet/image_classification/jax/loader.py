@@ -26,10 +26,10 @@ from .src import AlexNetModel, AlexNetMultichipModel
 class ModelVariant(StrEnum):
     """Available AlexNet model variants."""
 
-    CUSTOM = "custom"
-    CUSTOM_1X2 = "custom_1x2"
-    CUSTOM_1X4 = "custom_1x4"
-    CUSTOM_1X8 = "custom_1x8"
+    CUSTOM = "Custom"
+    CUSTOM_1X2 = "Custom 1x2"
+    CUSTOM_1X4 = "Custom 1x4"
+    CUSTOM_1X8 = "Custom 1x8"
 
 
 class ModelLoader(ForgeModel):
@@ -81,7 +81,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="alexnet",
+            model="AlexNet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.JAX,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the AlexNet model instance for this instance's variant.
 
         Args:
@@ -215,7 +215,7 @@ class ModelLoader(ForgeModel):
             )
         else:
             # Single-chip variant uses standard initialization
-            model = self.load_model(dtype_override)
+            model = self.load_model(dtype_override=dtype_override)
 
             # Use provided inputs or load default ones
             if inputs is None:

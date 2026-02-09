@@ -27,7 +27,7 @@ from typing import Optional
 class ModelVariant(StrEnum):
     """Available Stable Diffusion UNet model variants."""
 
-    BASE = "base"
+    BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="stable_diffusion_unet",
+            model="Stable Diffusion UNet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_IMAGE_TTT,  # FIXME: Update to text to image
@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the UNet model along with required components.
 
         Args:
@@ -84,17 +84,23 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override or torch.bfloat16
 
         # Load the pre-trained model and tokenizer
-        self.tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
+        self.tokenizer = CLIPTokenizer.from_pretrained(
+            "openai/clip-vit-large-patch14", **kwargs
+        )
         self.text_encoder = CLIPTextModel.from_pretrained(
-            "openai/clip-vit-large-patch14"
+            "openai/clip-vit-large-patch14",
+            **kwargs,
         )
         unet = UNet2DConditionModel.from_pretrained(
             self._variant_config.pretrained_model_name,
             subfolder="unet",
             torch_dtype=dtype,
+            **kwargs,
         )
         self.scheduler = LMSDiscreteScheduler.from_pretrained(
-            self._variant_config.pretrained_model_name, subfolder="scheduler"
+            self._variant_config.pretrained_model_name,
+            subfolder="scheduler",
+            **kwargs,
         )
 
         # in_channels is needed in load_inputs so we store it here

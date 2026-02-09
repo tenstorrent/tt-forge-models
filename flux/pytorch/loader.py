@@ -24,8 +24,8 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available FLUX model variants."""
 
-    SCHNELL = "schnell"
-    DEV = "dev"
+    SCHNELL = "Schnell"
+    DEV = "Dev"
 
 
 class ModelLoader(ForgeModel):
@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="flux",
+            model="FLUX",
             variant=variant,
             group=ModelGroup.RED
             if variant == ModelVariant.SCHNELL
@@ -116,7 +116,7 @@ class ModelLoader(ForgeModel):
 
         return self.pipe
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the FLUX transformer model instance for this instance's variant.
 
         Args:

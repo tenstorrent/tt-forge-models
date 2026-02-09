@@ -23,9 +23,9 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Stereo model variants."""
 
-    SMALL = "small"
-    MEDIUM = "medium"
-    LARGE = "large"
+    SMALL = "Small"
+    MEDIUM = "Medium"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="stereo",
+            model="Stereo",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_TTS,
@@ -104,7 +104,7 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Stereo model instance for this instance's variant.
 
         Args:
@@ -125,6 +125,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = MusicgenForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs

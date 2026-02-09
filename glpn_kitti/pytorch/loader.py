@@ -50,7 +50,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="glpn_kitti",
+            model="GLPN-KITTI",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_DEPTH_EST,
@@ -58,7 +58,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the GLPN-KITTI model instance with default settings.
 
         Args:
@@ -73,6 +73,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         model = GLPNForDepthEstimation.from_pretrained(self.model_name, **model_kwargs)
         return model
