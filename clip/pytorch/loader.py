@@ -25,10 +25,10 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available CLIP model variants for image-text similarity."""
 
-    BASE_PATCH16 = "base_patch16"
-    BASE_PATCH32 = "base_patch32"
-    LARGE_PATCH14 = "large_patch14"
-    LARGE_PATCH14_336 = "large_patch14_336"
+    BASE_PATCH16 = "Base Patch16"
+    BASE_PATCH32 = "Base Patch32"
+    LARGE_PATCH14 = "Large Patch14"
+    LARGE_PATCH14_336 = "Large Patch14 336"
 
 
 class ModelLoader(ForgeModel):
@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="clip",
+            model="CLIP",
             variant=variant,
             group=ModelGroup.RED
             if variant == ModelVariant.BASE_PATCH16

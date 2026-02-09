@@ -26,9 +26,9 @@ import torch.nn.functional as F
 class ModelVariant(StrEnum):
     """Available Qwen 3 model variants for embedding tasks."""
 
-    QWEN_3_EMBEDDING_0_6B = "embedding_0_6b"
-    QWEN_3_EMBEDDING_4B = "embedding_4b"
-    QWEN_3_EMBEDDING_8B = "embedding_8b"
+    QWEN_3_EMBEDDING_0_6B = "Embedding 0 6B"
+    QWEN_3_EMBEDDING_4B = "Embedding 4B"
+    QWEN_3_EMBEDDING_8B = "Embedding 8B"
 
 
 class ModelLoader(ForgeModel):
@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="qwen_3_embedding",
+            model="Qwen 3",
             variant=variant,
             group=(
                 ModelGroup.GENERALITY

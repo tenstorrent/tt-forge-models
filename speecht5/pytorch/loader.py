@@ -23,7 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available SpeechT5 model variants."""
 
-    TTS = "tts"
+    TTS = "Tts"
 
 
 class ModelLoader(ForgeModel):
@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="speecht5",
+            model="SpeechT5",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_TTS,

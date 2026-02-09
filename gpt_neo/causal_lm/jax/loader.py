@@ -24,9 +24,9 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available GPT-Neo model variants."""
 
-    GPT_NEO_125M = "_125m"
-    GPT_NEO_1_3B = "_1_3b"
-    GPT_NEO_2_7B = "_2_7b"
+    GPT_NEO_125M = "125M"
+    GPT_NEO_1_3B = "1 3B"
+    GPT_NEO_2_7B = "2 7B"
 
 
 class ModelLoader(ForgeModel):
@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="gpt-neo",
+            model="GPT-Neo",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

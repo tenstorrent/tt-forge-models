@@ -28,7 +28,7 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available PHI1 model variants."""
 
-    PHI1 = "microsoft/phi-1"
+    PHI1 = "Phi 1"
 
 
 class ModelLoader(ForgeModel):
@@ -56,7 +56,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="phi1",
+            model="Phi-1",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
