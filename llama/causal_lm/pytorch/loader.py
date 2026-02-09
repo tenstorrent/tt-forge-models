@@ -183,6 +183,12 @@ class ModelLoader(ForgeModel):
             or variant == ModelVariant.LLAMA_3_1_405B
         ):
             group = ModelGroup.RED
+        elif variant in [
+            ModelVariant.LLAMA_3_2_1B,
+            ModelVariant.LLAMA_3_2_3B,
+            ModelVariant.LLAMA_3_1_8B_INSTRUCT,
+        ]:
+            group = ModelGroup.PRIORITY
         else:
             group = ModelGroup.GENERALITY
 
