@@ -248,8 +248,12 @@ class ModelLoader(ForgeModel):
             else ModelGroup.GENERALITY,
         )
 
-    def load_model(self, **kwargs):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Panoptic FPN model with DefaultPredictor.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                           If not provided, the model will use its default dtype (typically float32).
 
         Returns:
             DefaultPredictor: The predictor instance ready for inference
@@ -291,6 +295,11 @@ class ModelLoader(ForgeModel):
 
         # Keep reference to the underlying torch.nn.Module for tester expectations
         self._model = self.predictor.model
+
+        # Only convert dtype if explicitly requested
+        if dtype_override is not None:
+            self._model = self._model.to(dtype_override)
+            self.predictor.model = self._model
 
         # Setup metadata for downstream decoding/support tooling
         self._setup_metadata(cfg)

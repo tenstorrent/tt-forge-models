@@ -11,8 +11,8 @@ import torch.nn.functional as F
 import math
 
 
-def get_lidar_to_bevimage_transform():
-    T = torch.tensor([[0, -1, 16], [-1, 0, 32], [0, 0, 1]], dtype=torch.float32)
+def get_lidar_to_bevimage_transform(dtype=torch.float32, device=None):
+    T = torch.tensor([[0, -1, 16], [-1, 0, 32], [0, 0, 1]], dtype=dtype, device=device)
     T[:2, :] *= 8
 
     return T
@@ -64,7 +64,7 @@ def get_local_maximum(heat, kernel=3):
     """
     pad = (kernel - 1) // 2
     hmax = F.max_pool2d(heat, kernel, stride=1, padding=pad)
-    keep = (hmax == heat).float()
+    keep = (hmax == heat).to(heat.dtype)
     return heat * keep
 
 
@@ -186,7 +186,7 @@ class LidarCenterNetHead(nn.Module):
             torch.Tensor: Angle decoded from angle_cls and angle_res.
         """
         angle_per_class = 2 * math.pi / float(self.num_dir_bins)
-        angle_center = angle_cls.float() * angle_per_class
+        angle_center = angle_cls.to(angle_res.dtype) * angle_per_class
         angle = angle_center + angle_res
         if limit_period:
             angle = torch.where(angle > math.pi, angle - 2 * math.pi, angle)
@@ -384,47 +384,60 @@ class LidarCenterNet(nn.Module):
         )
         bboxes, _ = results[0]
         rotated_bboxes = []
-        for bbox in bboxes.detach().cpu():
+        for bbox in bboxes.detach():
             bbox = self.get_bbox_local_metric(bbox)
             rotated_bboxes.append(bbox)
         return pred_wp, rotated_bboxes
 
     def get_bbox_local_metric(self, bbox):
         x, y, w, h, yaw, speed, brake, confidence = bbox
+        # Preserve dtype and device from input bbox
+        bbox_dtype = x.dtype
+        bbox_device = x.device
         w = w / 2 / 8
         h = h / 2 / 8
 
-        T = get_lidar_to_bevimage_transform()
+        T = get_lidar_to_bevimage_transform(dtype=bbox_dtype, device=bbox_device)
         T_inv = torch.linalg.inv(T)
-        center = torch.stack([x, y, torch.tensor(1.0, dtype=torch.float32)])
+        center = torch.stack(
+            [x, y, torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device)]
+        )
         center_old_coordinate_sys = T_inv @ center
         center_old_coordinate_sys = center_old_coordinate_sys + torch.stack(
             [
-                torch.tensor(1.3, dtype=torch.float32),
-                torch.tensor(0.0, dtype=torch.float32),
-                torch.tensor(2.5, dtype=torch.float32),
+                torch.tensor(1.3, dtype=bbox_dtype, device=bbox_device),
+                torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
+                torch.tensor(2.5, dtype=bbox_dtype, device=bbox_device),
             ]
         )
         center_old_coordinate_sys[1] = -center_old_coordinate_sys[1]
 
         bbox = torch.stack(
             [
-                torch.stack([-h, -w, torch.tensor(1.0, dtype=torch.float32)]),
-                torch.stack([-h, w, torch.tensor(1.0, dtype=torch.float32)]),
-                torch.stack([h, w, torch.tensor(1.0, dtype=torch.float32)]),
-                torch.stack([h, -w, torch.tensor(1.0, dtype=torch.float32)]),
+                torch.stack(
+                    [-h, -w, torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device)]
+                ),
+                torch.stack(
+                    [-h, w, torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device)]
+                ),
+                torch.stack(
+                    [h, w, torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device)]
+                ),
+                torch.stack(
+                    [h, -w, torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device)]
+                ),
                 torch.stack(
                     [
-                        torch.tensor(0.0, dtype=torch.float32),
-                        torch.tensor(0.0, dtype=torch.float32),
-                        torch.tensor(1.0, dtype=torch.float32),
+                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
+                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
+                        torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device),
                     ]
                 ),
                 torch.stack(
                     [
-                        torch.tensor(0.0, dtype=torch.float32),
+                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
                         h * speed * 0.5,
-                        torch.tensor(1.0, dtype=torch.float32),
+                        torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device),
                     ]
                 ),
             ],
@@ -437,21 +450,21 @@ class LidarCenterNet(nn.Module):
                     [
                         torch.cos(yaw),
                         -torch.sin(yaw),
-                        torch.tensor(0.0, dtype=torch.float32),
+                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
                     ]
                 ),
                 torch.stack(
                     [
                         torch.sin(yaw),
                         torch.cos(yaw),
-                        torch.tensor(0.0, dtype=torch.float32),
+                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
                     ]
                 ),
                 torch.stack(
                     [
-                        torch.tensor(0.0, dtype=torch.float32),
-                        torch.tensor(0.0, dtype=torch.float32),
-                        torch.tensor(1.0, dtype=torch.float32),
+                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
+                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
+                        torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device),
                     ]
                 ),
             ],
@@ -464,7 +477,7 @@ class LidarCenterNet(nn.Module):
                 [
                     center_old_coordinate_sys[0],
                     center_old_coordinate_sys[1],
-                    torch.tensor(0.0, dtype=torch.float32),
+                    torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
                 ]
             )
 

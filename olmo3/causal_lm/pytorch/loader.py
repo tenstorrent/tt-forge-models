@@ -119,7 +119,7 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, dtype_override=None):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Olmo 3 model instance for this instance's variant.
 
         Args:
@@ -142,6 +142,8 @@ class ModelLoader(ForgeModel):
         }  # use_cache disabled temporarily because of runtime errors: https://github.com/tenstorrent/tt-xla/issues/3049.
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
