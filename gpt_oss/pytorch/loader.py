@@ -148,6 +148,8 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
+        self.model = model
+
         return model
 
     def load_inputs(self, dtype_override=None):
