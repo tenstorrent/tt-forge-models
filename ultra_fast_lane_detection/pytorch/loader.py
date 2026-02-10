@@ -54,11 +54,11 @@ class ModelVariant(StrEnum):
     """Available Ultra-Fast-Lane-Detection model variants."""
 
     # TuSimple variants (Highway/Freeway focused)
-    TUSIMPLE_RESNET18 = "TuSimple ResNet18 Backbone"
-    TUSIMPLE_RESNET34 = "TuSimple ResNet34 Backbone"
+    TUSIMPLE_RESNET18 = "tusimple_resnet18"
+    TUSIMPLE_RESNET34 = "tusimple_resnet34"
 
     # CULane variants (Urban roads focused)
-    CULANE_RESNET18 = "CULane ResNet18 Backbone"
+    CULANE_RESNET18 = "culane_resnet18"
 
 
 class ModelLoader(ForgeModel):
@@ -157,7 +157,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="Ultra-Fast Lane Detection",
+            model="ultra-fast-lane-detection",
             variant=variant,
             group=(
                 ModelGroup.RED

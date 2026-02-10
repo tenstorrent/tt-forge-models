@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available MLPMixer lucidrains model variants."""
 
-    BASE = "Base"
+    BASE = "base"
 
 
 class ModelLoader(ForgeModel):
@@ -61,7 +61,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="MLP-Mixer",
+            model="mlp-mixer-lucidrains",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

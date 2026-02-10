@@ -46,7 +46,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="Qwen 2",
+            model="Qwen/Qwen2-7B",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TOKEN_CLS,

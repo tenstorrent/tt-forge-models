@@ -25,7 +25,7 @@ from .src.utils import prepare_ssd_input, download_checkpoint
 class ModelVariant(StrEnum):
     """Available SSD300 ResNet50 model variants."""
 
-    BASE = "Base"
+    BASE = "base"
 
 
 class ModelLoader(ForgeModel):
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="SSD300-ResNet50",
+            model="ssd300_resnet50",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,

@@ -35,10 +35,10 @@ class UnetConfig(ModelConfig):
 class ModelVariant(StrEnum):
     """Available UNet model variants."""
 
-    OSMR_CITYSCAPES = "Cityscapes"
-    SMP_UNET_RESNET101 = "Segmentation Models PyTorch UNet ResNet101 Backbone"
-    TORCHHUB_BRAIN_UNET = "Torchhub Brain Unet"
-    CARVANA_UNET = "Carvana Unet"
+    OSMR_CITYSCAPES = "unet_cityscapes"
+    SMP_UNET_RESNET101 = "smp_unet_resnet101"
+    TORCHHUB_BRAIN_UNET = "torchhub_brain_unet"
+    CARVANA_UNET = "carvana_unet"
     CARVANA_UNET_480x640 = "carvana_unet_480x640"
 
 
@@ -80,7 +80,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="U-Net",
+            model="unet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_SEG,

@@ -23,7 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available SqueezeBERT model variants."""
 
-    MNLI = "Mnli"
+    MNLI = "squeezebert-mnli"
 
 
 class ModelLoader(ForgeModel):
@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="SqueezeBERT",
+            model="squeezebert",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,

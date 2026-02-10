@@ -25,8 +25,8 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available BEiT model variants."""
 
-    BASE = "Base"
-    LARGE = "Large"
+    BASE = "base"
+    LARGE = "large"
 
 
 class ModelLoader(ForgeModel):
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="BEiT",
+            model="beit",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

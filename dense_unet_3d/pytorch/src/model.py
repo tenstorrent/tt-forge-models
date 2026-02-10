@@ -10,6 +10,18 @@ from torch import nn
 from typing import Tuple
 
 
+def _aten_maxpool3d(x: torch.Tensor) -> torch.Tensor:
+    out, _ = torch.ops.aten.max_pool3d_with_indices.default(
+        x,
+        [3, 3, 3],  # kernel_size
+        [2, 2, 2],  # stride
+        [1, 1, 1],  # padding
+        [1, 1, 1],  # dilation
+        False,  # ceil_mode
+    )
+    return out
+
+
 class UpsamplingBlock(nn.Module):
     """
     Upsampling Block (upsampling layer) as specified by the paper
@@ -203,7 +215,7 @@ class DenseUNet3d(nn.Module):
         :return:   output of the forward pass
         """
         residual1 = self.relu(self.bn1(self.conv1(x)))
-        residual2 = self.dense1(self.maxpool1(residual1))
+        residual2 = self.dense1(_aten_maxpool3d(residual1))
         residual3 = self.dense2(self.transition(residual2))
         residual4 = self.dense3(self.transition(residual3))
         output = self.dense4(self.transition(residual4))

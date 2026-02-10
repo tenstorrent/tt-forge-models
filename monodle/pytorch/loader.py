@@ -25,7 +25,7 @@ from .src.monodle_model import CenterNet3D
 class ModelVariant(StrEnum):
     """Available Monodle model variants."""
 
-    DLA34 = "Dla34"
+    DLA34 = "dla34"
 
 
 class ModelLoader(ForgeModel):
@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="MonoDLE",
+            model="monodle",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,

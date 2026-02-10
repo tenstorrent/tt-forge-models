@@ -26,8 +26,8 @@ from ...tools.utils import yolo_postprocess
 class ModelVariant(StrEnum):
     """Available YOLOv10 model variants."""
 
-    YOLOV10X = "X"
-    YOLOV10N = "N"
+    YOLOV10X = "yolov10x"
+    YOLOV10N = "yolov10n"
 
 
 class ModelLoader(ForgeModel):
@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="YOLOv10",
+            model="yolov10",
             variant=variant,
             group=group,
             task=ModelTask.CV_OBJECT_DET,

@@ -28,14 +28,14 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available Qwen3 model variants for causal language modeling."""
 
-    QWEN_3_0_6B = "0 6B"
-    QWEN_3_1_7B = "1 7B"
-    QWEN_3_4B = "4B"
+    QWEN_3_0_6B = "0_6b"
+    QWEN_3_1_7B = "1_7b"
+    QWEN_3_4B = "4b"
     ## Too large
-    # QWEN_3_8B = "8B"
-    # QWEN_3_14B = "14B"
-    # QWEN_3_32B = "32B"
-    # QWEN_3_30B_A3B = "30B A3b"
+    # QWEN_3_8B = "8b"
+    # QWEN_3_14B = "14b"
+    # QWEN_3_32B = "32b"
+    # QWEN_3_30B_A3B = "30b_a3b"
 
 
 class ModelLoader(ForgeModel):
@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="Qwen 3",
+            model="qwen_3",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,

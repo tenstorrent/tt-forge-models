@@ -24,8 +24,8 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available gpt-oss model variants."""
 
-    GPT_OSS_20B = "20B"
-    GPT_OSS_120B = "120B"
+    GPT_OSS_20B = "gpt_oss_20b"
+    GPT_OSS_120B = "gpt_oss_120b"
 
 
 class ModelLoader(ForgeModel):
@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="GPT-OSS",
+            model="gpt_oss",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -147,6 +147,8 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **model_kwargs
         )
         model.eval()
+
+        self.model = model
 
         return model
 

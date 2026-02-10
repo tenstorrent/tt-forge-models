@@ -39,29 +39,29 @@ class ModelVariant(StrEnum):
     """Available RegNet model variants."""
 
     # HuggingFace variants
-    Y_040 = "Y 040"
-    Y_064 = "Y 064"
-    Y_080 = "Y 080"
-    Y_120 = "Y 120"
-    Y_160 = "Y 160"
-    Y_320 = "Y 320"
+    Y_040 = "regnet_y_040"
+    Y_064 = "regnet_y_064"
+    Y_080 = "regnet_y_080"
+    Y_120 = "regnet_y_120"
+    Y_160 = "regnet_y_160"
+    Y_320 = "regnet_y_320"
 
     # Torchvision variants
-    Y_400MF = "Y 400mf"
-    Y_800MF = "Y 800mf"
-    Y_1_6GF = "Y 1 6gf"
-    Y_3_2GF = "Y 3 2gf"
-    Y_8GF = "Y 8gf"
-    Y_16GF = "Y 16gf"
-    Y_32GF = "Y 32gf"
-    Y_128GF = "Y 128gf"
-    X_400MF = "X 400mf"
-    X_800MF = "X 800mf"
-    X_1_6GF = "X 1 6gf"
-    X_3_2GF = "X 3 2gf"
-    X_8GF = "X 8gf"
-    X_16GF = "X 16gf"
-    X_32GF = "X 32gf"
+    Y_400MF = "regnet_y_400mf"
+    Y_800MF = "regnet_y_800mf"
+    Y_1_6GF = "regnet_y_1_6gf"
+    Y_3_2GF = "regnet_y_3_2gf"
+    Y_8GF = "regnet_y_8gf"
+    Y_16GF = "regnet_y_16gf"
+    Y_32GF = "regnet_y_32gf"
+    Y_128GF = "regnet_y_128gf"
+    X_400MF = "regnet_x_400mf"
+    X_800MF = "regnet_x_800mf"
+    X_1_6GF = "regnet_x_1_6gf"
+    X_3_2GF = "regnet_x_3_2gf"
+    X_8GF = "regnet_x_8gf"
+    X_16GF = "regnet_x_16gf"
+    X_32GF = "regnet_x_32gf"
 
 
 class ModelLoader(ForgeModel):
@@ -190,7 +190,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="RegNet",
+            model="regnet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

@@ -23,8 +23,8 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available Pegasus model variants."""
 
-    XSUM = "Xsum"
-    LARGE = "Large"
+    XSUM = "xsum"
+    LARGE = "large"
 
 
 class ModelLoader(ForgeModel):
@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="Pegasus",
+            model="pegasus",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_SUMMARIZATION,

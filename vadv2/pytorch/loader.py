@@ -17,7 +17,7 @@ from third_party.tt_forge_models.vadv2.pytorch.src.dataset import LiDARInstance3
 class ModelVariant(StrEnum):
     """Available Vadv2 model variants for autonomous driving."""
 
-    VADV2_TINY = "Tiny"
+    VADV2_TINY = "vadv2_tiny"
 
 
 class ModelLoader(ForgeModel):
@@ -50,7 +50,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="VADv2",
+            model="vadv2",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,

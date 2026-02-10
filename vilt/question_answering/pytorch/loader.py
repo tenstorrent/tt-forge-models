@@ -26,7 +26,7 @@ from ....tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available ViLT model variants for question answering."""
 
-    VQA = "Vqa"
+    VQA = "vqa"
 
 
 class ModelLoader(ForgeModel):
@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="ViLT QA",
+            model="vilt_qa",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_VISUAL_QA,

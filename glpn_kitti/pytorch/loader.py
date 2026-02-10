@@ -50,7 +50,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="GLPN-KITTI",
+            model="glpn_kitti",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_DEPTH_EST,

@@ -23,10 +23,10 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     """Available MAMBA model variants."""
 
-    MAMBA_370M = "370M HF"
-    MAMBA_790M = "790M HF"
-    MAMBA_1_4B = "1.4b HF"
-    MAMBA_2_8B = "2.8b HF"
+    MAMBA_370M = "mamba-370m-hf"
+    MAMBA_790M = "mamba-790m-hf"
+    MAMBA_1_4B = "mamba-1.4b-hf"
+    MAMBA_2_8B = "mamba-2.8b-hf"
 
 
 class ModelLoader(ForgeModel):
@@ -62,7 +62,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="Mamba",
+            model="mamba",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

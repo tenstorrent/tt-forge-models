@@ -24,7 +24,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Phi 3.5 Vision model variants."""
 
-    INSTRUCT = "Instruct"
+    INSTRUCT = "instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -65,7 +65,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="Phi-3",
+            model="phi-3.5-vision",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.MM_VISUAL_QA,

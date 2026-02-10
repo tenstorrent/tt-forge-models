@@ -30,7 +30,7 @@ from .src.model_implementation import MlpMixer
 class ModelVariant(StrEnum):
     """Available MLP Mixer model variants."""
 
-    BASE_16 = "Base 16"
+    BASE_16 = "base_16"
 
 
 class ModelLoader(ForgeModel):
@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="MLP-Mixer",
+            model="mlpmixer",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

@@ -58,7 +58,7 @@ class ModelLoader(ForgeModel):
         else:
             task = ModelTask.CV_OBJECT_DET
         return ModelInfo(
-            model="CenterNet",
+            model="centernet",
             variant=variant_name,
             group=ModelGroup.RED,
             task=task,

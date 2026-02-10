@@ -25,9 +25,9 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available RegNet model variants."""
 
-    REGNET_Y_040 = "Y 040"
-    REGNET_Y_160 = "Y 160"
-    REGNET_Y_320 = "Y 320"
+    REGNET_Y_040 = "y-040"
+    REGNET_Y_160 = "y-160"
+    REGNET_Y_320 = "y-320"
 
 
 class ModelLoader(ForgeModel):
@@ -74,7 +74,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="RegNet",
+            model="regnet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

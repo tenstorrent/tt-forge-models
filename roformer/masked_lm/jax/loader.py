@@ -24,9 +24,9 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available RoFormer model variants."""
 
-    CHINESE_BASE = "Chinese Base"
-    CHINESE_CHAR_SMALL = "Chinese Char Small"
-    CHINESE_SMALL = "Chinese Small"
+    CHINESE_BASE = "chinese-base"
+    CHINESE_CHAR_SMALL = "chinese-char-small"
+    CHINESE_SMALL = "chinese-small"
 
 
 class ModelLoader(ForgeModel):
@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: ModelInfo object containing model details.
         """
         return ModelInfo(
-            model="RoFormer",
+            model="roformer",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,

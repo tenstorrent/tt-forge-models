@@ -25,7 +25,7 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available MBart50 model variants."""
 
-    LARGE_MANY_TO_MANY = "Large Many To Many"
+    LARGE_MANY_TO_MANY = "large_many_to_many"
 
 
 class ModelLoader(ForgeModel):
@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="mBART-50",
+            model="mbart50",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_SUMMARIZATION,

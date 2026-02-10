@@ -34,7 +34,7 @@ from .src.post_processing import (
 class ModelVariant(StrEnum):
     """Available YOLOv4 model variants."""
 
-    BASE = "Base"
+    BASE = "base"
 
 
 class ModelLoader(ForgeModel):
@@ -73,7 +73,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="YOLOv4",
+            model="yolov4",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,

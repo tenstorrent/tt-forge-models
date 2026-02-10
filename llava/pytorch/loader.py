@@ -30,7 +30,7 @@ from ...tools.utils import cast_input_to_type
 class ModelVariant(StrEnum):
     """Available LLaVA model variants."""
 
-    LLAVA_1_5_7B = "1.5 7B"
+    LLAVA_1_5_7B = "1_5_7b"
 
 
 class ModelLoader(ForgeModel):
@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="LLaVA",
+            model="llava",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CONDITIONAL_GENERATION,
