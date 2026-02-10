@@ -31,13 +31,13 @@ from typing import Optional
 class ModelVariant(StrEnum):
     """Available Whisper model variants."""
 
-    WHISPER_TINY = "Tiny"
-    WHISPER_BASE = "Base"
-    WHISPER_SMALL = "Small"
-    WHISPER_MEDIUM = "Medium"
-    WHISPER_LARGE = "Large"
-    WHISPER_LARGE_V3 = "Large v3"
-    WHISPER_LARGE_V3_TURBO = "Large v3 Turbo"
+    WHISPER_TINY = "openai/whisper-tiny"
+    WHISPER_BASE = "openai/whisper-base"
+    WHISPER_SMALL = "openai/whisper-small"
+    WHISPER_MEDIUM = "openai/whisper-medium"
+    WHISPER_LARGE = "openai/whisper-large"
+    WHISPER_LARGE_V3 = "openai/whisper-large-v3"
+    WHISPER_LARGE_V3_TURBO = "openai/whisper-large-v3-turbo"
 
 
 class ModelLoader(ForgeModel):
@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Whisper",
+            model="whisper",
             variant=variant,
             group=(
                 ModelGroup.RED

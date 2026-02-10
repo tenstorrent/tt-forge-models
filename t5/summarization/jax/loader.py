@@ -25,9 +25,9 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available T5 model variants for summarization."""
 
-    BASE = "Base"
-    LARGE = "Large"
-    SMALL = "Small"
+    BASE = "base"
+    LARGE = "large"
+    SMALL = "small"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="T5",
+            model="t5",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_SUMMARIZATION,

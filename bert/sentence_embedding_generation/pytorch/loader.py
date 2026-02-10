@@ -72,7 +72,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="BERT",
+            model="bert_sentence_embedding",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_EMBED_GEN,

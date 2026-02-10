@@ -56,7 +56,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="PointPillars",
+            model="pointpillars",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,

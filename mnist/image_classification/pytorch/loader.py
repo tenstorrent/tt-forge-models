@@ -103,8 +103,8 @@ class MNISTCNNNoDropoutModel(nn.Module):
 class ModelVariant(StrEnum):
     """Available MNIST model variants for image classification."""
 
-    CNN_DROPOUT = "Cnn Dropout"
-    CNN_NODROPOUT = "Cnn Nodropout"
+    CNN_DROPOUT = "cnn_dropout"
+    CNN_NODROPOUT = "cnn_nodropout"
 
 
 class ModelLoader(ForgeModel):

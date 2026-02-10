@@ -18,7 +18,7 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     """Available model variants."""
 
-    BASE = "Default"
+    BASE = "Hippynn"
 
 
 class ModelLoader(ForgeModel):
@@ -34,7 +34,7 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: ModelVariant = None):
         """Return model information for Forge dashboards and reporting."""
         return ModelInfo(
-            model="HIP-NN",
+            model="hippynn",
             variant=variant,
             group=ModelGroup.PRIORITY,
             task=ModelTask.ATOMIC_ML,

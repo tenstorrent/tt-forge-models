@@ -27,9 +27,9 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available Whisper model variants."""
 
-    BASE = "Base"
-    MEDIUM = "Medium"
-    LARGE_V3 = "Large v3"
+    BASE = "base"
+    MEDIUM = "medium"
+    LARGE_V3 = "large_v3"
 
 
 class ModelLoader(ForgeModel):
@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="Whisper",
+            model="whisper",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.AUDIO_CLS,

@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available ALBERT model variants for question answering."""
 
-    SQUAD2 = "Squad2"
+    SQUAD2 = "squad2"
 
 
 class ModelLoader(ForgeModel):
@@ -65,7 +65,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="ALBERT",
+            model="albert_qa",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_QA,

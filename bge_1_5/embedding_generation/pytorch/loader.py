@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available BGE 1.5 model variants for embedding generation."""
 
-    BGE_LARGE_EN_V1_5 = "Large En v1 5"
+    BGE_LARGE_EN_V1_5 = "large_en_v1_5"
 
 
 class ModelLoader(ForgeModel):
@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="BGE-1.5",
+            model="bge_1_5",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_EMBED_GEN,

@@ -25,9 +25,9 @@ from ....base import ForgeModel
 class ModelVariant(StrEnum):
     """Available BERT model variants for masked language modeling (Paddle)."""
 
-    BERT_BASE_UNCASED = "Base Uncased"
-    BERT_BASE_JAPANESE = "Base Japanese"
-    CHINESE_ROBERTA_BASE = "Chinese Roberta Base"
+    BERT_BASE_UNCASED = "bert-base-uncased"
+    BERT_BASE_JAPANESE = "cl-tohoku/bert-base-japanese"
+    CHINESE_ROBERTA_BASE = "uer/chinese-roberta-base"
 
 
 class ModelLoader(ForgeModel):
@@ -60,7 +60,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="BERT",
+            model="bert-maskedlm",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,

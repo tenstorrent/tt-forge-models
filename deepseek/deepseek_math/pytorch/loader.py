@@ -24,7 +24,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available DeepSeek Math model variants."""
 
-    DEEPSEEK_7B_INSTRUCT = "7B Instruct"
+    DEEPSEEK_7B_INSTRUCT = "7b_instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -54,7 +54,7 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Return model info for the selected variant."""
         return ModelInfo(
-            model="DeepSeek",
+            model="deepseek_math",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_QA,

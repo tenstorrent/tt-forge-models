@@ -23,9 +23,9 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available MT5 model variants."""
 
-    BASE = "Base"
-    LARGE = "Large"
-    XL = "Xl"
+    BASE = "base"
+    LARGE = "large"
+    XL = "xl"
 
 
 class ModelLoader(ForgeModel):
@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="mT5",
+            model="mt5",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_SUMMARIZATION,

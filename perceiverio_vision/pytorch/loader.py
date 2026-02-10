@@ -31,9 +31,9 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available PerceiverIO Vision model variants."""
 
-    VISION_PERCEIVER_CONV = "Vision Perceiver Conv"
-    VISION_PERCEIVER_LEARNED = "Vision Perceiver Learned"
-    VISION_PERCEIVER_FOURIER = "Vision Perceiver Fourier"
+    VISION_PERCEIVER_CONV = "deepmind/vision-perceiver-conv"
+    VISION_PERCEIVER_LEARNED = "deepmind/vision-perceiver-learned"
+    VISION_PERCEIVER_FOURIER = "deepmind/vision-perceiver-fourier"
 
 
 class ModelLoader(ForgeModel):
@@ -76,7 +76,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="PerceiverIO Vision",
+            model="perceiverio_vision",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

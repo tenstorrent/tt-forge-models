@@ -26,7 +26,7 @@ from ....tools.utils import print_compiled_model_results
 class ModelVariant(StrEnum):
     """Available Densenet model variants (Paddle)."""
 
-    DEFAULT = "121"
+    DEFAULT = "densenet121"
 
 
 class ModelLoader(ForgeModel):
@@ -49,7 +49,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="DenseNet",
+            model="densenet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

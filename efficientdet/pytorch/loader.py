@@ -22,15 +22,15 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available Efficientdet model variants."""
 
-    D0 = "D0"
-    D1 = "D1"
-    D2 = "D2"
-    D3 = "D3"
-    D4 = "D4"
-    D5 = "D5"
-    D6 = "D6"
-    D7 = "D7"
-    D7X = "D7x"
+    D0 = "d0"
+    D1 = "d1"
+    D2 = "d2"
+    D3 = "d3"
+    D4 = "d4"
+    D5 = "d5"
+    D6 = "d6"
+    D7 = "d7"
+    D7X = "d7x"
 
 
 class ModelLoader(ForgeModel):
@@ -99,7 +99,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="EfficientDet",
+            model="Efficientdet",
             variant=variant,
             group=group,
             task=ModelTask.CV_OBJECT_DET,

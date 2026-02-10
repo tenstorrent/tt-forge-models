@@ -28,7 +28,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available FPN model variants."""
 
-    RESNET50_FPN_V2 = "ResNet50 Backbone with FPN V2"
+    RESNET50_FPN_V2 = "resnet50_fpn_v2"
 
 
 class FPNWrapper(nn.Module):
@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="FPN",
+            model="fpn",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

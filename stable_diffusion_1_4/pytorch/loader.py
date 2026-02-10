@@ -22,7 +22,7 @@ from typing import Optional
 class ModelVariant(StrEnum):
     """Available Stable Diffusion model variants."""
 
-    BASE = "Base"
+    BASE = "base"
 
 
 class ModelLoader(ForgeModel):
@@ -58,7 +58,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="Stable Diffusion 1.4",
+            model="stable_diffusion_1_4",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_IMAGE_TTT,  # FIXME: Update to text to image

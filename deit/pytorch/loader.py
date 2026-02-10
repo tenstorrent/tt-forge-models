@@ -35,10 +35,10 @@ class DeitConfig(ModelConfig):
 class ModelVariant(StrEnum):
     """Available DeiT model variants."""
 
-    BASE = "Base"
-    BASE_DISTILLED = "Base Distilled"
-    SMALL = "Small"
-    TINY = "Tiny"
+    BASE = "base"
+    BASE_DISTILLED = "base_distilled"
+    SMALL = "small"
+    TINY = "tiny"
 
 
 class ModelLoader(ForgeModel):
@@ -97,7 +97,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="DeiT",
+            model="deit",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

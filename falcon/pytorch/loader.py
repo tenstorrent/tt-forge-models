@@ -24,12 +24,12 @@ from ...tools.utils import get_static_cache_decode_inputs
 class ModelVariant(StrEnum):
     """Available Falcon model variants."""
 
-    FALCON_1B = "3 1B Base"
-    FALCON_3B = "3 3B Base"
-    FALCON_7B = "3 7B Base"
-    FALCON_10B = "3 10B Base"
-    FALCON_MAMBA_7B = "3 Mamba 7B Base"
-    FALCON_7B_INSTRUCT = "7B Instruct"
+    FALCON_1B = "tiiuae/Falcon3-1B-Base"
+    FALCON_3B = "tiiuae/Falcon3-3B-Base"
+    FALCON_7B = "tiiuae/Falcon3-7B-Base"
+    FALCON_10B = "tiiuae/Falcon3-10B-Base"
+    FALCON_MAMBA_7B = "tiiuae/Falcon3-Mamba-7B-Base"
+    FALCON_7B_INSTRUCT = "tiiuae/falcon-7b-instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="Falcon",
+            model="falcon",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,

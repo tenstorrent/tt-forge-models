@@ -25,12 +25,12 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available ResNet model variants."""
 
-    RESNET_18 = "ResNet18"
-    RESNET_26 = "ResNet26"
-    RESNET_34 = "ResNet34"
-    RESNET_50 = "ResNet50"
-    RESNET_101 = "ResNet101"
-    RESNET_152 = "ResNet152"
+    RESNET_18 = "resnet-18"
+    RESNET_26 = "resnet-26"
+    RESNET_34 = "resnet-34"
+    RESNET_50 = "resnet-50"
+    RESNET_101 = "resnet-101"
+    RESNET_152 = "resnet-152"
 
 
 class ModelLoader(ForgeModel):
@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="ResNet",
+            model="resnet_v1.5",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

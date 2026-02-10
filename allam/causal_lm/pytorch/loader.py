@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available ALLaM model variants."""
 
-    ALLAM_7B_INSTRUCT = "7B Instruct"
+    ALLAM_7B_INSTRUCT = "allam_7b_instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="ALLaM",
+            model="allam",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,

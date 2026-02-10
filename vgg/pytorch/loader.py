@@ -33,31 +33,31 @@ class ModelVariant(StrEnum):
     """Available VGG model variants."""
 
     # OSMR (pytorchcv) image classification variants
-    VGG11 = "11"
-    VGG13 = "13"
-    VGG16 = "16"
-    VGG19 = "19"
-    VGG19_BN_OSMR = "Bn Vgg19"
-    VGG19_BNB_OSMR = "Bn Vgg19b"
+    VGG11 = "vgg11"
+    VGG13 = "vgg13"
+    VGG16 = "vgg16"
+    VGG19 = "vgg19"
+    VGG19_BN_OSMR = "bn_vgg19"
+    VGG19_BNB_OSMR = "bn_vgg19b"
 
     # TorchHub variant
-    VGG19_BN = "19 Bn"
+    VGG19_BN = "vgg19_bn"
 
     # TIMM variant
-    TIMM_VGG19_BN = "Timm Vgg19 Bn"
+    TIMM_VGG19_BN = "timm_vgg19_bn"
 
     # Torchvision variants
-    TV_VGG11 = "Torchvision Vgg11"
-    TV_VGG11_BN = "Torchvision Vgg11 Bn"
-    TV_VGG13 = "Torchvision Vgg13"
-    TV_VGG13_BN = "Torchvision Vgg13 Bn"
-    TV_VGG16 = "Torchvision Vgg16"
-    TV_VGG16_BN = "Torchvision Vgg16 Bn"
-    TV_VGG19 = "Torchvision Vgg19"
-    TV_VGG19_BN = "Torchvision Vgg19 Bn"
+    TV_VGG11 = "torchvision_vgg11"
+    TV_VGG11_BN = "torchvision_vgg11_bn"
+    TV_VGG13 = "torchvision_vgg13"
+    TV_VGG13_BN = "torchvision_vgg13_bn"
+    TV_VGG16 = "torchvision_vgg16"
+    TV_VGG16_BN = "torchvision_vgg16_bn"
+    TV_VGG19 = "torchvision_vgg19"
+    TV_VGG19_BN = "torchvision_vgg19_bn"
 
     # HuggingFace vgg-pytorch
-    HF_VGG19 = "HF Vgg19"
+    HF_VGG19 = "hf_vgg19"
 
 
 class ModelLoader(ForgeModel):
@@ -177,7 +177,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         source = cls._VARIANTS[variant].source
         return ModelInfo(
-            model="VGG",
+            model="vgg",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
