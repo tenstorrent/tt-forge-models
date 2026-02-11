@@ -403,6 +403,7 @@ class ModelLoader(ForgeModel):
         return answer
 
     def get_mesh_config(self, num_devices: int):
+        # pogledati ovo
         if self._variant in [
             ModelVariant.LLAMA_3_1_70B,
             ModelVariant.LLAMA_3_1_70B_INSTRUCT,
@@ -411,9 +412,20 @@ class ModelLoader(ForgeModel):
         else:
             mesh_shape = (1, num_devices)
 
-        return mesh_shape, ("batch", "model")
+        return mesh_shape, ("data", "model")
 
-    def load_shard_spec(self, model):
+    def load_shard_spec(self, model, strategy="fsdp"):
+        """Load shard specifications for the model weights.
+
+        Args:
+            model: The loaded model instance.
+            strategy: Sharding strategy to use.
+                - "fsdp": Shard weights across both "data" and "model" axes (default).
+                - "megatron": Shard weights across "model" axis only (standard Megatron TP).
+
+        Returns:
+            Dictionary mapping weight tensors to their shard specs, or None for small variants.
+        """
         if self._variant in [
             ModelVariant.LLAMA_3_2_1B,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT,
@@ -424,20 +436,39 @@ class ModelLoader(ForgeModel):
             return None
 
         shard_specs = {}
-        shard_specs[model.model.embed_tokens.weight] = (None, "batch")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
-        shard_specs[model.model.norm.weight] = ("batch",)
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-            shard_specs[layer.input_layernorm.weight] = ("batch",)
-            shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
+        if strategy == "megatron":
+            # Megatron-style: shard weights on "model" axis only.
+            # Column-parallel layers (split output dim): dim 0 → "model"
+            # Row-parallel layers (split input dim):     dim 1 → "model"
+            # Norms and embeddings are replicated (not sharded).
+            shard_specs[model.lm_head.weight] = ("model", None)
+            for layer in model.model.layers:
+                shard_specs[layer.mlp.up_proj.weight] = ("model", None)
+                shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
+                shard_specs[layer.mlp.down_proj.weight] = (None, "model")
+
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
+        else:
+            # FSDP-like: shard weights across both "data" and "model" axes.
+            shard_specs[model.model.embed_tokens.weight] = (None, "data")
+            shard_specs[model.lm_head.weight] = ("model", "data")
+            shard_specs[model.model.norm.weight] = ("data",)
+            for layer in model.model.layers:
+                shard_specs[layer.mlp.up_proj.weight] = ("model", "data")
+                shard_specs[layer.mlp.gate_proj.weight] = ("model", "data")
+                shard_specs[layer.mlp.down_proj.weight] = ("data", "model")
+
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "data")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "data")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "data")
+                shard_specs[layer.self_attn.o_proj.weight] = ("data", "model")
+                shard_specs[layer.input_layernorm.weight] = ("data",)
+                shard_specs[layer.post_attention_layernorm.weight] = ("data",)
+
         return shard_specs
 
     def load_config(self):
