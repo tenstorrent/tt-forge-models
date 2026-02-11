@@ -128,6 +128,14 @@ class ModelInfo:
         """Generate a standardized model identifier"""
         return f"{self.framework}_{self.model}_{self.variant}_{self.task}_{self.source}"
 
+    @property
+    def display_name(self) -> str:
+        """Human-friendly model name combining architecture and variant."""
+        variant_str = str(self.variant) if self.variant else ""
+        if variant_str and variant_str.lower() not in ("default", "base"):
+            return f"{self.model} {variant_str.replace('_', ' ')}"
+        return self.model
+
     def to_report_dict(self) -> dict:
         """Represents self as dict suitable for pytest reporting pipeline."""
         return {
@@ -135,7 +143,9 @@ class ModelInfo:
             "source": str(self.source),
             "framework": str(self.framework),
             "model_arch": self.model,
-            "variant_name": str(self.variant),
+            "variant_name": str(self.variant) if self.variant else "",
+            "model_name": self.display_name,
+            "group": str(self.group),
         }
 
     def is_easydel(self) -> bool:
