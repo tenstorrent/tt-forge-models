@@ -152,7 +152,16 @@ class ModelLoader(ForgeModel):
                 if torch.is_tensor(value) and value.dim() > 0:
                     inputs[key] = value.repeat_interleave(batch_size, dim=0)
 
-        return inputs
+        # SmolVLAPolicy.forward() expects (batch, noise=None, time=None, reduction="mean").
+        # The test runner calls model(**load_inputs()), so we return {"batch": batch_dict}
+        # so that model(batch=inputs) matches forward(batch, ...).
+        return {"batch": inputs}
+
+    def unpack_forward_output(self, fwd_output):
+        """Extract the loss tensor from SmolVLAPolicy.forward() output (loss, loss_dict)."""
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]  # loss tensor
+        return fwd_output
 
 
 def build_dummy_observation(input_features: dict) -> dict[str, np.ndarray]:
