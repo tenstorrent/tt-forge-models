@@ -5,6 +5,7 @@ import torch
 from collections import deque
 from torch import Tensor
 from lerobot.policies.pi0 import PI0Policy
+from types import MethodType
 
 
 @torch.no_grad()
@@ -27,6 +28,15 @@ def preprocess_for_sampling(self, batch: dict[str, Tensor]):
         state (Tensor): State vector including proprioception / joint positions.
     """
     # Images and corresponding masks
+    if (
+        "observation.images.base_0_rgb" in self.config.image_features
+        and "observation.images.left_wrist_0_rgb" in self.config.image_features
+    ):
+        batch["observation.images.base_0_rgb"] = batch.pop("observation.images.image")
+        batch["observation.images.left_wrist_0_rgb"] = batch.pop(
+            "observation.images.image2"
+        )
+
     images, img_masks = self._preprocess_images(batch)
     lang_tokens = batch["observation.language.tokens"]
     lang_masks = batch["observation.language.attention_mask"]
@@ -86,5 +96,25 @@ def forward(
     return self._action_queue.popleft()
 
 
-PI0Policy.preprocess_for_sampling = preprocess_for_sampling
-PI0Policy.forward = forward
+def get_custom_pi0_policy(pretrained_model_name: str) -> PI0Policy:
+    """
+    Create a customized Pi-0 Policy instance for inference.
+
+    This function:
+    1. Loads the original PI0Policy from a pretrained model name.
+    2. adds `preprocess_for_sampling` method to preprocess
+       inputs for action sampling.
+    3. Overrides the `forward` method with a custom inference-forward
+       function.
+
+    Args:
+        pretrained_model_name (str): The name or path of the pretrained Pi-0 model.
+
+    Returns:
+        PI0Policy: An instance of the Pi-0 Policy with overridden
+                   inference methods.
+    """
+    policy = PI0Policy.from_pretrained(pretrained_model_name)
+    policy.preprocess_for_sampling = MethodType(preprocess_for_sampling, policy)
+    policy.forward = MethodType(forward, policy)
+    return policy

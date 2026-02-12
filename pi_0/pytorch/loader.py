@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available Pi-0 model variants."""
 
     LIBERO_BASE = "lerobot_pi0_libero_base"
+    BASE = "pi0_base"
 
 
 class ModelLoader(ForgeModel):
@@ -32,10 +33,13 @@ class ModelLoader(ForgeModel):
         ModelVariant.LIBERO_BASE: ModelConfig(
             pretrained_model_name="lerobot/pi0_libero_base",
         ),
+        ModelVariant.BASE: ModelConfig(
+            pretrained_model_name="lerobot/pi0_base",
+        ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.LIBERO_BASE
+    DEFAULT_VARIANT = ModelVariant.BASE
 
     def __init__(
         self,
@@ -74,11 +78,11 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Pi-0 Policy instance.
         """
-        from lerobot.policies.pi0 import PI0Policy
-        from .src import model
+
+        from .src.model import get_custom_pi0_policy
 
         self.pretrained_model_name = self._variant_config.pretrained_model_name
-        self.pi_0 = PI0Policy.from_pretrained(self.pretrained_model_name)
+        self.pi_0 = get_custom_pi0_policy(self.pretrained_model_name)
         self.pi_0.eval()
         return self.pi_0
 
@@ -89,6 +93,7 @@ class ModelLoader(ForgeModel):
         """
         from lerobot.policies.factory import make_pre_post_processors
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
+        from .src.model import preprocess_for_sampling
 
         self.preprocess, self.postprocess_fn = make_pre_post_processors(
             self.pi_0.config,
