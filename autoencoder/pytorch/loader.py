@@ -128,6 +128,23 @@ class ModelLoader(ForgeModel):
 
         return batch_tensor
 
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        shard_specs[model.encoder_lin1.weight] = (None, "model")
+        shard_specs[model.encoder_lin2.weight] = ("model", None)
+        shard_specs[model.encoder_lin3.weight] = (None, "model")
+        shard_specs[model.encoder_lin4.weight] = ("model", None)
+        shard_specs[model.decoder_lin1.weight] = (None, "model")
+        shard_specs[model.decoder_lin2.weight] = ("model", None)
+        shard_specs[model.decoder_lin3.weight] = (None, "model")
+        shard_specs[model.decoder_lin4.weight] = ("model", None)
+
+        return shard_specs
+
     def post_processing(self, co_out, save_path):
         """Post-process the model outputs and save the reconstructed images.
 

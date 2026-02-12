@@ -125,7 +125,7 @@ class ModelLoader(ForgeModel):
 
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name, num_hidden_layers=1, **tokenizer_kwargs
         )
 
         return self.tokenizer
@@ -159,7 +159,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, num_hidden_layers=1, **model_kwargs
         ).eval()
 
         self.config = model.config
