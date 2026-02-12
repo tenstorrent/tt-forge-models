@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available ALBERT model variants for sequence classification."""
 
-    IMDB = "imdb"
+    IMDB = "Imdb"
 
 
 class ModelLoader(ForgeModel):
@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="albert_seq_cls",
+            model="ALBERT",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,

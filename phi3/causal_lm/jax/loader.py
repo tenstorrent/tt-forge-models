@@ -28,8 +28,8 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available PHI3 model variants."""
 
-    MINI_128K = "microsoft/Phi-3-mini-128k-instruct"
-    MINI_4K = "microsoft/Phi-3-mini-4k-instruct"
+    MINI_128K = "Phi_3_Mini_128K_Instruct"
+    MINI_4K = "Phi_3_Mini_4K_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -60,7 +60,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="phi3",
+            model="Phi-3",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,

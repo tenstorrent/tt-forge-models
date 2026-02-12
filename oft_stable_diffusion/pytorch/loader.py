@@ -22,7 +22,7 @@ from typing import Optional
 class ModelVariant(StrEnum):
     """Available OFT Stable Diffusion model variants."""
 
-    OFT_STABLE_DIFFUSION_V1_5 = "runwayml/stable-diffusion-v1-5"
+    OFT_STABLE_DIFFUSION_V1_5 = "Stable_Diffusion_v1_5"
 
 
 class ModelLoader(ForgeModel):
@@ -52,7 +52,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="oft_stable_diffusion",
+            model="OFT Stable Diffusion",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CONDITIONAL_GENERATION,

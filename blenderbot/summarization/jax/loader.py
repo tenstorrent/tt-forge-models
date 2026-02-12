@@ -23,9 +23,9 @@ class ModelVariant(StrEnum):
     """Available Blenderbot model variants."""
 
     BLENDERBOT_3B = "3B"
-    BLENDERBOT_SMALL_90M = "small-90M"
-    BLENDERBOT_1B_DISTILL = "1B-distill"
-    BLENDERBOT_400M_DISTILL = "400M-distill"
+    BLENDERBOT_SMALL_90M = "90M_Small"
+    BLENDERBOT_1B_DISTILL = "1B_Distill"
+    BLENDERBOT_400M_DISTILL = "400M_Distill"
 
 
 class ModelLoader(ForgeModel):
@@ -79,7 +79,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="blenderbot",
+            model="BlenderBot",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_SUMMARIZATION,

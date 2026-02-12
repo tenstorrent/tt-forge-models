@@ -46,7 +46,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="vgg19_unet",
+            model="VGG19-UNet",
             variant=variant_name,
             group=ModelGroup.RED,
             task=ModelTask.CV_IMAGE_SEG,

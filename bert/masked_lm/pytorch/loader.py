@@ -21,7 +21,7 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available BERT model variants for masked language modeling."""
 
-    BERT_BASE_UNCASED = "bert-base-uncased"
+    BERT_BASE_UNCASED = "Base_Uncased"
 
 
 class ModelLoader(ForgeModel):
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="BERT-MaskedLM",
+            model="BERT",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,

@@ -23,28 +23,28 @@ class ModelVariant(StrEnum):
     """Available Llama model variants for sequence classification."""
 
     # Llama 3 variants
-    LLAMA_3_8B = "llama_3_8b"
-    LLAMA_3_8B_INSTRUCT = "llama_3_8b_instruct"
+    LLAMA_3_8B = "3_8B"
+    LLAMA_3_8B_INSTRUCT = "3_8B_Instruct"
 
     # Llama 3.1 variants
-    LLAMA_3_1_8B = "llama_3_1_8b"
-    LLAMA_3_1_8B_INSTRUCT = "llama_3_1_8b_instruct"
-    LLAMA_3_1_70B = "llama_3_1_70b"
-    LLAMA_3_1_70B_INSTRUCT = "llama_3_1_70b_instruct"
-    LLAMA_3_1_405B = "llama_3_1_405b"
-    LLAMA_3_1_405B_INSTRUCT = "llama_3_1_405b_instruct"
+    LLAMA_3_1_8B = "3.1_8B"
+    LLAMA_3_1_8B_INSTRUCT = "3.1_8B_Instruct"
+    LLAMA_3_1_70B = "3.1_70B"
+    LLAMA_3_1_70B_INSTRUCT = "3.1_70B_Instruct"
+    LLAMA_3_1_405B = "3.1_405B"
+    LLAMA_3_1_405B_INSTRUCT = "3.1_405B_Instruct"
 
     # Llama 3.2 variants
-    LLAMA_3_2_1B = "llama_3_2_1b"
-    LLAMA_3_2_1B_INSTRUCT = "llama_3_2_1b_instruct"
-    LLAMA_3_2_3B = "llama_3_2_3b"
-    LLAMA_3_2_3B_INSTRUCT = "llama_3_2_3b_instruct"
+    LLAMA_3_2_1B = "3.2_1B"
+    LLAMA_3_2_1B_INSTRUCT = "3.2_1B_Instruct"
+    LLAMA_3_2_3B = "3.2_3B"
+    LLAMA_3_2_3B_INSTRUCT = "3.2_3B_Instruct"
 
     # Llama 3.3 variants
-    LLAMA_3_3_70B_INSTRUCT = "llama_3_3_70b_instruct"
+    LLAMA_3_3_70B_INSTRUCT = "3.3_70B_Instruct"
 
     # HuggingFace community variants
-    HUGGYLLAMA_7B = "huggyllama_7b"
+    HUGGYLLAMA_7B = "Huggyllama_7B"
 
 
 class ModelLoader(ForgeModel):
@@ -146,7 +146,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="llama_seq_cls",
+            model="Llama",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,

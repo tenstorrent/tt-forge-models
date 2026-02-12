@@ -41,14 +41,14 @@ class ModelVariant(StrEnum):
     """Available MobileNetV1 model variants."""
 
     # GitHub variants
-    MOBILENET_V1_GITHUB = "mobilenet_v1"
+    MOBILENET_V1_GITHUB = "Mobilenet_v1"
 
     # HuggingFace variants
-    MOBILENET_V1_075_192_HF = "google/mobilenet_v1_0.75_192"
-    MOBILENET_V1_100_224_HF = "google/mobilenet_v1_1.0_224"
+    MOBILENET_V1_075_192_HF = "Mobilenet_v1_0.75_192"
+    MOBILENET_V1_100_224_HF = "Mobilenet_v1_1.0_224"
 
     # TIMM variants
-    MOBILENET_V1_100_TIMM = "mobilenetv1_100.ra4_e3600_r224_in1k"
+    MOBILENET_V1_100_TIMM = "100.ra4_E3600_R224_In1k"
 
 
 class ModelLoader(ForgeModel):
@@ -108,7 +108,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="mobilenetv1",
+            model="MobileNetV1",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

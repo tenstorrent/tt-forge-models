@@ -40,16 +40,16 @@ class ModelVariant(StrEnum):
     """Available ResNeXt model variants."""
 
     # Torch Hub variants
-    RESNEXT50_32X4D = "resnext50_32x4d"
-    RESNEXT101_32X8D = "resnext101_32x8d"
-    RESNEXT101_64X4D = "resnext101_64x4d"
-    RESNEXT101_32X8D_WSL = "resnext101_32x8d_wsl"
+    RESNEXT50_32X4D = "50_32x4d"
+    RESNEXT101_32X8D = "101_32x8d"
+    RESNEXT101_64X4D = "101_64x4d"
+    RESNEXT101_32X8D_WSL = "101_32x8d_Wsl"
 
     # OSMR variants
-    RESNEXT14_32X4D_OSMR = "resnext14_32x4d_osmr"
-    RESNEXT26_32X4D_OSMR = "resnext26_32x4d_osmr"
-    RESNEXT50_32X4D_OSMR = "resnext50_32x4d_osmr"
-    RESNEXT101_64X4D_OSMR = "resnext101_64x4d_osmr"
+    RESNEXT14_32X4D_OSMR = "14_32x4d_Osmr"
+    RESNEXT26_32X4D_OSMR = "26_32x4d_Osmr"
+    RESNEXT50_32X4D_OSMR = "50_32x4d_Osmr"
+    RESNEXT101_64X4D_OSMR = "101_64x4d_Osmr"
 
 
 class ModelLoader(ForgeModel):
@@ -129,7 +129,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="resnext",
+            model="ResNeXt",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

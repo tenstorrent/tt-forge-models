@@ -27,9 +27,9 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available SAM model variants."""
 
-    BASE = "facebook/sam-vit-base"
-    LARGE = "facebook/sam-vit-large"
-    HUGE = "facebook/sam-vit-huge"
+    BASE = "Vit_Base"
+    LARGE = "Vit_Large"
+    HUGE = "Vit_Huge"
 
 
 class ModelLoader(ForgeModel):
@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="sam",
+            model="SAM",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_SEG,

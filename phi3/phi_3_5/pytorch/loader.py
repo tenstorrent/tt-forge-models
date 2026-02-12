@@ -23,8 +23,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Phi 3.5 model variants (non-MoE)."""
 
-    MINI_INSTRUCT = "mini_instruct"
-    MOE_INSTRUCT = "microsoft/Phi-3.5-MoE-instruct"
+    MINI_INSTRUCT = "Mini_Instruct"
+    MOE_INSTRUCT = "Phi_3.5_Moe_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting."""
         return ModelInfo(
-            model="phi-3.5",
+            model="Phi-3",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,

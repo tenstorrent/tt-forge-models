@@ -23,7 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Huggy Llama model variants."""
 
-    LLAMA_7B = "llama_7b"
+    LLAMA_7B = "Llama_7B"
 
 
 class ModelLoader(ForgeModel):
@@ -65,7 +65,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="huggyllama",
+            model="HuggyLlama",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
