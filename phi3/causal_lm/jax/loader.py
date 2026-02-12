@@ -121,7 +121,7 @@ class ModelLoader(ForgeModel):
             # Default to 8 for single device too, for consistency
             batch_size = 8
 
-        tokenizer_kwargs = {"trust_remote_code": True}
+        tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["dtype"] = dtype_override
 
