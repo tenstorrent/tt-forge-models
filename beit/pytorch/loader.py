@@ -6,8 +6,6 @@ BEiT model loader implementation for image classification
 """
 import torch
 from transformers import BeitImageProcessor, BeitForImageClassification
-from PIL import Image
-from ...tools.utils import get_file
 from typing import Optional
 
 from ...base import ForgeModel
@@ -125,12 +123,16 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors and attention masks that can be fed to the model.
         """
+        from datasets import load_dataset
+
         # Ensure processor is initialized
         if self.processor is None:
             self._load_processor()
 
-        image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
-        image = Image.open(str(image_file))
+        # Load a sample image from Hugging Face cats-image dataset
+        dataset = load_dataset("huggingface/cats-image", split="test")
+        image = dataset[0]["image"]
+
         inputs = self.processor(images=image, return_tensors="pt")
 
         if dtype_override is not None:
