@@ -12,6 +12,7 @@ import torch
 import timm
 
 from transformers import ResNetForImageClassification
+from datasets import load_dataset
 from ...tools.utils import VisionPreprocessor, VisionPostprocessor
 
 
@@ -240,6 +241,10 @@ class ModelLoader(ForgeModel):
             if hasattr(self, "model") and self.model is not None:
                 self._preprocessor.set_cached_model(self.model)
 
+        # Load image from HuggingFace dataset if image is None
+        if image is None:
+                dataset = load_dataset("huggingface/cats-image", split="test[:1]")
+                image = dataset[0]["image"]
         model_for_config = None
         if self._variant_config.source == ModelSource.TIMM:
             if hasattr(self, "model") and self.model is not None:
