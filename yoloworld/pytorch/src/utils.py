@@ -7834,19 +7834,19 @@ def get_xl_variant_module_params(base_cfg):
     return get_s_variant_module_params(base_cfg)
 
 
-def get_base_cfg(variant="small_640"):
+def get_base_cfg(variant="Small_640"):
     if hasattr(variant, "value"):
         variant = variant.value
     base_cfg = dict(
         variant=variant,
     )
-    if base_cfg["variant"].startswith("small"):
+    if base_cfg["variant"].startswith("Small"):
         base_cfg = get_s_coco_init_params(base_cfg)
         base_cfg = get_s_variant_init_params(base_cfg)
         base_cfg = get_s_coco_module_params(base_cfg)
         base_cfg = get_m_variant_module_params(base_cfg)
 
-    if base_cfg["variant"].startswith("medium"):
+    if base_cfg["variant"].startswith("Medium"):
         base_cfg = get_s_coco_init_params(base_cfg)
         base_cfg = get_m_coco_init_params(base_cfg)
         base_cfg = get_m_variant_init_params(base_cfg)
@@ -7854,7 +7854,7 @@ def get_base_cfg(variant="small_640"):
         base_cfg = get_m_coco_module_params(base_cfg)
         base_cfg = get_m_variant_module_params(base_cfg)
 
-    if base_cfg["variant"].startswith("large"):
+    if base_cfg["variant"].startswith("Large"):
         base_cfg = get_s_coco_init_params(base_cfg)
         base_cfg = get_m_coco_init_params(base_cfg)
         base_cfg = get_l_coco_init_params(base_cfg)
@@ -7864,7 +7864,7 @@ def get_base_cfg(variant="small_640"):
         base_cfg = get_l_coco_module_params(base_cfg)
         base_cfg = get_l_variant_module_params(base_cfg)
 
-    if base_cfg["variant"].startswith("xlarge"):
+    if base_cfg["variant"].startswith("Xlarge"):
         base_cfg = get_s_coco_init_params(base_cfg)
         base_cfg = get_m_coco_init_params(base_cfg)
         base_cfg = get_l_coco_init_params(base_cfg)

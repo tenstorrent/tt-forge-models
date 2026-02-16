@@ -36,25 +36,25 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.SMALL_1: ModelConfig(
-            pretrained_model_name="small_640",
+            pretrained_model_name="Small_640",
         ),
         ModelVariant.SMALL_2: ModelConfig(
-            pretrained_model_name="small_1280",
+            pretrained_model_name="Small_1280",
         ),
         ModelVariant.MEDIUM_1: ModelConfig(
-            pretrained_model_name="medium_640",
+            pretrained_model_name="Medium_640",
         ),
         ModelVariant.MEDIUM_2: ModelConfig(
-            pretrained_model_name="medium_1280",
+            pretrained_model_name="Medium_1280",
         ),
         ModelVariant.LARGE_1: ModelConfig(
-            pretrained_model_name="large_640",
+            pretrained_model_name="Large_640",
         ),
         ModelVariant.LARGE_2: ModelConfig(
-            pretrained_model_name="large_1280",
+            pretrained_model_name="Large_1280",
         ),
         ModelVariant.XLARGE_1: ModelConfig(
-            pretrained_model_name="xlarge_640",
+            pretrained_model_name="Xlarge_640",
         ),
     }
 
