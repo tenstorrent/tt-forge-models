@@ -120,7 +120,12 @@ class ModelLoader(ForgeModel):
 
         self.master_config = MasterConfig()
 
-        self.master_config.embedding_name = variant.value
+        # Use explicit embedding names to ensure correct model loading since ModelVariant's value is updated
+        self.master_config.embedding_name = (
+            "xlm-roberta-base"
+            if variant == ModelVariant.XLM_ROBERTA_BASE
+            else "xlm-roberta-large"
+        )
         self._ud_eval = False
 
         self.master_config.device = torch.device("cpu")
