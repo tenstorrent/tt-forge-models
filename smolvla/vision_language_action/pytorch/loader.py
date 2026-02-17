@@ -8,6 +8,7 @@ SmolVLA model loader implementation for action prediction.
 import importlib.util
 import sys
 import types
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -26,6 +27,10 @@ from ....config import (
 
 
 def _setup_policies_namespace() -> None:
+    """Register lerobot.policies in sys.modules so subpackage imports work when this loader
+    is imported outside the normal lerobot package context (e.g. via tt-forge-models dynamic
+    import). Without this, 'from lerobot.policies.smolvla...' can fail with import errors.
+    """
     spec = importlib.util.find_spec("lerobot")
     if spec is None or spec.origin is None:
         return
@@ -39,8 +44,6 @@ def _setup_policies_namespace() -> None:
     sys.modules["lerobot.policies"] = policies_module
 
 
-from pathlib import Path
-
 _setup_policies_namespace()
 
 from lerobot.configs.types import FeatureType
@@ -50,6 +53,22 @@ from lerobot.policies.utils import prepare_observation_for_inference
 import lerobot.policies.smolvla.processor_smolvla  # Registers SmolVLA processor steps.
 from lerobot.processor import PolicyProcessorPipeline
 from lerobot.utils.constants import ACTION
+
+
+class SmolVLAInferenceWrapper(torch.nn.Module):
+    """Wraps SmolVLAPolicy to use predict_action_chunk (inference) instead of forward (training).
+
+    SmolVLAPolicy.forward() computes training loss; for inference we use predict_action_chunk.
+    See: https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/smolvla/modeling_smolvla.py
+    """
+
+    def __init__(self, policy: SmolVLAPolicy):
+        super().__init__()
+        self.policy = policy
+
+    def forward(self, batch: dict) -> torch.Tensor:
+        """Run inference via predict_action_chunk. Returns action tensor (B, n_steps, action_dim)."""
+        return self.policy.predict_action_chunk(batch)
 
 
 class ModelVariant(StrEnum):
@@ -102,21 +121,26 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, device: str = "cpu", **kwargs):
+        # SmolVLA: force float32 to avoid bfloat16 dtype mismatch in torch.compile/inductor path.
+        # Pretrained weights load as bfloat16; preprocess produces float32. Explicit conversion
+        # ensures model and inputs match.
         model = SmolVLAPolicy.from_pretrained(
             self._variant_config.pretrained_model_name, **kwargs
         )
         model.to(device)
-        if dtype_override is not None:
-            model = model.to(dtype=dtype_override)
+        model = model.to(dtype=torch.float32)
         model.eval()
         self.config = model.config
         if self.preprocess is None or self.postprocess is None:
             self._load_processors(torch.device(device))
-        return model
+        # Wrap so model(**inputs) runs predict_action_chunk (inference) not forward (training).
+        return SmolVLAInferenceWrapper(model)
 
     def load_inputs(
         self, dtype_override=None, batch_size: int = 1, device: str = "cpu"
     ):
+        # SmolVLA: inputs stay float32 to match model (see load_model). Ignore test's bfloat16.
+        dtype_override = None
         if self.config is None:
             self.config = SmolVLAConfig.from_pretrained(
                 self._variant_config.pretrained_model_name
@@ -152,15 +176,18 @@ class ModelLoader(ForgeModel):
                 if torch.is_tensor(value) and value.dim() > 0:
                     inputs[key] = value.repeat_interleave(batch_size, dim=0)
 
-        # SmolVLAPolicy.forward() expects (batch, noise=None, time=None, reduction="mean").
-        # The test runner calls model(**load_inputs()), so we return {"batch": batch_dict}
-        # so that model(batch=inputs) matches forward(batch, ...).
+        # Cast inputs to model dtype when dtype_override is set (e.g. bfloat16 for tests).
+        # Preprocess pipeline outputs float32; model may be bfloat16, causing dtype mismatch.
+        if dtype_override is not None:
+            for key, value in inputs.items():
+                if torch.is_tensor(value) and value.is_floating_point():
+                    inputs[key] = value.to(dtype_override)
+
+        # Wrapper expects model(batch=inputs). predict_action_chunk returns action tensor directly.
         return {"batch": inputs}
 
     def unpack_forward_output(self, fwd_output):
-        """Extract the loss tensor from SmolVLAPolicy.forward() output (loss, loss_dict)."""
-        if isinstance(fwd_output, tuple):
-            return fwd_output[0]  # loss tensor
+        """predict_action_chunk returns action tensor (B, n_steps, action_dim) directly."""
         return fwd_output
 
 
