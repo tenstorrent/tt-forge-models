@@ -24,7 +24,7 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available MarianMT model variants."""
 
-    OPUS_MT_EN_DE = "Opus Mt En De"
+    OPUS_MT_EN_DE = "Opus_Mt_En_De"
 
 
 class ModelLoader(ForgeModel):

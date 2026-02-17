@@ -26,8 +26,8 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available MaskFormer Swin-B model variants for segmentation."""
 
-    SWIN_B_COCO = "Swin Base Coco"
-    SWIN_B_ADE = "Swin Base Ade"
+    SWIN_B_COCO = "Swin_Base_Coco"
+    SWIN_B_ADE = "Swin_Base_Ade"
 
 
 class ModelLoader(ForgeModel):

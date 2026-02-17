@@ -24,12 +24,12 @@ from ...tools.utils import get_static_cache_decode_inputs
 class ModelVariant(StrEnum):
     """Available Falcon model variants."""
 
-    FALCON_1B = "3 1B Base"
-    FALCON_3B = "3 3B Base"
-    FALCON_7B = "3 7B Base"
-    FALCON_10B = "3 10B Base"
-    FALCON_MAMBA_7B = "3 Mamba 7B Base"
-    FALCON_7B_INSTRUCT = "7B Instruct"
+    FALCON_1B = "3_1B_Base"
+    FALCON_3B = "3_3B_Base"
+    FALCON_7B = "3_7B_Base"
+    FALCON_10B = "3_10B_Base"
+    FALCON_MAMBA_7B = "3_Mamba_7B_Base"
+    FALCON_7B_INSTRUCT = "7B_Instruct"
 
 
 class ModelLoader(ForgeModel):

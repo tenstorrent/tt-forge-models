@@ -41,18 +41,18 @@ class ModelVariant(StrEnum):
     """Available ResNet model variants."""
 
     # HuggingFace variants
-    RESNET_50_HF = "ResNet50 HuggingFace"
-    RESNET_50_HF_HIGH_RES = "ResNet50 HuggingFace High Resolution"
+    RESNET_50_HF = "ResNet50_HuggingFace"
+    RESNET_50_HF_HIGH_RES = "ResNet50_HuggingFace_High_Resolution"
 
     # TIMM variants
-    RESNET_50_TIMM = "ResNet50 TIMM"
-    RESNET_50_TIMM_HIGH_RES = "ResNet50 TIMM High Resolution"
+    RESNET_50_TIMM = "ResNet50_TIMM"
+    RESNET_50_TIMM_HIGH_RES = "ResNet50_TIMM_High_Resolution"
 
     # Torchvision variants
     RESNET_18 = "ResNet18"
     RESNET_34 = "ResNet34"
     RESNET_50 = "ResNet50"
-    RESNET_50_HIGH_RES = "ResNet50 High Resolution"
+    RESNET_50_HIGH_RES = "ResNet50_High_Resolution"
     RESNET_101 = "ResNet101"
     RESNET_152 = "ResNet152"
 

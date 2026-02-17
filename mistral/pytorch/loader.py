@@ -30,14 +30,14 @@ class ModelVariant(StrEnum):
     """Available Mistral model variants."""
 
     MISTRAL_7B = "7B"
-    MISTRAL_7B_INSTRUCT_V03 = "7B INSTRUCT v03"
-    MINISTRAL_3B = "Ministral 3B Instruct"
-    MINISTRAL_8B = "Ministral 8B Instruct"
-    MISTRAL_SMALL_24B_INSTRUCT_2501 = "Small 24B INSTRUCT 2501"
-    MISTRAL_LARGE_INSTRUCT_2411 = "Large INSTRUCT 2411"
-    MISTRAL_NEMO_INSTRUCT_2407 = "Nemo INSTRUCT 2407"
-    DEVSTRAL_SMALL_2505 = "Devstral Small 2505"
-    MAGISTRAL_SMALL_2506 = "Magistral Small 2506"
+    MISTRAL_7B_INSTRUCT_V03 = "7B_INSTRUCT_v03"
+    MINISTRAL_3B = "Ministral_3B_Instruct"
+    MINISTRAL_8B = "Ministral_8B_Instruct"
+    MISTRAL_SMALL_24B_INSTRUCT_2501 = "Small_24B_INSTRUCT_2501"
+    MISTRAL_LARGE_INSTRUCT_2411 = "Large_INSTRUCT_2411"
+    MISTRAL_NEMO_INSTRUCT_2407 = "Nemo_INSTRUCT_2407"
+    DEVSTRAL_SMALL_2505 = "Devstral_Small_2505"
+    MAGISTRAL_SMALL_2506 = "Magistral_Small_2506"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
 

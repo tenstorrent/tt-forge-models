@@ -25,16 +25,16 @@ from ....tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available SigLIP model variants for image-text similarity."""
 
-    BASE_PATCH16_224 = "Base Patch16 224"
-    BASE_PATCH16_256 = "Base Patch16 256"
-    BASE_PATCH16_384 = "Base Patch16 384"
-    BASE_PATCH16_512 = "Base Patch16 512"
-    BASE_PATCH16_256_MULTILINGUAL = "Base Patch16 256 Multilingual"
-    LARGE_PATCH16_256 = "Large Patch16 256"
-    LARGE_PATCH16_384 = "Large Patch16 384"
-    SO400M_PATCH14_224 = "So400m Patch14 224"
-    SO400M_PATCH14_384 = "So400m Patch14 384"
-    SO400M_PATCH16_256_I18N = "So400m Patch16 256 I18n"
+    BASE_PATCH16_224 = "Base_Patch16_224"
+    BASE_PATCH16_256 = "Base_Patch16_256"
+    BASE_PATCH16_384 = "Base_Patch16_384"
+    BASE_PATCH16_512 = "Base_Patch16_512"
+    BASE_PATCH16_256_MULTILINGUAL = "Base_Patch16_256_Multilingual"
+    LARGE_PATCH16_256 = "Large_Patch16_256"
+    LARGE_PATCH16_384 = "Large_Patch16_384"
+    SO400M_PATCH14_224 = "So400m_Patch14_224"
+    SO400M_PATCH14_384 = "So400m_Patch14_384"
+    SO400M_PATCH16_256_I18N = "So400m_Patch16_256_I18n"
 
 
 class ModelLoader(ForgeModel):

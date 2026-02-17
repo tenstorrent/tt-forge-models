@@ -40,8 +40,8 @@ class ModelVariant(StrEnum):
     Currently a single default variant that wraps Surya's detection and recognition predictors.
     """
 
-    OCR_TEXT = "Ocr Text"
-    OCR_DETECTION = "Ocr Detection"
+    OCR_TEXT = "Ocr_Text"
+    OCR_DETECTION = "Ocr_Detection"
 
 
 class ModelLoader(ForgeModel):

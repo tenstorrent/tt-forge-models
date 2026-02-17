@@ -65,12 +65,12 @@ class ModelVariant(StrEnum):
     """Available Arnold DQN model variants - only variants with matching checkpoints."""
 
     # Feedforward variants with matching checkpoints
-    DEFEND_THE_CENTER_FF = "Defend The Center Ff"
-    HEALTH_GATHERING_FF = "Health Gathering Ff"
+    DEFEND_THE_CENTER_FF = "Defend_The_Center_Ff"
+    HEALTH_GATHERING_FF = "Health_Gathering_Ff"
     # Recurrent variants with matching checkpoints
-    DEATHMATCH_SHOTGUN_RNN = "Deathmatch Shotgun Rnn"
-    VIZDOOM_2017_TRACK1_RNN = "Vizdoom 2017 Track1 Rnn"
-    VIZDOOM_2017_TRACK2_RNN = "Vizdoom 2017 Track2 Rnn"
+    DEATHMATCH_SHOTGUN_RNN = "Deathmatch_Shotgun_Rnn"
+    VIZDOOM_2017_TRACK1_RNN = "Vizdoom_2017_Track1_Rnn"
+    VIZDOOM_2017_TRACK2_RNN = "Vizdoom_2017_Track2_Rnn"
 
 
 class ModelLoader(ForgeModel):

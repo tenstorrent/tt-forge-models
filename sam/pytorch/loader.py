@@ -27,9 +27,9 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available SAM model variants."""
 
-    BASE = "Vit Base"
-    LARGE = "Vit Large"
-    HUGE = "Vit Huge"
+    BASE = "Vit_Base"
+    LARGE = "Vit_Large"
+    HUGE = "Vit_Huge"
 
 
 class ModelLoader(ForgeModel):

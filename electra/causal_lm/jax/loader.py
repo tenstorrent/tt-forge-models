@@ -23,10 +23,10 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available ELECTRA model variants."""
 
-    BASE_DISCRIMINATOR = "Base Discriminator"
-    BASE_GENERATOR = "Base Generator"
-    LARGE_DISCRIMINATOR = "Large Discriminator"
-    SMALL_DISCRIMINATOR = "Small Discriminator"
+    BASE_DISCRIMINATOR = "Base_Discriminator"
+    BASE_GENERATOR = "Base_Generator"
+    LARGE_DISCRIMINATOR = "Large_Discriminator"
+    SMALL_DISCRIMINATOR = "Small_Discriminator"
 
 
 class ModelLoader(ForgeModel):

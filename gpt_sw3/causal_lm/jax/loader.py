@@ -23,7 +23,7 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available GPT-SW3 model variants."""
 
-    INSTRUCT_1_3B = "1 3B Instruct"
+    INSTRUCT_1_3B = "1_3B_Instruct"
 
 
 class ModelLoader(ForgeModel):

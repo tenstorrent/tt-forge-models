@@ -36,7 +36,7 @@ class ModelVariant(StrEnum):
     """Available DeiT model variants."""
 
     BASE = "Base"
-    BASE_DISTILLED = "Base Distilled"
+    BASE_DISTILLED = "Base_Distilled"
     SMALL = "Small"
     TINY = "Tiny"
 

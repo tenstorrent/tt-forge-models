@@ -21,8 +21,8 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available DPR Context Encoder model variants."""
 
-    DPR_SINGLE_NQ_BASE = "Ctx Encoder Single Nq Base"
-    DPR_MULTISET_BASE = "Ctx Encoder Multiset Base"
+    DPR_SINGLE_NQ_BASE = "Ctx_Encoder_Single_Nq_Base"
+    DPR_MULTISET_BASE = "Ctx_Encoder_Multiset_Base"
 
 
 class ModelLoader(ForgeModel):

@@ -28,8 +28,8 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available Falcon model variants."""
 
-    FALCON_1B = "3 1B Base"
-    FALCON_3B = "3 3B Base"
+    FALCON_1B = "3_1B_Base"
+    FALCON_3B = "3_3B_Base"
     ## Too large
     # FALCON_7B = "3 7B Base"
     # FALCON_10B = "3 10B Base"

@@ -35,15 +35,15 @@ class ModelVariant(StrEnum):
     """Available CenterNet model variants."""
 
     # Hourglass-based variants
-    HOURGLASS_COCO = "Hourglass Coco"
+    HOURGLASS_COCO = "Hourglass_Coco"
 
     # Resnet-based variants
-    RESNET_18_COCO = "ResNet18 Backbone COCO"
-    RESNET_101_COCO = "ResNet101 Backbone COCO"
+    RESNET_18_COCO = "ResNet18_Backbone_COCO"
+    RESNET_101_COCO = "ResNet101_Backbone_COCO"
 
     # DLA-based variants
-    DLA_1X_COCO = "Dla1x Coco"
-    DLA_2X_COCO = "Dla2x Coco"
+    DLA_1X_COCO = "Dla1x_Coco"
+    DLA_2X_COCO = "Dla2x_Coco"
 
 
 class ModelLoader(ForgeModel):

@@ -28,7 +28,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available FPN model variants."""
 
-    RESNET50_FPN_V2 = "ResNet50 Backbone with FPN V2"
+    RESNET50_FPN_V2 = "ResNet50_Backbone_with_FPN_V2"
 
 
 class FPNWrapper(nn.Module):

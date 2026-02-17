@@ -33,10 +33,10 @@ from .src.petr import (
 class ModelVariant(StrEnum):
     """Available PETR model variants."""
 
-    VOVNET_GRIDMASK_P4_800X320 = "Vovnet Gridmask P4 800x320"
-    VOVNET_GRIDMASK_P4_1600X640 = "Vovnet Gridmask P4 1600x640"
-    R50DCN_GRIDMASK_C5 = "R50dcn Gridmask C5"
-    R50DCN_GRIDMASK_P4 = "R50dcn Gridmask P4"
+    VOVNET_GRIDMASK_P4_800X320 = "Vovnet_Gridmask_P4_800x320"
+    VOVNET_GRIDMASK_P4_1600X640 = "Vovnet_Gridmask_P4_1600x640"
+    R50DCN_GRIDMASK_C5 = "R50dcn_Gridmask_C5"
+    R50DCN_GRIDMASK_P4 = "R50dcn_Gridmask_P4"
 
 
 class ModelLoader(ForgeModel):

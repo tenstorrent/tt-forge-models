@@ -41,14 +41,14 @@ class ModelVariant(StrEnum):
     """Available MobileNetV1 model variants."""
 
     # GitHub variants
-    MOBILENET_V1_GITHUB = "Mobilenet v1"
+    MOBILENET_V1_GITHUB = "Mobilenet_v1"
 
     # HuggingFace variants
-    MOBILENET_V1_075_192_HF = "Mobilenet v1 0.75 192"
-    MOBILENET_V1_100_224_HF = "Mobilenet v1 1.0 224"
+    MOBILENET_V1_075_192_HF = "Mobilenet_v1_0.75_192"
+    MOBILENET_V1_100_224_HF = "Mobilenet_v1_1.0_224"
 
     # TIMM variants
-    MOBILENET_V1_100_TIMM = "100.ra4 E3600 R224 In1k"
+    MOBILENET_V1_100_TIMM = "100.ra4_E3600_R224_In1k"
 
 
 class ModelLoader(ForgeModel):

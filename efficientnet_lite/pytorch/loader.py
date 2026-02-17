@@ -31,11 +31,11 @@ from ...tools.utils import get_file, print_compiled_model_results
 class ModelVariant(StrEnum):
     """Available EfficientNet-Lite model variants (timm)."""
 
-    TF_EFFICIENTNET_LITE0_IN1K = "Tf Efficientnet Lite0.in1k"
-    TF_EFFICIENTNET_LITE1_IN1K = "Tf Efficientnet Lite1.in1k"
-    TF_EFFICIENTNET_LITE2_IN1K = "Tf Efficientnet Lite2.in1k"
-    TF_EFFICIENTNET_LITE3_IN1K = "Tf Efficientnet Lite3.in1k"
-    TF_EFFICIENTNET_LITE4_IN1K = "Tf Efficientnet Lite4.in1k"
+    TF_EFFICIENTNET_LITE0_IN1K = "Tf_Efficientnet_Lite0.in1k"
+    TF_EFFICIENTNET_LITE1_IN1K = "Tf_Efficientnet_Lite1.in1k"
+    TF_EFFICIENTNET_LITE2_IN1K = "Tf_Efficientnet_Lite2.in1k"
+    TF_EFFICIENTNET_LITE3_IN1K = "Tf_Efficientnet_Lite3.in1k"
+    TF_EFFICIENTNET_LITE4_IN1K = "Tf_Efficientnet_Lite4.in1k"
 
 
 class ModelLoader(ForgeModel):

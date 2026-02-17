@@ -21,9 +21,9 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available DistilBERT model variants for masked language modeling."""
 
-    DISTILBERT_BASE_CASED = "Base Cased"
-    DISTILBERT_BASE_UNCASED = "Base Uncased"
-    DISTILBERT_BASE_MULTILINGUAL_CASED = "Base Multilingual Cased"
+    DISTILBERT_BASE_CASED = "Base_Cased"
+    DISTILBERT_BASE_UNCASED = "Base_Uncased"
+    DISTILBERT_BASE_MULTILINGUAL_CASED = "Base_Multilingual_Cased"
 
 
 class ModelLoader(ForgeModel):

@@ -31,31 +31,31 @@ class ModelVariant(StrEnum):
     """Available Llama model variants for causal LM."""
 
     # Llama 3 variants
-    LLAMA_3_8B = "3.0 8B"
-    LLAMA_3_8B_INSTRUCT = "3.0 8B Instruct"
+    LLAMA_3_8B = "3.0_8B"
+    LLAMA_3_8B_INSTRUCT = "3.0_8B_Instruct"
 
     # Llama 3.1 variants
-    LLAMA_3_1_8B = "3.1 8B"
-    LLAMA_3_1_8B_INSTRUCT = "3.1 8B Instruct"
-    LLAMA_3_1_70B = "3.1 70B"
-    LLAMA_3_1_70B_INSTRUCT = "3.1 70B Instruct"
-    LLAMA_3_1_405B = "3.1 405B"
-    LLAMA_3_1_405B_INSTRUCT = "3.1 405B Instruct"
+    LLAMA_3_1_8B = "3.1_8B"
+    LLAMA_3_1_8B_INSTRUCT = "3.1_8B_Instruct"
+    LLAMA_3_1_70B = "3.1_70B"
+    LLAMA_3_1_70B_INSTRUCT = "3.1_70B_Instruct"
+    LLAMA_3_1_405B = "3.1_405B"
+    LLAMA_3_1_405B_INSTRUCT = "3.1_405B_Instruct"
 
     # Llama 3.2 variants
-    LLAMA_3_2_1B = "3.2 1B"
-    LLAMA_3_2_1B_INSTRUCT = "3.2 1B Instruct"
-    LLAMA_3_2_3B = "3.2 3B"
-    LLAMA_3_2_3B_INSTRUCT = "3.2 3B Instruct"
+    LLAMA_3_2_1B = "3.2_1B"
+    LLAMA_3_2_1B_INSTRUCT = "3.2_1B_Instruct"
+    LLAMA_3_2_3B = "3.2_3B"
+    LLAMA_3_2_3B_INSTRUCT = "3.2_3B_Instruct"
 
     # Llama 3.3 variants
-    LLAMA_3_3_70B_INSTRUCT = "3.3 70B Instruct"
+    LLAMA_3_3_70B_INSTRUCT = "3.3_70B_Instruct"
 
     # HuggingFace community variants
-    HUGGYLLAMA_7B = "Huggyllama 7B"
+    HUGGYLLAMA_7B = "Huggyllama_7B"
 
     # TinyLlama variants
-    TINYLLAMA_V1_1 = "Tinyllama v1.1"
+    TINYLLAMA_V1_1 = "Tinyllama_v1.1"
 
 
 class ModelLoader(ForgeModel):

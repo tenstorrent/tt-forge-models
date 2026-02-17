@@ -23,9 +23,9 @@ from .src.model_utils import load_pipe, stable_diffusion_preprocessing_v35
 class ModelVariant(StrEnum):
     """Available Stable Diffusion v3.5 model variants."""
 
-    STABLE_DIFFUSION_3_5_MEDIUM = "3.5 Medium"
-    STABLE_DIFFUSION_3_5_LARGE = "3.5 Large"
-    STABLE_DIFFUSION_3_5_LARGE_TURBO = "3.5 Large Turbo"
+    STABLE_DIFFUSION_3_5_MEDIUM = "3.5_Medium"
+    STABLE_DIFFUSION_3_5_LARGE = "3.5_Large"
+    STABLE_DIFFUSION_3_5_LARGE_TURBO = "3.5_Large_Turbo"
 
 
 class ModelLoader(ForgeModel):

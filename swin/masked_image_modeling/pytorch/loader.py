@@ -24,7 +24,7 @@ from typing import Optional
 class ModelVariant(StrEnum):
     """Available Swin model variants for masked image modeling."""
 
-    SWINV2_TINY = "v2 Tiny Patch4 Window8 256"
+    SWINV2_TINY = "v2_Tiny_Patch4_Window8_256"
 
 
 class ModelLoader(ForgeModel):

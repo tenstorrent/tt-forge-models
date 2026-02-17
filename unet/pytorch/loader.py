@@ -36,9 +36,9 @@ class ModelVariant(StrEnum):
     """Available UNet model variants."""
 
     OSMR_CITYSCAPES = "Cityscapes"
-    SMP_UNET_RESNET101 = "Segmentation Models PyTorch UNet ResNet101 Backbone"
-    TORCHHUB_BRAIN_UNET = "Torchhub Brain Unet"
-    CARVANA_UNET = "Carvana Unet"
+    SMP_UNET_RESNET101 = "Segmentation_Models_PyTorch_UNet_ResNet101_Backbone"
+    TORCHHUB_BRAIN_UNET = "Torchhub_Brain_Unet"
+    CARVANA_UNET = "Carvana_Unet"
     CARVANA_UNET_480x640 = "carvana_unet_480x640"
 
 

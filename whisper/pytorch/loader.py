@@ -36,8 +36,8 @@ class ModelVariant(StrEnum):
     WHISPER_SMALL = "Small"
     WHISPER_MEDIUM = "Medium"
     WHISPER_LARGE = "Large"
-    WHISPER_LARGE_V3 = "Large v3"
-    WHISPER_LARGE_V3_TURBO = "Large v3 Turbo"
+    WHISPER_LARGE_V3 = "Large_v3"
+    WHISPER_LARGE_V3_TURBO = "Large_v3_Turbo"
 
 
 class ModelLoader(ForgeModel):

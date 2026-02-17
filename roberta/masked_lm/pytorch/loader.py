@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available XLMRoberta For Masked LM model variants."""
 
-    XLM_BASE = "Xlm Base"
+    XLM_BASE = "Xlm_Base"
 
 
 class ModelLoader(ForgeModel):

@@ -40,16 +40,16 @@ class ModelVariant(StrEnum):
     """Available ResNeXt model variants."""
 
     # Torch Hub variants
-    RESNEXT50_32X4D = "50 32x4d"
-    RESNEXT101_32X8D = "101 32x8d"
-    RESNEXT101_64X4D = "101 64x4d"
-    RESNEXT101_32X8D_WSL = "101 32x8d Wsl"
+    RESNEXT50_32X4D = "50_32x4d"
+    RESNEXT101_32X8D = "101_32x8d"
+    RESNEXT101_64X4D = "101_64x4d"
+    RESNEXT101_32X8D_WSL = "101_32x8d_Wsl"
 
     # OSMR variants
-    RESNEXT14_32X4D_OSMR = "14 32x4d Osmr"
-    RESNEXT26_32X4D_OSMR = "26 32x4d Osmr"
-    RESNEXT50_32X4D_OSMR = "50 32x4d Osmr"
-    RESNEXT101_64X4D_OSMR = "101 64x4d Osmr"
+    RESNEXT14_32X4D_OSMR = "14_32x4d_Osmr"
+    RESNEXT26_32X4D_OSMR = "26_32x4d_Osmr"
+    RESNEXT50_32X4D_OSMR = "50_32x4d_Osmr"
+    RESNEXT101_64X4D_OSMR = "101_64x4d_Osmr"
 
 
 class ModelLoader(ForgeModel):

@@ -27,9 +27,9 @@ class ModelVariant(StrEnum):
     SMALL = "Small"
     BASE = "Base"
     LARGE = "Large"
-    FLAN_T5_SMALL = "Flan T5 Small"
-    FLAN_T5_BASE = "Flan T5 Base"
-    FLAN_T5_LARGE = "Flan T5 Large"
+    FLAN_T5_SMALL = "Flan_T5_Small"
+    FLAN_T5_BASE = "Flan_T5_Base"
+    FLAN_T5_LARGE = "Flan_T5_Large"
 
 
 class ModelLoader(ForgeModel):

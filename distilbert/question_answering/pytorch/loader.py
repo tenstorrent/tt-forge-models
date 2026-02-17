@@ -21,7 +21,7 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available DistilBERT model variants for question answering."""
 
-    DISTILBERT_BASE_CASED_DISTILLED_SQUAD = "Base Cased Distilled Squad"
+    DISTILBERT_BASE_CASED_DISTILLED_SQUAD = "Base_Cased_Distilled_Squad"
 
 
 class ModelLoader(ForgeModel):

@@ -22,13 +22,13 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available YOLO WORLD model variants."""
 
-    SMALL_1 = "Small 640"
-    SMALL_2 = "Small 1280"
-    MEDIUM_1 = "Medium 640"
-    MEDIUM_2 = "Medium 1280"
-    LARGE_1 = "Large 640"
-    LARGE_2 = "Large 1280"
-    XLARGE_1 = "Xlarge 640"
+    SMALL_1 = "Small_640"
+    SMALL_2 = "Small_1280"
+    MEDIUM_1 = "Medium_640"
+    MEDIUM_2 = "Medium_1280"
+    LARGE_1 = "Large_640"
+    LARGE_2 = "Large_1280"
+    XLARGE_1 = "Xlarge_640"
 
 
 class ModelLoader(ForgeModel):

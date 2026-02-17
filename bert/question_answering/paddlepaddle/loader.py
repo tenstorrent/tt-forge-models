@@ -25,9 +25,9 @@ from ....base import ForgeModel
 class ModelVariant(StrEnum):
     """Available BERT model variants for question answering (Paddle)."""
 
-    BERT_BASE_UNCASED = "Base Uncased"
-    BERT_BASE_JAPANESE = "Base Japanese"
-    CHINESE_ROBERTA_BASE = "Chinese Roberta Base"
+    BERT_BASE_UNCASED = "Base_Uncased"
+    BERT_BASE_JAPANESE = "Base_Japanese"
+    CHINESE_ROBERTA_BASE = "Base_Chinese_Roberta"
 
 
 class ModelLoader(ForgeModel):

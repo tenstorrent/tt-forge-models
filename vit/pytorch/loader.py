@@ -38,11 +38,11 @@ class ModelVariant(StrEnum):
     LARGE = "Large"
 
     # Torchvision variants
-    VIT_B_16 = "B 16"
-    VIT_B_32 = "B 32"
-    VIT_L_16 = "L 16"
-    VIT_L_32 = "L 32"
-    VIT_H_14 = "H 14"
+    VIT_B_16 = "B_16"
+    VIT_B_32 = "B_32"
+    VIT_L_16 = "L_16"
+    VIT_L_32 = "L_32"
+    VIT_H_14 = "H_14"
 
 
 class ModelLoader(ForgeModel):

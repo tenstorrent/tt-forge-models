@@ -28,7 +28,7 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available PHI1.5 model variants."""
 
-    PHI1_5 = "Phi 1 5"
+    PHI1_5 = "Phi_1_5"
 
 
 class ModelLoader(ForgeModel):

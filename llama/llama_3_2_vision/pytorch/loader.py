@@ -24,8 +24,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Llama 3.2 Vision model variants."""
 
-    LLAMA_3_2_11B_VISION = "3.2 11B Vision"
-    LLAMA_3_2_11B_VISION_INSTRUCT = "3.2 11B Vision Instruct"
+    LLAMA_3_2_11B_VISION = "3.2_11B_Vision"
+    LLAMA_3_2_11B_VISION_INSTRUCT = "3.2_11B_Vision_Instruct"
 
 
 class ModelLoader(ForgeModel):

@@ -22,8 +22,8 @@ from ....tools.utils import cast_input_to_type
 
 
 class ModelVariant(StrEnum):
-    MINI_128K = "Mini 128K Instruct"
-    MINI_4K = "Mini 4K Instruct"
+    MINI_128K = "Mini_128K_Instruct"
+    MINI_4K = "Mini_4K_Instruct"
 
 
 class ModelLoader(ForgeModel):

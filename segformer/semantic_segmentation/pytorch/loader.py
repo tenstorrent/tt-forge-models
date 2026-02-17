@@ -25,11 +25,11 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Segformer for Semantic Segmentation model variants."""
 
-    B0_FINETUNED = "B0 Finetuned Ade 512 512"
-    B1_FINETUNED = "B1 Finetuned Ade 512 512"
-    B2_FINETUNED = "B2 Finetuned Ade 512 512"
-    B3_FINETUNED = "B3 Finetuned Ade 512 512"
-    B4_FINETUNED = "B4 Finetuned Ade 512 512"
+    B0_FINETUNED = "B0_Finetuned_Ade_512_512"
+    B1_FINETUNED = "B1_Finetuned_Ade_512_512"
+    B2_FINETUNED = "B2_Finetuned_Ade_512_512"
+    B3_FINETUNED = "B3_Finetuned_Ade_512_512"
+    B4_FINETUNED = "B4_Finetuned_Ade_512_512"
 
 
 class ModelLoader(ForgeModel):

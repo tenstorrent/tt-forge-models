@@ -25,8 +25,8 @@ class ModelVariant(StrEnum):
     """Available GPT-Neo model variants."""
 
     GPT_NEO_125M = "125M"
-    GPT_NEO_1_3B = "1 3B"
-    GPT_NEO_2_7B = "2 7B"
+    GPT_NEO_1_3B = "1_3B"
+    GPT_NEO_2_7B = "2_7B"
 
 
 class ModelLoader(ForgeModel):

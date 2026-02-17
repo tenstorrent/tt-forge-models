@@ -25,7 +25,7 @@ from ....tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available DETR model variants for segmentation."""
 
-    RESNET_50_PANOPTIC = "ResNet50 Backbone Panoptic"
+    RESNET_50_PANOPTIC = "ResNet50_Backbone_Panoptic"
 
 
 class ModelLoader(ForgeModel):

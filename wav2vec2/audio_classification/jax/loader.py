@@ -24,7 +24,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Wav2Vec2 model variants."""
 
-    LARGE_LV_60 = "Large Lv 60"
+    LARGE_LV_60 = "Large_Lv_60"
 
 
 class ModelLoader(ForgeModel):

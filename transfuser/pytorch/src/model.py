@@ -91,7 +91,7 @@ def get_topk_from_heatmap(scores, k=20):
     topk_clses = topk_inds // (height * width)
     topk_inds = topk_inds % (height * width)
     topk_ys = topk_inds // width
-    topk_xs = (topk_inds % width).int().float()
+    topk_xs = (topk_inds % width).int().to(scores.dtype)
 
     return topk_scores, topk_inds, topk_clses, topk_ys, topk_xs
 
@@ -398,7 +398,18 @@ class LidarCenterNet(nn.Module):
         h = h / 2 / 8
 
         T = get_lidar_to_bevimage_transform(dtype=bbox_dtype, device=bbox_device)
+
+        # torch.linalg.inv doesn't support Low precision dtypes, convert input to float32
+        orig_dtype = T.dtype
+        if orig_dtype != torch.float32:
+            T = T.float()
+
         T_inv = torch.linalg.inv(T)
+
+        # Convert output back to original dtype
+        if orig_dtype != torch.float32:
+            T_inv = T_inv.to(orig_dtype)
+
         center = torch.stack(
             [x, y, torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device)]
         )

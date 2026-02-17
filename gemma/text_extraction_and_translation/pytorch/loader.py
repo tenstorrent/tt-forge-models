@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Gemma model variants."""
 
-    TRANSLATEGEMMA_4B_IT = "Translategemma 4B IT"
+    TRANSLATEGEMMA_4B_IT = "Translategemma_4B_IT"
 
 
 class ModelLoader(ForgeModel):

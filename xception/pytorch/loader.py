@@ -38,7 +38,7 @@ class ModelVariant(StrEnum):
     XCEPTION41 = "41"
     XCEPTION65 = "65"
     XCEPTION71 = "71"
-    XCEPTION71_TF_IN1K = "71.tf In1k"
+    XCEPTION71_TF_IN1K = "71.tf_In1k"
 
 
 class ModelLoader(ForgeModel):

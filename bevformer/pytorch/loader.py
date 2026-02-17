@@ -34,10 +34,10 @@ class ModelVariant(StrEnum):
     BEVFORMER_TINY = "Tiny"
     BEVFORMER_SMALL = "Small"
     BEVFORMER_BASE = "Base"
-    BEVFORMER_V2_R50_T1_BASE = "v2 R50 T1 Base"
-    BEVFORMER_V2_R50_T1 = "v2 R50 T1"
-    BEVFORMER_V2_R50_T2 = "v2 R50 T2"
-    BEVFORMER_V2_R50_T8 = "v2 R50 T8"
+    BEVFORMER_V2_R50_T1_BASE = "v2_R50_T1_Base"
+    BEVFORMER_V2_R50_T1 = "v2_R50_T1"
+    BEVFORMER_V2_R50_T2 = "v2_R50_T2"
+    BEVFORMER_V2_R50_T8 = "v2_R50_T8"
 
 
 class ModelLoader(ForgeModel):

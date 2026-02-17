@@ -23,9 +23,9 @@ from typing import Optional
 class ModelVariant(StrEnum):
     """Available Codegen model variants."""
 
-    CODEGEN_350M_MONO = "350M Mono"
-    CODEGEN_350M_MULTI = "350M Multi"
-    CODEGEN_350M_NL = "350M Nl"
+    CODEGEN_350M_MONO = "350M_Mono"
+    CODEGEN_350M_MULTI = "350M_Multi"
+    CODEGEN_350M_NL = "350M_Nl"
 
 
 class ModelLoader(ForgeModel):

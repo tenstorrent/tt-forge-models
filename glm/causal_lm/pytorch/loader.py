@@ -31,7 +31,7 @@ class ModelVariant(StrEnum):
 
     GLM_4_7 = "4.7"
     GLM_4_5 = "4.5"
-    GLM_4_5_AIR = "4.5 Air"
+    GLM_4_5_AIR = "4.5_Air"
 
 
 class ModelLoader(ForgeModel):

@@ -40,7 +40,7 @@ from .src.configuration_mplug_owl2 import MPLUGOwl2Config
 class ModelVariant(StrEnum):
     """Available MPLUG-Owl2 model variants."""
 
-    LLAMA2_7B = "Llama2 7B"
+    LLAMA2_7B = "Llama2_7B"
 
 
 class ModelLoader(ForgeModel):

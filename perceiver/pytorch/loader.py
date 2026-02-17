@@ -23,7 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Perceiver model variants."""
 
-    LANGUAGE_PERCEIVER = "Language Perceiver"
+    LANGUAGE_PERCEIVER = "Language_Perceiver"
 
 
 class ModelLoader(ForgeModel):

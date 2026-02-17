@@ -22,7 +22,7 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     """Available Roberta model variants."""
 
-    ROBERTA_BASE_SENTIMENT = "Base Sentiment"
+    ROBERTA_BASE_SENTIMENT = "Base_Sentiment"
 
 
 class ModelLoader(ForgeModel):

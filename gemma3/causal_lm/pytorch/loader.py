@@ -24,8 +24,8 @@ from ....tools.utils import cast_input_to_type
 class ModelVariant(StrEnum):
     """Available Gemma3 model variants for causal LM."""
 
-    GEMMA_3_270M_IT = "270M Instruct"
-    GEMMA_3_1B_IT = "1B Instruct"
+    GEMMA_3_270M_IT = "270M_Instruct"
+    GEMMA_3_1B_IT = "1B_Instruct"
 
 
 class ModelLoader(ForgeModel):

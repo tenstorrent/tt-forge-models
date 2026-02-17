@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Qwen 2 model variants for causal language modeling."""
 
-    QWQ_32B = "Qwq 32B"
+    QWQ_32B = "Qwq_32B"
 
 
 class ModelLoader(ForgeModel):

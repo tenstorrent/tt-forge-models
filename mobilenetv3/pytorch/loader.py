@@ -39,12 +39,12 @@ class ModelVariant(StrEnum):
     """Available MobileNetV3 model variants."""
 
     # TORCH_HUB variants
-    MOBILENET_V3_LARGE = "Mobilenet v3 Large"
-    MOBILENET_V3_SMALL = "Mobilenet v3 Small"
+    MOBILENET_V3_LARGE = "Mobilenet_v3_Large"
+    MOBILENET_V3_SMALL = "Mobilenet_v3_Small"
 
     # TIMM variants
-    MOBILENET_V3_LARGE_100_TIMM = "Large 100"
-    MOBILENET_V3_SMALL_100_TIMM = "Small 100"
+    MOBILENET_V3_LARGE_100_TIMM = "Large_100"
+    MOBILENET_V3_SMALL_100_TIMM = "Small_100"
 
 
 class ModelLoader(ForgeModel):

@@ -49,19 +49,19 @@ class ModelVariant(StrEnum):
     """Available MobileNetV2 model variants."""
 
     # TORCH_HUB variants
-    MOBILENET_V2_TORCH_HUB = "Mobilenet v2"
+    MOBILENET_V2_TORCH_HUB = "Mobilenet_v2"
 
     # HuggingFace variants
-    MOBILENET_V2_035_96_HF = "Mobilenet v2 0.35 96"
-    MOBILENET_V2_075_160_HF = "Mobilenet v2 0.75 160"
-    MOBILENET_V2_100_224_HF = "Mobilenet v2 1.0 224"
-    DEEPLABV3_MOBILENET_V2_HF = "Deeplabv3 Mobilenet v2 1.0 513"
+    MOBILENET_V2_035_96_HF = "Mobilenet_v2_0.35_96"
+    MOBILENET_V2_075_160_HF = "Mobilenet_v2_0.75_160"
+    MOBILENET_V2_100_224_HF = "Mobilenet_v2_1.0_224"
+    DEEPLABV3_MOBILENET_V2_HF = "Deeplabv3_Mobilenet_v2_1.0_513"
 
     # TIMM variants
     MOBILENET_V2_100_TIMM = "100"
 
     # TORCHVISION variants
-    MOBILENET_V2_TORCHVISION = "Mobilenet v2 Torchvision"
+    MOBILENET_V2_TORCHVISION = "Mobilenet_v2_Torchvision"
 
 
 class ModelLoader(ForgeModel):

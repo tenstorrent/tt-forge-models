@@ -26,7 +26,7 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available OWL-ViT model variants for object detection."""
 
-    BASE_PATCH32 = "Base Patch32"
+    BASE_PATCH32 = "Base_Patch32"
 
 
 class ModelLoader(ForgeModel):

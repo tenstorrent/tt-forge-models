@@ -29,13 +29,13 @@ class ModelVariant(StrEnum):
     """Available Qwen2.5 model variants for causal language modeling."""
 
     QWEN_2_5_0_5B = "0.5B"
-    QWEN_2_5_0_5B_INSTRUCT = "0.5B Instruct"
+    QWEN_2_5_0_5B_INSTRUCT = "0.5B_Instruct"
     QWEN_2_5_1_5B = "1.5B"
-    QWEN_2_5_1_5B_INSTRUCT = "1.5B Instruct"
+    QWEN_2_5_1_5B_INSTRUCT = "1.5B_Instruct"
     QWEN_2_5_3B = "3B"
-    QWEN_2_5_3B_INSTRUCT = "3B Instruct"
+    QWEN_2_5_3B_INSTRUCT = "3B_Instruct"
     QWEN_2_5_7B = "7B"
-    QWEN_2_5_7B_INSTRUCT = "7B Instruct"
+    QWEN_2_5_7B_INSTRUCT = "7B_Instruct"
     ## Too large
     # QWEN_2_5_7B_INSTRUCT_1M = "7B INSTRUCT 1M"
     # QWEN_2_5_14B = "14B"

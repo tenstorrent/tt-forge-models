@@ -39,11 +39,11 @@ class ModelVariant(StrEnum):
 
     # Torchvision variants
     DLA34 = "34"
-    DLA46_C = "46 C"
-    DLA46X_C = "46x C"
+    DLA46_C = "46_C"
+    DLA46X_C = "46x_C"
     DLA60 = "60"
     DLA60X = "60x"
-    DLA60X_C = "60x C"
+    DLA60X_C = "60x_C"
     DLA102 = "102"
     DLA102X = "102x"
     DLA102X2 = "102x2"

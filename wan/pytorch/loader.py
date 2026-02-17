@@ -26,7 +26,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Wan diffusion model variants."""
 
-    WAN22_TI2V_5B = "2.2 Ti2v 5B"
+    WAN22_TI2V_5B = "2.2_Ti2v_5B"
 
 
 class ModelLoader(ForgeModel):

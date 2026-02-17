@@ -37,15 +37,15 @@ from ...tools.utils import extract_tensors_recursive
 class ModelVariant(StrEnum):
     """Available MAPTR model variants."""
 
-    TINY_R50_24E_BEVFORMER = "Tiny R50 24e Bevformer"
-    TINY_R50_24E_BEVFORMER_T4 = "Tiny R50 24e Bevformer T4"
-    TINY_R50_24E = "Tiny R50 24e"
-    TINY_R50_110E = "Tiny R50 110e"
-    TINY_R50_24E_T4 = "Tiny R50 24e T4"
-    NANO_R18_110E = "Nano R18 110e"
-    TINY_R50_24E_BEVPOOL = "Tiny R50 24e Bevpool"
-    TINY_FUSION_24E = "Tiny Fusion 24e"
-    TINY_R50_24E_AV2 = "Tiny R50 24e Av2"
+    TINY_R50_24E_BEVFORMER = "Tiny_R50_24e_Bevformer"
+    TINY_R50_24E_BEVFORMER_T4 = "Tiny_R50_24e_Bevformer_T4"
+    TINY_R50_24E = "Tiny_R50_24e"
+    TINY_R50_110E = "Tiny_R50_110e"
+    TINY_R50_24E_T4 = "Tiny_R50_24e_T4"
+    NANO_R18_110E = "Nano_R18_110e"
+    TINY_R50_24E_BEVPOOL = "Tiny_R50_24e_Bevpool"
+    TINY_FUSION_24E = "Tiny_Fusion_24e"
+    TINY_R50_24E_AV2 = "Tiny_R50_24e_Av2"
 
 
 class ModelLoader(ForgeModel):

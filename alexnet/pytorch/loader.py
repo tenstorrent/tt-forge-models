@@ -40,7 +40,7 @@ class ModelVariant(StrEnum):
 
     # Torchvision variants
     ALEXNET = "Default"
-    ALEXNET_HIGH_RES = "High Res"
+    ALEXNET_HIGH_RES = "High_Res"
 
     # OSMR variant
     ALEXNET_OSMR_B = "B"

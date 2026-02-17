@@ -176,7 +176,7 @@ class ModelLoader(ForgeModel):
         """
         from transformers import FlaxResNetForImageClassification, ResNetConfig
 
-        hf_path = f"microsoft/{self._variant}"
+        hf_path = self._VARIANTS[self._variant].pretrained_model_name
 
         # Try to load directly first (some variants might have Flax checkpoints)
         model_kwargs = {}

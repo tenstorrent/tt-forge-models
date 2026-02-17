@@ -27,12 +27,12 @@ class ModelVariant(StrEnum):
 
     QWEN_2_5_CODER_0_5B = "0.5B"
     QWEN_2_5_CODER_1_5B = "1.5B"
-    QWEN_2_5_CODER_1_5B_INSTRUCT = "1.5B Instruct"
+    QWEN_2_5_CODER_1_5B_INSTRUCT = "1.5B_Instruct"
     QWEN_2_5_CODER_3B = "3B"
-    QWEN_2_5_CODER_3B_INSTRUCT = "3B Instruct"
+    QWEN_2_5_CODER_3B_INSTRUCT = "3B_Instruct"
     QWEN_2_5_CODER_7B = "7B"
-    QWEN_2_5_CODER_7B_INSTRUCT = "7B Instruct"
-    QWEN_2_5_CODER_32B_INSTRUCT = "32B Instruct"
+    QWEN_2_5_CODER_7B_INSTRUCT = "7B_Instruct"
+    QWEN_2_5_CODER_32B_INSTRUCT = "32B_Instruct"
 
 
 class ModelLoader(ForgeModel):

@@ -38,10 +38,10 @@ class ModelVariant(StrEnum):
 
     # TIMM variants
     INCEPTION_V4 = "v4"
-    INCEPTION_V4_TF_IN1K = "V4.tf In1k"
+    INCEPTION_V4_TF_IN1K = "V4.tf_In1k"
 
     # OSMR variants
-    INCEPTION_V4_OSMR = "v4"
+    INCEPTION_V4_OSMR = "v4_OSMR"
 
 
 class ModelLoader(ForgeModel):

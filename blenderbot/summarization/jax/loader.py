@@ -23,9 +23,9 @@ class ModelVariant(StrEnum):
     """Available Blenderbot model variants."""
 
     BLENDERBOT_3B = "3B"
-    BLENDERBOT_SMALL_90M = "Small 90M"
-    BLENDERBOT_1B_DISTILL = "1B Distill"
-    BLENDERBOT_400M_DISTILL = "400M Distill"
+    BLENDERBOT_SMALL_90M = "90M_Small"
+    BLENDERBOT_1B_DISTILL = "1B_Distill"
+    BLENDERBOT_400M_DISTILL = "400M_Distill"
 
 
 class ModelLoader(ForgeModel):

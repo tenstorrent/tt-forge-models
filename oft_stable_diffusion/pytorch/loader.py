@@ -22,7 +22,7 @@ from typing import Optional
 class ModelVariant(StrEnum):
     """Available OFT Stable Diffusion model variants."""
 
-    OFT_STABLE_DIFFUSION_V1_5 = "Stable Diffusion v1 5"
+    OFT_STABLE_DIFFUSION_V1_5 = "Stable_Diffusion_v1_5"
 
 
 class ModelLoader(ForgeModel):

@@ -27,15 +27,15 @@ from .src.utils import load_model, load_input
 class ModelVariant(StrEnum):
     """Available Monodepth2 model variants."""
 
-    MONO_640X192 = "Mono 640x192"
-    STEREO_640X192 = "Stereo 640x192"
-    MONO_STEREO_640X192 = "Mono+stereo 640x192"
-    MONO_NO_PT_640X192 = "Mono No Pt 640x192"
-    STEREO_NO_PT_640X192 = "Stereo No Pt 640x192"
-    MONO_STEREO_NO_PT_640X192 = "Mono+stereo No Pt 640x192"
-    MONO_1024X320 = "Mono 1024x320"
-    STEREO_1024X320 = "Stereo 1024x320"
-    MONO_STEREO_1024X320 = "Mono+stereo 1024x320"
+    MONO_640X192 = "Mono_640x192"
+    STEREO_640X192 = "Stereo_640x192"
+    MONO_STEREO_640X192 = "Mono+stereo_640x192"
+    MONO_NO_PT_640X192 = "Mono_No_Pt_640x192"
+    STEREO_NO_PT_640X192 = "Stereo_No_Pt_640x192"
+    MONO_STEREO_NO_PT_640X192 = "Mono+stereo_No_Pt_640x192"
+    MONO_1024X320 = "Mono_1024x320"
+    STEREO_1024X320 = "Stereo_1024x320"
+    MONO_STEREO_1024X320 = "Mono+stereo_1024x320"
 
 
 class ModelLoader(ForgeModel):

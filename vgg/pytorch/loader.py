@@ -37,27 +37,27 @@ class ModelVariant(StrEnum):
     VGG13 = "13"
     VGG16 = "16"
     VGG19 = "19"
-    VGG19_BN_OSMR = "Bn Vgg19"
-    VGG19_BNB_OSMR = "Bn Vgg19b"
+    VGG19_BN_OSMR = "Bn_Vgg19"
+    VGG19_BNB_OSMR = "Bn_Vgg19b"
 
     # TorchHub variant
-    VGG19_BN = "19 Bn"
+    VGG19_BN = "19_Bn"
 
     # TIMM variant
-    TIMM_VGG19_BN = "Timm Vgg19 Bn"
+    TIMM_VGG19_BN = "Timm_Vgg19_Bn"
 
     # Torchvision variants
-    TV_VGG11 = "Torchvision Vgg11"
-    TV_VGG11_BN = "Torchvision Vgg11 Bn"
-    TV_VGG13 = "Torchvision Vgg13"
-    TV_VGG13_BN = "Torchvision Vgg13 Bn"
-    TV_VGG16 = "Torchvision Vgg16"
-    TV_VGG16_BN = "Torchvision Vgg16 Bn"
-    TV_VGG19 = "Torchvision Vgg19"
-    TV_VGG19_BN = "Torchvision Vgg19 Bn"
+    TV_VGG11 = "Torchvision_Vgg11"
+    TV_VGG11_BN = "Torchvision_Vgg11_Bn"
+    TV_VGG13 = "Torchvision_Vgg13"
+    TV_VGG13_BN = "Torchvision_Vgg13_Bn"
+    TV_VGG16 = "Torchvision_Vgg16"
+    TV_VGG16_BN = "Torchvision_Vgg16_Bn"
+    TV_VGG19 = "Torchvision_Vgg19"
+    TV_VGG19_BN = "Torchvision_Vgg19_Bn"
 
     # HuggingFace vgg-pytorch
-    HF_VGG19 = "HF Vgg19"
+    HF_VGG19 = "HF_Vgg19"
 
 
 class ModelLoader(ForgeModel):

@@ -53,14 +53,14 @@ class ModelVariant(StrEnum):
     B7 = "B7"
 
     # TIMM variants (values are identifiers for reporting; pretrained model names live in config)
-    TIMM_EFFICIENTNET_B0 = "Timm Efficientnet B0"
-    TIMM_EFFICIENTNET_B4 = "Timm Efficientnet B4"
-    HF_TIMM_EFFICIENTNET_B0_RA_IN1K = "HF Hub Timm Efficientnet B0 Ra In1k"
-    HF_TIMM_EFFICIENTNET_B4_RA2_IN1K = "HF Hub Timm Efficientnet B4 Ra2 In1k"
-    HF_TIMM_EFFICIENTNET_B5_IN12K_FT_IN1K = "HF Hub Timm Efficientnet B5 In12k Ft In1k"
-    HF_TIMM_TF_EFFICIENTNET_B0_AA_IN1K = "HF Hub Timm Tf Efficientnet B0 Aa In1k"
-    HF_TIMM_EFFICIENTNETV2_RW_S_RA2_IN1K = "HF Hub Timm Efficientnetv2 Rw S Ra2 In1k"
-    HF_TIMM_TF_EFFICIENTNETV2_S_IN21K = "HF Hub Timm Tf Efficientnetv2 S In21k"
+    TIMM_EFFICIENTNET_B0 = "Timm_B0"
+    TIMM_EFFICIENTNET_B4 = "Timm_B4"
+    HF_TIMM_EFFICIENTNET_B0_RA_IN1K = "Timm_B0_Ra_In1k"
+    HF_TIMM_EFFICIENTNET_B4_RA2_IN1K = "Timm_B4_Ra2_In1k"
+    HF_TIMM_EFFICIENTNET_B5_IN12K_FT_IN1K = "Timm_B5_In12k_Ft_In1k"
+    HF_TIMM_TF_EFFICIENTNET_B0_AA_IN1K = "Timm_Tf_B0_Aa_In1k"
+    HF_TIMM_EFFICIENTNETV2_RW_S_RA2_IN1K = "Timm_V2_Rw_S_Ra2_In1k"
+    HF_TIMM_TF_EFFICIENTNETV2_S_IN21K = "Timm_Tf_V2_S_In21k"
 
 
 class ModelLoader(ForgeModel):

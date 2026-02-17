@@ -23,8 +23,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Phi 3.5 model variants (non-MoE)."""
 
-    MINI_INSTRUCT = "Mini Instruct"
-    MOE_INSTRUCT = "Phi 3.5 Moe Instruct"
+    MINI_INSTRUCT = "Mini_Instruct"
+    MOE_INSTRUCT = "Phi_3.5_Moe_Instruct"
 
 
 class ModelLoader(ForgeModel):

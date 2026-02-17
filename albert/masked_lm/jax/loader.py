@@ -25,10 +25,10 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available ALBERT model variants."""
 
-    BASE_V2 = "Base v2"
-    LARGE_V2 = "Large v2"
-    XLARGE_V2 = "Xlarge v2"
-    XXLARGE_V2 = "Xxlarge v2"
+    BASE_V2 = "Base_v2"
+    LARGE_V2 = "Large_v2"
+    XLARGE_V2 = "Xlarge_v2"
+    XXLARGE_V2 = "Xxlarge_v2"
 
 
 class ModelLoader(ForgeModel):

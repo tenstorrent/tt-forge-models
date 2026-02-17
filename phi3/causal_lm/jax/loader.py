@@ -28,8 +28,8 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available PHI3 model variants."""
 
-    MINI_128K = "Phi 3 Mini 128K Instruct"
-    MINI_4K = "Phi 3 Mini 4K Instruct"
+    MINI_128K = "Phi_3_Mini_128K_Instruct"
+    MINI_4K = "Phi_3_Mini_4K_Instruct"
 
 
 class ModelLoader(ForgeModel):

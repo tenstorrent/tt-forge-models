@@ -39,8 +39,8 @@ class ModelVariant(StrEnum):
     WIDE_RESNET101_2 = "101.2"
 
     # TIMM variants
-    TIMM_WIDE_RESNET50_2 = "50 2.timm"
-    TIMM_WIDE_RESNET101_2 = "101 2.timm"
+    TIMM_WIDE_RESNET50_2 = "50_2.timm"
+    TIMM_WIDE_RESNET101_2 = "101_2.timm"
 
 
 class ModelLoader(ForgeModel):

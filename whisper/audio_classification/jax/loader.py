@@ -29,7 +29,7 @@ class ModelVariant(StrEnum):
 
     BASE = "Base"
     MEDIUM = "Medium"
-    LARGE_V3 = "Large v3"
+    LARGE_V3 = "Large_v3"
 
 
 class ModelLoader(ForgeModel):

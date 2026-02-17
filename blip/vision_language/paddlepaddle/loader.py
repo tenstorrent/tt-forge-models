@@ -47,7 +47,7 @@ class BlipTask(StrEnum):
 class ModelVariant(StrEnum):
     """Available BLIP model variants (Paddle) by task."""
 
-    BLIP_IMAGE_CAPTIONING = "Image Captioning"
+    BLIP_IMAGE_CAPTIONING = "Image_Captioning"
     BLIP_TEXT = "Text"
     BLIP_VISION = "Vision"
 

@@ -17,7 +17,7 @@ from third_party.tt_forge_models.tools.utils import get_file, extract_tensors_re
 class ModelVariant(StrEnum):
     """Available Detr3d model variants for autonomous driving."""
 
-    DETR3D_RESNET101 = "ResNet101 Backbone"
+    DETR3D_RESNET101 = "ResNet101_Backbone"
 
 
 class ModelLoader(ForgeModel):

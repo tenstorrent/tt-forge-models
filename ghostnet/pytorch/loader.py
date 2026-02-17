@@ -37,7 +37,7 @@ class ModelVariant(StrEnum):
 
     GHOSTNET_100 = "100"
     GHOSTNET_100_IN1K = "100.in1k"
-    GHOSTNETV2_100_IN1K = "v2 100.in1k"
+    GHOSTNETV2_100_IN1K = "v2_100.in1k"
 
 
 class ModelLoader(ForgeModel):

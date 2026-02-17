@@ -27,12 +27,12 @@ from ...tools.utils import VisionPreprocessor, VisionPostprocessor
 class ModelVariant(StrEnum):
     """Available Segformer model variants."""
 
-    MIT_B0 = "Mit B0"
-    MIT_B1 = "Mit B1"
-    MIT_B2 = "Mit B2"
-    MIT_B3 = "Mit B3"
-    MIT_B4 = "Mit B4"
-    MIT_B5 = "Mit B5"
+    MIT_B0 = "Mit_B0"
+    MIT_B1 = "Mit_B1"
+    MIT_B2 = "Mit_B2"
+    MIT_B3 = "Mit_B3"
+    MIT_B4 = "Mit_B4"
+    MIT_B5 = "Mit_B5"
 
 
 class ModelLoader(ForgeModel):

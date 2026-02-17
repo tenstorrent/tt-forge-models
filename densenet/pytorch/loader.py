@@ -53,7 +53,7 @@ class ModelVariant(StrEnum):
     DENSENET201 = "201"
 
     # X-ray variants
-    DENSENET121_XRAY = "121 Xray"
+    DENSENET121_XRAY = "121_Xray"
 
 
 class ModelLoader(ForgeModel):

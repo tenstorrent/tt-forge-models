@@ -24,7 +24,7 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available RoBERTa Pre-layernorm model variants."""
 
-    EFFICIENT_MLM_M0_40 = "Efficient Mlm M0.40"
+    EFFICIENT_MLM_M0_40 = "Efficient_Mlm_M0.40"
 
 
 class ModelLoader(ForgeModel):

@@ -23,7 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available DeepCogito model variants."""
 
-    V1_PREVIEW_LLAMA_3B = "v1 Preview Llama 3B"
+    V1_PREVIEW_LLAMA_3B = "v1_Preview_Llama_3B"
 
 
 class ModelLoader(ForgeModel):

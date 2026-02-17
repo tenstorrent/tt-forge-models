@@ -25,9 +25,9 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available Deformable DETR model variants for object detection."""
 
-    DEFORMABLE_DETR = "Deformable Detr"
-    DEFORMABLE_DETR_SINGLE_SCALE = "Single Scale"
-    DEFORMABLE_DETR_WITH_BOX_REFINE = "With Box Refine"
+    DEFORMABLE_DETR = "Deformable_Detr"
+    DEFORMABLE_DETR_SINGLE_SCALE = "Single_Scale"
+    DEFORMABLE_DETR_WITH_BOX_REFINE = "With_Box_Refine"
     DEFORMABLE_DETR_WITH_BOX_REFINE_TWO_STAGE = (
         "deformable-detr-with-box-refine-two-stage"
     )

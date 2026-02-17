@@ -27,7 +27,7 @@ import torchvision.models as models
 class ModelVariant(StrEnum):
     """Available SSDLite320 MobileNetV3 model variants."""
 
-    SSDLITE320_MOBILENET_V3_LARGE = "Ssdlite320 Mobilenet v3 Large"
+    SSDLITE320_MOBILENET_V3_LARGE = "Ssdlite320_Mobilenet_v3_Large"
 
 
 class ModelLoader(ForgeModel):

@@ -4,6 +4,7 @@
 """
 VovNet model loader implementation
 """
+
 from typing import Optional
 
 import torch
@@ -54,14 +55,14 @@ class ModelVariant(StrEnum):
     VOVNET57 = "57"
 
     # TorchHub variant
-    VOVNET39_TORCHHUB = "39 Th"
-    VOVNET57_TORCHHUB = "57 Th"
+    VOVNET39_TORCHHUB = "39_Th"
+    VOVNET57_TORCHHUB = "57_Th"
 
     # TIMM image classification variants (subset)
-    TIMM_VOVNET19B_DW = "Ese Vovnet19b Dw"
-    TIMM_VOVNET39B = "Ese Vovnet39b"
-    TIMM_VOVNET99B = "Ese Vovnet99b"
-    TIMM_VOVNET19B_DW_RAIN1K = "Ese Vovnet19b Dw.ra In1k"
+    TIMM_VOVNET19B_DW = "Ese_Vovnet19b_Dw"
+    TIMM_VOVNET39B = "Ese_Vovnet39b"
+    TIMM_VOVNET99B = "Ese_Vovnet99b"
+    TIMM_VOVNET19B_DW_RAIN1K = "Ese_Vovnet19b_Dw.ra_In1k"
 
 
 class ModelLoader(ForgeModel):
@@ -153,7 +154,8 @@ class ModelLoader(ForgeModel):
         source = cfg.source
 
         if source == ModelSource.OSMR:
-            model = ptcv_get_model(model_name, pretrained=True)
+            # Use randomly initialized weights (no pretrained download)
+            model = ptcv_get_model(model_name, pretrained=False)
         elif source == ModelSource.TIMM:
             model, _ = download_model(preprocess_timm_model, model_name)
         elif source == ModelSource.TORCH_HUB:

@@ -30,8 +30,8 @@ class ModelVariant(StrEnum):
     """Available YOLOS-Small model variants for object detection."""
 
     SMALL = "Small"
-    SMALL_DWR = "Small Dwr"
-    SMALL_300 = "Small 300"
+    SMALL_DWR = "Small_Dwr"
+    SMALL_300 = "Small_300"
 
 
 class ModelLoader(ForgeModel):

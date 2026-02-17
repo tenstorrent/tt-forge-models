@@ -26,7 +26,7 @@ from pytorch.loader import ModelLoader as PyTorchModelLoader
 class ModelVariant(StrEnum):
     """Available ALBERT model variants for masked language modeling (Paddle)."""
 
-    ALBERT_CHINESE_TINY = "Chinese Tiny"
+    ALBERT_CHINESE_TINY = "Chinese_Tiny"
 
 
 class ModelLoader(ForgeModel):

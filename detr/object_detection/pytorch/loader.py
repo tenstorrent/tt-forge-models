@@ -25,7 +25,7 @@ from ....tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available DETR model variants for object detection."""
 
-    RESNET_50 = "ResNet50 Backbone"
+    RESNET_50 = "ResNet50_Backbone"
 
 
 class ModelLoader(ForgeModel):

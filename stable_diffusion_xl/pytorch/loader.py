@@ -24,7 +24,7 @@ from .src.model_utils import load_pipe, stable_diffusion_preprocessing_xl
 class ModelVariant(StrEnum):
     """Available Stable Diffusion XL model variants."""
 
-    STABLE_DIFFUSION_XL_BASE_1_0 = "Base 1.0"
+    STABLE_DIFFUSION_XL_BASE_1_0 = "Base_1.0"
 
 
 class ModelLoader(ForgeModel):

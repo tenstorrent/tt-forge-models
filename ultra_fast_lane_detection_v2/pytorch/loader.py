@@ -34,7 +34,7 @@ class LaneDetectionV2Config(ModelConfig):
 class ModelVariant(StrEnum):
     """Available Ultra-Fast-Lane-Detection-v2 model variants."""
 
-    TUSIMPLE_RESNET34 = "TuSimple ResNet34 Backbone"
+    TUSIMPLE_RESNET34 = "TuSimple_ResNet34_Backbone"
 
 
 class ModelLoader(ForgeModel):

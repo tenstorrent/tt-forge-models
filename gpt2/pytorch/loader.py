@@ -29,7 +29,7 @@ class ModelVariant(StrEnum):
     """Available GPT-2 model variants."""
 
     GPT2_BASE = "Default"
-    GPT2_SEQUENCE_CLASSIFICATION = "Sequence Classification"
+    GPT2_SEQUENCE_CLASSIFICATION = "Sequence_Classification"
 
 
 class ModelLoader(ForgeModel):

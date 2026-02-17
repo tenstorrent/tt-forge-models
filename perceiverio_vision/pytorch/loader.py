@@ -31,9 +31,9 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available PerceiverIO Vision model variants."""
 
-    VISION_PERCEIVER_CONV = "Vision Perceiver Conv"
-    VISION_PERCEIVER_LEARNED = "Vision Perceiver Learned"
-    VISION_PERCEIVER_FOURIER = "Vision Perceiver Fourier"
+    VISION_PERCEIVER_CONV = "Vision_Perceiver_Conv"
+    VISION_PERCEIVER_LEARNED = "Vision_Perceiver_Learned"
+    VISION_PERCEIVER_FOURIER = "Vision_Perceiver_Fourier"
 
 
 class ModelLoader(ForgeModel):

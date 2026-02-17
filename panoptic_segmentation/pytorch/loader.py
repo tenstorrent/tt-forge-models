@@ -41,9 +41,9 @@ class ModelVariant(StrEnum):
     """Available Panoptic FPN model variants."""
 
     # COCO variants
-    RESNET_50_1X_COCO = "ResNet50 Backbone 1x COCO"
-    RESNET_50_3X_COCO = "ResNet50 Backbone 3x COCO"
-    RESNET_101_3X_COCO = "ResNet101 Backbone 3x COCO"
+    RESNET_50_1X_COCO = "ResNet50_Backbone_1x_COCO"
+    RESNET_50_3X_COCO = "ResNet50_Backbone_3x_COCO"
+    RESNET_101_3X_COCO = "ResNet101_Backbone_3x_COCO"
 
 
 # COCO class definitions for metadata

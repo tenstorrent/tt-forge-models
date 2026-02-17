@@ -59,8 +59,8 @@ warnings.filterwarnings("ignore", category=UserWarning)
 class ModelVariant(StrEnum):
     """Available Sentencizer model variants for token classification."""
 
-    XLM_ROBERTA_BASE = "Xlm Roberta Base"
-    XLM_ROBERTA_LARGE = "Xlm Roberta Large"
+    XLM_ROBERTA_BASE = "Xlm_Roberta_Base"
+    XLM_ROBERTA_LARGE = "Xlm_Roberta_Large"
 
 
 class ModelLoader(ForgeModel):

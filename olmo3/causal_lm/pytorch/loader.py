@@ -2,10 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
- ARCEE model loader implementation for causal language modeling.
+Olmo3 Causal LM model loader implementation
 """
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -21,41 +22,59 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available ARCEE model variants for causal language modeling."""
+    """Available Olmo3 model variants for causal language modeling."""
 
-    ARCEE_Spark = "arcee_Spark"
+    Olmo_3_7B_Think = "3_7b_think"
+    Olmo_3_7B_Instruct = "3_7b_instruct"
+    Olmo_3_1025_7B = "3_1025_7b"
+    Olmo_3_32B_Think = "3_32b_think"
+    Olmo_3_1125_32B = "3_1125_32b"
 
 
 class ModelLoader(ForgeModel):
-    """ARCEE model loader implementation for causal language modeling tasks."""
+    """Olmo3 model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.ARCEE_Spark: LLMModelConfig(
-            pretrained_model_name="arcee-ai/Arcee-Spark",
-            max_length=128,
+        ModelVariant.Olmo_3_7B_Think: LLMModelConfig(
+            pretrained_model_name="allenai/Olmo-3-7B-Think",
+            max_length=256,
+        ),
+        ModelVariant.Olmo_3_7B_Instruct: LLMModelConfig(
+            pretrained_model_name="allenai/Olmo-3-7B-Instruct",
+            max_length=256,
+        ),
+        ModelVariant.Olmo_3_1025_7B: LLMModelConfig(
+            pretrained_model_name="allenai/Olmo-3-1025-7B",
+            max_length=256,
+        ),
+        ModelVariant.Olmo_3_1125_32B: LLMModelConfig(
+            pretrained_model_name="allenai/Olmo-3-1125-32B",
+            max_length=256,
+        ),
+        ModelVariant.Olmo_3_32B_Think: LLMModelConfig(
+            pretrained_model_name="allenai/Olmo-3-32B-Think",
+            max_length=256,
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.ARCEE_Spark
+    DEFAULT_VARIANT = ModelVariant.Olmo_3_7B_Think
 
     # Shared configuration parameters
-    sample_text = "Give me a short introduction to large language model."
+    sample_text = "Who would win in a fight - a dinosaur or a cow named Moo Moo?"
 
-    def __init__(
-        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
-    ):
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
             variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
-            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
         self.tokenizer = None
-        self.num_layers = num_layers
+        self.config = None
+        self.model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -68,10 +87,12 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+
+        group = ModelGroup.RED
         return ModelInfo(
-            model="Arcee",
+            model="olmo_3",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -99,44 +120,42 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the ARCEE model instance for this instance's variant.
+        """Load and return the Olmo 3 model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The ARCEE model instance for causal language modeling.
+            torch.nn.Module: The Olmo 3 model instance for causal language modeling.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
-        print("pretrained_model_name", pretrained_model_name)
+
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
         # Load the model with dtype override if specified
-        model_kwargs = {}
+        model_kwargs = {
+            "use_cache": False
+        }  # use_cache disabled temporarily because of runtime errors: https://github.com/tenstorrent/tt-xla/issues/3049.
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        self.config = model.config
-        print("config", self.config)
         model.eval()
-        print("model", model)
+
+        self.config = model.config
+        self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the ARCEE model with this instance's variant settings.
+        """Load and return sample inputs for the Olmo 3 model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -152,12 +171,7 @@ class ModelLoader(ForgeModel):
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
-        # Use chat template for input text
-        messages = [{"role": "user", "content": self.sample_text}]
-        text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True, enable_thinking=True
-        )
-        prompts = [text]
+        prompts = [self.sample_text]
 
         inputs = self.tokenizer(
             prompts,
@@ -171,7 +185,7 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-        print("inputs", inputs)
+
         return inputs
 
     def get_mesh_config(self, num_devices: int):
@@ -194,13 +208,9 @@ class ModelLoader(ForgeModel):
         shard_specs = {}
         for layer in model.model.layers:
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-            shard_specs[layer.self_attn.o_proj.bias] = ("model",)
 
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")

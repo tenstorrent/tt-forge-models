@@ -27,14 +27,14 @@ class ModelVariant(StrEnum):
     """Available Gemma model variants for causal LM."""
 
     # Gemma 1.x
-    GEMMA_1_1_2B_IT = "1.1 2B IT"
-    GEMMA_1_1_7B_IT = "1.1 7B IT"
+    GEMMA_1_1_2B_IT = "1.1_2B_IT"
+    GEMMA_1_1_7B_IT = "1.1_7B_IT"
     GEMMA_2B = "2B"
 
     # Gemma 2.x
-    GEMMA_2_2B_IT = "2 2B IT"
-    GEMMA_2_9B_IT = "2 9B IT"
-    GEMMA_2_27B_IT = "2 27B IT"
+    GEMMA_2_2B_IT = "2_2B_IT"
+    GEMMA_2_9B_IT = "2_9B_IT"
+    GEMMA_2_27B_IT = "2_27B_IT"
 
 
 class ModelLoader(ForgeModel):

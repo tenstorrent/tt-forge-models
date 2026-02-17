@@ -27,9 +27,9 @@ class ModelVariant(StrEnum):
     """Available AlexNet model variants."""
 
     CUSTOM = "Custom"
-    CUSTOM_1X2 = "Custom 1x2"
-    CUSTOM_1X4 = "Custom 1x4"
-    CUSTOM_1X8 = "Custom 1x8"
+    CUSTOM_1X2 = "Custom_1x2"
+    CUSTOM_1X4 = "Custom_1x4"
+    CUSTOM_1X8 = "Custom_1x8"
 
 
 class ModelLoader(ForgeModel):

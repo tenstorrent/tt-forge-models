@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available PHI1 model variants."""
 
-    PHI1 = "Phi 1"
+    PHI1 = "Phi_1"
 
 
 class ModelLoader(ForgeModel):

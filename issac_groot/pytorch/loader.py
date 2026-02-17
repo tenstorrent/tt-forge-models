@@ -24,7 +24,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Isaac GR00T model variants."""
 
-    GROOT_N1_5_3B = "Gr00t N1.5 3B"
+    GROOT_N1_5_3B = "Gr00t_N1.5_3B"
 
 
 class ModelLoader(ForgeModel):

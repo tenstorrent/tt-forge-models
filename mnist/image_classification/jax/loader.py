@@ -30,12 +30,12 @@ from .cnn_dropout.model_implementation import MNISTCNNDropoutModel
 class ModelVariant(StrEnum):
     """Available MNIST model architectures."""
 
-    MLP_CUSTOM = "Mlp Custom"
-    MLP_CUSTOM_1X2 = "Mlp Custom 1x2"
-    MLP_CUSTOM_1X4 = "Mlp Custom 1x4"
-    MLP_CUSTOM_1X8 = "Mlp Custom 1x8"
-    CNN_BATCHNORM = "Cnn Batchnorm"
-    CNN_DROPOUT = "Cnn Dropout"
+    MLP_CUSTOM = "Mlp_Custom"
+    MLP_CUSTOM_1X2 = "Mlp_Custom_1x2"
+    MLP_CUSTOM_1X4 = "Mlp_Custom_1x4"
+    MLP_CUSTOM_1X8 = "Mlp_Custom_1x8"
+    CNN_BATCHNORM = "Cnn_Batchnorm"
+    CNN_DROPOUT = "Cnn_Dropout"
 
 
 class ModelLoader(ForgeModel):

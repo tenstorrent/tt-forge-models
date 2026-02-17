@@ -29,8 +29,8 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available Llama model variants."""
 
-    _1B_TINY = "1B Tiny"
-    _3B_V2 = "3B v2"
+    _1B_TINY = "1B_Tiny"
+    _3B_V2 = "3B_v2"
 
 
 class ModelLoader(ForgeModel):

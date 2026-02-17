@@ -18,7 +18,8 @@ from ....tools.utils import get_file
 
 
 def preprocess_steps(model_type):
-    model = model_type(True, True).eval()
+    # Use randomly initialized weights (no pretrained download)
+    model = model_type(False, True).eval()
     config = resolve_data_config({}, model=model)
     transform = create_transform(**config)
 
@@ -36,7 +37,8 @@ def preprocess_steps(model_type):
 
 
 def preprocess_timm_model(model_name):
-    use_pretrained_weights = True
+    # Use randomly initialized weights (no pretrained download)
+    use_pretrained_weights = False
     if model_name == "ese_vovnet99b":
         use_pretrained_weights = False
     model = timm.create_model(model_name, pretrained=use_pretrained_weights)

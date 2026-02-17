@@ -22,15 +22,15 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available VIT model variants."""
 
-    BASE_PATCH16_224 = "Base Patch16 224"
-    BASE_PATCH16_384 = "Base Patch16 384"
-    BASE_PATCH32_224_IN_21K = "Base Patch32 224 In 21K"
-    BASE_PATCH32_384 = "Base Patch32 384"
-    HUGE_PATCH14_224_IN_21K = "Huge Patch14 224 In 21K"
-    LARGE_PATCH16_224 = "Large Patch16 224"
-    LARGE_PATCH16_384 = "Large Patch16 384"
-    LARGE_PATCH32_224_IN_21K = "Large Patch32 224 In 21K"
-    LARGE_PATCH32_384 = "Large Patch32 384"
+    BASE_PATCH16_224 = "Base_Patch16_224"
+    BASE_PATCH16_384 = "Base_Patch16_384"
+    BASE_PATCH32_224_IN_21K = "Base_Patch32_224_In_21K"
+    BASE_PATCH32_384 = "Base_Patch32_384"
+    HUGE_PATCH14_224_IN_21K = "Huge_Patch14_224_In_21K"
+    LARGE_PATCH16_224 = "Large_Patch16_224"
+    LARGE_PATCH16_384 = "Large_Patch16_384"
+    LARGE_PATCH32_224_IN_21K = "Large_Patch32_224_In_21K"
+    LARGE_PATCH32_384 = "Large_Patch32_384"
 
 
 class ModelLoader(ForgeModel):

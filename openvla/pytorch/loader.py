@@ -30,11 +30,11 @@ class ModelVariant(StrEnum):
     """Available OpenVLA model variants."""
 
     OPENVLA_7B = "7B"
-    OPENVLA_V01_7B = "v01 7B"
-    OPENVLA_7B_FINETUNED_LIBERO_10 = "7B Finetuned Libero 10"
-    OPENVLA_7B_FINETUNED_LIBERO_GOAL = "7B Finetuned Libero Goal"
-    OPENVLA_7B_FINETUNED_LIBERO_OBJECT = "7B Finetuned Libero Object"
-    OPENVLA_7B_FINETUNED_LIBERO_SPATIAL = "7B Finetuned Libero Spatial"
+    OPENVLA_V01_7B = "v01_7B"
+    OPENVLA_7B_FINETUNED_LIBERO_10 = "7B_Finetuned_Libero_10"
+    OPENVLA_7B_FINETUNED_LIBERO_GOAL = "7B_Finetuned_Libero_Goal"
+    OPENVLA_7B_FINETUNED_LIBERO_OBJECT = "7B_Finetuned_Libero_Object"
+    OPENVLA_7B_FINETUNED_LIBERO_SPATIAL = "7B_Finetuned_Libero_Spatial"
 
 
 class ModelLoader(ForgeModel):

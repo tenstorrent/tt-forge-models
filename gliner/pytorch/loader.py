@@ -20,8 +20,8 @@ from ...base import ForgeModel
 
 
 class ModelVariant(StrEnum):
-    GLINER_LARGEV2 = "Large v2"
-    GLINER_MULTI_V21 = "Multi v2.1"
+    GLINER_LARGEV2 = "Large_v2"
+    GLINER_MULTI_V21 = "Multi_v2.1"
 
 
 class ModelLoader(ForgeModel):

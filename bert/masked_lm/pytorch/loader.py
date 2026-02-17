@@ -21,7 +21,7 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available BERT model variants for masked language modeling."""
 
-    BERT_BASE_UNCASED = "Base Uncased"
+    BERT_BASE_UNCASED = "Base_Uncased"
 
 
 class ModelLoader(ForgeModel):

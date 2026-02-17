@@ -23,8 +23,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available PHI2 model variants."""
 
-    PHI2 = "Phi 2"
-    PHI2_PYTDML = "Phi 2 Pytdml"
+    PHI2 = "Phi_2"
+    PHI2_PYTDML = "Phi_2_Pytdml"
 
 
 class ModelLoader(ForgeModel):

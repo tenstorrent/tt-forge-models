@@ -28,8 +28,8 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available Qwen3 model variants for causal language modeling."""
 
-    QWEN_3_0_6B = "0 6B"
-    QWEN_3_1_7B = "1 7B"
+    QWEN_3_0_6B = "0_6B"
+    QWEN_3_1_7B = "1_7B"
     QWEN_3_4B = "4B"
     ## Too large
     # QWEN_3_8B = "8B"

@@ -23,7 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Huggy Llama model variants."""
 
-    LLAMA_7B = "Llama 7B"
+    LLAMA_7B = "Llama_7B"
 
 
 class ModelLoader(ForgeModel):
