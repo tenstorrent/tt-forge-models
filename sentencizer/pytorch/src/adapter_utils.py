@@ -5562,7 +5562,7 @@ class XLMRobertaSelfAttentionWithAdapters(
     ) -> Tuple[torch.Tensor]:
         attention_mask = prefix_attention_mask(attention_mask)  # type: ignore
 
-        batch_size, seq_length, _ = hidden_states.size()
+        batch_size, _, _ = hidden_states.size()
 
         def _transpose_for_scores(x):
             return x.view(
