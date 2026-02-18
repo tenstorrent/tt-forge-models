@@ -215,7 +215,7 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
+        shard_specs[model.lm_head.weight] = ("batch", "model")
 
         return shard_specs
 
