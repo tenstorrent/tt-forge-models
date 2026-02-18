@@ -8,7 +8,6 @@ YOLOS-Small model loader implementation for object detection.
 import torch
 from transformers import (
     YolosImageProcessor,
-    YolosFeatureExtractor,
     YolosForObjectDetection,
 )
 from typing import Optional
@@ -104,7 +103,7 @@ class ModelLoader(ForgeModel):
         if pretrained_model_name == "hustvl/yolos-small-300":
             self.processor = YolosImageProcessor.from_pretrained(pretrained_model_name)
         else:
-            self.processor = YolosFeatureExtractor.from_pretrained(
+            self.processor = YolosImageProcessor.from_pretrained(
                 pretrained_model_name
             )
 
