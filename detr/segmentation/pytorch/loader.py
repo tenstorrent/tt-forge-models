@@ -5,7 +5,7 @@
 DETR model loader implementation for segmentation.
 """
 import torch
-from transformers import DetrForSegmentation, DetrFeatureExtractor
+from transformers import DetrForSegmentation, DetrImageProcessor
 from typing import Optional
 from PIL import Image
 
@@ -79,7 +79,7 @@ class ModelLoader(ForgeModel):
         """
 
         # Load the feature extractor
-        self.feature_extractor = DetrFeatureExtractor.from_pretrained(
+        self.feature_extractor = DetrImageProcessor.from_pretrained(
             self._variant_config.pretrained_model_name
         )
 
