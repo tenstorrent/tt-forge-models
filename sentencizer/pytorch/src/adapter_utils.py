@@ -5565,7 +5565,9 @@ class XLMRobertaSelfAttentionWithAdapters(
         batch_size, seq_length, _ = hidden_states.size()
 
         def _transpose_for_scores(x):
-            return x.view(batch_size, -1, self.num_attention_heads, self.attention_head_size).transpose(1, 2)
+            return x.view(
+                batch_size, -1, self.num_attention_heads, self.attention_head_size
+            ).transpose(1, 2)
 
         mixed_query_layer = self.query(hidden_states)
 
@@ -5724,7 +5726,9 @@ class XLMRobertaSdpaSelfAttentionWithAdapters(
         bsz, tgt_len, _ = hidden_states.size()
 
         def _transpose_for_scores(x):
-            return x.view(bsz, -1, self.num_attention_heads, self.attention_head_size).transpose(1, 2)
+            return x.view(
+                bsz, -1, self.num_attention_heads, self.attention_head_size
+            ).transpose(1, 2)
 
         query_layer = _transpose_for_scores(self.query(hidden_states))
 
