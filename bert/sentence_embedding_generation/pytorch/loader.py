@@ -160,6 +160,15 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        # Transformers 5.x's create_bidirectional_mask() materializes non-splat
+        # constant index tensors (batch_arange, kv_arange) that Shardy cannot
+        # shard in data-parallel mode. Passing a pre-computed 4D mask triggers an
+        # early-exit in _preprocess_mask_arguments, bypassing that code path.
+        mask_2d = inputs["attention_mask"]
+        inputs["attention_mask"] = mask_2d[:, None, None, :].expand(
+            -1, 1, max_length, -1
+        ).bool()
+
         return inputs
 
     def load_inputs(self, dtype_override=None, sentence=None):
@@ -191,6 +200,8 @@ class ModelLoader(ForgeModel):
             inputs = self.load_inputs()
 
         attention_mask = inputs["attention_mask"]
+        if attention_mask.dim() == 4:
+            attention_mask = attention_mask[:, 0, 0, :]
 
         # Extract token embeddings from outputs
         if isinstance(output, (tuple, list)):
