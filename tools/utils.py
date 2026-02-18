@@ -166,6 +166,36 @@ def print_compiled_model_results(compiled_model_out, use_1k_labels: bool = True)
     print(tabulate(table, headers="firstrow", tablefmt="grid"))
 
 
+def paddle_img_classification_preprocess(batch_size=1):
+    """Prepare sample input for paddle image classification tasks"""
+
+    # Local imports to avoid conflicting with torchvision transforms
+    import paddle
+    from paddle.vision import transforms as p_transforms
+
+    image_file = get_file("https://github.com/pytorch/hub/raw/master/images/dog.jpg")
+    image = Image.open(image_file).convert("RGB")
+    preprocess = p_transforms.Compose(
+        [
+            p_transforms.Resize(256),
+            p_transforms.CenterCrop(224),
+            p_transforms.ToTensor(),
+            p_transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225],
+                data_format="CHW",
+            ),
+        ]
+    )
+    inputs = preprocess(image)
+    inputs = paddle.unsqueeze(inputs, axis=0)
+
+    if batch_size and batch_size > 1:
+        inputs = paddle.tile(inputs, repeat_times=[batch_size, 1, 1, 1])
+
+    return inputs
+
+
 def get_state_dict(self, *args, **kwargs):
     kwargs.pop("check_hash")
     return load_state_dict_from_url(self.url, *args, **kwargs)
