@@ -16,6 +16,7 @@ from ...config import (
     StrEnum,
 )
 from typing import Optional
+from datasets import load_dataset
 from ...tools.utils import get_file
 
 
@@ -112,7 +113,14 @@ class ModelLoader(ForgeModel):
         from .src.utils import get_test_pipeline_cfg
         from .src.model import Compose
 
-        self.image_file = get_file("https://ultralytics.com/images/bus.jpg")
+        # Load image from HuggingFace dataset and save to temp file for pipeline
+        import tempfile
+
+        dataset = load_dataset("huggingface/cats-image")["test"]
+        _tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        dataset[0]["image"].convert("RGB").save(_tmp, format="JPEG")
+        _tmp.close()
+        self.image_file = _tmp.name
         test_pipeline_cfg = get_test_pipeline_cfg(cfg=self.config)
         test_pipeline = Compose(test_pipeline_cfg)
         data_info = dict(img_id=0, img_path=self.image_file, texts=self.texts)
