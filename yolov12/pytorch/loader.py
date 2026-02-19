@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
         if variant in [ModelVariant.YOLOv12N]:
             group = ModelGroup.RED
         return ModelInfo(
-            model="yolo12",
+            model="YOLOv12",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,

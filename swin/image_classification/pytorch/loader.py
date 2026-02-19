@@ -35,16 +35,16 @@ class ModelVariant(StrEnum):
     """Available Swin model variants."""
 
     # HuggingFace variants
-    SWIN_TINY_HF = "microsoft/swin-tiny-patch4-window7-224"
-    SWINV2_TINY_HF = "microsoft/swinv2-tiny-patch4-window8-256"
+    SWIN_TINY_HF = "Tiny_Patch4_Window7_224"
+    SWINV2_TINY_HF = "v2_Tiny_Patch4_Window8_256"
 
     # Torchvision variants
-    SWIN_T = "swin_t"
-    SWIN_S = "swin_s"
-    SWIN_B = "swin_b"
-    SWIN_V2_T = "swin_v2_t"
-    SWIN_V2_S = "swin_v2_s"
-    SWIN_V2_B = "swin_v2_b"
+    SWIN_T = "T"
+    SWIN_S = "S"
+    SWIN_B = "B"
+    SWIN_V2_T = "v2_T"
+    SWIN_V2_S = "v2_S"
+    SWIN_V2_B = "v2_B"
 
 
 class ModelLoader(ForgeModel):
@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="swin",
+            model="Swin",
             variant=variant,
             group=ModelGroup.RED
             if variant == ModelVariant.SWIN_S

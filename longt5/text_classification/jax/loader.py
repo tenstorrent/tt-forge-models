@@ -25,9 +25,9 @@ from ....tools.jax_utils import cast_hf_model_to_type
 class ModelVariant(StrEnum):
     """Available LongT5 model variants."""
 
-    BASE_TGLOBAL = "base-tglobal"
-    LARGE_LOCAL = "large-local"
-    XL_TGLOBAL = "xl-tglobal"
+    BASE_TGLOBAL = "Base_Tglobal"
+    LARGE_LOCAL = "Large_Local"
+    XL_TGLOBAL = "Xl_Tglobal"
 
 
 class ModelLoader(ForgeModel):
@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="longt5",
+            model="LongT5",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,

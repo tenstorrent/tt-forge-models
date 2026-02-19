@@ -20,13 +20,16 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
-from ....tools.utils import print_compiled_model_results
+from ....tools.utils import (
+    print_compiled_model_results,
+    paddle_img_classification_preprocess,
+)
 
 
 class ModelVariant(StrEnum):
     """Available AlexNet model variants (Paddle)."""
 
-    DEFAULT = "alexnet"
+    DEFAULT = "Default"
 
 
 class ModelLoader(ForgeModel):
@@ -48,7 +51,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="alexnet",
+            model="AlexNet",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -63,10 +66,9 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size: int = 1):
         """Prepare sample input for AlexNet model (Paddle)."""
-        inputs = paddle.rand([batch_size, 3, 224, 224])
+        inputs = paddle_img_classification_preprocess(batch_size)
         return [inputs]
 
-    def print_results(self, compiled_model=None, inputs=None):
+    def print_results(self, outputs):
         """Print results for AlexNet model (Paddle)."""
-        compiled_model_out = compiled_model(inputs)
-        print_compiled_model_results(compiled_model_out)
+        print_compiled_model_results(outputs)

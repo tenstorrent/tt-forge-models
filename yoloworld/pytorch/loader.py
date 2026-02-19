@@ -22,13 +22,13 @@ from ...tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available YOLO WORLD model variants."""
 
-    SMALL_1 = "small_640"
-    SMALL_2 = "small_1280"
-    MEDIUM_1 = "medium_640"
-    MEDIUM_2 = "medium_1280"
-    LARGE_1 = "large_640"
-    LARGE_2 = "large_1280"
-    XLARGE_1 = "xlarge_640"
+    SMALL_1 = "Small_640"
+    SMALL_2 = "Small_1280"
+    MEDIUM_1 = "Medium_640"
+    MEDIUM_2 = "Medium_1280"
+    LARGE_1 = "Large_640"
+    LARGE_2 = "Large_1280"
+    XLARGE_1 = "Xlarge_640"
 
 
 class ModelLoader(ForgeModel):
@@ -82,7 +82,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="yoloworld",
+            model="YOLO-World",
             variant=variant,
             group=ModelGroup.RED
             if variant == cls.DEFAULT_VARIANT

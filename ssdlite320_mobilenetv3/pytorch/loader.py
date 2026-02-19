@@ -22,12 +22,17 @@ from PIL import Image
 from ...tools.utils import get_file
 from torchvision import transforms
 import torchvision.models as models
+from torchvision.models.detection.anchor_utils import DefaultBoxGenerator
+from ...ssd300_vgg16.pytorch.src.utils import (
+    patched_grid_default_boxes,
+    patched_forward,
+)
 
 
 class ModelVariant(StrEnum):
     """Available SSDLite320 MobileNetV3 model variants."""
 
-    SSDLITE320_MOBILENET_V3_LARGE = "ssdlite320_mobilenet_v3_large"
+    SSDLITE320_MOBILENET_V3_LARGE = "Ssdlite320_Mobilenet_v3_Large"
 
 
 class ModelLoader(ForgeModel):
@@ -65,7 +70,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="ssdlite320_mobilenetv3",
+            model="SSDLite320-MobileNetV3",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,
@@ -83,6 +88,12 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The SSDLite320 MobileNetV3 model instance.
         """
+        # Monkey-patch DefaultBoxGenerator to propagate device into _grid_default_boxes,
+        # so tensors created during forward are on the same device (XLA) as the feature maps
+        # instead of defaulting to CPU - https://github.com/tenstorrent/tt-xla/issues/3335
+        DefaultBoxGenerator._grid_default_boxes = patched_grid_default_boxes
+        DefaultBoxGenerator.forward = patched_forward
+
         # Get the pretrained model name from the instance's variant config
         model_name = self._variant_config.pretrained_model_name
 

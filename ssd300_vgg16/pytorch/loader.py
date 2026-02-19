@@ -7,6 +7,7 @@ SSD300 VGG16 model loader implementation for object detection
 import torch
 from typing import Optional
 from torchvision import models
+from torchvision.models.detection.anchor_utils import DefaultBoxGenerator
 from PIL import Image
 
 from ...base import ForgeModel
@@ -20,13 +21,13 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import get_file, print_compiled_model_results
-from .src.utils import SSDPostprocessor
+from .src.utils import SSDPostprocessor, patched_grid_default_boxes, patched_forward
 
 
 class ModelVariant(StrEnum):
     """Available SSD300 VGG16 model variants."""
 
-    BASE = "ssd300_vgg16"
+    BASE = "Default"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +67,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="ssd300_vgg16",
+            model="SSD300-VGG16",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_OBJECT_DET,
@@ -85,6 +86,12 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The SSD300 VGG16 model instance for object detection.
         """
+        # Monkey-patch DefaultBoxGenerator to propagate device into _grid_default_boxes,
+        # so tensors created during forward are on the same device (XLA) as the feature maps
+        # instead of defaulting to CPU - https://github.com/tenstorrent/tt-xla/issues/3335
+        DefaultBoxGenerator._grid_default_boxes = patched_grid_default_boxes
+        DefaultBoxGenerator.forward = patched_forward
+
         # Load model from torchvision
         weights = models.detection.SSD300_VGG16_Weights.DEFAULT
         model = models.detection.ssd300_vgg16(weights=weights)

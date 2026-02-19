@@ -5454,6 +5454,14 @@ class ModelBaseAdaptersMixin(ModelAdaptersMixin):
 class BertSelfAttentionAdaptersMixin:
     """Adds adapters to the BertSelfAttention module."""
 
+    def _transpose_for_scores(self, x):
+        new_x_shape = x.size()[:-1] + (
+            self.num_attention_heads,
+            self.attention_head_size,
+        )
+        x = x.view(new_x_shape)
+        return x.permute(0, 2, 1, 3)
+
     def init_adapters(self, model_config, adapters_config):
         # Wrap layers for LoRA
         self.query = LoRALinear.wrap(
@@ -5558,6 +5566,7 @@ class XLMRobertaSelfAttentionWithAdapters(
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         past_key_value: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         output_attentions: Optional[bool] = False,
+        **kwargs,
     ) -> Tuple[torch.Tensor]:
         attention_mask = prefix_attention_mask(attention_mask)  # type: ignore
 
@@ -5574,19 +5583,19 @@ class XLMRobertaSelfAttentionWithAdapters(
             value_layer = past_key_value[1]
             attention_mask = encoder_attention_mask
         elif is_cross_attention:
-            key_layer = self.transpose_for_scores(self.key(encoder_hidden_states))
-            value_layer = self.transpose_for_scores(self.value(encoder_hidden_states))
+            key_layer = self._transpose_for_scores(self.key(encoder_hidden_states))
+            value_layer = self._transpose_for_scores(self.value(encoder_hidden_states))
             attention_mask = encoder_attention_mask
         elif past_key_value is not None:
-            key_layer = self.transpose_for_scores(self.key(hidden_states))
-            value_layer = self.transpose_for_scores(self.value(hidden_states))
+            key_layer = self._transpose_for_scores(self.key(hidden_states))
+            value_layer = self._transpose_for_scores(self.value(hidden_states))
             key_layer = torch.cat([past_key_value[0], key_layer], dim=2)
             value_layer = torch.cat([past_key_value[1], value_layer], dim=2)
         else:
-            key_layer = self.transpose_for_scores(self.key(hidden_states))
-            value_layer = self.transpose_for_scores(self.value(hidden_states))
+            key_layer = self._transpose_for_scores(self.key(hidden_states))
+            value_layer = self._transpose_for_scores(self.value(hidden_states))
 
-        query_layer = self.transpose_for_scores(mixed_query_layer)
+        query_layer = self._transpose_for_scores(mixed_query_layer)
         # >>> START AH Changes <<<
         query_layer, key_layer, value_layer = match_attn_matrices_for_parallel(
             query_layer, key_layer, value_layer
@@ -5694,6 +5703,7 @@ class XLMRobertaSdpaSelfAttentionWithAdapters(
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         past_key_value: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         output_attentions: Optional[bool] = False,
+        **kwargs,
     ) -> Tuple[torch.Tensor]:
         # >>> START AH Changes <<<
         attention_mask = prefix_attention_mask(attention_mask, [2, 3])  # type: ignore
@@ -5716,7 +5726,7 @@ class XLMRobertaSdpaSelfAttentionWithAdapters(
 
         bsz, tgt_len, _ = hidden_states.size()
 
-        query_layer = self.transpose_for_scores(self.query(hidden_states))
+        query_layer = self._transpose_for_scores(self.query(hidden_states))
 
         # If this is instantiated as a cross-attention module, the keys and values come from an encoder; the attention
         # mask needs to be such that the encoder's padding tokens are not attended to.
@@ -5735,8 +5745,8 @@ class XLMRobertaSdpaSelfAttentionWithAdapters(
         ):
             key_layer, value_layer = past_key_value
         else:
-            key_layer = self.transpose_for_scores(self.key(current_states))
-            value_layer = self.transpose_for_scores(self.value(current_states))
+            key_layer = self._transpose_for_scores(self.key(current_states))
+            value_layer = self._transpose_for_scores(self.value(current_states))
             if past_key_value is not None and not is_cross_attention:
                 key_layer = torch.cat([past_key_value[0], key_layer], dim=2)
                 value_layer = torch.cat([past_key_value[1], value_layer], dim=2)
@@ -5757,14 +5767,6 @@ class XLMRobertaSdpaSelfAttentionWithAdapters(
         )
         (query_layer,) = adjust_tensors_for_parallel(key_layer, query_layer)
         bsz = query_layer.size(0)
-        if (
-            self.require_contiguous_qkv
-            and query_layer.device.type == "cuda"
-            and attention_mask is not None
-        ):
-            query_layer = query_layer.contiguous()
-            key_layer = key_layer.contiguous()
-            value_layer = value_layer.contiguous()
         is_causal = (
             True
             if self.is_decoder

@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Qwen 2 model variants for causal language modeling."""
 
-    QWQ_32B = "qwq_32b"
+    QWQ_32B = "Qwq_32B"
 
 
 class ModelLoader(ForgeModel):
@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="qwen_2",
+            model="Qwen 2",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
