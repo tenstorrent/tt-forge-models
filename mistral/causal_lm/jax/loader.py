@@ -30,9 +30,9 @@ class ModelVariant(StrEnum):
     """Available Mistral model variants."""
 
     V0_1 = "v0_1"
-    V0_1_TINY = "v0_1_tiny"
-    V0_2_INSTRUCT = "v0_2_instruct"
-    V0_3_INSTRUCT = "v0_3_instruct"
+    V0_1_TINY = "v0_1_Tiny"
+    V0_2_INSTRUCT = "v0_2_Instruct"
+    V0_3_INSTRUCT = "v0_3_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -79,7 +79,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="mistral",
+            model="Mistral",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,

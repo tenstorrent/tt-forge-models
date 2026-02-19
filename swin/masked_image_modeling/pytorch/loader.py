@@ -24,7 +24,7 @@ from typing import Optional
 class ModelVariant(StrEnum):
     """Available Swin model variants for masked image modeling."""
 
-    SWINV2_TINY = "microsoft/swinv2-tiny-patch4-window8-256"
+    SWINV2_TINY = "v2_Tiny_Patch4_Window8_256"
 
 
 class ModelLoader(ForgeModel):
@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="swin-masked-lm",
+            model="Swin",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMG_TO_IMG,

@@ -29,12 +29,12 @@ from huggingface_hub import snapshot_download
 class ModelVariant(StrEnum):
     """Available OpenVLA model variants."""
 
-    OPENVLA_7B = "openvla_7b"
-    OPENVLA_V01_7B = "openvla_v01_7b"
-    OPENVLA_7B_FINETUNED_LIBERO_10 = "openvla_7b_finetuned_libero_10"
-    OPENVLA_7B_FINETUNED_LIBERO_GOAL = "openvla_7b_finetuned_libero_goal"
-    OPENVLA_7B_FINETUNED_LIBERO_OBJECT = "openvla_7b_finetuned_libero_object"
-    OPENVLA_7B_FINETUNED_LIBERO_SPATIAL = "openvla_7b_finetuned_libero_spatial"
+    OPENVLA_7B = "7B"
+    OPENVLA_V01_7B = "v01_7B"
+    OPENVLA_7B_FINETUNED_LIBERO_10 = "7B_Finetuned_Libero_10"
+    OPENVLA_7B_FINETUNED_LIBERO_GOAL = "7B_Finetuned_Libero_Goal"
+    OPENVLA_7B_FINETUNED_LIBERO_OBJECT = "7B_Finetuned_Libero_Object"
+    OPENVLA_7B_FINETUNED_LIBERO_SPATIAL = "7B_Finetuned_Libero_Spatial"
 
 
 class ModelLoader(ForgeModel):
@@ -108,7 +108,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="openvla",
+            model="OpenVLA",
             variant=variant,
             group=group,
             task=ModelTask.MM_ACTION_PREDICTION,

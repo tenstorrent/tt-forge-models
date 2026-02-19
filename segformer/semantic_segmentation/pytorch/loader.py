@@ -25,11 +25,11 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Segformer for Semantic Segmentation model variants."""
 
-    B0_FINETUNED = "b0_finetuned_ade_512_512"
-    B1_FINETUNED = "b1_finetuned_ade_512_512"
-    B2_FINETUNED = "b2_finetuned_ade_512_512"
-    B3_FINETUNED = "b3_finetuned_ade_512_512"
-    B4_FINETUNED = "b4_finetuned_ade_512_512"
+    B0_FINETUNED = "B0_Finetuned_Ade_512_512"
+    B1_FINETUNED = "B1_Finetuned_Ade_512_512"
+    B2_FINETUNED = "B2_Finetuned_Ade_512_512"
+    B3_FINETUNED = "B3_Finetuned_Ade_512_512"
+    B4_FINETUNED = "B4_Finetuned_Ade_512_512"
 
 
 class ModelLoader(ForgeModel):
@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="segformer_semantic_segmentation",
+            model="SegFormer",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_SEG,

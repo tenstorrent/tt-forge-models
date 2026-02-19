@@ -21,7 +21,7 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available BERT model variants for sequence classification."""
 
-    TEXTATTACK_BERT_BASE_UNCASED_SST_2 = "textattack/bert-base-uncased-SST-2"
+    TEXTATTACK_BERT_BASE_UNCASED_SST_2 = "Base_Uncased_Sst_2"
 
 
 class ModelLoader(ForgeModel):
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="BERT-SequenceClassification",
+            model="BERT",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_TEXT_CLS,

@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available XLMRoberta For Masked LM model variants."""
 
-    XLM_BASE = "xlm_base"
+    XLM_BASE = "Xlm_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -61,7 +61,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="roberta_masked_lm",
+            model="RoBERTa",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_MASKED_LM,

@@ -29,9 +29,9 @@ from ....tools.utils import (
 class ModelVariant(StrEnum):
     """Available model variants for causal LM."""
 
-    GLM_4_7 = "GLM-4.7"
-    GLM_4_5 = "GLM-4.5"
-    GLM_4_5_AIR = "GLM-4.5-Air"
+    GLM_4_7 = "4.7"
+    GLM_4_5 = "4.5"
+    GLM_4_5_AIR = "4.5_Air"
 
 
 class ModelLoader(ForgeModel):
@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
 
         group = ModelGroup.RED
         return ModelInfo(
-            model="glm_causal_lm",
+            model="GLM",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,

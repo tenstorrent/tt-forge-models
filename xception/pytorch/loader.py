@@ -35,10 +35,10 @@ class XceptionConfig(ModelConfig):
 class ModelVariant(StrEnum):
     """Available Xception model variants."""
 
-    XCEPTION41 = "xception41"
-    XCEPTION65 = "xception65"
-    XCEPTION71 = "xception71"
-    XCEPTION71_TF_IN1K = "xception71.tf_in1k"
+    XCEPTION41 = "41"
+    XCEPTION65 = "65"
+    XCEPTION71 = "71"
+    XCEPTION71_TF_IN1K = "71.tf_In1k"
 
 
 class ModelLoader(ForgeModel):
@@ -97,7 +97,7 @@ class ModelLoader(ForgeModel):
         source = cls._VARIANTS[variant].source
 
         return ModelInfo(
-            model="xception",
+            model="Xception",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,

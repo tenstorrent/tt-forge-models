@@ -7837,6 +7837,7 @@ def get_xl_variant_module_params(base_cfg):
 def get_base_cfg(variant="small_640"):
     if hasattr(variant, "value"):
         variant = variant.value
+    variant = variant.lower()
     base_cfg = dict(
         variant=variant,
     )

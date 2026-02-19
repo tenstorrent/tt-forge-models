@@ -74,7 +74,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="bevdepth",
+            model="BEVDepth",
             variant=variant,
             group=ModelGroup.RED
             if variant == ModelVariant.BEVDEPTH_LSS_R50_256X704_128X128_24E_2KEY

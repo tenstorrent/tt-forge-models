@@ -28,10 +28,10 @@ from ....tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available DINOv2 model variants for image classification."""
 
-    SMALL = "small"
-    BASE = "base"
-    LARGE = "large"
-    GIANT = "giant"
+    SMALL = "Small"
+    BASE = "Base"
+    LARGE = "Large"
+    GIANT = "Giant"
 
 
 class ModelLoader(ForgeModel):
@@ -86,7 +86,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="dinov2",
+            model="DINOv2",
             variant=variant,
             group=group,
             task=ModelTask.CV_IMAGE_CLS,

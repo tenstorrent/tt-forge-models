@@ -26,17 +26,20 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
-from ....tools.utils import print_compiled_model_results
+from ....tools.utils import (
+    print_compiled_model_results,
+    paddle_img_classification_preprocess,
+)
 
 
 class ModelVariant(StrEnum):
     """Available ResNet model variants (Paddle)."""
 
-    RESNET18 = "resnet18"
-    RESNET34 = "resnet34"
-    RESNET50 = "resnet50"
-    RESNET101 = "resnet101"
-    RESNET152 = "resnet152"
+    RESNET18 = "ResNet18"
+    RESNET34 = "ResNet34"
+    RESNET50 = "ResNet50"
+    RESNET101 = "ResNet101"
+    RESNET152 = "ResNet152"
 
 
 class ModelLoader(ForgeModel):
@@ -68,7 +71,7 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting."""
         return ModelInfo(
-            model="resnet",
+            model="ResNet",
             variant=variant.value,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
@@ -95,10 +98,9 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size: int = 1):
         """Prepare sample input for ResNet model (Paddle)."""
-        inputs = paddle.rand([batch_size, 3, 224, 224])
+        inputs = paddle_img_classification_preprocess(batch_size)
         return [inputs]
 
-    def print_results(self, compiled_model=None, inputs=None):
+    def print_results(self, outputs):
         """Print results for ResNet model (Paddle)."""
-        compiled_model_out = compiled_model(inputs)
-        print_compiled_model_results(compiled_model_out)
+        print_compiled_model_results(outputs)

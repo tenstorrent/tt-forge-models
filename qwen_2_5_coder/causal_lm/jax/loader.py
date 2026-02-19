@@ -28,15 +28,15 @@ import numpy as np
 class ModelVariant(StrEnum):
     """Available Qwen2.5-Coder model variants for causal language modeling."""
 
-    QWEN_2_5_CODER_0_5B = "0_5b"
-    QWEN_2_5_CODER_1_5B = "1_5b"
-    QWEN_2_5_CODER_1_5B_INSTRUCT = "1_5b_instruct"
-    QWEN_2_5_CODER_3B = "3b"
-    QWEN_2_5_CODER_3B_INSTRUCT = "3b_instruct"
-    QWEN_2_5_CODER_7B = "7b"
-    QWEN_2_5_CODER_7B_INSTRUCT = "7b_instruct"
+    QWEN_2_5_CODER_0_5B = "0.5B"
+    QWEN_2_5_CODER_1_5B = "1.5B"
+    QWEN_2_5_CODER_1_5B_INSTRUCT = "1.5B_Instruct"
+    QWEN_2_5_CODER_3B = "3B"
+    QWEN_2_5_CODER_3B_INSTRUCT = "3B_Instruct"
+    QWEN_2_5_CODER_7B = "7B"
+    QWEN_2_5_CODER_7B_INSTRUCT = "7B_Instruct"
     ## Too large
-    # QWEN_2_5_CODER_32B_INSTRUCT = "32b_instruct"
+    # QWEN_2_5_CODER_32B_INSTRUCT = "32B Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -105,7 +105,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="qwen_2_5_coder",
+            model="Qwen 2.5 Coder",
             variant=variant,
             group=group,
             task=ModelTask.NLP_CAUSAL_LM,

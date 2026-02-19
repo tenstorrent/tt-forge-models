@@ -28,8 +28,8 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available GPT-2 model variants."""
 
-    GPT2_BASE = "gpt2"
-    GPT2_SEQUENCE_CLASSIFICATION = "gpt2_sequence_classification"
+    GPT2_BASE = "Default"
+    GPT2_SEQUENCE_CLASSIFICATION = "Sequence_Classification"
 
 
 class ModelLoader(ForgeModel):
@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
         )
 
         return ModelInfo(
-            model="gpt2",
+            model="GPT-2",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=task,
