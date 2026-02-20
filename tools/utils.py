@@ -15,6 +15,7 @@ from typing import Optional, Union, List, Callable, Any
 from PIL import Image
 from torchvision import models, transforms
 from transformers import AutoImageProcessor
+import onnx
 import timm
 from timm.data import resolve_data_config
 from timm.data.transforms_factory import create_transform
@@ -1170,3 +1171,48 @@ def extract_tensors_recursive(obj, tensors):
     elif isinstance(obj, (list, tuple)):
         for item in obj:
             extract_tensors_recursive(item, tensors)
+
+
+def export_torch_model_to_onnx(
+    torch_model,
+    onnx_tmp_path: str,
+    inputs: Any,
+    model_name: str,
+    opset_version: int = 17,
+    **export_kwargs,
+) -> Any:
+    """Export a PyTorch model to ONNX and load it.
+
+    Centralizes repeated ONNX export boilerplate used across ONNX loaders.
+
+    Args:
+        torch_model: The PyTorch model to export.
+        onnx_tmp_path: Directory path to write the ONNX file to.
+        inputs: Preprocessed inputs to use for export.
+        model_name: Name of the model to export.
+        opset_version: ONNX opset to export with (default: 17).
+        **export_kwargs: Additional keyword args forwarded to torch.onnx.export
+                         (e.g., do_constant_folding, input_names, output_names,
+                         dynamic_axes, export_params, verbose, training, etc.).
+
+    Returns:
+        onnx.ModelProto: The loaded ONNX model.
+    """
+    onnx_path = f"{onnx_tmp_path}/{model_name}.onnx"
+    parent_dir = os.path.dirname(onnx_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
+
+    # Export model to ONNX
+    torch.onnx.export(
+        torch_model,
+        inputs,
+        onnx_path,
+        opset_version=opset_version,
+        **export_kwargs,
+    )
+
+    # Load and validate ONNX model
+    model = onnx.load(onnx_path)
+    onnx.checker.check_model(model)
+    return model
