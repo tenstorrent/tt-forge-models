@@ -23,7 +23,7 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from ...tools.utils import get_file, print_compiled_model_results
+from ...tools.utils import print_compiled_model_results
 from .src.utils import MobileNetV1
 from transformers import AutoModelForImageClassification
 from transformers import AutoImageProcessor
@@ -174,10 +174,9 @@ class ModelLoader(ForgeModel):
             input_dict = preprocessor(images=image, return_tensors="pt")
             inputs = input_dict.pixel_values
         elif source == ModelSource.TIMM:
-            image_file = get_file(
-                "https://images.rawpixel.com/image_1300/cHJpdmF0ZS9sci9pbWFnZXMvd2Vic2l0ZS8yMDIyLTA1L3BkMTA2LTA0Ny1jaGltXzEuanBn.jpg"
-            )
-            image = Image.open(image_file).convert("RGB")
+            # Load image from HuggingFace dataset
+            dataset = load_dataset("huggingface/cats-image")["test"]
+            image = dataset[0]["image"].convert("RGB")
 
             # Use cached model if available, otherwise load it
             if hasattr(self, "_cached_model") and self._cached_model is not None:
@@ -191,10 +190,9 @@ class ModelLoader(ForgeModel):
             inputs = timm_transforms(image).unsqueeze(0)
         else:
             # Standard preprocessing for GitHub and other sources
-            image_file = get_file(
-                "https://images.rawpixel.com/image_1300/cHJpdmF0ZS9sci9pbWFnZXMvd2Vic2l0ZS8yMDIyLTA1L3BkMTA2LTA0Ny1jaGltXzEuanBn.jpg"
-            )
-            image = Image.open(image_file).convert("RGB")
+            # Load image from HuggingFace dataset
+            dataset = load_dataset("huggingface/cats-image")["test"]
+            image = dataset[0]["image"].convert("RGB")
 
             # Preprocess image
             preprocess = transforms.Compose(
