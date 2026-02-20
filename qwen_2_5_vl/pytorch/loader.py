@@ -19,7 +19,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model import Wrapper
+from .src.model import Wrapper, _patched_qwen2_5_vl_vision_attention_forward
 
 
 class ModelVariant(StrEnum):
@@ -157,6 +157,12 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
+        from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
+            Qwen2_5_VLVisionAttention as _qwen_vl,
+        )
+
+        # Apply the monkey patch at import time
+        _qwen_vl.forward = _patched_qwen2_5_vl_vision_attention_forward
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
