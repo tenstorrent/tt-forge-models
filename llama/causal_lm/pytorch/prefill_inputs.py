@@ -676,11 +676,56 @@ Applied mathematics continues to expand into new domains as data availability an
 
 # Dictionary mapping (seq_len) -> list of texts for different batch indices
 PREFILL_TEXTS = {
-    128: [_TEXT_128_0, _TEXT_128_1, _TEXT_128_2, _TEXT_128_3, _TEXT_128_4, _TEXT_128_5, _TEXT_128_6, _TEXT_128_7],
-    1024: [_TEXT_1024_0, _TEXT_1024_1, _TEXT_1024_2, _TEXT_1024_3, _TEXT_1024_4, _TEXT_1024_5, _TEXT_1024_6, _TEXT_1024_7],
-    2048: [_TEXT_2048_0, _TEXT_2048_1, _TEXT_2048_2, _TEXT_2048_3, _TEXT_2048_4, _TEXT_2048_5, _TEXT_2048_6, _TEXT_2048_7],
-    4096: [_TEXT_4096_0, _TEXT_4096_1, _TEXT_4096_2, _TEXT_4096_3, _TEXT_4096_4, _TEXT_4096_5, _TEXT_4096_6, _TEXT_4096_7],
-    8192: [_TEXT_8192_0, _TEXT_8192_1, _TEXT_8192_2, _TEXT_8192_3, _TEXT_8192_4, _TEXT_8192_5, _TEXT_8192_6, _TEXT_8192_7],
+    128: [
+        _TEXT_128_0,
+        _TEXT_128_1,
+        _TEXT_128_2,
+        _TEXT_128_3,
+        _TEXT_128_4,
+        _TEXT_128_5,
+        _TEXT_128_6,
+        _TEXT_128_7,
+    ],
+    1024: [
+        _TEXT_1024_0,
+        _TEXT_1024_1,
+        _TEXT_1024_2,
+        _TEXT_1024_3,
+        _TEXT_1024_4,
+        _TEXT_1024_5,
+        _TEXT_1024_6,
+        _TEXT_1024_7,
+    ],
+    2048: [
+        _TEXT_2048_0,
+        _TEXT_2048_1,
+        _TEXT_2048_2,
+        _TEXT_2048_3,
+        _TEXT_2048_4,
+        _TEXT_2048_5,
+        _TEXT_2048_6,
+        _TEXT_2048_7,
+    ],
+    4096: [
+        _TEXT_4096_0,
+        _TEXT_4096_1,
+        _TEXT_4096_2,
+        _TEXT_4096_3,
+        _TEXT_4096_4,
+        _TEXT_4096_5,
+        _TEXT_4096_6,
+        _TEXT_4096_7,
+    ],
+    8192: [
+        _TEXT_8192_0,
+        _TEXT_8192_1,
+        _TEXT_8192_2,
+        _TEXT_8192_3,
+        _TEXT_8192_4,
+        _TEXT_8192_5,
+        _TEXT_8192_6,
+        _TEXT_8192_7,
+    ],
 }
 
 
