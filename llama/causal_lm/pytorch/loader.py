@@ -413,7 +413,22 @@ class ModelLoader(ForgeModel):
 
         return mesh_shape, ("batch", "model")
 
-    def load_shard_spec(self, model):
+    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
+        """Load weight shard specifications for tensor parallelism.
+
+        Args:
+            model: The model whose weights are to be sharded.
+            strategy: Sharding strategy — "fsdp" shards across both axes,
+                      "megatron" shards on "model" axis only (other axis is None).
+            batch_axis: Name of the non-model mesh axis for "fsdp" specs (ignored
+                        by "megatron"). Defaults to "batch" for a ("batch", "model")
+                        mesh; pass "data" when input sharding is enabled, because
+                        load_shard_spec_data_parallel hardcodes "data" as the input
+                        sharding axis, forcing the mesh to ("data", "model").
+
+        Returns:
+            dict mapping weight tensors to shard spec tuples, or None for small models.
+        """
         if self._variant in [
             ModelVariant.LLAMA_3_2_1B,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT,
@@ -424,20 +439,44 @@ class ModelLoader(ForgeModel):
             return None
 
         shard_specs = {}
-        shard_specs[model.model.embed_tokens.weight] = (None, "batch")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
-        shard_specs[model.model.norm.weight] = ("batch",)
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-            shard_specs[layer.input_layernorm.weight] = ("batch",)
-            shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
+        if strategy == "fsdp":
+            # FSDP: weights sharded across both batch_axis and "model" mesh axes.
+            shard_specs[model.model.embed_tokens.weight] = (None, batch_axis)
+            shard_specs[model.lm_head.weight] = ("model", batch_axis)
+            shard_specs[model.model.norm.weight] = (batch_axis,)
+            for layer in model.model.layers:
+                shard_specs[layer.mlp.up_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.mlp.gate_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.mlp.down_proj.weight] = (batch_axis, "model")
+
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.self_attn.o_proj.weight] = (batch_axis, "model")
+                shard_specs[layer.input_layernorm.weight] = (batch_axis,)
+                shard_specs[layer.post_attention_layernorm.weight] = (batch_axis,)
+
+        elif strategy == "megatron":
+            # Megatron: weights sharded on "model" axis, replicated (None) on the other.
+            shard_specs[model.model.embed_tokens.weight] = (None, None)
+            shard_specs[model.lm_head.weight] = ("model", None)
+            shard_specs[model.model.norm.weight] = (None,)
+            for layer in model.model.layers:
+                shard_specs[layer.mlp.up_proj.weight] = ("model", None)
+                shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
+                shard_specs[layer.mlp.down_proj.weight] = (None, "model")
+
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
+                shard_specs[layer.input_layernorm.weight] = (None,)
+                shard_specs[layer.post_attention_layernorm.weight] = (None,)
+
+        else:
+            raise ValueError(f"Unknown sharding strategy: {strategy!r}")
+
         return shard_specs
 
     def load_config(self):
