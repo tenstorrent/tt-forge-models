@@ -1197,6 +1197,8 @@ def export_torch_model_to_onnx(
     Returns:
         onnx.ModelProto: The loaded ONNX model.
     """
+    import onnx
+
     onnx_path = f"{onnx_tmp_path}/{model_name}.onnx"
     parent_dir = os.path.dirname(onnx_path)
     if parent_dir:
