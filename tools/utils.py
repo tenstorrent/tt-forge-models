@@ -1214,6 +1214,8 @@ def export_torch_model_to_onnx(
     )
 
     # Load and validate ONNX model
+    import onnx
+
     model = onnx.load(onnx_path)
     onnx.checker.check_model(model)
     return model
