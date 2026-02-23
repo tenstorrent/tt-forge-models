@@ -3,10 +3,18 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Wan 2.2 text-to-image diffusion model loader implementation.
+Wan diffusion model loader implementation.
+
+Supports:
+- Full pipeline loading (subfolder=None)
+- VAE component loading (subfolder="vae") for encoder/decoder testing
+
+Available variants:
+- WAN22_TI2V_5B: Wan 2.2 text-to-image-to-video 5B (full pipeline only)
+- WAN21_T2V_14B: Wan 2.1 text-to-video 14B (supports VAE subfolder)
 """
 
-from typing import Optional, Dict, Any
+from typing import Any, Optional, Dict
 
 import torch
 from diffusers import DiffusionPipeline  # type: ignore[import]
@@ -21,20 +29,38 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from .src.utils import (
+    load_vae,
+    load_vae_decoder_inputs,
+    load_vae_encoder_inputs,
+)
+
+# Supported subfolders for loading individual components
+SUPPORTED_SUBFOLDERS = {"vae"}
 
 
 class ModelVariant(StrEnum):
     """Available Wan diffusion model variants."""
 
     WAN22_TI2V_5B = "2.2_Ti2v_5B"
+    WAN21_T2V_14B = "2.1_T2v_14B"
 
 
 class ModelLoader(ForgeModel):
-    """Wan diffusion model loader that mirrors the standalone inference script."""
+    """
+    Loader for Wan diffusion models.
+
+    Supports loading the full pipeline or specific components via subfolder:
+    - subfolder=None: Load full DiffusionPipeline
+    - subfolder="vae": Load AutoencoderKLWan (~508MB)
+    """
 
     _VARIANTS = {
         ModelVariant.WAN22_TI2V_5B: ModelConfig(
             pretrained_model_name="Wan-AI/Wan2.2-TI2V-5B-Diffusers",
+        ),
+        ModelVariant.WAN21_T2V_14B: ModelConfig(
+            pretrained_model_name="Wan-AI/Wan2.1-T2V-14B-Diffusers",
         ),
     }
     DEFAULT_VARIANT = ModelVariant.WAN22_TI2V_5B
@@ -44,9 +70,26 @@ class ModelLoader(ForgeModel):
         "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"
     )
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(
+        self,
+        variant: Optional[ModelVariant] = None,
+        subfolder: Optional[str] = None,
+    ):
+        """
+        Initialize the model loader.
+
+        Args:
+            variant: Model variant to load
+            subfolder: Optional subfolder to load specific component:
+                - None: Load full DiffusionPipeline
+                - 'vae': Load AutoencoderKLWan
+        """
         super().__init__(variant)
-        self.pipeline: Optional[DiffusionPipeline] = None
+        if subfolder is not None and subfolder not in SUPPORTED_SUBFOLDERS:
+            raise ValueError(
+                f"Unknown subfolder: {subfolder}. Supported: {SUPPORTED_SUBFOLDERS}"
+            )
+        self._subfolder = subfolder
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -56,40 +99,10 @@ class ModelLoader(ForgeModel):
             model="WAN",
             variant=variant,
             group=ModelGroup.RED,
-            task=ModelTask.MM_IMAGE_TTT,
+            task=ModelTask.MM_VIDEO_TTT,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
-
-    def _load_pipeline(
-        self,
-        dtype_override: Optional[torch.dtype] = None,
-        device_map: str = "cpu",
-        low_cpu_mem_usage: bool = True,
-        extra_pipe_kwargs: Optional[Dict[str, Any]] = None,
-    ) -> DiffusionPipeline:
-        if extra_pipe_kwargs is None:
-            extra_pipe_kwargs = {}
-
-        pipe_kwargs = {
-            "torch_dtype": (
-                dtype_override if dtype_override is not None else torch.float32
-            ),
-            "device_map": device_map,
-            "low_cpu_mem_usage": low_cpu_mem_usage,
-        }
-        pipe_kwargs.update(extra_pipe_kwargs)
-
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **pipe_kwargs,
-        )
-
-        # Align dtype/device post creation in case caller wants something else
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
-
-        return self.pipeline
 
     def load_model(
         self,
@@ -101,39 +114,63 @@ class ModelLoader(ForgeModel):
         **kwargs,
     ):
         """
-        Load and return the Wan diffusion pipeline (DiffusionPipeline).
+        Load and return the model or component.
 
-        Args:
-            dtype_override: Optional torch dtype to instantiate/convert the pipeline with.
-            device_map: Device placement passed through to DiffusionPipeline.
-            low_cpu_mem_usage: Whether to enable the huggingface low-memory loading path.
-            extra_pipe_kwargs: Additional kwargs forwarded to DiffusionPipeline.from_pretrained.
-
-        Returns:
-            DiffusionPipeline: Ready-to-run Wan text-to-image pipeline.
+        When subfolder is None, loads the full DiffusionPipeline.
+        When subfolder is "vae", loads AutoencoderKLWan.
         """
-        if self.pipeline is None:
-            return self._load_pipeline(
-                dtype_override=dtype_override,
-                device_map=device_map,
-                low_cpu_mem_usage=low_cpu_mem_usage,
-                extra_pipe_kwargs=extra_pipe_kwargs,
-            )
+        config = self._variant_config
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
+        if self._subfolder == "vae":
+            return load_vae(config.pretrained_model_name, dtype)
 
-        return self.pipeline
+        # Full pipeline loading
+        if extra_pipe_kwargs is None:
+            extra_pipe_kwargs = {}
 
-    def load_inputs(self, prompt: Optional[str] = None) -> Dict[str, Any]:
+        pipe_kwargs = {
+            "torch_dtype": dtype,
+            "device_map": device_map,
+            "low_cpu_mem_usage": low_cpu_mem_usage,
+        }
+        pipe_kwargs.update(extra_pipe_kwargs)
+
+        pipeline = DiffusionPipeline.from_pretrained(
+            config.pretrained_model_name,
+            **pipe_kwargs,
+        )
+
+        return pipeline
+
+    def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         """
-        Prepare default text input for the Wan pipeline.
+        Load sample inputs for the model or component.
 
-        Args:
-            prompt: Optional prompt override; defaults to the reference prompt.
-
-        Returns:
-            dict: A dictionary containing the prompt string, matching DiffusionPipeline signature.
+        For VAE subfolder, pass vae_type="decoder" or vae_type="encoder".
+        For full pipeline, returns a prompt dict.
         """
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {"prompt": prompt_value}
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
+        if self._subfolder == "vae":
+            vae_type = kwargs.get("vae_type")
+            if vae_type == "decoder":
+                return load_vae_decoder_inputs(dtype)
+            elif vae_type == "encoder":
+                return load_vae_encoder_inputs(dtype)
+            else:
+                raise ValueError(
+                    f"Unknown vae_type: {vae_type}. Expected 'decoder' or 'encoder'."
+                )
+
+        # Full pipeline inputs
+        prompt = kwargs.get("prompt", self.DEFAULT_PROMPT)
+        return {"prompt": prompt}
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        """Unpack model output to extract tensor."""
+        if hasattr(output, "sample"):
+            return output.sample
+        elif isinstance(output, tuple):
+            return output[0]
+        return output
