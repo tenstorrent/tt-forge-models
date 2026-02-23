@@ -35,7 +35,6 @@ from .src.utils import (
     load_vae_encoder_inputs,
 )
 
-# Supported subfolders for loading individual components
 SUPPORTED_SUBFOLDERS = {"vae"}
 
 
@@ -47,13 +46,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """
-    Loader for Wan diffusion models.
-
-    Supports loading the full pipeline or specific components via subfolder:
-    - subfolder=None: Load full DiffusionPipeline
-    - subfolder="vae": Load AutoencoderKLWan (~508MB)
-    """
+    """Wan diffusion model loader that mirrors the standalone inference script."""
 
     _VARIANTS = {
         ModelVariant.WAN22_TI2V_5B: ModelConfig(
@@ -71,25 +64,15 @@ class ModelLoader(ForgeModel):
     )
 
     def __init__(
-        self,
-        variant: Optional[ModelVariant] = None,
-        subfolder: Optional[str] = None,
+        self, variant: Optional[ModelVariant] = None, subfolder: Optional[str] = None
     ):
-        """
-        Initialize the model loader.
-
-        Args:
-            variant: Model variant to load
-            subfolder: Optional subfolder to load specific component:
-                - None: Load full DiffusionPipeline
-                - 'vae': Load AutoencoderKLWan
-        """
         super().__init__(variant)
         if subfolder is not None and subfolder not in SUPPORTED_SUBFOLDERS:
             raise ValueError(
                 f"Unknown subfolder: {subfolder}. Supported: {SUPPORTED_SUBFOLDERS}"
             )
         self._subfolder = subfolder
+        self.pipeline: Optional[DiffusionPipeline] = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -106,6 +89,36 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_pipeline(
+        self,
+        dtype_override: Optional[torch.dtype] = None,
+        device_map: str = "cpu",
+        low_cpu_mem_usage: bool = True,
+        extra_pipe_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> DiffusionPipeline:
+        if extra_pipe_kwargs is None:
+            extra_pipe_kwargs = {}
+
+        pipe_kwargs = {
+            "torch_dtype": (
+                dtype_override if dtype_override is not None else torch.float32
+            ),
+            "device_map": device_map,
+            "low_cpu_mem_usage": low_cpu_mem_usage,
+        }
+        pipe_kwargs.update(extra_pipe_kwargs)
+
+        self.pipeline = DiffusionPipeline.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            **pipe_kwargs,
+        )
+
+        # Align dtype/device post creation in case caller wants something else
+        if dtype_override is not None:
+            self.pipeline = self.pipeline.to(dtype=dtype_override)
+
+        return self.pipeline
+
     def load_model(
         self,
         *,
@@ -116,45 +129,43 @@ class ModelLoader(ForgeModel):
         **kwargs,
     ):
         """
-        Load and return the model or component.
+        Load and return the Wan diffusion pipeline or VAE component.
 
-        When subfolder is None, loads the full DiffusionPipeline.
-        When subfolder is "vae", loads AutoencoderKLWan.
+        Args:
+            dtype_override: Optional torch dtype to instantiate/convert the pipeline with.
+            device_map: Device placement passed through to DiffusionPipeline.
+            low_cpu_mem_usage: Whether to enable the huggingface low-memory loading path.
+            extra_pipe_kwargs: Additional kwargs forwarded to DiffusionPipeline.from_pretrained.
+
+        Returns:
+            DiffusionPipeline or AutoencoderKLWan depending on subfolder.
         """
-        config = self._variant_config
-        dtype = dtype_override if dtype_override is not None else torch.float32
-
         if self._subfolder == "vae":
-            return load_vae(config.pretrained_model_name, dtype)
+            dtype = dtype_override if dtype_override is not None else torch.float32
+            return load_vae(self._variant_config.pretrained_model_name, dtype)
 
-        # Full pipeline loading
-        if extra_pipe_kwargs is None:
-            extra_pipe_kwargs = {}
+        if self.pipeline is None:
+            return self._load_pipeline(
+                dtype_override=dtype_override,
+                device_map=device_map,
+                low_cpu_mem_usage=low_cpu_mem_usage,
+                extra_pipe_kwargs=extra_pipe_kwargs,
+            )
 
-        pipe_kwargs = {
-            "torch_dtype": dtype,
-            "device_map": device_map,
-            "low_cpu_mem_usage": low_cpu_mem_usage,
-        }
-        pipe_kwargs.update(extra_pipe_kwargs)
+        if dtype_override is not None:
+            self.pipeline = self.pipeline.to(dtype=dtype_override)
 
-        pipeline = DiffusionPipeline.from_pretrained(
-            config.pretrained_model_name,
-            **pipe_kwargs,
-        )
+        return self.pipeline
 
-        return pipeline
-
-    def load_inputs(self, dtype_override=None, **kwargs) -> Any:
+    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
         """
-        Load sample inputs for the model or component.
+        Prepare inputs for the model or component.
 
         For VAE subfolder, pass vae_type="decoder" or vae_type="encoder".
         For full pipeline, returns a prompt dict.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
-
         if self._subfolder == "vae":
+            dtype = kwargs.get("dtype_override", torch.float32)
             vae_type = kwargs.get("vae_type")
             if vae_type == "decoder":
                 return load_vae_decoder_inputs(dtype)
@@ -165,14 +176,5 @@ class ModelLoader(ForgeModel):
                     f"Unknown vae_type: {vae_type}. Expected 'decoder' or 'encoder'."
                 )
 
-        # Full pipeline inputs
-        prompt = kwargs.get("prompt", self.DEFAULT_PROMPT)
-        return {"prompt": prompt}
-
-    def unpack_forward_output(self, output: Any) -> torch.Tensor:
-        """Unpack model output to extract tensor."""
-        if hasattr(output, "sample"):
-            return output.sample
-        elif isinstance(output, tuple):
-            return output[0]
-        return output
+        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
+        return {"prompt": prompt_value}
