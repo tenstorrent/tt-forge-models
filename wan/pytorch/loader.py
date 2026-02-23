@@ -99,7 +99,9 @@ class ModelLoader(ForgeModel):
             model="WAN",
             variant=variant,
             group=ModelGroup.RED,
-            task=ModelTask.MM_VIDEO_TTT,
+            task=ModelTask.MM_VIDEO_TTT
+            if variant == ModelVariant.WAN21_T2V_14B
+            else ModelTask.MM_IMAGE_TTT,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
