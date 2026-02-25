@@ -406,8 +406,14 @@ class ModelLoader(ForgeModel):
         if self._variant in [
             ModelVariant.LLAMA_3_1_70B,
             ModelVariant.LLAMA_3_1_70B_INSTRUCT,
+            ModelVariant.LLAMA_3_3_70B_INSTRUCT,
+            ModelVariant.LLAMA_3_1_405B,
+            ModelVariant.LLAMA_3_1_405B_INSTRUCT,
         ]:
-            mesh_shape = (2, num_devices // 2)
+            if num_devices == 32:  # Galaxy
+                mesh_shape = (8, 4)
+            else:
+                mesh_shape = (2, num_devices // 2)
         else:
             mesh_shape = (1, num_devices)
 
