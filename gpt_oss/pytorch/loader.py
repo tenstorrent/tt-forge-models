@@ -218,10 +218,15 @@ class ModelLoader(ForgeModel):
         """
         shard_specs = {}
 
-        # Embedding and output layerss
+        # Embedding and output layers
         shard_specs[model.model.embed_tokens.weight] = (None, "batch")
         shard_specs[model.model.norm.weight] = ("batch",)
-        shard_specs[model.lm_head.weight] = ("model", "batch")
+
+        # lm_head sharding causes 20B hang: https://github.com/tenstorrent/tt-xla/issues/3484
+        if self._variant and self._variant == ModelVariant.GPT_OSS_120B:
+            shard_specs[model.lm_head.weight] = ("model", "batch")
+        else:
+            shard_specs[model.lm_head.weight] = (None, None)
 
         # Apply tensor parallel sharding to each transformer layer
         for layer in model.model.layers:
