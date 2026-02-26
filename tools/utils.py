@@ -15,7 +15,6 @@ from typing import Optional, Union, List, Callable, Any
 from PIL import Image
 from torchvision import models, transforms
 from transformers import AutoImageProcessor
-import onnx
 import timm
 from timm.data import resolve_data_config
 from timm.data.transforms_factory import create_transform
@@ -1198,6 +1197,8 @@ def export_torch_model_to_onnx(
     Returns:
         onnx.ModelProto: The loaded ONNX model.
     """
+    import onnx
+
     onnx_path = f"{onnx_tmp_path}/{model_name}.onnx"
     parent_dir = os.path.dirname(onnx_path)
     if parent_dir:
@@ -1213,6 +1214,8 @@ def export_torch_model_to_onnx(
     )
 
     # Load and validate ONNX model
+    import onnx
+
     model = onnx.load(onnx_path)
     onnx.checker.check_model(model)
     return model
