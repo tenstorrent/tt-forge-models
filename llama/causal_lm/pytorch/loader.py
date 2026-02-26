@@ -412,7 +412,7 @@ class ModelLoader(ForgeModel):
         ]:
             if num_devices == 32:  # Galaxy
                 mesh_shape = (8, 4)
-            else:
+            else:  # wh/bh llmbox
                 mesh_shape = (2, num_devices // 2)
         else:
             mesh_shape = (1, num_devices)
