@@ -5,59 +5,91 @@
 HardNet model loader implementation
 """
 import torch
-
-
+from typing import Optional
+from dataclasses import dataclass
 from PIL import Image
 from torchvision import transforms
-import requests
-import torch
+
 from ...config import (
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
 from ...base import ForgeModel
-from ...tools.utils import print_compiled_model_results
-from ...tools.utils import get_file
+from ...tools.utils import VisionPreprocessor, VisionPostprocessor
+
+
+@dataclass
+class HardNetConfig(ModelConfig):
+    """Configuration specific to HardNet models"""
+
+    source: ModelSource
+
+
+class ModelVariant(StrEnum):
+    """Available HardNet model variants."""
+
+    HARDNET68 = "hardnet68"
 
 
 class ModelLoader(ForgeModel):
     """HardNet model loader implementation."""
 
-    def __init__(self, variant=None):
+    # Dictionary of available model variants using structured configs
+    _VARIANTS = {
+        ModelVariant.HARDNET68: HardNetConfig(
+            pretrained_model_name="hardnet68",
+            source=ModelSource.TORCH_HUB,
+        ),
+    }
+
+    # Default variant to use
+    DEFAULT_VARIANT = ModelVariant.HARDNET68
+
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
-            variant: Optional string specifying which variant to use.
+            variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
+        self.model = None
+        self._preprocessor = None
+        self._postprocessor = None
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
+            variant: Optional ModelVariant specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
 
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
+
+        # Get source from variant config
+        source = cls._VARIANTS[variant].source
+
         return ModelInfo(
             model="HarDNet",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.CV_IMAGE_CLS,
-            source=ModelSource.TORCH_HUB,
+            source=source,
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the HardNet model instance with default settings.
+    def load_model(self, dtype_override=None):
+        """Load and return the HardNet model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
@@ -75,44 +107,122 @@ class ModelLoader(ForgeModel):
                 checkpoint, progress=False, map_location="cpu"
             )
         )
+
+        model.eval()
+
+        # Store model for potential use in input preprocessing and postprocessing
+        self.model = model
+
+        # Update preprocessor with cached model (for TIMM models)
+        if self._preprocessor is not None:
+            self._preprocessor.set_cached_model(model)
+
+        # Update postprocessor with model instance (for HuggingFace models)
+        if self._postprocessor is not None:
+            self._postprocessor.set_model_instance(model)
+
+        # Only convert dtype if explicitly requested
         if dtype_override is not None:
             model = model.to(dtype_override)
 
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the HardNet model with default settings.
+    def input_preprocess(self, dtype_override=None, batch_size=1, image=None):
+        """Preprocess input image(s) and return model-ready input tensor.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                            If not provided, the model will use its default dtype (typically float32).
-            batch_size: Optional batch size to override the default batch size of 1.
+            dtype_override: Optional torch.dtype override (default: float32).
+            batch_size: Batch size (ignored if image is a list).
+            image: PIL Image, URL string, tensor, list of images/URLs, or None (uses default COCO image).
 
         Returns:
-            dict: Input tensors and attention masks that can be fed to the model.
+            torch.Tensor: Preprocessed input tensor.
         """
+        if self._preprocessor is None:
+            model_name = self._variant_config.pretrained_model_name
+            source = self._variant_config.source
 
-        file_path = get_file("https://github.com/pytorch/hub/raw/master/images/dog.jpg")
-        input_image = Image.open(file_path)
-        preprocess = transforms.Compose(
-            [
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                ),
-            ]
+            # For TORCH_HUB, use CUSTOM with standard ImageNet preprocessing
+            if source == ModelSource.TORCH_HUB:
+
+                def custom_preprocess_fn(img: Image.Image) -> torch.Tensor:
+                    preprocess = transforms.Compose(
+                        [
+                            transforms.Resize(256),
+                            transforms.CenterCrop(224),
+                            transforms.ToTensor(),
+                            transforms.Normalize(
+                                mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                            ),
+                        ]
+                    )
+                    return preprocess(img)
+
+                self._preprocessor = VisionPreprocessor(
+                    model_source=ModelSource.CUSTOM,
+                    model_name=model_name,
+                    custom_preprocess_fn=custom_preprocess_fn,
+                )
+            else:
+                self._preprocessor = VisionPreprocessor(
+                    model_source=source,
+                    model_name=model_name,
+                )
+
+            if hasattr(self, "model") and self.model is not None:
+                self._preprocessor.set_cached_model(self.model)
+
+        model_for_config = None
+        if self._variant_config.source == ModelSource.TIMM:
+            if hasattr(self, "model") and self.model is not None:
+                model_for_config = self.model
+
+        return self._preprocessor.preprocess(
+            image=image,
+            dtype_override=dtype_override,
+            batch_size=batch_size,
+            model_for_config=model_for_config,
         )
-        input_tensor = preprocess(input_image)
-        input_batch = torch.stack(
-            [input_tensor] * batch_size, dim=0
-        )  # create a mini-batch as expected by the model
 
-        if dtype_override is not None:
-            input_batch = input_batch.to(dtype_override)
+    def load_inputs(self, dtype_override=None, batch_size=1, image=None):
+        """Load and return sample inputs for the model.
 
-        return input_batch
+        Args:
+            dtype_override: Optional torch.dtype override.
+            batch_size: Batch size (default: 1).
+            image: Optional input image.
 
-    def print_cls_results(self, compiled_model_out):
-        print_compiled_model_results(compiled_model_out)
+        Returns:
+            torch.Tensor: Preprocessed input tensor.
+        """
+        return self.input_preprocess(
+            image=image,
+            dtype_override=dtype_override,
+            batch_size=batch_size,
+        )
+
+    def output_postprocess(self, output):
+        """Post-process model outputs.
+
+        Args:
+            output: Model output tensor.
+
+        Returns:
+            dict: Prediction dict with top predictions.
+        """
+        if self._postprocessor is None:
+            model_name = self._variant_config.pretrained_model_name
+            source = self._variant_config.source
+
+            # For TORCH_HUB, use TORCHVISION postprocessing (same ImageNet labels)
+            postprocess_source = (
+                ModelSource.TORCHVISION if source == ModelSource.TORCH_HUB else source
+            )
+
+            self._postprocessor = VisionPostprocessor(
+                model_source=postprocess_source,
+                model_name=model_name,
+                model_instance=self.model,
+            )
+
+        return self._postprocessor.postprocess(output, top_k=1, return_dict=True)
