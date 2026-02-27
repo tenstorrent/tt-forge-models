@@ -6,7 +6,8 @@ gpt-oss model loader implementation for causal language modeling tasks.
 """
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
-from typing import Any, Optional
+from transformers.utils.quantization_config import Mxfp4Config
+from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
@@ -23,8 +24,8 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available gpt-oss model variants."""
 
-    GPT_OSS_20B = "gpt_oss_20b"
-    GPT_OSS_120B = "gpt_oss_120b"
+    GPT_OSS_20B = "20B"
+    GPT_OSS_120B = "120B"
 
 
 class ModelLoader(ForgeModel):
@@ -51,7 +52,7 @@ class ModelLoader(ForgeModel):
     ]
 
     def __init__(
-        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None, layer_index: Optional[int] = None
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
         """Initialize ModelLoader with specified variant.
 
@@ -59,14 +60,12 @@ class ModelLoader(ForgeModel):
             variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
             num_layers: Optional number of hidden layers to use. If None, uses the model's default.
-            layer_index: Optional index of a specific decoder layer to keep.
-                         If specified, after loading, model.model.layers will contain only that layer.
         """
         super().__init__(variant)
         self.config = None
         self.tokenizer = None
-        self.num_layers = None
-        self.layer_index = None
+        self.num_layers = num_layers
+        self.mlp_type = "a2a_sparse"
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -80,7 +79,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="gpt_oss",
+            model="GPT-OSS",
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -88,85 +87,50 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self):
+    def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
 
         Returns:
             The loaded tokenizer instance
         """
+        # Initialize tokenizer with dtype override if specified
+        tokenizer_kwargs = {}
+        if dtype_override is not None:
+            tokenizer_kwargs["torch_dtype"] = dtype_override
+
+        # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+        self.tokenizer.pad_token = self.tokenizer.eos_token
+
         return self.tokenizer
 
-    def _capture_layer_inputs(self, model):
-        """Run CPU forward pass and capture inputs to the target decoder layer.
-
-        Uses a forward pre-hook on model.model.layers[layer_index] to capture
-        the real hidden_states (and other tensor kwargs like attention_mask,
-        position_ids) that the layer receives during a full forward pass.
-
-        Args:
-            model: The full model with all layers up to layer_index loaded.
-        """
-        # Get tokenized inputs for CPU forward pass
-        inputs = self.load_inputs()
-
-        captured = {}
-
-        def _clone_value(v):
-            if isinstance(v, torch.Tensor):
-                return v.detach().clone()
-            if isinstance(v, tuple) and all(isinstance(t, torch.Tensor) for t in v):
-                return tuple(t.detach().clone() for t in v)
-            return None
-
-        def hook(module, args, kwargs):
-            # First positional arg is hidden_states
-            captured["hidden_states"] = args[0].detach().clone()
-            # Capture keyword args (tensors and tuples of tensors like position_embeddings)
-            for k, v in kwargs.items():
-                cloned = _clone_value(v)
-                if cloned is not None:
-                    captured[k] = cloned
-
-        handle = model.model.layers[self.layer_index].register_forward_pre_hook(
-            hook, with_kwargs=True
-        )
-        with torch.no_grad():
-            model(**inputs)
-        handle.remove()
-
-        self._cpu_layer_inputs = captured
-
-    def load_model(
-        self,
-        dtype_override=None,
-        mlp_type="sparse",
-        num_devices=8,
-        cluster_axis=0,
-        flat_device_order=None,
-    ):
+    def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the gpt-oss model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use bfloat16 as default.
-            mlp_type: MLP implementation to use. One of "original", "sparse", "a2a_sparse".
-            num_devices: Number of devices for A2aSparseMLP dispatch/combine.
-            cluster_axis: Mesh axis for A2aSparseMLP dispatch/combine.
-            flat_device_order: Optional device order permutation for A2aSparseMLP.
 
         Returns:
             torch.nn.Module: The gpt-oss model instance for causal language modeling.
-                             If layer_index is set, returns the single decoder layer module.
         """
+        # Ensure tokenizer is loaded
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+
         # Load config with modifications
+        quantization_config = Mxfp4Config(dequantize=True)
         self.load_config()
 
         # Prepare model kwargs
         model_kwargs = {
             "config": self.config,
+            "quantization_config": quantization_config,
             "low_cpu_mem_usage": True,
             "trust_remote_code": True,
             "attn_implementation": "eager",
@@ -177,6 +141,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         else:
             model_kwargs["torch_dtype"] = torch.bfloat16
+        model_kwargs |= kwargs
 
         # Load model
         model = AutoModelForCausalLM.from_pretrained(
@@ -184,40 +149,26 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        self.mlp_type = mlp_type
-
-        # Replace MLP layers if requested
-        if mlp_type == "sparse":
-            import tt_torch.sparse_mlp
-
-            tt_torch.sparse_mlp.enable_sparse_mlp(model)
-        elif mlp_type == "a2a_sparse":
-            from tt_torch.sparse_mlp import A2aSparseMLP
-
-            for layer in model.model.layers:
-                layer.mlp = A2aSparseMLP(
-                    layer.mlp,
-                    num_experts=self.config.num_local_experts,
-                    num_experts_per_tok=self.config.num_experts_per_tok,
-                    num_devices=8,
-                    dispatch_devices=2,
-                    cluster_axis=0,
-                    config=self.config,
-                )
-
-        # If layer_index is set, capture real inputs from CPU forward pass,
-        # then return just the target decoder layer for isolated testing.
-        if self.layer_index is not None:
-            self._capture_layer_inputs(model)
-            return model.model.layers[self.layer_index]
+        from tt_torch.sparse_mlp import A2aSparseMLP
+        self.mlp_type = "a2a_sparse"
+        for layer in model.model.layers:
+            mesh, _ = self.get_mesh_config(32)
+            cluster_axis = 0
+            layer.mlp = A2aSparseMLP(
+                layer.mlp,
+                num_experts=self.config.num_local_experts,
+                num_experts_per_tok=self.config.num_experts_per_tok,
+                num_devices=mesh[0] * mesh[1],
+                dispatch_devices=mesh[cluster_axis],
+                cluster_axis=cluster_axis,
+                config=self.config,
+            )
+        self.model = model
 
         return model
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the gpt-oss model with this instance's variant settings.
-
-        When layer_index is set and CPU layer inputs have been captured,
-        returns the captured hidden_states dict instead of tokenized inputs.
 
         Args:
             dtype_override: Optional torch.dtype to override the inputs' default dtype.
@@ -226,15 +177,11 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        # If layer inputs were captured by load_model, return those instead
-        if hasattr(self, "_cpu_layer_inputs"):
-            return self._cpu_layer_inputs
-
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
-            self._load_tokenizer()
+            self._load_tokenizer(dtype_override=dtype_override)
 
-        # Create tokenized inputs (single sample)
+        # Create tokenized inputs
         inputs = self.tokenizer.apply_chat_template(
             self.messages,
             add_generation_prompt=True,
@@ -244,30 +191,16 @@ class ModelLoader(ForgeModel):
             padding="max_length",
             max_length=128,
         )
-
-        # Repeat to batch_size=4
-        # inputs = {k: v.repeat(4, 1) for k, v in inputs.items()}
+        if (
+            hasattr(self.model.config, "sliding_window")
+            and self.model.config.sliding_window is not None
+        ):
+            # if the model uses sliding window attention, match sliding window value to input size so it
+            # does not go out of bounds when updating the cache
+            # Issue: https://github.com/tenstorrent/tt-xla/issues/3186
+            self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
         return inputs
-
-    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
-        """Unpack forward pass output for comparison.
-
-        When layer_index is set, the model is a single decoder layer which
-        returns a tuple of (hidden_states, ...). Extract the hidden_states.
-
-        Args:
-            fwd_output: Output from the forward pass
-
-        Returns:
-            torch.Tensor: Tensor for comparison
-        """
-        if self.layer_index is not None:
-            # Decoder layer returns tuple: (hidden_states, [attn_weights], [kv_cache])
-            if isinstance(fwd_output, tuple):
-                return fwd_output[0]
-            return fwd_output
-        return super().unpack_forward_output(fwd_output)
 
     def get_mesh_config(self, num_devices: int):
         """Get mesh configuration for tensor parallelism.
@@ -278,8 +211,15 @@ class ModelLoader(ForgeModel):
         Returns:
             Tuple of (mesh_shape, axis_names)
         """
-        mesh_shape = (2, 4)
-        return mesh_shape, ("model", "batch")
+        # Support different mesh configurations based on number of devices
+        if num_devices == 32:  # Galaxy
+            mesh_shape = (4, 8)
+        elif num_devices == 8:  # llmbox
+            mesh_shape = (2, 4)
+        else:
+            raise ValueError(f"Gpt-oss is only supported on llmbox and galaxy")
+
+        return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
         """Load shard specifications for tensor parallelism.
@@ -291,90 +231,70 @@ class ModelLoader(ForgeModel):
             Dictionary mapping model parameters to their shard specifications,
             or None if sharding is not needed for this variant
         """
-        # Sharding Strategy:
-        # - Mesh: ("model"=2, "batch"=4) = 8 devices
-        # - hidden_dim is consistently sharded on "batch" axis (2-way TP)
-        # - Expert dim is sharded on "model" axis (4-way EP)
-        # - K dimension sharding triggers all-reduce automatically
-
         shard_specs = {}
 
-        # When layer_index is set, model is a single decoder layer, not the full model
-        if self.layer_index is not None:
-            layer = model
-            shard_specs[layer.input_layernorm.weight] = ("batch",)
-            shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-            shard_specs[layer.self_attn.o_proj.bias] = (None,)
-            shard_specs[layer.self_attn.sinks] = (None,)
-            shard_specs[layer.mlp.router.weight] = (None, "batch")
-            if self.mlp_type == "a2a_sparse":
-                shard_specs[layer.mlp.experts.gate_up_proj] = (("model", "batch"), None, None)
-                shard_specs[layer.mlp.experts.gate_up_proj_bias] = (("model", "batch"), None)
-                shard_specs[layer.mlp.experts.down_proj] = (("model", "batch"), None, None)
-                shard_specs[layer.mlp.experts.down_proj_bias] = (("model", "batch"), None)
-            else:
-                shard_specs[layer.mlp.experts.gate_up_proj] = (("model"), None, "batch")
-                shard_specs[layer.mlp.experts.gate_up_proj_bias] = (("model"), None)
-                shard_specs[layer.mlp.experts.down_proj] = (("model"), "batch", None)
-                shard_specs[layer.mlp.experts.down_proj_bias] = (("model"), "batch")
-            return shard_specs
-
-        # ===== Embedding & LM Head =====
-        # (vocab_size, hidden_dim) -> hidden/"batch" for consistent sharding
-        shard_specs[model.lm_head.weight] = (None, "batch")
+        # Embedding and output layers
         shard_specs[model.model.embed_tokens.weight] = (None, "batch")
         shard_specs[model.model.norm.weight] = ("batch",)
 
+        # lm_head sharding causes 20B hang: https://github.com/tenstorrent/tt-xla/issues/3484
+        # if self._variant and self._variant == ModelVariant.GPT_OSS_120B:
+        #     shard_specs[model.lm_head.weight] = ("model", "batch")
+        # else:
+        #     shard_specs[model.lm_head.weight] = (None, None)
+
+        # Apply tensor parallel sharding to each transformer layer
         for layer in model.model.layers:
-            # ===== Layer Norms =====
-            # (hidden_dim,) -> hidden/"batch" for consistent sharding
-            shard_specs[layer.input_layernorm.weight] = ("batch",)
-            shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
-            # ===== Self-Attention =====
-            # Q/K/V: (heads*head_dim, hidden) -> 2D sharding
-            #   - output dim (heads): "model" (4-way)
-            #   - input dim (hidden): "batch" (2-way, K shard -> all-reduce)
+            # Attention layer sharding
+            # q_proj weight shape: [2880, 4096]
+            # Sharded column-wise (head-parallel): [2880, 4096/num_devices]
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.q_proj.bias] = ("model",)
+
+            # k_proj weight shape: [2880, 512]
+            # Sharded column-wise (head-parallel): [2880, 512/num_devices]
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.k_proj.bias] = ("model",)
+
+            # v_proj weight shape: [2880, 512]
+            # Sharded column-wise (head-parallel): [2880, 512/num_devices]
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.bias] = ("model",)
 
-            # O: (hidden, heads*head_dim) -> 2D sharding (reversed)
-            #   - output dim (hidden): "batch" (2-way)
-            #   - input dim (heads): "model" (4-way)
+            # o_proj weight shape: [4096, 2880]
+            # Sharded row-wise: [4096/num_devices, 2880]
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-            shard_specs[layer.self_attn.o_proj.bias] = (None,)
+            shard_specs[layer.self_attn.o_proj.bias] = ("batch",)
+
+            # sinks shape: [4096]
+            # Local replication per device (row-wise)
             shard_specs[layer.self_attn.sinks] = (None,)
 
-            # ===== MoE MLP =====
-            # Router: (num_experts, hidden) -> hidden/"batch" for K shard
+            # MLP layer sharding
+            # Router weight is replicated with batch sharding
             shard_specs[layer.mlp.router.weight] = (None, "batch")
 
-            # Expert weights: EP on "model" (2-way) + TP on "batch" (4-way)
-            # Matches tt-metal throughput reference:
-            #   gate_up_proj [E, H, inter*2]: E on "model", H on "batch"
-            #   down_proj    [E, inter, H]:   E on "model", H on "batch"
-
-            # SparseMLP: compound sharding on E for full 8-way EP
             if self.mlp_type == "a2a_sparse":
                 shard_specs[layer.mlp.experts.gate_up_proj] = (("model", "batch"), None, None)
                 shard_specs[layer.mlp.experts.gate_up_proj_bias] = (("model", "batch"), None)
                 shard_specs[layer.mlp.experts.down_proj] = (("model", "batch"), None, None)
                 shard_specs[layer.mlp.experts.down_proj_bias] = (("model", "batch"), None)
             else :
-                shard_specs[layer.mlp.experts.gate_up_proj] = (("model"), None, "batch")
-                shard_specs[layer.mlp.experts.gate_up_proj_bias] = (("model"), None)
-                shard_specs[layer.mlp.experts.down_proj] = (("model"), "batch", None)
-                shard_specs[layer.mlp.experts.down_proj_bias] = (("model"), "batch")
+                # Shard experts across devices
+                # For example: 32 experts / 8 devices = 4 experts per device
+                # [num_experts, hidden_size, 2 * expert_dim]
+                shard_specs[layer.mlp.experts.gate_up_proj] = ("model", "batch", None)
+                # [num_experts, 2 * expert_dim]
+                shard_specs[layer.mlp.experts.gate_up_proj_bias] = ("model", None)
+                # [num_experts, expert_dim, hidden_size]
+                shard_specs[layer.mlp.experts.down_proj] = ("model", None, "batch")
+                # [num_experts, hidden_size]
+                shard_specs[layer.mlp.experts.down_proj_bias] = ("model", "batch")
+
+            # Layer normalization weights
+            shard_specs[layer.input_layernorm.weight] = ("batch",)
+            shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
+
         return shard_specs
 
     def load_config(self):
@@ -388,9 +308,5 @@ class ModelLoader(ForgeModel):
         )
         if self.num_layers is not None:
             self.config.num_hidden_layers = self.num_layers
-        elif self.layer_index is not None:
-            self.config.num_hidden_layers = self.layer_index + 1
 
-        self.config.quantization_config["quant_method"] = "none"
-        self.config.use_cache = False
         return self.config
