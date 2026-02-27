@@ -7,8 +7,10 @@ MobilenetV1 model loader implementation
 
 from typing import Optional
 from dataclasses import dataclass
+from PIL import Image
+from torchvision import transforms
 import timm
-from transformers import AutoModelForImageClassification
+import torch
 
 from ...config import (
     ModelConfig,
@@ -22,6 +24,7 @@ from ...config import (
 from ...base import ForgeModel
 from ...tools.utils import VisionPreprocessor, VisionPostprocessor
 from .src.utils import MobileNetV1
+from transformers import AutoModelForImageClassification
 
 
 @dataclass
@@ -172,19 +175,10 @@ class ModelLoader(ForgeModel):
             model_name = self._variant_config.pretrained_model_name
             source = self._variant_config.source
 
-            # Handle different sources
-            if source == ModelSource.TIMM:
-                preprocessor_source = ModelSource.TIMM
-                preprocessor_model_name = model_name
-            elif source == ModelSource.HUGGING_FACE:
-                preprocessor_source = ModelSource.HUGGING_FACE
-                preprocessor_model_name = model_name
-            elif source == ModelSource.GITHUB:
-                # GitHub models use standard ImageNet preprocessing
-                preprocessor_source = ModelSource.CUSTOM
-                from torchvision import transforms
+            # For GITHUB source, use CUSTOM with standard ImageNet preprocessing
+            if source == ModelSource.GITHUB:
 
-                def custom_preprocess_fn(img):
+                def custom_preprocess_fn(img: Image.Image) -> torch.Tensor:
                     preprocess = transforms.Compose(
                         [
                             transforms.Resize(256),
@@ -197,20 +191,15 @@ class ModelLoader(ForgeModel):
                     )
                     return preprocess(img)
 
-            else:
-                raise ValueError(f"Unsupported source for preprocessing: {source}")
-
-            # Create preprocessor
-            if source == ModelSource.GITHUB:
                 self._preprocessor = VisionPreprocessor(
-                    model_source=preprocessor_source,
+                    model_source=ModelSource.CUSTOM,
                     model_name=model_name,
                     custom_preprocess_fn=custom_preprocess_fn,
                 )
             else:
                 self._preprocessor = VisionPreprocessor(
-                    model_source=preprocessor_source,
-                    model_name=preprocessor_model_name,
+                    model_source=source,
+                    model_name=model_name,
                 )
 
             if hasattr(self, "model") and self.model is not None:
@@ -245,71 +234,28 @@ class ModelLoader(ForgeModel):
             batch_size=batch_size,
         )
 
-    def output_postprocess(
-        self,
-        output=None,
-        co_out=None,
-        framework_model=None,
-        compiled_model=None,
-        inputs=None,
-        dtype_override=None,
-    ):
+    def output_postprocess(self, output):
         """Post-process model outputs.
 
         Args:
-            output: Model output tensor (returns dict if provided).
-            co_out: Compiled model outputs (legacy, prints results).
-            framework_model: Original framework model (legacy).
-            compiled_model: Compiled model (legacy).
-            inputs: Input images (legacy).
-            dtype_override: Optional dtype override (legacy).
+            output: Model output tensor.
 
         Returns:
-            dict or None: Prediction dict if output provided, else None (prints results).
+            dict: Prediction dict with top predictions.
         """
         if self._postprocessor is None:
             model_name = self._variant_config.pretrained_model_name
             source = self._variant_config.source
 
-            # Map sources to postprocessor sources
-            if source == ModelSource.TIMM:
-                postprocessor_source = ModelSource.TIMM
-                postprocessor_model_name = model_name
-            elif source == ModelSource.HUGGING_FACE:
-                postprocessor_source = ModelSource.HUGGING_FACE
-                postprocessor_model_name = model_name
-            elif source == ModelSource.GITHUB:
-                # GitHub models use ImageNet labels like torchvision
-                postprocessor_source = ModelSource.TORCHVISION
-                postprocessor_model_name = (
-                    "mobilenet_v2"  # Use a standard torchvision name for labels
-                )
-            else:
-                raise ValueError(f"Unsupported source for postprocessing: {source}")
+            # For GITHUB source, use TORCHVISION postprocessing (same ImageNet labels)
+            postprocess_source = (
+                ModelSource.TORCHVISION if source == ModelSource.GITHUB else source
+            )
 
             self._postprocessor = VisionPostprocessor(
-                model_source=postprocessor_source,
-                model_name=postprocessor_model_name,
+                model_source=postprocess_source,
+                model_name=model_name,
                 model_instance=self.model,
             )
 
-        # New usage: return dict from output tensor
-        if output is not None:
-            return self._postprocessor.postprocess(output, top_k=1, return_dict=True)
-
-        # Legacy usage: print results (backward compatibility)
-        if co_out is not None:
-            from ...tools.utils import print_compiled_model_results
-
-            print_compiled_model_results(co_out)
-        return None
-
-    def print_cls_results(self, compiled_model_out):
-        """Print classification results (backward compatibility).
-
-        Args:
-            compiled_model_out: Output from the compiled model
-        """
-        from ...tools.utils import print_compiled_model_results
-
-        print_compiled_model_results(compiled_model_out)
+        return self._postprocessor.postprocess(output, top_k=1, return_dict=True)
