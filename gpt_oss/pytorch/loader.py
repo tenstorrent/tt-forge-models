@@ -189,7 +189,8 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
             padding="max_length",
-            max_length=128,
+            truncation=True,
+            max_length=64,
         )
         if (
             hasattr(self.model.config, "sliding_window")
@@ -308,5 +309,7 @@ class ModelLoader(ForgeModel):
         )
         if self.num_layers is not None:
             self.config.num_hidden_layers = self.num_layers
+        else:
+            self.config.num_hidden_layers = self.config.num_hidden_layers // 2
 
         return self.config
