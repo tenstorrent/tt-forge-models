@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-GPT-J model loader implementation for causal language modeling.
+Mamba 2 model loader implementation for causal language modeling.
 """
 
 from typing import Optional
@@ -16,8 +16,8 @@ from ....config import (
     ModelTask,
     ModelSource,
     Framework,
-    Parallelism,
     StrEnum,
+    Parallelism,
 )
 from ....tools.jax_utils import cast_hf_model_to_type
 import flax.nnx as nnx
@@ -27,25 +27,25 @@ import numpy as np
 
 
 class ModelVariant(StrEnum):
-    """Available GPT-J model variants."""
+    """Available Mamba2 model variants."""
 
-    _6B = "6B"
+    CODESTRAL_7B_V0_1 = "Codestral-7B-v0.1"
 
 
 class ModelLoader(ForgeModel):
-    """GPT-J model loader implementation for causal language modeling."""
+    """Mamba2 model loader implementation for causal language modeling."""
 
-    # Dictionary of available model variants using structured configs
+    # Dictionary of available model variants
     _VARIANTS = {
-        ModelVariant._6B: LLMModelConfig(
-            pretrained_model_name="EleutherAI/gpt-j-6B",
+        ModelVariant.CODESTRAL_7B_V0_1: LLMModelConfig(
+            pretrained_model_name="mistralai/Mamba-Codestral-7B-v0.1",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant._6B
+    DEFAULT_VARIANT = ModelVariant.CODESTRAL_7B_V0_1
 
-    sample_text = "Hello there fellow traveler"
+    sample_text = "Hello, my dog is cute"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
         """
 
         return ModelInfo(
-            model="GPT-J",
+            model="mamba2",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
 
         from transformers import AutoTokenizer
 
-        # Initialize tokenizer with dtype override if specified
+        # Initialize tokenizer with dtype_override if provided
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["dtype"] = dtype_override
@@ -103,21 +103,19 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the GPT-J model instance for this instance's variant.
+    def load_model(self, dtype_override=None):
+        """Load and return the Mamba model instance for this instance's variant.
 
         Args:
             dtype_override: Optional dtype to override the model's default dtype.
+                           If not provided, the model will use its default dtype (typically float32).
 
         Returns:
             model: The loaded model instance
         """
 
-        from easydel import (
-            AutoEasyDeLModelForCausalLM,
-            EasyDeLGradientCheckPointers,
-            EasyDeLBaseConfigDict,
-        )
+        from easydel import AutoEasyDeLModelForCausalLM
+        import jax
 
         # Ensure tokenizer is loaded
         if self._tokenizer is None:
@@ -125,21 +123,25 @@ class ModelLoader(ForgeModel):
 
         # Initialize model kwargs
         model_kwargs = {}
+
+        # Determine the target dtype
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
-        model_kwargs |= kwargs
 
         partition_rules = ((r".*", PartitionSpec()),)
 
-        # Load the model
-        model = AutoEasyDeLModelForCausalLM.from_pretrained(
-            self._model_name,
-            partition_rules=partition_rules,
-            config_kwargs=EasyDeLBaseConfigDict(
-                gradient_checkpointing=EasyDeLGradientCheckPointers.NONE
-            ),
-            **model_kwargs
-        )
+        # Temporarily disable x64 mode during model loading to prevent dtype mismatch in lax.clamp
+        # The model will still be loaded with the target_dtype specified above
+        original_x64_state = jax.config.jax_enable_x64
+        jax.config.update("jax_enable_x64", False)
+
+        try:
+            model = AutoEasyDeLModelForCausalLM.from_pretrained(
+                self._model_name, partition_rules=partition_rules, **model_kwargs
+            )
+        finally:
+            # Restore original x64 state
+            jax.config.update("jax_enable_x64", original_x64_state)
 
         # Cast the model to the dtype_override if provided
         if dtype_override is not None:
@@ -148,12 +150,11 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, mesh=None):
-        """Load and return sample inputs for the GPT-J model with this instance's variant settings.
+        """Load and return sample inputs for the Mamba model with this instance's variant settings.
 
         Args:
             dtype_override: Optional dtype to override the model's default dtype.
             mesh: Optional device mesh for sharding (DataParallel mode).
-
         Returns:
             inputs: Input tensors that can be fed to the model.
         """
@@ -172,20 +173,15 @@ class ModelLoader(ForgeModel):
 
         # Ensure tokenizer is initialized
         if self._tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer(dtype_override)
 
-        # Create tokenized inputs for the causal language modeling task
-        inputs = self._tokenizer(
-            self.sample_text,
-            return_tensors="jax",
-        )
+        # Create tokenized inputs
+        inputs = self._tokenizer(self.sample_text, return_tensors="jax")
 
         input_ids = jnp.repeat(inputs.input_ids, batch_size, axis=0)
         return {"input_ids": input_ids}
 
-    def get_input_activations_partition_spec(
-        self, mesh, parallelism=None, axis_name="X"
-    ):
+    def get_input_activations_partition_spec(self, mesh, parallelism, axis_name="X"):
         """Get partition specification for input activations.
 
         Args:
@@ -196,9 +192,8 @@ class ModelLoader(ForgeModel):
         Returns:
             PartitionSpec for input activations (sharded on batch dimension)
         """
-
         if (
-            parallelism == Parallelism.TENSOR_PARALLEL.name
+            parallelism.name == Parallelism.TENSOR_PARALLEL.name
             or np.prod(list(mesh.shape.values())) == 1
         ):
             return (PartitionSpec(),)
@@ -220,18 +215,16 @@ class ModelLoader(ForgeModel):
 
         if (
             parallelism.name == Parallelism.DATA_PARALLEL.name
-            or parallelism.name == Parallelism.TENSOR_PARALLEL.name
+            or parallelism.name == Parallelism.SINGLE_DEVICE.name
         ):
             # In data parallel mode, use fully replicated partitioning
             partition_rules = ((r".*", PartitionSpec()),)
         else:
-            # Use EasyDeL's GPTJConfig to get proper partition rules
+            # Use EasyDel's MambaConfig to get proper partition rules
+            from easydel.modules.mamba2 import Mamba2Config
 
-            from easydel.modules.gpt_j import GPTJConfig
-
-            gptj_config = GPTJConfig()
-
-            partition_rules = gptj_config.get_partition_rules()
+            mamba2_config = Mamba2Config()
+            partition_rules = mamba2_config.get_partition_rules()
 
         from infra.utilities import make_easydel_parameters_partition_specs
 
