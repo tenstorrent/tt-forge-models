@@ -3,10 +3,18 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Wan 2.2 text-to-image diffusion model loader implementation.
+Wan diffusion model loader implementation.
+
+Supports:
+- Full pipeline loading (subfolder=None)
+- VAE component loading (subfolder="vae") for encoder/decoder testing
+
+Available variants:
+- WAN22_TI2V_5B: Wan 2.2 text-to-image-to-video 5B (full pipeline only)
+- WAN21_T2V_14B: Wan 2.1 text-to-video 14B (supports VAE subfolder)
 """
 
-from typing import Optional, Dict, Any
+from typing import Any, Optional, Dict
 
 import torch
 from diffusers import DiffusionPipeline  # type: ignore[import]
@@ -21,12 +29,20 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from .src.utils import (
+    load_vae,
+    load_vae_decoder_inputs,
+    load_vae_encoder_inputs,
+)
+
+SUPPORTED_SUBFOLDERS = {"vae"}
 
 
 class ModelVariant(StrEnum):
     """Available Wan diffusion model variants."""
 
     WAN22_TI2V_5B = "2.2_Ti2v_5B"
+    WAN21_T2V_14B = "2.1_T2v_14B"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +52,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.WAN22_TI2V_5B: ModelConfig(
             pretrained_model_name="Wan-AI/Wan2.2-TI2V-5B-Diffusers",
         ),
+        ModelVariant.WAN21_T2V_14B: ModelConfig(
+            pretrained_model_name="Wan-AI/Wan2.1-T2V-14B-Diffusers",
+        ),
     }
     DEFAULT_VARIANT = ModelVariant.WAN22_TI2V_5B
 
@@ -44,8 +63,15 @@ class ModelLoader(ForgeModel):
         "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"
     )
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, subfolder: Optional[str] = None
+    ):
         super().__init__(variant)
+        if subfolder is not None and subfolder not in SUPPORTED_SUBFOLDERS:
+            raise ValueError(
+                f"Unknown subfolder: {subfolder}. Supported: {SUPPORTED_SUBFOLDERS}"
+            )
+        self._subfolder = subfolder
         self.pipeline: Optional[DiffusionPipeline] = None
 
     @classmethod
@@ -56,7 +82,9 @@ class ModelLoader(ForgeModel):
             model="WAN",
             variant=variant,
             group=ModelGroup.RED,
-            task=ModelTask.MM_IMAGE_TTT,
+            task=ModelTask.MM_VIDEO_TTT
+            if variant == ModelVariant.WAN21_T2V_14B
+            else ModelTask.MM_IMAGE_TTT,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -101,7 +129,7 @@ class ModelLoader(ForgeModel):
         **kwargs,
     ):
         """
-        Load and return the Wan diffusion pipeline (DiffusionPipeline).
+        Load and return the Wan diffusion pipeline or VAE component.
 
         Args:
             dtype_override: Optional torch dtype to instantiate/convert the pipeline with.
@@ -110,8 +138,12 @@ class ModelLoader(ForgeModel):
             extra_pipe_kwargs: Additional kwargs forwarded to DiffusionPipeline.from_pretrained.
 
         Returns:
-            DiffusionPipeline: Ready-to-run Wan text-to-image pipeline.
+            DiffusionPipeline or AutoencoderKLWan depending on subfolder.
         """
+        if self._subfolder == "vae":
+            dtype = dtype_override if dtype_override is not None else torch.float32
+            return load_vae(self._variant_config.pretrained_model_name, dtype)
+
         if self.pipeline is None:
             return self._load_pipeline(
                 dtype_override=dtype_override,
@@ -125,15 +157,24 @@ class ModelLoader(ForgeModel):
 
         return self.pipeline
 
-    def load_inputs(self, prompt: Optional[str] = None) -> Dict[str, Any]:
+    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
         """
-        Prepare default text input for the Wan pipeline.
+        Prepare inputs for the model or component.
 
-        Args:
-            prompt: Optional prompt override; defaults to the reference prompt.
-
-        Returns:
-            dict: A dictionary containing the prompt string, matching DiffusionPipeline signature.
+        For VAE subfolder, pass vae_type="decoder" or vae_type="encoder".
+        For full pipeline, returns a prompt dict.
         """
+        if self._subfolder == "vae":
+            dtype = kwargs.get("dtype_override", torch.float32)
+            vae_type = kwargs.get("vae_type")
+            if vae_type == "decoder":
+                return load_vae_decoder_inputs(dtype)
+            elif vae_type == "encoder":
+                return load_vae_encoder_inputs(dtype)
+            else:
+                raise ValueError(
+                    f"Unknown vae_type: {vae_type}. Expected 'decoder' or 'encoder'."
+                )
+
         prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
         return {"prompt": prompt_value}

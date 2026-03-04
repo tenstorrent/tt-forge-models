@@ -137,9 +137,7 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         # Load the model with dtype override if specified
-        model_kwargs = {
-            "use_cache": False
-        }  # use_cache disabled temporarily because of runtime errors: https://github.com/tenstorrent/tt-xla/issues/3049.
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
@@ -148,6 +146,10 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if getattr(model.config, "use_cache", True):
+            model.config.layer_types = [
+                "full_attention"
+            ] * model.config.num_hidden_layers
         model.eval()
 
         self.config = model.config
