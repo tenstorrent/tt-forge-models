@@ -3,11 +3,81 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import torch
+from torch import Tensor
 import torch.nn.functional as F
 from torchvision.models.detection import _utils as det_utils
 from torchvision.ops import boxes as box_ops
 from torchvision.models.detection.anchor_utils import DefaultBoxGenerator
 from torchvision.models.detection.transform import GeneralizedRCNNTransform
+
+
+# Patched versions of DefaultBoxGenerator methods that propagate device into
+# _grid_default_boxes, so tensors created during forward are on the same device
+# (XLA) as the feature maps instead of defaulting to CPU - https://github.com/tenstorrent/tt-xla/issues/3335
+# Original forward available at:
+# https://github.com/pytorch/vision/blob/v0.24.0/torchvision/models/detection/anchor_utils.py
+
+
+def patched_grid_default_boxes(
+    self,
+    grid_sizes: list[list[int]],
+    image_size: list[int],
+    dtype: torch.dtype = torch.float32,
+    device: torch.device = torch.device("cpu"),
+) -> Tensor:
+    default_boxes = []
+    for k, f_k in enumerate(grid_sizes):
+        if self.steps is not None:
+            x_f_k = image_size[1] / self.steps[k]
+            y_f_k = image_size[0] / self.steps[k]
+        else:
+            y_f_k, x_f_k = f_k
+
+        shifts_x = ((torch.arange(0, f_k[1], device=device) + 0.5) / x_f_k).to(
+            dtype=dtype
+        )
+        shifts_y = ((torch.arange(0, f_k[0], device=device) + 0.5) / y_f_k).to(
+            dtype=dtype
+        )
+        shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x, indexing="ij")
+        shift_x = shift_x.reshape(-1)
+        shift_y = shift_y.reshape(-1)
+
+        shifts = torch.stack(
+            (shift_x, shift_y) * len(self._wh_pairs[k]), dim=-1
+        ).reshape(-1, 2)
+        _wh_pair = self._wh_pairs[k].to(device=device)
+        _wh_pair = _wh_pair.clamp(min=0, max=1) if self.clip else _wh_pair
+        wh_pairs = _wh_pair.repeat((f_k[0] * f_k[1]), 1)
+
+        default_box = torch.cat((shifts, wh_pairs), dim=1)
+        default_boxes.append(default_box)
+
+    return torch.cat(default_boxes, dim=0)
+
+
+def patched_forward(self, image_list, feature_maps: list[Tensor]) -> list[Tensor]:
+    grid_sizes = [feature_map.shape[-2:] for feature_map in feature_maps]
+    image_size = image_list.tensors.shape[-2:]
+    dtype, device = feature_maps[0].dtype, feature_maps[0].device
+    default_boxes = self._grid_default_boxes(
+        grid_sizes, image_size, dtype=dtype, device=device
+    )
+    default_boxes = default_boxes.to(device)
+
+    dboxes = []
+    x_y_size = torch.tensor([image_size[1], image_size[0]], device=default_boxes.device)
+    for _ in image_list.image_sizes:
+        dboxes_in_image = default_boxes
+        dboxes_in_image = torch.cat(
+            [
+                (dboxes_in_image[:, :2] - 0.5 * dboxes_in_image[:, 2:]) * x_y_size,
+                (dboxes_in_image[:, :2] + 0.5 * dboxes_in_image[:, 2:]) * x_y_size,
+            ],
+            -1,
+        )
+        dboxes.append(dboxes_in_image)
+    return dboxes
 
 
 # SSD300 VGG16 post-processing utilities

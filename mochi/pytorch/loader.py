@@ -135,7 +135,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         config = self._variant_config
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         if self._subfolder is None:
             return load_pipeline(
@@ -165,7 +165,7 @@ class ModelLoader(ForgeModel):
             raise ValueError(f"Unknown subfolder: {self._subfolder}")
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         if self._subfolder == "vae":
             # in kwards we should have vae_type as "decoder" or "encoder"

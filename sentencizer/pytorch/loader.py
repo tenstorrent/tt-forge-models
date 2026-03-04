@@ -120,7 +120,9 @@ class ModelLoader(ForgeModel):
 
         self.master_config = MasterConfig()
 
-        self.master_config.embedding_name = variant.value
+        self.master_config.embedding_name = self._VARIANTS[
+            variant
+        ].pretrained_model_name
         self._ud_eval = False
 
         self.master_config.device = torch.device("cpu")
