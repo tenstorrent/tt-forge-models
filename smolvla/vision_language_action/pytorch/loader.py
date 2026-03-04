@@ -5,6 +5,8 @@
 SmolVLA model loader implementation for action prediction.
 """
 
+from __future__ import annotations
+
 import importlib.util
 import sys
 import types
@@ -42,17 +44,6 @@ def _setup_policies_namespace() -> None:
     policies_module = types.ModuleType("lerobot.policies")
     policies_module.__path__ = [str(policies_path)]
     sys.modules["lerobot.policies"] = policies_module
-
-
-_setup_policies_namespace()
-
-from lerobot.configs.types import FeatureType
-from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
-from lerobot.policies.smolvla.configuration_smolvla import SmolVLAConfig
-from lerobot.policies.utils import prepare_observation_for_inference
-import lerobot.policies.smolvla.processor_smolvla  # Registers SmolVLA processor steps.
-from lerobot.processor import PolicyProcessorPipeline
-from lerobot.utils.constants import ACTION
 
 
 class SmolVLAInferenceWrapper(torch.nn.Module):
@@ -94,7 +85,6 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.preprocess = None
-        self.postprocess = None
         self.config = None
 
     @classmethod
@@ -109,21 +99,23 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processors(self, device: torch.device):
+        _setup_policies_namespace()
+        import lerobot.policies.smolvla.processor_smolvla  # noqa: F401
+        from lerobot.processor import PolicyProcessorPipeline
+
         self.preprocess = PolicyProcessorPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             config_filename="policy_preprocessor.json",
             overrides={"device_processor": {"device": str(device)}},
         )
-        self.postprocess = PolicyProcessorPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            config_filename="policy_postprocessor.json",
-            overrides={"device_processor": {"device": str(device)}},
-        )
 
     def load_model(self, *, dtype_override=None, device: str = "cpu", **kwargs):
-        # SmolVLA: force float32 to avoid bfloat16 dtype mismatch in torch.compile/inductor path.
-        # Pretrained weights load as bfloat16; preprocess produces float32. Explicit conversion
-        # ensures model and inputs match.
+        _setup_policies_namespace()
+        from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+
+        # SmolVLA: always use float32. torch.compile/inductor on CPU has dtype consistency
+        # issues with bfloat16 (mat1/mat2 mismatch). Pretrained weights load as bfloat16;
+        # preprocess produces float32 - explicit float32 ensures model and inputs match.
         model = SmolVLAPolicy.from_pretrained(
             self._variant_config.pretrained_model_name, **kwargs
         )
@@ -131,7 +123,7 @@ class ModelLoader(ForgeModel):
         model = model.to(dtype=torch.float32)
         model.eval()
         self.config = model.config
-        if self.preprocess is None or self.postprocess is None:
+        if self.preprocess is None:
             self._load_processors(torch.device(device))
         # Wrap so model(**inputs) runs predict_action_chunk (inference) not forward (training).
         return SmolVLAInferenceWrapper(model)
@@ -139,14 +131,16 @@ class ModelLoader(ForgeModel):
     def load_inputs(
         self, dtype_override=None, batch_size: int = 1, device: str = "cpu"
     ):
-        # SmolVLA: inputs stay float32 to match model (see load_model). Ignore test's bfloat16.
-        dtype_override = None
+        _setup_policies_namespace()
+        from lerobot.policies.smolvla.configuration_smolvla import SmolVLAConfig
+        from lerobot.policies.utils import prepare_observation_for_inference
+
         if self.config is None:
             self.config = SmolVLAConfig.from_pretrained(
                 self._variant_config.pretrained_model_name
             )
 
-        if self.preprocess is None or self.postprocess is None:
+        if self.preprocess is None:
             self._load_processors(torch.device(device))
 
         dummy_observation = build_dummy_observation(self.config.input_features or {})
@@ -157,18 +151,6 @@ class ModelLoader(ForgeModel):
             robot_type=self.robot_type,
         )
 
-        action_dim = (
-            self.config.action_feature.shape[0]
-            if self.config.action_feature is not None
-            else self.config.max_action_dim
-        )
-        action_dtype = dtype_override or torch.float32
-        obs_frame[ACTION] = torch.zeros(
-            (1, self.config.chunk_size, action_dim),
-            dtype=action_dtype,
-            device=device,
-        )
-
         inputs = self.preprocess(obs_frame)
 
         if batch_size > 1:
@@ -176,14 +158,6 @@ class ModelLoader(ForgeModel):
                 if torch.is_tensor(value) and value.dim() > 0:
                     inputs[key] = value.repeat_interleave(batch_size, dim=0)
 
-        # Cast inputs to model dtype when dtype_override is set (e.g. bfloat16 for tests).
-        # Preprocess pipeline outputs float32; model may be bfloat16, causing dtype mismatch.
-        if dtype_override is not None:
-            for key, value in inputs.items():
-                if torch.is_tensor(value) and value.is_floating_point():
-                    inputs[key] = value.to(dtype_override)
-
-        # Wrapper expects model(batch=inputs). predict_action_chunk returns action tensor directly.
         return {"batch": inputs}
 
     def unpack_forward_output(self, fwd_output):
@@ -192,6 +166,8 @@ class ModelLoader(ForgeModel):
 
 
 def build_dummy_observation(input_features: dict) -> dict[str, np.ndarray]:
+    from lerobot.configs.types import FeatureType
+
     observation: dict[str, np.ndarray] = {}
     for key, feature in input_features.items():
         if not key.startswith("observation."):
