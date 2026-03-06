@@ -336,10 +336,10 @@ def get_static_cache_decode_inputs(
         dtype=cache_dtype,
     )
 
-    token_id = get_simple_decode_token_id(tokenizer, config)
+    token_id = tokenizer("\n", add_special_tokens=False).input_ids[0]
     input_ids = torch.full((batch_size, 1), fill_value=token_id, dtype=torch.long)
 
-    pos = (max_cache_len - 1) if cache_position is None else int(cache_position)
+    pos = cache_position if cache_position is not None else 0
     cache_position_t = torch.tensor([pos], dtype=torch.long)
 
     inputs = {

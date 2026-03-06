@@ -315,11 +315,29 @@ class ModelLoader(ForgeModel):
 
         max_cache_len = getattr(self._variant_config, "max_length", None) or 128
         self.seq_len = 1
+        # compute prompt length dynamically
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": self.sample_text},
+        ]
+        text = self.tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        prompts = [text]
+        inputs = self.tokenizer(
+            prompts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=max_cache_len,
+        )
+        prompt_len = inputs["input_ids"].shape[1]
 
         return get_static_cache_decode_inputs(
             tokenizer=self.tokenizer,
             config=self.config,
             batch_size=batch_size,
             max_cache_len=max_cache_len,
+            cache_position=prompt_len,
             dtype=dtype_override,
         )
