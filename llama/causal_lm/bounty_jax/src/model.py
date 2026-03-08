@@ -20,6 +20,8 @@ from jax import lax  # type: ignore
 from jax.experimental.shard_map import shard_map  # type: ignore
 from jax.sharding import Mesh  # type: ignore
 from jax.sharding import PartitionSpec  # type: ignore
+
+P = PartitionSpec
 from transformers.modeling_flax_outputs import (  # type: ignore
     FlaxBaseModelOutput,
     FlaxCausalLMOutput,
@@ -294,9 +296,9 @@ class FlaxLLaMAAttention(nn.Module):
         return outputs
 
 
-devices = jax.devices()
-print("Devices:", devices)
-mesh = Mesh(devices, axis_names=("mp",))
+import numpy as _np
+
+mesh = Mesh(_np.array(jax.devices("cpu")[:1]), axis_names=("mp",))
 
 
 class ParallelDense(nn.Module):
@@ -306,44 +308,15 @@ class ParallelDense(nn.Module):
 
     @nn.compact
     def __call__(self, x):
+        # The original implementation used shard_map for tensor parallelism, that is disabled here
+        # because it conflicts with the outer shard_map added by DynamicJaxMultiChipModelTester 
         x = x.astype(self.dtype)
         in_dim = x.shape[-1]
         out_dim = self.features
-        local_shape = (in_dim, out_dim)
-
         kernel = self.param(
-            "kernel", nn.initializers.lecun_normal(), local_shape, self.param_dtype
+            "kernel", nn.initializers.lecun_normal(), (in_dim, out_dim), self.param_dtype
         )
-
-        def matmul_fn(x, k):
-            axis_idx = jax.lax.axis_index("mp")
-            debug.print(
-                "🔧 Device {}/{} running matmul: x.shape = {}, kernel.shape = {}",
-                axis_idx,
-                mesh.shape["mp"],
-                x.shape,
-                k.shape,
-            )
-
-            local_out = jnp.einsum("bsd,df->bsf", x, k)
-
-            full_out = jax.lax.all_gather(local_out, axis_name="mp", axis=0)
-
-            return jnp.reshape(
-                jnp.transpose(full_out, (1, 2, 0, 3)), (x.shape[0], x.shape[1], -1)
-            )
-
-        # Note: we replicate x, shard only kernel
-        return shard_map(
-            matmul_fn,
-            mesh=mesh,
-            in_specs=(
-                None,
-                P(None, "mp"),
-            ),  # x is replicated, kernel is sharded on output dim
-            out_specs=P(None),  # output is sharded along output dim
-            check_rep=False,
-        )(x, kernel)
+        return jnp.einsum("bsd,df->bsf", x, kernel).astype(self.dtype)
 
 
 class FlaxLLaMAMLP(nn.Module):
