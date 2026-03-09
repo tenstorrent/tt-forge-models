@@ -27,7 +27,7 @@ from .src.model import FlaxLLaMAForCausalLMModule
 
 
 class _LlamaWrapper(linen.Module):
-    """Unpacks the (input_ids, attention_mask, position_ids) tuple. """
+    """ Unpacks the (input_ids, attention_mask, position_ids) tuple """
 
     config: Any
     dtype: Any
@@ -42,7 +42,7 @@ class _LlamaWrapper(linen.Module):
 
 
 class ModelVariant(StrEnum):
-    """Available Llama 3.1 8B model variants."""
+    """ Available Llama 3.1 8B model variants """
 
     CUSTOM_1X2 = "Custom_1x2"
     CUSTOM_1X4 = "Custom_1x4"
@@ -58,7 +58,7 @@ class ModelLoader(ForgeModel):
     _TEST_VOCAB_SIZE = 128256
     _TEST_HIDDEN_SIZE = 512
     _TEST_INTERMEDIATE_SIZE = 1024
-    _TEST_NUM_LAYERS = 2
+    _TEST_NUM_LAYERS = 4
     _TEST_NUM_ATTENTION_HEADS = 8
     _TEST_NUM_KV_HEADS = 2
     _TEST_MAX_SEQ_LEN = 64

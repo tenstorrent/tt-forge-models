@@ -7,51 +7,50 @@ from transformers.utils import logging
 logger = logging.get_logger(__name__)
 
 
-class FalconConfig(PretrainedConfig):
-    model_type = "falcon3"
+class MistralConfig(PretrainedConfig):
+    model_type = "mistral"
 
     def __init__(
         self,
         vocab_size=131072,
-        hidden_size=3072,
-        intermediate_size=23040,
-        num_hidden_layers=28,
-        num_attention_heads=12,
-        num_key_value_heads=4,
-        max_position_embeddings=32768,
+        hidden_size=5120,
+        intermediate_size=14336,
+        num_hidden_layers=56,
+        num_attention_heads=32,
+        num_key_value_heads=8,
+        max_sequence_length=32768,
+        rms_norm_eps=1e-5,
         initializer_range=0.02,
-        rms_norm_eps=1e-6,
         use_cache=True,
-        pad_token_id=None,
-        bos_token_id=11,
-        eos_token_id=11,
+        pad_token_id=-1,
+        bos_token_id=1,
+        eos_token_id=2,
+        resid_pdrop=0.0,
+        embd_pdrop=0.0,
+        attn_pdrop=0.0,
         tie_word_embeddings=False,
-        rope_theta=1000042.0,
-        rope_scaling=None,
-        attention_bias=False,
-        attention_dropout=0.0,
-        mlp_bias=False,
-        head_dim=256,
         gradient_checkpointing: bool = False,
+        rope_theta: float = 1000000.0,
+        rope_scaling=None,
         **kwargs,
     ):
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
+        self.initializer_range = initializer_range
         self.intermediate_size = intermediate_size
         self.num_hidden_layers = num_hidden_layers
         self.num_attention_heads = num_attention_heads
         self.num_key_value_heads = num_key_value_heads
-        self.max_position_embeddings = max_position_embeddings
-        self.initializer_range = initializer_range
+        self.max_sequence_length = max_sequence_length
+        self.max_position_embeddings = max_sequence_length
         self.rms_norm_eps = rms_norm_eps
         self.use_cache = use_cache
+        self.resid_pdrop = resid_pdrop
+        self.embd_pdrop = embd_pdrop
+        self.attn_pdrop = attn_pdrop
+        self.gradient_checkpointing = gradient_checkpointing
         self.rope_theta = rope_theta
         self.rope_scaling = rope_scaling
-        self.attention_bias = attention_bias
-        self.attention_dropout = attention_dropout
-        self.mlp_bias = mlp_bias
-        self.head_dim = head_dim if head_dim is not None else hidden_size // num_attention_heads
-        self.gradient_checkpointing = gradient_checkpointing
 
         super().__init__(
             pad_token_id=pad_token_id,

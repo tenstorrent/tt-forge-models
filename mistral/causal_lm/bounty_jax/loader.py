@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Falcon3 7B model loader for tensor-parallel causal language modeling.
+Mistral Small 3.1 24B model loader for tensor-parallel causal language modeling.
 """
 
 from typing import Any, Optional
@@ -12,8 +12,8 @@ import jax.numpy as jnp
 import numpy as np
 from flax import linen
 
-from ...base import ForgeModel
-from ...config import (
+from ....base import ForgeModel
+from ....config import (
     Framework,
     ModelConfig,
     ModelGroup,
@@ -22,25 +22,32 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from .src.config import FalconConfig
-from .src.model import FlaxFalconForCausalLMModule
+from .src.config import MistralConfig
+from .src.model import FlaxMistralForCausalLMModule
 
 
-class _FalconWrapper(linen.Module):
-    """ Unpacks the (input_ids, attention_mask, position_ids) tuple """
+class _MistralWrapper(linen.Module):
+    """Unpacks the (input_ids, attention_mask, position_ids) tuple.
+
+    The tester always calls model.apply(params, activations) where activations is
+    whatever load_inputs() returns as a single object.  Our load_inputs() returns a
+    3-tuple, so Flax's apply would pass the whole tuple as one positional arg to
+    __call__, which expects three separate args.  This wrapper unpacks the tuple.
+    """
 
     config: Any
     dtype: Any
 
     @linen.compact
     def __call__(self, inputs):
-        input_ids, attention_mask, position_ids = inputs
-        inner = FlaxFalconForCausalLMModule(config=self.config, dtype=self.dtype)
-        return inner(input_ids, attention_mask, position_ids)
+        # Model only needs input_ids — attention and position handled internally via RoPE + causal mask
+        input_ids = inputs[0] if isinstance(inputs, tuple) else inputs
+        inner = FlaxMistralForCausalLMModule(config=self.config, dtype=self.dtype)
+        return inner(input_ids)
 
 
 class ModelVariant(StrEnum):
-    """Available Falcon3 7B model variants."""
+    """Available Mistral Small 3.1 24B model variants."""
 
     CUSTOM_1X2 = "Custom_1x2"
     CUSTOM_1X4 = "Custom_1x4"
@@ -48,15 +55,16 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """ 
-        Falcon3 7B tensor-parallel model loader 
-        Intentionally small model for testing purposes.
+    """Mistral Small 3.1 24B tensor-parallel model loader.
+
+    Uses intentionally small test dimensions so the model can be initialized
+    on CPU during test collection without requiring actual hardware or weights.
     """
 
     _TEST_VOCAB_SIZE = 131072
     _TEST_HIDDEN_SIZE = 512
     _TEST_INTERMEDIATE_SIZE = 1024
-    _TEST_NUM_LAYERS = 2
+    _TEST_NUM_LAYERS = 8
     _TEST_NUM_ATTENTION_HEADS = 8
     _TEST_NUM_KV_HEADS = 2
     _TEST_MAX_SEQ_LEN = 64
@@ -65,13 +73,13 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.CUSTOM_1X2: ModelConfig(
-            pretrained_model_name="tiiuae/Falcon3-7B-Base",
+            pretrained_model_name="mistralai/Mistral-Small-3.1-24B-Base-2503",
         ),
         ModelVariant.CUSTOM_1X4: ModelConfig(
-            pretrained_model_name="tiiuae/Falcon3-7B-Base",
+            pretrained_model_name="mistralai/Mistral-Small-3.1-24B-Base-2503",
         ),
         ModelVariant.CUSTOM_1X8: ModelConfig(
-            pretrained_model_name="tiiuae/Falcon3-7B-Base",
+            pretrained_model_name="mistralai/Mistral-Small-3.1-24B-Base-2503",
         ),
     }
 
@@ -79,14 +87,14 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._falcon_config = None
+        self._mistral_config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Falcon3-7B",
+            model="Mistral-Small-3.1-24B",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -94,28 +102,27 @@ class ModelLoader(ForgeModel):
             framework=Framework.JAX,
         )
 
-    def _get_falcon_config(self):
-        if self._falcon_config is None:
-            self._falcon_config = FalconConfig(
+    def _get_mistral_config(self):
+        if self._mistral_config is None:
+            self._mistral_config = MistralConfig(
                 vocab_size=self._TEST_VOCAB_SIZE,
                 hidden_size=self._TEST_HIDDEN_SIZE,
                 intermediate_size=self._TEST_INTERMEDIATE_SIZE,
                 num_hidden_layers=self._TEST_NUM_LAYERS,
                 num_attention_heads=self._TEST_NUM_ATTENTION_HEADS,
                 num_key_value_heads=self._TEST_NUM_KV_HEADS,
-                max_position_embeddings=self._TEST_MAX_SEQ_LEN,
+                max_sequence_length=self._TEST_MAX_SEQ_LEN,
             )
-        return self._falcon_config
+        return self._mistral_config
 
     def load_model(self, *, dtype_override=None, **_):
         dtype = dtype_override if dtype_override is not None else jnp.bfloat16
-        return _FalconWrapper(config=self._get_falcon_config(), dtype=dtype)
+        return _MistralWrapper(config=self._get_mistral_config(), dtype=dtype)
 
     def load_inputs(self, dtype_override=None, mesh=None, **_):
-        """
-            Return (input_ids, attention_mask, position_ids) as a single tuple.
+        """Return (input_ids, attention_mask, position_ids) as a single tuple.
 
-            Passed as one activation argument to model.apply; _FalconWrapper unpacks it.
+        Passed as one activation argument to model.apply; _MistralWrapper unpacks it.
         """
         rng = np.random.default_rng(42)
         input_ids = jnp.array(
