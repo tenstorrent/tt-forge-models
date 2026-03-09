@@ -1,241 +1,514 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-""" Flax Linen Mistral model for bounty tensor-parallel testing """
+"""Mistral inference implemented in Flax NNX.
 
-from typing import Tuple, Union
+Can load weights from huggingface model.
 
-import flax.linen as nn
+Conventions used for axis labeling:
+
+- B: batch
+- S: seqlen
+- V: vocab
+- E: embed
+- D: head_dim
+- H: num_heads
+- HQ: num_q_heads
+- K: num_kv_heads
+
+Note: The rotary embedding implementation used here is from flaxformers, which
+is same as hugginface transformers'. This is not compatible with
+mistral-inference's implementation. The order of the features must be swapped if
+using mistral weights. More details in class `RotaryEmbedding`.
+
+Not supported:
+- Sliding window
+
+"""
+
+from enum import Enum
+from pathlib import Path
+from typing import Any, Callable, Optional, Sequence
+
+import flax.core.spmd
+import flax.struct
 import jax
 import jax.numpy as jnp
+from flax import nnx
+from flax.typing import Dtype, Initializer, LogicalRules
+from jax import Array, ShapeDtypeStruct
+from jax.sharding import Mesh, NamedSharding, PartitionSpec, SingleDeviceSharding
+from jaxtyping import Float, Integer
+from transformers import MistralConfig
 
-from .config import MistralConfig
 from .embedding import apply_rotary_embedding, generate_fixed_pos_embedding
+from .util import keystr_simple, update_sharding
 
-from transformers.modeling_flax_outputs import FlaxBaseModelOutput, FlaxCausalLMOutput
+
+class Axis(str, Enum):
+    EMBED = "embed"
+    MLP = "mlp"
+    HEAD = "head"
+    QHEAD = "qhead"
+    KVHEAD = "kvhead"
+    VOCAB = "vocab"
+
+    def __str__(self) -> str:
+        return self.value
 
 
-class FlaxMistralRMSNorm(nn.Module):
-    config: MistralConfig
-    dtype: jnp.dtype = jnp.float32
+@flax.struct.dataclass
+class KVCacheLayer:
+    cache_k: Float[Array, "B S H D"]
+    cache_v: Float[Array, "B S H D"]
+    index: Integer[Array, ""]
 
-    def setup(self):
-        self.epsilon = self.config.rms_norm_eps
-        self.weight = self.param(
-            "weight", lambda _, shape: jnp.ones(shape), self.config.hidden_size
+    @property
+    def max_seqlen(self) -> int:
+        return self.cache_k.shape[1]
+
+    @classmethod
+    def create(
+        cls,
+        shape: tuple[int, ...],
+        dtype: Dtype,
+        mesh: Mesh | None = None,
+        sharding_rules: LogicalRules | None = None,
+    ) -> "KVCacheLayer":
+        assert len(shape) == 4, f"shape should be (B,S,H,D), got: {shape}"
+
+        if sharding_rules is None and mesh is None:
+            sharding = SingleDeviceSharding(jax.devices("cpu")[0])
+        elif sharding_rules is not None and mesh is not None:
+            rules_dict = {k: v for k, v in sharding_rules}
+            sharding = NamedSharding(
+                mesh,
+                PartitionSpec(
+                    None, None, rules_dict[Axis.KVHEAD], rules_dict[Axis.HEAD]
+                ),
+            )
+        else:
+            raise ValueError("mesh and sharding_rules must be both None or both set")
+
+        return cls(
+            cache_k=jnp.zeros(shape, dtype=dtype, device=sharding),
+            cache_v=jnp.zeros(shape, dtype=dtype, device=sharding),
+            index=jnp.array(0, dtype="int32"),
         )
 
-    def __call__(self, hidden_states):
-        variance = jnp.asarray(hidden_states, dtype=jnp.float32)
-        variance = jnp.power(variance, 2)
-        variance = variance.mean(-1, keepdims=True)
-        hidden_states = hidden_states / jnp.sqrt(variance + self.epsilon)
-        return self.weight * jnp.asarray(hidden_states, dtype=self.dtype)
-
-
-class FlaxMistralAttention(nn.Module):
-    """Mistral attention with GQA and RoPE from the bounty embedding module."""
-
-    config: MistralConfig
-    dtype: jnp.dtype = jnp.float32
-
-    def setup(self):
-        config = self.config
-        self.embed_dim = config.hidden_size
-        self.num_heads = config.num_attention_heads
-        self.head_dim = self.embed_dim // self.num_heads
-        self.num_kv_heads = config.num_key_value_heads
-
-        kernel_init = jax.nn.initializers.normal(config.initializer_range)
-        self.wq = nn.Dense(
-            self.num_heads * self.head_dim, use_bias=False, dtype=self.dtype, kernel_init=kernel_init
-        )
-        self.wk = nn.Dense(
-            self.num_kv_heads * self.head_dim, use_bias=False, dtype=self.dtype, kernel_init=kernel_init
-        )
-        self.wv = nn.Dense(
-            self.num_kv_heads * self.head_dim, use_bias=False, dtype=self.dtype, kernel_init=kernel_init
-        )
-        self.wo = nn.Dense(
-            self.embed_dim, use_bias=False, dtype=self.dtype, kernel_init=kernel_init
+    def update(
+        self, k: Float[Array, "B S H D"], v: Float[Array, "B S H D"]
+    ) -> "KVCacheLayer":
+        KB, KS, _KH, _KD = k.shape
+        VB, VS, _VH, _VD = v.shape
+        assert (KB, KS) == (
+            VB,
+            VS,
+        ), f"k and v should have same batch,seqlen: {(KB, KS)} != {(VB,VS)}"
+        Z = jnp.array(0, dtype=self.index.dtype)
+        return KVCacheLayer(
+            cache_k=jax.lax.dynamic_update_slice(
+                self.cache_k, k, (Z, self.index, Z, Z)
+            ),
+            cache_v=jax.lax.dynamic_update_slice(
+                self.cache_v, v, (Z, self.index, Z, Z)
+            ),
+            index=self.index + KS,
         )
 
-        sin, cos = generate_fixed_pos_embedding(
-            self.head_dim,
-            config.max_position_embeddings,
-            max_timescale=config.rope_theta,
-        )
-        self.rope_sin = self.variable("constants", "rope_sin", lambda: sin)
-        self.rope_cos = self.variable("constants", "rope_cos", lambda: cos)
 
-    def _split_heads(self, x, num_heads):
-        return x.reshape(x.shape[:2] + (num_heads, self.head_dim))
+@flax.struct.dataclass
+class KVCache:
+    layers: list[KVCacheLayer]
+
+    @classmethod
+    def create(
+        cls,
+        num_layers: int,
+        batch_size: int,
+        max_seqlen: int,
+        num_kv_heads: int,
+        head_dim: int,
+        *,
+        dtype: Dtype,
+        mesh: Mesh | None = None,
+        sharding_rules: LogicalRules | None = None,
+    ) -> "KVCache":
+        shape = (batch_size, max_seqlen, num_kv_heads, head_dim)
+        return cls(
+            layers=[
+                KVCacheLayer.create(shape, dtype, mesh, sharding_rules)
+                for _ in range(num_layers)
+            ]
+        )
+
+
+class RotaryEmbedding(nnx.Module):
+    def __init__(self, features: int, length: int, theta: float):
+        sin, cos = generate_fixed_pos_embedding(features, length, max_timescale=theta)
+        self.sin = nnx.Variable(sin)
+        self.cos = nnx.Variable(cos)
 
     def __call__(
         self,
-        hidden_states: jax.Array,
-        deterministic: bool = True,
-    ) -> jax.Array:
-        xq = self._split_heads(self.wq(hidden_states), self.num_heads)
-        xk = self._split_heads(self.wk(hidden_states), self.num_kv_heads)
-        xv = self._split_heads(self.wv(hidden_states), self.num_kv_heads)
-
-        xq, xk = apply_rotary_embedding(
-            xq, xk, self.rope_cos.value, self.rope_sin.value
+        q: Float[Array, "B S HQ D"],
+        k: Float[Array, "B S K D"],
+        index: Optional[Integer[Array, "B"]] = None,
+    ) -> tuple[Float[Array, "B S HQ D"], Float[Array, "B S K D"]]:
+        assert index is None or q.shape[1] == 1, "seqlen==1 required when index is set"
+        out_q, out_k = apply_rotary_embedding(
+            q,
+            k,
+            self.cos.value,
+            self.sin.value,
+            decode=index is not None,
+            rotary_index=index,
         )
-        # Cast back to compute dtype — apply_rotary_embedding promotes to float32 via sin/cos
-        xq = xq.astype(self.dtype)
-        xk = xk.astype(self.dtype)
+        return out_q.astype(q.dtype), out_k.astype(k.dtype)
 
-        # Repeat KV heads to match Q heads (GQA -> MHA expansion)
-        n_rep = self.num_heads // self.num_kv_heads
-        if n_rep > 1:
-            xk = jnp.repeat(xk, n_rep, axis=2)
-            xv = jnp.repeat(xv, n_rep, axis=2)
+
+def _init_with_sharding(
+    init_fn: Initializer,
+) -> Callable[[tuple[Axis, ...]], Initializer]:
+    def init(sharding):
+        return nnx.with_partitioning(init_fn, sharding=sharding)
+
+    return init
+
+
+class FeedForward(nnx.Module):
+    def __init__(
+        self, dim: int, hidden_dim: int, dtype: Any, param_dtype: Dtype, rngs: nnx.Rngs
+    ):
+        self.dim = dim
+        self.hidden_dim = hidden_dim
+        self.param_dtype = param_dtype
+
+        init = _init_with_sharding(nnx.initializers.lecun_normal())
+
+        self.w1 = nnx.LinearGeneral(
+            self.dim,
+            self.hidden_dim,
+            kernel_init=init((Axis.EMBED, Axis.MLP)),
+            use_bias=False,
+            dtype=dtype,
+            rngs=rngs,
+            param_dtype=param_dtype,
+        )
+        self.w2 = nnx.LinearGeneral(
+            self.hidden_dim,
+            self.dim,
+            kernel_init=init((Axis.MLP, Axis.EMBED)),
+            use_bias=False,
+            dtype=dtype,
+            rngs=rngs,
+            param_dtype=param_dtype,
+        )
+        self.w3 = nnx.LinearGeneral(
+            self.dim,
+            self.hidden_dim,
+            kernel_init=init((Axis.EMBED, Axis.MLP)),
+            use_bias=False,
+            dtype=dtype,
+            rngs=rngs,
+            param_dtype=param_dtype,
+        )
+
+    def __call__(self, x: Float[Array, "B S E"]) -> Float[Array, "B S E"]:
+        return self.w2(nnx.silu(self.w1(x)) * self.w3(x))
+
+
+class Attention(nnx.Module):
+    """Mistral attention supports different number of Q heads vs KV heads."""
+
+    dim: int
+    n_q_heads: int
+    head_dim: int
+    n_kv_heads: int
+    dtype: Any
+
+    wq: nnx.LinearGeneral
+    wk: nnx.LinearGeneral
+    wv: nnx.LinearGeneral
+    wo: nnx.LinearGeneral
+
+    def __init__(
+        self,
+        dim: int,
+        n_q_heads: int,
+        head_dim: int,
+        n_kv_heads: int,
+        rope: RotaryEmbedding,
+        dtype: Dtype,
+        param_dtype: Dtype,
+        rngs: nnx.Rngs,
+    ):
+        self.dim = dim
+        self.n_q_heads = n_q_heads
+        self.head_dim = head_dim
+        self.n_kv_heads = n_kv_heads
+        self.rope = rope
+        self.dtype = dtype
+
+        init = _init_with_sharding(nnx.initializers.lecun_normal())
+
+        self.wq = nnx.LinearGeneral(
+            self.dim,
+            (self.n_q_heads, self.head_dim),
+            use_bias=False,
+            kernel_init=init((Axis.EMBED, Axis.QHEAD, Axis.HEAD)),
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+        self.wk = nnx.LinearGeneral(
+            self.dim,
+            (self.n_kv_heads, self.head_dim),
+            kernel_init=init((Axis.EMBED, Axis.KVHEAD, Axis.HEAD)),
+            use_bias=False,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+        self.wv = nnx.LinearGeneral(
+            self.dim,
+            (self.n_kv_heads, self.head_dim),
+            kernel_init=init((Axis.EMBED, Axis.KVHEAD, Axis.HEAD)),
+            use_bias=False,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+        self.wo = nnx.LinearGeneral(
+            (self.n_q_heads, self.head_dim),
+            self.dim,
+            axis=(-2, -1),
+            kernel_init=init((Axis.QHEAD, Axis.HEAD, Axis.EMBED)),
+            use_bias=False,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+
+    @property
+    def _queries_per_head(self) -> int:
+        return self.n_q_heads // self.n_kv_heads
+
+    def __call__(self, x: Float[Array, "B S E"]) -> Array:
+        xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+        xq, xk = self.rope(xq, xk)
 
         out = jax.nn.dot_product_attention(xq, xk, xv, is_causal=True)
-        out = out.reshape(out.shape[:2] + (self.embed_dim,))
-        return self.wo(out)
+        out = self.wo(out)
+        return out
 
-
-class FlaxMistralMLP(nn.Module):
-    """ SwiGLU feed-forward """
-
-    config: MistralConfig
-    dtype: jnp.dtype = jnp.float32
-
-    def setup(self):
-        inner_dim = self.config.intermediate_size
-        kernel_init = jax.nn.initializers.normal(self.config.initializer_range)
-        self.gate_proj = nn.Dense(inner_dim, use_bias=False, dtype=self.dtype, kernel_init=kernel_init)
-        self.up_proj = nn.Dense(inner_dim, use_bias=False, dtype=self.dtype, kernel_init=kernel_init)
-        self.down_proj = nn.Dense(self.config.hidden_size, use_bias=False, dtype=self.dtype, kernel_init=kernel_init)
-
-    def __call__(self, x: jax.Array) -> jax.Array:
-        return self.down_proj(nn.silu(self.gate_proj(x)) * self.up_proj(x))
-
-
-class FlaxMistralDecoderLayer(nn.Module):
-
-    config: MistralConfig
-    dtype: jnp.dtype = jnp.float32
-
-    def setup(self):
-        self.input_layernorm = FlaxMistralRMSNorm(self.config, dtype=self.dtype)
-        self.self_attn = FlaxMistralAttention(self.config, dtype=self.dtype)
-        self.post_attention_layernorm = FlaxMistralRMSNorm(self.config, dtype=self.dtype)
-        self.mlp = FlaxMistralMLP(self.config, dtype=self.dtype)
-
-    def __call__(
+    def decode(
         self,
-        hidden_states: jax.Array,
-        deterministic: bool = True,
-    ) -> jax.Array:
-        h = hidden_states + self.self_attn(
-            self.input_layernorm(hidden_states), deterministic=deterministic
+        x: Float[Array, "B S E"],
+        cache: KVCacheLayer,
+    ) -> tuple[Float[Array, "B S E"], KVCacheLayer]:
+        B, T, _E = x.shape
+        assert B == 1, "only batch size 1 supported for now"
+        assert T == 1, "decode takes one token at a time"
+
+        xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+        cache = cache.update(xk, xv)
+        xk = cache.cache_k
+        xv = cache.cache_v
+
+        index = jnp.array([cache.index - T], dtype="int32")
+        xq, xk = self.rope(xq, xk, index=index)
+
+        out = jax.nn.dot_product_attention(
+            xq,
+            xk,
+            xv,
+            query_seq_lengths=jnp.array([T], dtype="int32"),
+            key_value_seq_lengths=cache.index.reshape(B),
         )
-        h = h + self.mlp(self.post_attention_layernorm(h))
-        return h
+        out = self.wo(out)
+        return out, cache
 
 
-class FlaxMistralLayerCollection(nn.Module):
+class TransformerBlock(nnx.Module):
+    def __init__(
+        self,
+        *,
+        dim: int,
+        hidden_dim: int,
+        n_q_heads: int,
+        n_kv_heads: int,
+        head_dim: int,
+        norm_eps: float,
+        rope: RotaryEmbedding,
+        dtype: Any,
+        param_dtype: Dtype,
+        rngs: nnx.Rngs,
+    ):
+        init = _init_with_sharding(nnx.initializers.ones_init())
+
+        self.n_q_heads = n_q_heads
+        self.dim = dim
+        self.attention = Attention(
+            dim=dim,
+            n_q_heads=n_q_heads,
+            n_kv_heads=n_kv_heads,
+            head_dim=head_dim,
+            rope=rope,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+        self.attention_norm = nnx.RMSNorm(
+            dim,
+            epsilon=norm_eps,
+            scale_init=init((Axis.EMBED,)),
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+        self.ffn_norm = nnx.RMSNorm(
+            dim,
+            epsilon=norm_eps,
+            scale_init=init((Axis.EMBED,)),
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+        self.mlp = FeedForward(
+            dim=dim,
+            hidden_dim=hidden_dim,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+
+    def __call__(self, x: Float[Array, "B S E"]) -> Float[Array, "B S E"]:
+        r = self.attention(self.attention_norm(x))
+        h = x + r
+        r = self.mlp(self.ffn_norm(h))
+        return h + r
+
+    def decode(
+        self,
+        x: Float[Array, "B S E"],
+        cache: KVCacheLayer,
+    ) -> tuple[Float[Array, "B S E"], KVCacheLayer]:
+        r, cache = self.attention.decode(self.attention_norm(x), cache)
+        h = x + r
+        r = self.mlp(self.ffn_norm(h))
+        return h + r, cache
+
+
+class MistralModel(nnx.Module):
+    layers: list[TransformerBlock]
     config: MistralConfig
-    dtype: jnp.dtype = jnp.float32
+    sharding_rules: LogicalRules | None
 
-    def setup(self):
-        self.blocks = [
-            FlaxMistralDecoderLayer(self.config, dtype=self.dtype, name=str(i))
-            for i in range(self.config.num_hidden_layers)
+    def __init__(
+        self,
+        config: MistralConfig,
+        *,
+        dtype: Dtype,
+        param_dtype: Dtype,
+        rngs: nnx.Rngs,
+        sharding_rules: LogicalRules | None = None,
+    ):
+        self.config = config
+        self.dtype = dtype
+        self.sharding_rules = sharding_rules
+
+        embed_init = _init_with_sharding(nnx.initializers.lecun_normal())
+        norm_init = _init_with_sharding(nnx.initializers.zeros_init())
+        linear_init = _init_with_sharding(nnx.initializers.lecun_normal())
+
+        head_dim = config.head_dim
+        assert type(head_dim) is int
+
+        rope = RotaryEmbedding(
+            features=head_dim,
+            length=config.max_position_embeddings,
+            theta=config.rope_theta,
+        )
+        self.embed = nnx.Embed(
+            config.vocab_size,
+            config.hidden_size,
+            embedding_init=embed_init((Axis.VOCAB, Axis.EMBED)),
+            param_dtype=param_dtype,
+            dtype=dtype,
+            rngs=rngs,
+        )
+        self.norm = nnx.RMSNorm(
+            config.hidden_size,
+            scale_init=norm_init((Axis.EMBED,)),
+            epsilon=config.rms_norm_eps,
+            param_dtype=param_dtype,
+            dtype=dtype,
+            rngs=rngs,
+        )
+        self.output = nnx.Linear(
+            config.hidden_size,
+            config.vocab_size,
+            kernel_init=linear_init((Axis.EMBED, Axis.VOCAB)),
+            use_bias=False,
+            param_dtype=param_dtype,
+            dtype=dtype,
+            rngs=rngs,
+        )
+        self.layers = [
+            TransformerBlock(
+                dim=config.hidden_size,
+                hidden_dim=config.intermediate_size,
+                n_q_heads=config.num_attention_heads,
+                n_kv_heads=config.num_key_value_heads,
+                head_dim=head_dim,
+                norm_eps=config.rms_norm_eps,
+                rope=rope,
+                param_dtype=param_dtype,
+                dtype=dtype,
+                rngs=rngs,
+            )
+            for _ in range(0, config.num_hidden_layers)
         ]
 
-    def __call__(
+    def __call__(self, input_ids: Integer[Array, "B S"]) -> Float[Array, "B S V"]:
+        """
+        Args:
+            input_ids: Array of shape (batch, seqlen)
+        Returns:
+            array of shape (batch, seqlen, vocab_size)
+        """
+        h = self.embed(input_ids)
+        for layer in self.layers:
+            h = layer(h)
+        h = self.norm(h)
+        logits = self.output(h)
+        return logits
+
+    def decode(
         self,
-        hidden_states: jax.Array,
-        deterministic: bool = True,
-        output_hidden_states: bool = False,
-    ) -> Tuple[jax.Array, ...]:
-        all_hidden_states = () if output_hidden_states else None
-        for block in self.blocks:
-            if output_hidden_states:
-                all_hidden_states += (hidden_states,)
-            hidden_states = block(hidden_states, deterministic=deterministic)
-        return hidden_states, all_hidden_states
+        input_ids: Integer[Array, "B S"],
+        cache: KVCache,
+    ) -> tuple[Float[Array, "B S V"], KVCache]:
+        h = self.embed(input_ids)
+        for i, layer in enumerate(self.layers):
+            h, cache.layers[i] = layer.decode(h, cache.layers[i])
+        h = self.norm(h)
+        logits = self.output(h)
+        return logits, cache
 
-
-class FlaxMistralModel(nn.Module):
-
-    config: MistralConfig
-    dtype: jnp.dtype = jnp.float32
-
-    def setup(self):
-        embedding_init = jax.nn.initializers.normal(stddev=self.config.initializer_range)
-        self.embed_tokens = nn.Embed(
-            self.config.vocab_size,
-            self.config.hidden_size,
-            embedding_init=embedding_init,
+    def create_cache(
+        self, batch_size: int, max_seqlen: int, mesh: Mesh | None = None
+    ) -> KVCache:
+        head_dim = self.config.head_dim
+        assert type(head_dim) is int
+        return KVCache.create(
+            len(self.layers),
+            batch_size=batch_size,
+            max_seqlen=max_seqlen,
+            num_kv_heads=self.config.num_key_value_heads,
+            head_dim=head_dim,
             dtype=self.dtype,
-        )
-        self.layers = FlaxMistralLayerCollection(self.config, dtype=self.dtype)
-        self.norm = FlaxMistralRMSNorm(self.config, dtype=self.dtype)
-
-    def __call__(
-        self,
-        input_ids: jax.Array,
-        deterministic: bool = True,
-        output_hidden_states: bool = False,
-        return_dict: bool = True,
-    ) -> Union[Tuple, FlaxBaseModelOutput]:
-        hidden_states = self.embed_tokens(input_ids.astype("i4"))
-        hidden_states, all_hidden_states = self.layers(
-            hidden_states,
-            deterministic=deterministic,
-            output_hidden_states=output_hidden_states,
-        )
-        hidden_states = self.norm(hidden_states)
-
-        if not return_dict:
-            return tuple(v for v in (hidden_states, all_hidden_states) if v is not None)
-        return FlaxBaseModelOutput(
-            last_hidden_state=hidden_states,
-            hidden_states=all_hidden_states,
-            attentions=None,
-        )
-
-
-class FlaxMistralForCausalLMModule(nn.Module):
-
-    config: MistralConfig
-    dtype: jnp.dtype = jnp.float32
-
-    def setup(self):
-        self.model = FlaxMistralModel(self.config, dtype=self.dtype)
-        self.lm_head = nn.Dense(
-            self.config.vocab_size,
-            use_bias=False,
-            dtype=self.dtype,
-            kernel_init=jax.nn.initializers.normal(stddev=self.config.initializer_range),
-        )
-
-    def __call__(
-        self,
-        input_ids: jax.Array,
-        deterministic: bool = True,
-        output_hidden_states: bool = False,
-        return_dict: bool = True,
-    ) -> Union[Tuple, FlaxCausalLMOutput]:
-        outputs = self.model(
-            input_ids,
-            deterministic=deterministic,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
-        hidden_states = outputs[0]
-        lm_logits = self.lm_head(hidden_states)
-
-        if not return_dict:
-            return (lm_logits,) + outputs[1:]
-        return FlaxCausalLMOutput(
-            logits=lm_logits,
-            hidden_states=outputs.hidden_states,
-            attentions=None,
+            mesh=mesh,
+            sharding_rules=self.sharding_rules,
         )

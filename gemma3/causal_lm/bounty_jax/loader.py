@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Mistral Small 3.1 24B model loader for tensor-parallel causal language modeling.
+Gemma3 model loader for tensor-parallel causal language modeling.
 """
 
 from typing import Optional
@@ -12,7 +12,6 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 from jax.sharding import PartitionSpec
-from transformers import MistralConfig
 
 from ....base import ForgeModel
 from ....config import (
@@ -24,11 +23,11 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
-from .src.model import MistralModel
+from .src.model import Gemma3Config, Gemma3ForCausalLM
 
 
 class ModelVariant(StrEnum):
-    """Available Mistral Small 3.1 24B model variants."""
+    """Available Gemma3 model variants."""
 
     CUSTOM_1X2 = "Custom_1x2"
     CUSTOM_1X4 = "Custom_1x4"
@@ -37,30 +36,32 @@ class ModelVariant(StrEnum):
 
 class ModelLoader(ForgeModel):
     """
-    Mistral Small 3.1 24B tensor-parallel model loader.
+    Gemma3 tensor-parallel model loader.
     Intentionally small model for testing purposes.
     """
 
-    _TEST_VOCAB_SIZE = 131072
-    _TEST_HIDDEN_SIZE = 512
-    _TEST_INTERMEDIATE_SIZE = 1024
-    _TEST_NUM_LAYERS = 8
+    _TEST_VOCAB_SIZE = 32000
+    _TEST_HIDDEN_SIZE = 256
+    _TEST_INTERMEDIATE_SIZE = 512
+    _TEST_NUM_LAYERS = 6
     _TEST_NUM_ATTENTION_HEADS = 8
-    _TEST_NUM_KV_HEADS = 2
-    _TEST_HEAD_DIM = 64  # hidden_size // num_attention_heads
+    _TEST_NUM_KV_HEADS = 4
+    _TEST_HEAD_DIM = 32
     _TEST_MAX_POS_EMBEDDINGS = 64
+    _TEST_SLIDING_WINDOW = 32
+    _TEST_SLIDING_WINDOW_PATTERN = 6
     _TEST_BATCH_SIZE = 1
     _TEST_SEQ_LEN = 32
 
     _VARIANTS = {
         ModelVariant.CUSTOM_1X2: ModelConfig(
-            pretrained_model_name="mistralai/Mistral-Small-3.1-24B-Base-2503",
+            pretrained_model_name="google/gemma-3-4b",
         ),
         ModelVariant.CUSTOM_1X4: ModelConfig(
-            pretrained_model_name="mistralai/Mistral-Small-3.1-24B-Base-2503",
+            pretrained_model_name="google/gemma-3-4b",
         ),
         ModelVariant.CUSTOM_1X8: ModelConfig(
-            pretrained_model_name="mistralai/Mistral-Small-3.1-24B-Base-2503",
+            pretrained_model_name="google/gemma-3-4b",
         ),
     }
 
@@ -68,14 +69,14 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._mistral_config = None
+        self._gemma_config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Mistral-Small-3.1-24B",
+            model="Gemma3",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -83,9 +84,9 @@ class ModelLoader(ForgeModel):
             framework=Framework.JAX,
         )
 
-    def _get_mistral_config(self):
-        if self._mistral_config is None:
-            config = MistralConfig(
+    def _get_gemma_config(self):
+        if self._gemma_config is None:
+            self._gemma_config = Gemma3Config(
                 vocab_size=self._TEST_VOCAB_SIZE,
                 hidden_size=self._TEST_HIDDEN_SIZE,
                 intermediate_size=self._TEST_INTERMEDIATE_SIZE,
@@ -94,19 +95,18 @@ class ModelLoader(ForgeModel):
                 num_key_value_heads=self._TEST_NUM_KV_HEADS,
                 head_dim=self._TEST_HEAD_DIM,
                 max_position_embeddings=self._TEST_MAX_POS_EMBEDDINGS,
+                sliding_window=self._TEST_SLIDING_WINDOW,
+                sliding_window_pattern=self._TEST_SLIDING_WINDOW_PATTERN,
+                use_cache=False,
             )
-            config.mesh = None
-
-            def set_model_mesh(mesh):
-                config.mesh = mesh
-
-            config.set_model_mesh = set_model_mesh
-            self._mistral_config = config
-        return self._mistral_config
+        return self._gemma_config
 
     def load_model(self, *, dtype_override=None, **_):
-        config = self._get_mistral_config()
-        return MistralModel(config, dtype=jnp.float32, param_dtype=jnp.bfloat16, rngs=nnx.Rngs(0))
+        config = self._get_gemma_config()
+        if dtype_override is not None:
+            config.dtype = dtype_override
+            config.param_dtype = dtype_override
+        return Gemma3ForCausalLM(config, rngs=nnx.Rngs(0))
 
     def load_inputs(self, dtype_override=None, mesh=None, **_):
         """Return inputs as a dict — required for nnx forward pass unpacking."""
@@ -114,7 +114,13 @@ class ModelLoader(ForgeModel):
         input_ids = jnp.array(
             rng.integers(1, 1000, size=(self._TEST_BATCH_SIZE, self._TEST_SEQ_LEN), dtype=np.int32)
         )
-        return {"input_ids": input_ids}
+        position_ids = jnp.broadcast_to(
+            jnp.arange(self._TEST_SEQ_LEN)[None, :], (self._TEST_BATCH_SIZE, self._TEST_SEQ_LEN)
+        )
+        return {
+            "input_ids": input_ids,
+            "position_ids": position_ids,
+        }
 
     def load_parameters(
         self,
