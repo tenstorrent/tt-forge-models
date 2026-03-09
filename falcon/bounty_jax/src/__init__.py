@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-from .config import LLaMAConfig
-from .model import FlaxLLaMAForCausalLMModule
+from .config import FalconConfig
+from .model import FlaxFalconForCausalLMModule

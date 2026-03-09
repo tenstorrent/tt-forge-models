@@ -50,8 +50,11 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Llama 3.1 8B tensor-parallel model loader."""
-
+    """ 
+        Llama 3.1 8B tensor-parallel model loader 
+        Intentionally small model for testing purposes.
+    """
+    
     _TEST_VOCAB_SIZE = 128256
     _TEST_HIDDEN_SIZE = 512
     _TEST_INTERMEDIATE_SIZE = 1024
@@ -116,9 +119,9 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, mesh=None):
         """
-        Return (input_ids, attention_mask, position_ids) as a single tuple.
+            Return (input_ids, attention_mask, position_ids) as a single tuple.
 
-        Passed as one activation argument to model.apply, _LlamaWrapper unpacks it.
+            Passed as one activation argument to model.apply, _LlamaWrapper unpacks it.
         """
         batch_size = self._TEST_BATCH_SIZE
         seq_len = self._TEST_SEQ_LEN
