@@ -8,7 +8,7 @@ from flax import struct
 from jax.sharding import Mesh
 from jax.sharding import PartitionSpec as P
 from jaxtyping import PyTree
-from model import FlaxLLaMAForCausalLM
+from .model import FlaxLLaMAForCausalLM
 from transformers import AutoTokenizer
 from transformers.generation import GenerationConfig
 

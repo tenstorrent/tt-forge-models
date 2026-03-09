@@ -3,38 +3,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Llama 3.1 8B model loader for tensor-parallel causal language modeling.
-
-Single-chip Llama is covered by the EasyDel loader in
-third_party/tt_forge_models/llama/causal_lm/jax/loader.py.
 """
 
-import importlib.util as _ilu
-import os
-import sys
 from typing import Any, Optional
-
-# ---------------------------------------------------------------------------
-# src/ files use bare imports (e.g. `from config import LLaMAConfig`) and
-# call jax.devices("cpu") at module level.  We need two things:
-#
-# 1. _SRC_DIR in sys.path so bare imports resolve correctly.
-# 2. Lazy loading via _ensure_src_loaded() so module-level JAX ops don't run
-#    during pytest collection (before the jax_num_cpu_devices fixture fires).
-#
-# We also use importlib.util.spec_from_file_location with unique names to
-# avoid sys.modules collisions with unrelated packages (e.g. torchxrayvision
-# has its own 'model' and 'config' packages already cached).
-# ---------------------------------------------------------------------------
-_SRC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import linen
 
-# Absolute imports — bypass the broken "llama3.1_8b" package hierarchy.
 from tt_forge_models.base import ForgeModel
 from tt_forge_models.config import (
     Framework,
@@ -45,34 +22,12 @@ from tt_forge_models.config import (
     ModelTask,
     StrEnum,
 )
-
-_llama_model_module = None
-_llama_config_module = None
-
-
-def _load_src(unique_name, filename):
-    spec = _ilu.spec_from_file_location(unique_name, os.path.join(_SRC_DIR, filename))
-    mod = _ilu.module_from_spec(spec)
-    sys.modules[unique_name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def _ensure_src_loaded():
-    global _llama_model_module, _llama_config_module
-    if _llama_model_module is None:
-        _llama_config_module = _load_src("_llama3_1_8b_config", "config.py")
-        _llama_model_module = _load_src("_llama3_1_8b_model", "model.py")
+from .src.config import LLaMAConfig
+from .src.model import FlaxLLaMAForCausalLMModule
 
 
 class _LlamaWrapper(linen.Module):
-    """Thin linen.Module that unpacks the (input_ids, attention_mask, position_ids) tuple.
-
-    The tester always calls model.apply(params, activations) where activations is
-    whatever load_inputs() returns as a single object.  Our load_inputs() returns a
-    3-tuple, so Flax's apply would pass the whole tuple as one positional arg to
-    __call__, which expects three separate args.  This wrapper unpacks the tuple.
-    """
+    """Unpacks the (input_ids, attention_mask, position_ids) tuple. """
 
     config: Any
     dtype: Any
@@ -80,10 +35,10 @@ class _LlamaWrapper(linen.Module):
     @linen.compact
     def __call__(self, inputs):
         input_ids, attention_mask, position_ids = inputs
-        inner = _llama_model_module.FlaxLLaMAForCausalLMModule(
+        module = FlaxLLaMAForCausalLMModule(
             config=self.config, dtype=self.dtype
         )
-        return inner(input_ids, attention_mask, position_ids)
+        return module(input_ids, attention_mask, position_ids)
 
 
 class ModelVariant(StrEnum):
@@ -92,13 +47,6 @@ class ModelVariant(StrEnum):
     CUSTOM_1X2 = "Custom_1x2"
     CUSTOM_1X4 = "Custom_1x4"
     CUSTOM_1X8 = "Custom_1x8"
-
-
-_VARIANT_NUM_DEVICES = {
-    ModelVariant.CUSTOM_1X2: 2,
-    ModelVariant.CUSTOM_1X4: 4,
-    ModelVariant.CUSTOM_1X8: 8,
-}
 
 
 class ModelLoader(ForgeModel):
@@ -146,9 +94,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _get_llama_config(self):
-        _ensure_src_loaded()
         if self._llama_config is None:
-            self._llama_config = _llama_config_module.LLaMAConfig(
+            self._llama_config = LLaMAConfig(
                 vocab_size=self._TEST_VOCAB_SIZE,
                 hidden_size=self._TEST_HIDDEN_SIZE,
                 intermediate_size=self._TEST_INTERMEDIATE_SIZE,
@@ -159,18 +106,19 @@ class ModelLoader(ForgeModel):
             )
         return self._llama_config
 
-    def _make_wrapper(self, dtype):
+    def load_model(self, *, dtype_override=None, **kwargs):
+        if dtype_override is not None:
+            dtype = dtype_override
+        else:
+            dtype = jnp.bfloat16
+    
         return _LlamaWrapper(config=self._get_llama_config(), dtype=dtype)
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        _ensure_src_loaded()
-        dtype = dtype_override if dtype_override is not None else jnp.bfloat16
-        return self._make_wrapper(dtype)
-
     def load_inputs(self, dtype_override=None, mesh=None):
-        """Return (input_ids, attention_mask, position_ids) as a single tuple.
+        """
+        Return (input_ids, attention_mask, position_ids) as a single tuple.
 
-        Passed as one activation argument to model.apply; _LlamaWrapper unpacks it.
+        Passed as one activation argument to model.apply, _LlamaWrapper unpacks it.
         """
         batch_size = self._TEST_BATCH_SIZE
         seq_len = self._TEST_SEQ_LEN
@@ -183,17 +131,6 @@ class ModelLoader(ForgeModel):
             jnp.arange(seq_len)[None, :], (batch_size, seq_len)
         )
         return (input_ids, attention_mask, position_ids)
-
-    def load_multichip_model(
-        self, axis_name="X", num_devices=2, train_mode=False, dtype_override=None
-    ):
-        _ensure_src_loaded()
-        dtype = dtype_override if dtype_override is not None else jnp.bfloat16
-        tt_devices = jax.devices()[:num_devices]
-        _llama_model_module.mesh = jax.sharding.Mesh(
-            np.array(tt_devices).reshape(num_devices), axis_names=("mp",)
-        )
-        return self._make_wrapper(dtype)
 
     def load_parameters(
         self,
@@ -237,6 +174,7 @@ class ModelLoader(ForgeModel):
             if model_for_multichip is not None
             else self.load_model(dtype_override=dtype_override)
         )
+        # Initialize parameters on CPU 
         with jax.default_device(jax.devices("cpu")[0]):
             params = model.init(jax.random.PRNGKey(42), inputs)
         return jax.tree.map(lambda _: PartitionSpec(), params)
@@ -245,8 +183,4 @@ class ModelLoader(ForgeModel):
         from jax.sharding import PartitionSpec
 
         inputs = self.load_inputs()
-        # Return a 1-element outer tuple containing the nested pytree spec for the
-        # inputs tuple.  After *-unpacking in _get_forward_method_arg_specs:
-        #   in_specs = (params_spec, (PS(), PS(), PS()))  — 2 top-level items,
-        # matching the 2 positional args: model.apply(params, inputs_tuple).
         return (tuple(PartitionSpec() for _ in inputs),)

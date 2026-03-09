@@ -9,7 +9,7 @@ import flax.linen as nn  # type: ignore
 import jax  # type: ignore
 import jax.numpy as jnp  # type: ignore
 import numpy as np  # type: ignore
-from config import LLaMAConfig
+from .config import LLaMAConfig
 from flax.core.frozen_dict import FrozenDict, freeze, unfreeze  # type: ignore
 from flax.linen import combine_masks, make_causal_mask  # type: ignore
 from flax.linen import partitioning as nn_partitioning  # type: ignore
@@ -294,11 +294,6 @@ class FlaxLLaMAAttention(nn.Module):
 
         outputs = (attn_output, attn_weights) if output_attentions else (attn_output,)
         return outputs
-
-
-import numpy as _np
-
-mesh = Mesh(_np.array(jax.devices("cpu")[:1]), axis_names=("mp",))
 
 
 class ParallelDense(nn.Module):

@@ -8,7 +8,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 import torch
-from config import LLaMAConfig
+from .config import LLaMAConfig
 from jaxtyping import PyTree
 from transformers import AutoTokenizer
 
