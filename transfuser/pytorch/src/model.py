@@ -369,6 +369,7 @@ class LidarCenterNet(nn.Module):
         target_point=None,
         target_point_image=None,
         ego_vel=None,
+        T_inv=None,
     ):
         if self.use_target_point_image:
             lidar_bev = torch.cat((lidar_bev, target_point_image), dim=1)
@@ -379,117 +380,68 @@ class LidarCenterNet(nn.Module):
         pred_wp, _, _, _, _ = self.forward_gru(fused_features, target_point)
 
         preds = self.head(features[0])
-        results = self.head.get_bboxes(
+        # Call decode_heatmap directly to avoid tuple-wrapping in get_bboxes
+        batch_bboxes, batch_labels = self.head.decode_heatmap(
             preds[0], preds[1], preds[2], preds[3], preds[4], preds[5], preds[6]
         )
-        bboxes, _ = results[0]
-        rotated_bboxes = []
-        for bbox in bboxes.detach():
-            bbox = self.get_bbox_local_metric(bbox)
-            rotated_bboxes.append(bbox)
-        return pred_wp, rotated_bboxes
+        bboxes = batch_bboxes[0]  # (k, 8): [x, y, w, h, yaw, speed, brake, confidence]
+        rotated, brake, confidence = self.get_bbox_local_metric(bboxes, T_inv)
+        return pred_wp, rotated, brake, confidence
 
-    def get_bbox_local_metric(self, bbox):
-        x, y, w, h, yaw, speed, brake, confidence = bbox
-        # Preserve dtype and device from input bbox
-        bbox_dtype = x.dtype
-        bbox_device = x.device
-        w = w / 2 / 8
-        h = h / 2 / 8
+    def get_bbox_local_metric(self, bboxes, T_inv):
+        """Batched bbox transform for all k detections.
 
-        T = get_lidar_to_bevimage_transform(dtype=bbox_dtype, device=bbox_device)
+        Args:
+            bboxes: (k, 8) — [x, y, w, h, yaw, speed, brake, confidence]
+            T_inv: (3, 3) precomputed inverse lidar-to-BEV transform
 
-        # torch.linalg.inv doesn't support Low precision dtypes, convert input to float32
-        orig_dtype = T.dtype
-        if orig_dtype != torch.float32:
-            T = T.float()
+        Returns:
+            rotated: (k, 6, 3) rotated bbox points
+            brake: (k,)
+            confidence: (k,)
+        """
+        x, y, w, h, yaw, speed, brake, confidence = bboxes.unbind(dim=-1)
+        w = w / 16.0
+        h = h / 16.0
 
-        T_inv = torch.linalg.inv(T)
+        T_inv = T_inv.to(dtype=bboxes.dtype, device=bboxes.device)
+        ones = torch.ones_like(x)
+        zeros = torch.zeros_like(x)
 
-        # Convert output back to original dtype
-        if orig_dtype != torch.float32:
-            T_inv = T_inv.to(orig_dtype)
-
-        center = torch.stack(
-            [x, y, torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device)]
+        # Transform centers: T_inv @ [x, y, 1] for all k
+        center = torch.stack([x, y, ones], dim=-1)  # (k, 3)
+        center_old = (T_inv @ center.unsqueeze(-1)).squeeze(-1)  # (k, 3)
+        center_old = center_old + torch.tensor(
+            [1.3, 0.0, 2.5], dtype=bboxes.dtype, device=bboxes.device
         )
-        center_old_coordinate_sys = T_inv @ center
-        center_old_coordinate_sys = center_old_coordinate_sys + torch.stack(
-            [
-                torch.tensor(1.3, dtype=bbox_dtype, device=bbox_device),
-                torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
-                torch.tensor(2.5, dtype=bbox_dtype, device=bbox_device),
-            ]
-        )
-        center_old_coordinate_sys[1] = -center_old_coordinate_sys[1]
-
-        bbox = torch.stack(
-            [
-                torch.stack(
-                    [-h, -w, torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device)]
-                ),
-                torch.stack(
-                    [-h, w, torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device)]
-                ),
-                torch.stack(
-                    [h, w, torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device)]
-                ),
-                torch.stack(
-                    [h, -w, torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device)]
-                ),
-                torch.stack(
-                    [
-                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
-                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
-                        torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device),
-                    ]
-                ),
-                torch.stack(
-                    [
-                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
-                        h * speed * 0.5,
-                        torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device),
-                    ]
-                ),
-            ],
-            dim=0,
+        center_old = center_old * torch.tensor(
+            [1.0, -1.0, 1.0], dtype=bboxes.dtype, device=bboxes.device
         )
 
-        R = torch.stack(
-            [
-                torch.stack(
-                    [
-                        torch.cos(yaw),
-                        -torch.sin(yaw),
-                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
-                    ]
-                ),
-                torch.stack(
-                    [
-                        torch.sin(yaw),
-                        torch.cos(yaw),
-                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
-                    ]
-                ),
-                torch.stack(
-                    [
-                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
-                        torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
-                        torch.tensor(1.0, dtype=bbox_dtype, device=bbox_device),
-                    ]
-                ),
-            ],
-            dim=0,
-        )
+        # 6 corner/velocity points per bbox: (k, 6, 3)
+        bbox_pts = torch.stack([
+            torch.stack([-h, -w, ones], dim=-1),
+            torch.stack([-h, w, ones], dim=-1),
+            torch.stack([h, w, ones], dim=-1),
+            torch.stack([h, -w, ones], dim=-1),
+            torch.stack([zeros, zeros, ones], dim=-1),
+            torch.stack([zeros, h * speed * 0.5, ones], dim=-1),
+        ], dim=1)
 
-        for point_index in range(bbox.shape[0]):
-            bbox[point_index] = R @ bbox[point_index]
-            bbox[point_index] = bbox[point_index] + torch.stack(
-                [
-                    center_old_coordinate_sys[0],
-                    center_old_coordinate_sys[1],
-                    torch.tensor(0.0, dtype=bbox_dtype, device=bbox_device),
-                ]
-            )
+        # Rotation matrices: (k, 3, 3)
+        cos_yaw = torch.cos(yaw)
+        sin_yaw = torch.sin(yaw)
+        R = torch.stack([
+            torch.stack([cos_yaw, -sin_yaw, zeros], dim=-1),
+            torch.stack([sin_yaw, cos_yaw, zeros], dim=-1),
+            torch.stack([zeros, zeros, ones], dim=-1),
+        ], dim=1)
 
-        return bbox, brake, confidence
+        # Rotate and translate
+        rotated = torch.bmm(R, bbox_pts.transpose(1, 2)).transpose(1, 2)
+        translation = torch.stack(
+            [center_old[:, 0], center_old[:, 1], zeros], dim=-1
+        ).unsqueeze(1)
+        rotated = rotated + translation
+
+        return rotated, brake, confidence

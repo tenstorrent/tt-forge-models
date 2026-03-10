@@ -100,11 +100,20 @@ class ModelLoader(ForgeModel):
             dict: A dictionary of input tensors and metadata suitable for the model.
         """
 
+        from third_party.tt_forge_models.transfuser.pytorch.src.model import (
+            get_lidar_to_bevimage_transform,
+        )
+
         rgb = torch.randint(0, 256, (1, 3, 160, 704)).to(dtype=torch.float32)
         lidar_bev = torch.rand((1, 2, 256, 256), dtype=torch.float32) * 0.2
         target_point = torch.tensor([[0.2033, -23.1296]], dtype=torch.float32)
         target_point_image = torch.zeros((1, 1, 256, 256), dtype=torch.float32)
         ego_vel = torch.tensor([[1.2922e-09]])
+
+        # Precompute T_inv (inverse of the lidar-to-BEV transform) so that
+        # torch.linalg.inv is not called inside the compiled forward pass.
+        T = get_lidar_to_bevimage_transform(dtype=torch.float32)
+        T_inv = torch.linalg.inv(T)
 
         kwargs = {
             "rgb": rgb,
@@ -112,6 +121,7 @@ class ModelLoader(ForgeModel):
             "target_point": target_point,
             "target_point_image": target_point_image,
             "ego_vel": ego_vel,
+            "T_inv": T_inv,
         }
 
         # Only convert dtype if explicitly requested
@@ -123,9 +133,11 @@ class ModelLoader(ForgeModel):
     def unpack_forward_output(self, fwd_output):
         """Unpack forward pass output to extract the differentiable tensor.
 
-        The Transfuser model returns (pred_wp, rotated_bboxes) where:
+        The Transfuser model returns (pred_wp, rotated, brake, confidence) where:
         - pred_wp: Tensor of predicted waypoints [batch, 4, 2]
-        - rotated_bboxes: List of detected bounding boxes (not differentiable)
+        - rotated: (k, 6, 3) rotated bbox points
+        - brake: (k,) brake values
+        - confidence: (k,) confidence scores
 
         For training, we extract pred_wp which contains the predicted waypoints
         used for computing gradients during backpropagation.
