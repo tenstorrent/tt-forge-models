@@ -24,7 +24,16 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
-from .src.model import MistralModel
+from .src.model import Axis, MistralModel
+
+_TP_SHARDING_RULES = [
+    (Axis.QHEAD, "X"),
+    (Axis.KVHEAD, None),  # TODO: depends on num_devices
+    (Axis.MLP, "X"),
+    (Axis.EMBED, None),
+    (Axis.VOCAB, None),
+    (Axis.HEAD, None),
+]
 
 
 class ModelVariant(StrEnum):
@@ -106,7 +115,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **_):
         config = self._get_mistral_config()
-        return MistralModel(config, dtype=jnp.float32, param_dtype=jnp.bfloat16, rngs=nnx.Rngs(0))
+        return MistralModel(config, dtype=jnp.float32, param_dtype=jnp.bfloat16, rngs=nnx.Rngs(0), sharding_rules=_TP_SHARDING_RULES)
 
     def load_inputs(self, dtype_override=None, mesh=None, **_):
         """Return inputs as a dict — required for nnx forward pass unpacking."""
@@ -142,8 +151,21 @@ class ModelLoader(ForgeModel):
         **_,
     ):
         model = model_for_multichip if model_for_multichip is not None else self.load_model()
-        state = nnx.split(model)[1]
-        return jax.tree.map(lambda _: PartitionSpec(), state)
+        _, state = nnx.split(model)
+
+        rules_dict = {str(axis): mesh_axis for axis, mesh_axis in _TP_SHARDING_RULES}
+
+        def make_spec(variable):
+            logical = getattr(variable, "sharding", None)
+            if logical is None:
+                return PartitionSpec()
+            physical = tuple(rules_dict.get(str(ax), None) for ax in logical)
+            return PartitionSpec(*physical)
+
+        flat = state.flat_state()
+        specs = [make_spec(var) for _, var in flat]
+        flat_specs = nnx.graph.FlatState.from_sorted_keys_values(flat.paths, specs)
+        return flat_specs.to_nested_state()
 
     def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None, **_):
         inputs = self.load_inputs()

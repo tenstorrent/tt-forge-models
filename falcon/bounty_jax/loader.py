@@ -139,11 +139,19 @@ class ModelLoader(ForgeModel):
         input_parameters_partition_specs=None,
         **_,
     ):
+        from infra.utilities import initialize_flax_linen_parameters_on_cpu
+
         if inputs is None:
-            inputs = self.load_inputs()
+            inputs = self.load_inputs(mesh=cpu_mesh)
         model = model_for_multichip if model_for_multichip is not None else self.load_model()
-        with jax.default_device(jax.devices("cpu")[0]):
-            return model.init(jax.random.PRNGKey(seed if seed is not None else 42), inputs)
+        return initialize_flax_linen_parameters_on_cpu(
+            model,
+            input_activations_partition_specs,
+            inputs,
+            input_parameters_partition_specs,
+            cpu_mesh,
+            seed if seed is not None else 42,
+        )
 
     def load_parameters_partition_spec(
         self,
@@ -155,17 +163,17 @@ class ModelLoader(ForgeModel):
         dtype_override=None,
         **_,
     ):
-        from jax.sharding import PartitionSpec
+        from infra.utilities import make_flax_linen_parameters_partition_specs_on_cpu
 
         if inputs is None:
-            inputs = self.load_inputs()
+            inputs = self.load_inputs(mesh=cpu_mesh)
         model = model_for_multichip if model_for_multichip is not None else self.load_model()
-        with jax.default_device(jax.devices("cpu")[0]):
-            params = model.init(jax.random.PRNGKey(42), inputs)
-        return jax.tree.map(lambda _: PartitionSpec(), params)
+        return make_flax_linen_parameters_partition_specs_on_cpu(
+            model, cpu_mesh, input_activations_partition_specs, inputs
+        )
 
     def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None, **_):
         from jax.sharding import PartitionSpec
 
-        inputs = self.load_inputs()
-        return (tuple(PartitionSpec() for _ in inputs),)
+        # _FalconWrapper.__call__ takes a single 'inputs' tuple argument
+        return (PartitionSpec(),)
