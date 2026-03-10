@@ -28,7 +28,7 @@ from .src.model import Axis, MistralModel
 
 _TP_SHARDING_RULES = [
     (Axis.QHEAD, "X"),
-    (Axis.KVHEAD, None),  # TODO: depends on num_devices
+    (Axis.KVHEAD, None),  
     (Axis.MLP, "X"),
     (Axis.EMBED, None),
     (Axis.VOCAB, None),
@@ -113,11 +113,11 @@ class ModelLoader(ForgeModel):
             self._mistral_config = config
         return self._mistral_config
 
-    def load_model(self, *, dtype_override=None, **_):
+    def load_model(self, *, dtype_override=None):
         config = self._get_mistral_config()
         return MistralModel(config, dtype=jnp.float32, param_dtype=jnp.bfloat16, rngs=nnx.Rngs(0), sharding_rules=_TP_SHARDING_RULES)
 
-    def load_inputs(self, dtype_override=None, mesh=None, **_):
+    def load_inputs(self, dtype_override=None, mesh=None):
         """Return inputs as a dict — required for nnx forward pass unpacking."""
         rng = np.random.default_rng(42)
         input_ids = jnp.array(
@@ -135,7 +135,6 @@ class ModelLoader(ForgeModel):
         cpu_mesh=None,
         input_activations_partition_specs=None,
         input_parameters_partition_specs=None,
-        **_,
     ):
         model = model_for_multichip if model_for_multichip is not None else self.load_model()
         return nnx.split(model)[1]
@@ -147,8 +146,7 @@ class ModelLoader(ForgeModel):
         input_activations_partition_specs=None,
         inputs=None,
         parallelism=None,
-        dtype_override=None,
-        **_,
+        dtype_override=None
     ):
         model = model_for_multichip if model_for_multichip is not None else self.load_model()
         _, state = nnx.split(model)
@@ -167,6 +165,6 @@ class ModelLoader(ForgeModel):
         flat_specs = nnx.graph.FlatState.from_sorted_keys_values(flat.paths, specs)
         return flat_specs.to_nested_state()
 
-    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None, **_):
+    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None):
         inputs = self.load_inputs()
         return tuple(PartitionSpec() for _ in inputs)

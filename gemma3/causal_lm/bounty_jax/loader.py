@@ -149,7 +149,7 @@ class ModelLoader(ForgeModel):
     ):
         model = model_for_multichip if model_for_multichip is not None else self.load_model()
         state = nnx.split(model)[1]
-        return jax.tree.map(lambda _: PartitionSpec(), state)
+        return state
 
     def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None, **_):
         inputs = self.load_inputs()

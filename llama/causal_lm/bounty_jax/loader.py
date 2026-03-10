@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
             )
         return self._llama_config
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, *, dtype_override=None):
         if dtype_override is not None:
             dtype = dtype_override
         else:

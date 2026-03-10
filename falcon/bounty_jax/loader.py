@@ -22,21 +22,27 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from .src.config import FalconConfig
-from .src.model import FlaxFalconForCausalLMModule
+from .src.config import Falcon3Config
+from .src.model import FlaxFalcon3ForCausalLMModule
 
 
 class _FalconWrapper(linen.Module):
-    """ Unpacks the (input_ids, attention_mask, position_ids) tuple """
+    """Unpacks the (input_ids, attention_mask, position_ids) tuple.
+
+    The test framework passes inputs as a single object (second arg after params),
+    so the wrapper is needed to unpack and forward to FlaxFalcon3ForCausalLMModule.
+    The submodule is named 'llm' so partition rules can be aligned to this structure.
+    """
 
     config: Any
     dtype: Any
 
-    @linen.compact
+    def setup(self):
+        self.llm = FlaxFalcon3ForCausalLMModule(config=self.config, dtype=self.dtype)
+
     def __call__(self, inputs):
         input_ids, attention_mask, position_ids = inputs
-        inner = FlaxFalconForCausalLMModule(config=self.config, dtype=self.dtype)
-        return inner(input_ids, attention_mask, position_ids)
+        return self.llm(input_ids, attention_mask, position_ids)
 
 
 class ModelVariant(StrEnum):
@@ -48,9 +54,9 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """ 
-        Falcon3 7B tensor-parallel model loader 
-        Intentionally small model for testing purposes.
+    """
+    Falcon3 7B tensor-parallel model loader.
+    Intentionally small model for testing purposes.
     """
 
     _TEST_VOCAB_SIZE = 131072
@@ -96,7 +102,7 @@ class ModelLoader(ForgeModel):
 
     def _get_falcon_config(self):
         if self._falcon_config is None:
-            self._falcon_config = FalconConfig(
+            self._falcon_config = Falcon3Config(
                 vocab_size=self._TEST_VOCAB_SIZE,
                 hidden_size=self._TEST_HIDDEN_SIZE,
                 intermediate_size=self._TEST_INTERMEDIATE_SIZE,
@@ -107,15 +113,14 @@ class ModelLoader(ForgeModel):
             )
         return self._falcon_config
 
-    def load_model(self, *, dtype_override=None, **_):
+    def load_model(self, *, dtype_override=None):
         dtype = dtype_override if dtype_override is not None else jnp.bfloat16
         return _FalconWrapper(config=self._get_falcon_config(), dtype=dtype)
 
-    def load_inputs(self, dtype_override=None, mesh=None, **_):
-        """
-            Return (input_ids, attention_mask, position_ids) as a single tuple.
+    def load_inputs(self, dtype_override=None, mesh=None):
+        """Return (input_ids, attention_mask, position_ids) as a single tuple.
 
-            Passed as one activation argument to model.apply; _FalconWrapper unpacks it.
+        Passed as one activation argument to model.apply; _FalconWrapper unpacks it.
         """
         rng = np.random.default_rng(42)
         input_ids = jnp.array(
@@ -137,13 +142,16 @@ class ModelLoader(ForgeModel):
         cpu_mesh=None,
         input_activations_partition_specs=None,
         input_parameters_partition_specs=None,
-        **_,
     ):
         from infra.utilities import initialize_flax_linen_parameters_on_cpu
 
         if inputs is None:
             inputs = self.load_inputs(mesh=cpu_mesh)
-        model = model_for_multichip if model_for_multichip is not None else self.load_model()
+        model = (
+            model_for_multichip
+            if model_for_multichip is not None
+            else self.load_model(dtype_override=dtype_override)
+        )
         return initialize_flax_linen_parameters_on_cpu(
             model,
             input_activations_partition_specs,
@@ -161,19 +169,22 @@ class ModelLoader(ForgeModel):
         inputs=None,
         parallelism=None,
         dtype_override=None,
-        **_,
     ):
         from infra.utilities import make_flax_linen_parameters_partition_specs_on_cpu
 
         if inputs is None:
             inputs = self.load_inputs(mesh=cpu_mesh)
-        model = model_for_multichip if model_for_multichip is not None else self.load_model()
+        model = (
+            model_for_multichip
+            if model_for_multichip is not None
+            else self.load_model(dtype_override=dtype_override)
+        )
         return make_flax_linen_parameters_partition_specs_on_cpu(
             model, cpu_mesh, input_activations_partition_specs, inputs
         )
 
-    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None, **_):
+    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None):
         from jax.sharding import PartitionSpec
 
-        # _FalconWrapper.__call__ takes a single 'inputs' tuple argument
+        # _FalconWrapper.__call__ takes a single tuple argument — one spec for the whole tuple
         return (PartitionSpec(),)

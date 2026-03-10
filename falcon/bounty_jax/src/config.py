@@ -7,7 +7,7 @@ from transformers.utils import logging
 logger = logging.get_logger(__name__)
 
 
-class FalconConfig(PretrainedConfig):
+class Falcon3Config(PretrainedConfig):
     model_type = "falcon3"
 
     def __init__(
