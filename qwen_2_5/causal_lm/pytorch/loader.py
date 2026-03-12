@@ -40,6 +40,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_14B_INSTRUCT_1M = "14B_Instruct_1M"
     QWEN_2_5_32B_INSTRUCT = "32B_Instruct"
     QWEN_2_5_72B_INSTRUCT = "72B_Instruct"
+    QWEN_2_5_72B = "72B"
     QWEN_2_5_MATH_7B = "Math_7B"
 
 
@@ -104,6 +105,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen2.5-72B-Instruct",
             max_length=128,
         ),
+        ModelVariant.QWEN_2_5_72B: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-72B",
+            max_length=128,
+        ),
         ModelVariant.QWEN_2_5_MATH_7B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-Math-7B",
             max_length=128,
@@ -152,6 +157,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_2_5_14B_INSTRUCT,
             ModelVariant.QWEN_2_5_32B_INSTRUCT,
             ModelVariant.QWEN_2_5_72B_INSTRUCT,
+            ModelVariant.QWEN_2_5_72B,
         ]:
             group = ModelGroup.RED
 
@@ -217,7 +223,7 @@ class ModelLoader(ForgeModel):
         model.eval()
 
         self.config = model.config
-
+        self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -261,7 +267,9 @@ class ModelLoader(ForgeModel):
     def get_mesh_config(self, num_devices: int):
 
         # Prefer (1, N) when heads divide N, otherwise try (2, N/2)
-        if self.config.num_attention_heads % num_devices == 0:
+        if num_devices == 32:  # Galaxy
+            mesh_shape = (8, 4)
+        elif self.config.num_attention_heads % num_devices == 0:
             mesh_shape = (1, num_devices)
         elif (
             self.config.num_attention_heads % (num_devices // 2) == 0
@@ -319,6 +327,7 @@ class ModelLoader(ForgeModel):
         return get_static_cache_decode_inputs(
             tokenizer=self.tokenizer,
             config=self.config,
+            model=self.model,
             batch_size=batch_size,
             max_cache_len=max_cache_len,
             dtype=dtype_override,
