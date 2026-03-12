@@ -5,7 +5,7 @@
 Qwen 2.5 VL model loader implementation for vision-language tasks.
 """
 import torch
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AwqConfig
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AwqConfig, AutoConfig
 from typing import Optional
 
 
@@ -202,3 +202,99 @@ class ModelLoader(ForgeModel):
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
         return inputs
+
+
+    def load_config(self):
+        """Load and return the configuration for the Qwen 2.5 VL model variant."""
+        self.config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        return self.config
+
+
+    def get_mesh_config(self, num_devices: int):
+        if not hasattr(self, "config") or self.config is None:
+            self.load_config()
+
+        # Handle Qwen2.5-VL config structure (heads count is often in text_config)
+        num_heads = getattr(self.config, "num_attention_heads", 0)
+        if num_heads == 0 and hasattr(self.config, "text_config"):
+            num_heads = getattr(self.config.text_config, "num_attention_heads", 0)
+
+        # Default fallback if heads cannot be determined
+        if num_heads == 0:
+            return (1, num_devices), ("batch", "model")
+
+        # Prefer (1, N) when heads divide N, otherwise try (2, N/2)
+        if num_heads % num_devices == 0:
+            mesh_shape = (1, num_devices)
+        elif num_heads % (num_devices // 2) == 0 and num_devices % 2 == 0:
+            mesh_shape = (2, num_devices // 2)
+        else:
+            raise ValueError(
+                f"Cannot evenly distribute {num_heads} heads across {num_devices} devices"
+            )
+        mesh_shape = (4, num_devices // 4)
+        return mesh_shape, ("batch", "model")
+
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        # model is usually Wrapper(Qwen2_5_VLForConditionalGeneration)
+        # We access the underlying HF model via .model
+        root = model.model
+
+        # --- Text Model Sharding ---
+        # The text backbone is located at root.model.language_model
+        text_layers = root.model.language_model.layers
+        for layer in text_layers:
+            # MLP
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            # Attention
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            #shard_specs[layer.self_attn.q_proj.bias] = ("model",)
+            #shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            #shard_specs[layer.self_attn.k_proj.bias] = ("model",)
+            #shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            #shard_specs[layer.self_attn.v_proj.bias] = ("model",)
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+
+        # LM Head
+        shard_specs[root.lm_head.weight] = ("model", "batch")
+
+        # --- Vision Model Sharding ---
+        # The vision backbone is located at root.model.visual
+        visual = root.model.visual
+
+        # Patch Embedding
+        # Conv3d(3, 1280, ...) -> Split output channels (dim 0)
+        #shard_specs[visual.patch_embed.proj.weight] = ("model", "batch", None, None, None)
+        #if visual.patch_embed.proj.bias is not None:
+        #    shard_specs[visual.patch_embed.proj.bias] = ("model",)
+
+        # Vision Blocks
+        '''for block in visual.blocks:
+            # MLP
+            shard_specs[block.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[block.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[block.mlp.down_proj.weight] = ("batch", "model")
+
+            # Attention
+            # qkv is a fused Linear(1280, 3840) -> Colwise split is safe
+            shard_specs[block.attn.qkv.weight] = ("model", "batch")
+            #if block.attn.qkv.bias is not None:
+            #    shard_specs[block.attn.qkv.bias] = ("model",)
+            # proj is Linear(1280, 1280) -> Rowwise split
+            shard_specs[block.attn.proj.weight] = ("batch", "model")'''
+
+        # Vision Merger (Sequential MLP: Linear -> GELU -> Linear)
+        # merger.mlp[0]: Linear(5120->5120) -> Colwise
+        #shard_specs[visual.merger.mlp[0].weight] = ("model", "batch")
+        #if visual.merger.mlp[0].bias is not None:
+        #    shard_specs[visual.merger.mlp[0].bias] = ("model",)
+
+        # merger.mlp[2]: Linear(5120->2048) -> Rowwise
+        #shard_specs[visual.merger.mlp[2].weight] = ("batch", "model")
+
+        return shard_specs
