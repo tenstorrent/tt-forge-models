@@ -7,7 +7,6 @@ Gemma3 model loader for tensor-parallel causal language modeling.
 
 from typing import Optional
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
@@ -23,8 +22,8 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
-from .src.model import Gemma3Config, Gemma3ForCausalLM
-
+from .src.model import Gemma3ForCausalLM
+from transformers import Gemma3TextConfig
 
 class ModelVariant(StrEnum):
     """Available Gemma3 model variants."""
@@ -35,23 +34,6 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """
-    Gemma3 tensor-parallel model loader.
-    Intentionally small model for testing purposes.
-    """
-
-    _TEST_VOCAB_SIZE = 32000
-    _TEST_HIDDEN_SIZE = 256
-    _TEST_INTERMEDIATE_SIZE = 512
-    _TEST_NUM_LAYERS = 6
-    _TEST_NUM_ATTENTION_HEADS = 8
-    _TEST_NUM_KV_HEADS = 4
-    _TEST_HEAD_DIM = 32
-    _TEST_MAX_POS_EMBEDDINGS = 64
-    _TEST_SLIDING_WINDOW = 32
-    _TEST_SLIDING_WINDOW_PATTERN = 6
-    _TEST_BATCH_SIZE = 1
-    _TEST_SEQ_LEN = 32
 
     _VARIANTS = {
         ModelVariant.CUSTOM_1X2: ModelConfig(
@@ -69,7 +51,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._gemma_config = None
+        self.config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -84,43 +66,44 @@ class ModelLoader(ForgeModel):
             framework=Framework.JAX,
         )
 
-    def _get_gemma_config(self):
-        if self._gemma_config is None:
-            self._gemma_config = Gemma3Config(
-                vocab_size=self._TEST_VOCAB_SIZE,
-                hidden_size=self._TEST_HIDDEN_SIZE,
-                intermediate_size=self._TEST_INTERMEDIATE_SIZE,
-                num_hidden_layers=self._TEST_NUM_LAYERS,
-                num_attention_heads=self._TEST_NUM_ATTENTION_HEADS,
-                num_key_value_heads=self._TEST_NUM_KV_HEADS,
-                head_dim=self._TEST_HEAD_DIM,
-                max_position_embeddings=self._TEST_MAX_POS_EMBEDDINGS,
-                sliding_window=self._TEST_SLIDING_WINDOW,
-                sliding_window_pattern=self._TEST_SLIDING_WINDOW_PATTERN,
-                use_cache=False,
-            )
-        return self._gemma_config
+    def _get_config(self):
+        if self.config is None:
+            config = Gemma3TextConfig()
+            config.num_hidden_layers = 2
+            config.intermediate_size = 1024
 
-    def load_model(self, *, dtype_override=None, **_):
-        config = self._get_gemma_config()
+            # model implementation specific
+            config.dtype = jnp.float32
+            config.mesh = None
+            config.param_dtype = jnp.bfloat16
+            config.layer_types = ["full_attention"] * config.num_hidden_layers
+            config.rope_local_base_freq = 10_000.0
+            config.query_pre_attn_scalar = 256.0
+            config.final_logit_soft_cap = None
+            config.attn_logit_soft_cap = None
+            config.hidden_activation = "gelu_pytorch_tanh"
+            config.use_cache = False
+
+            def set_model_mesh(mesh):
+                config.mesh = mesh
+
+            config.set_model_mesh = set_model_mesh
+            self.config = config
+        return self.config
+
+    def load_model(self, *, dtype_override=None):
+        config = self._get_config()
         if dtype_override is not None:
             config.dtype = dtype_override
             config.param_dtype = dtype_override
         return Gemma3ForCausalLM(config, rngs=nnx.Rngs(0))
 
-    def load_inputs(self, dtype_override=None, mesh=None, **_):
-        """Return inputs as a dict — required for nnx forward pass unpacking."""
+    def load_inputs(self, dtype_override=None, mesh=None):
         rng = np.random.default_rng(42)
         input_ids = jnp.array(
-            rng.integers(1, 1000, size=(self._TEST_BATCH_SIZE, self._TEST_SEQ_LEN), dtype=np.int32)
+            rng.integers(1, 1000, size=(8, 8), dtype=np.int32)
         )
-        position_ids = jnp.broadcast_to(
-            jnp.arange(self._TEST_SEQ_LEN)[None, :], (self._TEST_BATCH_SIZE, self._TEST_SEQ_LEN)
-        )
-        return {
-            "input_ids": input_ids,
-            "position_ids": position_ids,
-        }
+        return {"input_ids": input_ids}
 
     def load_parameters(
         self,
@@ -131,8 +114,7 @@ class ModelLoader(ForgeModel):
         model_for_multichip=None,
         cpu_mesh=None,
         input_activations_partition_specs=None,
-        input_parameters_partition_specs=None,
-        **_,
+        input_parameters_partition_specs=None
     ):
         model = model_for_multichip if model_for_multichip is not None else self.load_model()
         return nnx.split(model)[1]
@@ -144,13 +126,12 @@ class ModelLoader(ForgeModel):
         input_activations_partition_specs=None,
         inputs=None,
         parallelism=None,
-        dtype_override=None,
-        **_,
+        dtype_override=None
     ):
         model = model_for_multichip if model_for_multichip is not None else self.load_model()
-        state = nnx.split(model)[1]
-        return state
+        _, state = nnx.split(model)
+        return nnx.get_partition_spec(state)
 
-    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None, **_):
+    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None):
         inputs = self.load_inputs()
         return tuple(PartitionSpec() for _ in inputs)

@@ -2,17 +2,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Mistral Small 3.1 24B model loader for tensor-parallel causal language modeling.
+Mixtral model loader for tensor-parallel causal language modeling.
 """
 
 from typing import Optional
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 from jax.sharding import PartitionSpec
-from transformers import MistralConfig
+from transformers import MixtralConfig
 
 from ....base import ForgeModel
 from ....config import (
@@ -24,20 +23,11 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
-from .src.model import Axis, MistralModel
-
-_TP_SHARDING_RULES = [
-    (Axis.QHEAD, None),
-    (Axis.KVHEAD, None),  
-    (Axis.MLP, "X"),
-    (Axis.EMBED, None),
-    (Axis.VOCAB, None),
-    (Axis.HEAD, "X"),
-]
+from .src.model import FlaxMixtralForCausalLM
 
 
 class ModelVariant(StrEnum):
-    """Available Mistral Small 3.1 24B model variants."""
+    """Available Mixtral model variants."""
 
     CUSTOM_1X2 = "Custom_1x2"
     CUSTOM_1X4 = "Custom_1x4"
@@ -48,13 +38,13 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.CUSTOM_1X2: ModelConfig(
-            pretrained_model_name="mistralai/Mistral-Small-3.1-24B-Base-2503",
+            pretrained_model_name="mistralai/Mixtral-8x7B-v0.1",
         ),
         ModelVariant.CUSTOM_1X4: ModelConfig(
-            pretrained_model_name="mistralai/Mistral-Small-3.1-24B-Base-2503",
+            pretrained_model_name="mistralai/Mixtral-8x7B-v0.1",
         ),
         ModelVariant.CUSTOM_1X8: ModelConfig(
-            pretrained_model_name="mistralai/Mistral-Small-3.1-24B-Base-2503",
+            pretrained_model_name="mistralai/Mixtral-8x7B-v0.1",
         ),
     }
 
@@ -69,7 +59,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Mistral-Small-3.1-24B",
+            model="Mixtral-8x7B",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -78,8 +68,8 @@ class ModelLoader(ForgeModel):
         )
     
     @staticmethod
-    def _set_config() -> MistralConfig:
-        config = MistralConfig()
+    def _set_config() -> MixtralConfig:
+        config = MixtralConfig()
         config.mesh = None
 
         # config must have set_model_mesh from jax_workload
@@ -87,25 +77,49 @@ class ModelLoader(ForgeModel):
             config.mesh = mesh
 
         config.set_model_mesh = set_model_mesh
-        config.num_hidden_layers = 10
+        config.num_hidden_layers = 2
+        config.intermediate_size = 1024
         config.head_dim = 128
         return config
 
-    def _get_config(self) -> MistralConfig:
+
+    def _get_config(self) -> MixtralConfig:
         if self.config is None:
             self.config = self._set_config()
         return self.config
 
     def load_model(self, *, dtype_override=None):
         config = self._get_config()
-        return MistralModel(config, dtype=jnp.float32, param_dtype=jnp.bfloat16, rngs=nnx.Rngs(0), sharding_rules=_TP_SHARDING_RULES)
+        return FlaxMixtralForCausalLM(
+            config, dtype=jnp.float32, param_dtype=jnp.bfloat16, rngs=nnx.Rngs(0)
+        )
 
     def load_inputs(self, dtype_override=None, mesh=None):
+        config = self._get_config()
         rng = np.random.default_rng(42)
         input_ids = jnp.array(
             rng.integers(1, 1000, size=(8, 8), dtype=np.int32)
         )
-        return {"input_ids": input_ids}
+        attention_mask = jnp.ones((8, 8), dtype=jnp.int32)
+        past_key_values = {
+            f"layer_{i}": {
+                "cached_key": jnp.zeros(
+                    (8, 8, config.num_key_value_heads, config.head_dim),
+                    dtype=jnp.float32,
+                ),
+                "cached_value": jnp.zeros(
+                    (8, 8, config.num_key_value_heads, config.head_dim),
+                    dtype=jnp.float32,
+                ),
+                "cache_index": jnp.array(0, dtype=jnp.int32),
+            }
+            for i in range(config.num_hidden_layers)
+        }
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "past_key_values": past_key_values,
+        }
 
     def load_parameters(
         self,
@@ -117,11 +131,9 @@ class ModelLoader(ForgeModel):
         cpu_mesh=None,
         input_activations_partition_specs=None,
         input_parameters_partition_specs=None,
+        **_,
     ):
-        if model_for_multichip is not None:
-            model = model_for_multichip
-        else:
-            model = self.load_model(dtype_override=dtype_override)
+        model = model_for_multichip if model_for_multichip is not None else self.load_model()
         return nnx.split(model)[1]
 
     def load_parameters_partition_spec(
@@ -131,28 +143,13 @@ class ModelLoader(ForgeModel):
         input_activations_partition_specs=None,
         inputs=None,
         parallelism=None,
-        dtype_override=None
+        dtype_override=None,
+        **_,
     ):
-        if model_for_multichip is not None:
-            model = model_for_multichip
-        else:
-            model = self.load_model(dtype_override=dtype_override)
+        model = model_for_multichip if model_for_multichip is not None else self.load_model()
         _, state = nnx.split(model)
-        rules_dict = {str(axis): mesh_axis for axis, mesh_axis in _TP_SHARDING_RULES}
-    
-        def make_spec(variable):
-            logical = getattr(variable, "sharding", None)
-            if logical is None:
-                return PartitionSpec()
-            physical = tuple(rules_dict.get(str(ax), None) for ax in logical)
-            return PartitionSpec(*physical)
+        return nnx.get_partition_spec(state)
 
-        flat = state.flat_state()
-        specs = [make_spec(var) for _, var in flat]
-        flat_specs = nnx.graph.FlatState.from_sorted_keys_values(flat.paths, specs)
-
-        return flat_specs.to_nested_state()
-
-    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None):
+    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None, **_):
         inputs = self.load_inputs()
         return tuple(PartitionSpec() for _ in inputs)

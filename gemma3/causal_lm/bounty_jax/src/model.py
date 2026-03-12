@@ -17,7 +17,6 @@ from flax import nnx
 # from transformers import Gemma3Config, SiglipVisionConfig, Gemma3TextConfig
 from .base import BaseConfig, BaseModel
 from jax.sharding import PartitionSpec as P
-from jax_config import device_mesh
 
 
 @dataclass
@@ -233,21 +232,21 @@ class Gemma3RotaryEmbedding(nnx.Module):
                 )
                 * high_freq_factor
             )
-            self.inv_freq = jnp.concatenate([inv_freq_low, inv_freq_high])
+            self.inv_freq = nnx.Variable(jnp.concatenate([inv_freq_low, inv_freq_high]))
         else:
             # Default RoPE or other scaling types
             base_freq = self.theta
-            self.inv_freq = 1.0 / (
-                base_freq ** (jnp.arange(0, self.dim, 2, dtype=jnp.float32) / self.dim)
+            self.inv_freq = nnx.Variable(
+                1.0 / (base_freq ** (jnp.arange(0, self.dim, 2, dtype=jnp.float32) / self.dim))
             )
-            if not self.is_local_attention:
+            if not self.is_local_attention and rope_scaling is not None:
                 scaling_factor = rope_scaling["factor"]
-                self.inv_freq /= scaling_factor
+                self.inv_freq.value /= scaling_factor
 
         # Build cos and sin cached up to max_position_embeddings
         t = jnp.arange(self.max_position_embeddings, dtype=jnp.float32)
         # Use the direct attribute value
-        freqs = jnp.einsum("i,j->ij", t, self.inv_freq)
+        freqs = jnp.einsum("i,j->ij", t, self.inv_freq.value)
         # For longrope, apply separate scaling factors
         if rope_scaling is not None and rope_scaling.get("rope_type") == "longrope":
             short_factor = jnp.array(rope_scaling["short_factor"])
@@ -261,8 +260,8 @@ class Gemma3RotaryEmbedding(nnx.Module):
             )
             freqs = freqs * scaling
 
-        self._cos_cached = jnp.cos(freqs)
-        self._sin_cached = jnp.sin(freqs)
+        self._cos_cached = nnx.Variable(jnp.cos(freqs))
+        self._sin_cached = nnx.Variable(jnp.sin(freqs))
 
     def __call__(self, x: jnp.ndarray, position_ids: jnp.ndarray) -> jnp.ndarray:
         """Applies RoPE to the input tensor using cached sin/cos values.
@@ -285,8 +284,8 @@ class Gemma3RotaryEmbedding(nnx.Module):
 
         # Gather from cache: shapes become [B, L, H/2]
         # Access direct attributes
-        cos_gathered = self._cos_cached[position_ids]
-        sin_gathered = self._sin_cached[position_ids]
+        cos_gathered = self._cos_cached.value[position_ids]
+        sin_gathered = self._sin_cached.value[position_ids]
 
         # Expand dims for broadcasting over heads: [B, L, 1, H/2]
         cos = cos_gathered[:, :, None, :].astype(orig_dtype)
@@ -334,44 +333,45 @@ class Gemma3Attention(nnx.Module):
         self.q_norm = Gemma3RMSNorm(config.head_dim, eps=config.rms_norm_eps, rngs=rngs)
         self.k_norm = Gemma3RMSNorm(config.head_dim, eps=config.rms_norm_eps, rngs=rngs)
 
-        self.q_proj = nnx.Linear(
+        self.q_proj = nnx.LinearGeneral(
             config.hidden_size,
-            config.num_attention_heads * config.head_dim,
+            (config.num_attention_heads, config.head_dim),
             use_bias=config.attention_bias,
             param_dtype=config.param_dtype,
             rngs=rngs,
             kernel_init=nnx.with_partitioning(
-                nnx.initializers.lecun_normal(), (None, "X")
+                nnx.initializers.lecun_normal(), (None, None, "X")
             ),
         )
-        self.k_proj = nnx.Linear(
+        self.k_proj = nnx.LinearGeneral(
             config.hidden_size,
-            config.num_key_value_heads * config.head_dim,
+            (config.num_key_value_heads, config.head_dim),
             use_bias=config.attention_bias,
             param_dtype=config.param_dtype,
             rngs=rngs,
             kernel_init=nnx.with_partitioning(
-                nnx.initializers.lecun_normal(), (None, "X")
+                nnx.initializers.lecun_normal(), (None, None, "X")
             ),
         )
-        self.v_proj = nnx.Linear(
+        self.v_proj = nnx.LinearGeneral(
             config.hidden_size,
-            config.num_key_value_heads * config.head_dim,
+            (config.num_key_value_heads, config.head_dim),
             use_bias=config.attention_bias,
             param_dtype=config.param_dtype,
             rngs=rngs,
             kernel_init=nnx.with_partitioning(
-                nnx.initializers.lecun_normal(), (None, "X")
+                nnx.initializers.lecun_normal(), (None, None, "X")
             ),
         )
-        self.o_proj = nnx.Linear(
-            config.num_attention_heads * config.head_dim,
+        self.o_proj = nnx.LinearGeneral(
+            (config.num_attention_heads, config.head_dim),
             config.hidden_size,
+            axis=(-2, -1),
             use_bias=config.attention_bias,
             param_dtype=config.param_dtype,
             rngs=rngs,
             kernel_init=nnx.with_partitioning(
-                nnx.initializers.lecun_normal(), ("X", None)
+                nnx.initializers.lecun_normal(), (None, "X", None)
             ),
         )
 
@@ -467,16 +467,10 @@ class Gemma3Attention(nnx.Module):
     ) -> tuple[jnp.ndarray, tuple[jnp.ndarray, jnp.ndarray]]:
         batch_size, q_len, _ = hidden_states.shape
 
-        # Project to Q, K, V
-        query_states = self.q_proj(hidden_states).reshape(
-            batch_size, q_len, -1, self.head_dim
-        )
-        key_states = self.k_proj(hidden_states).reshape(
-            batch_size, q_len, -1, self.head_dim
-        )
-        value_states = self.v_proj(hidden_states).reshape(
-            batch_size, q_len, -1, self.head_dim
-        )
+        # Project to Q, K, V — output shape: [B, S, heads, head_dim]
+        query_states = self.q_proj(hidden_states)
+        key_states = self.k_proj(hidden_states)
+        value_states = self.v_proj(hidden_states)
 
         # Apply RMSNorm to Q, K
         query_states = self.q_norm(query_states)
@@ -567,15 +561,11 @@ class Gemma3Attention(nnx.Module):
         # Apply attention weights to value states
         attn_output = jnp.matmul(attn_weights, value_states)
 
-        # --- Reshape and Output --- #
-        # Transpose back to [B, q_len, num_heads, head_dim]
+        # Transpose back to [B, q_len, num_heads, head_dim] and project
         attn_output = attn_output.transpose(0, 2, 1, 3)
-        # Reshape to [B, q_len, hidden_size]
-        attn_output = attn_output.reshape(batch_size, q_len, -1)
-
-        # Apply output projection
         attn_output = self.o_proj(attn_output)
-        return jax.lax.psum(attn_output, axis_name="X")
+        return attn_output
+        # return jax.lax.psum(attn_output, axis_name="X")
 
 
 class Gemma3MLP(nnx.Module):
@@ -633,7 +623,8 @@ class Gemma3MLP(nnx.Module):
         )
         up = self.up_proj(x)
         hidden_states = self.down_proj(gate * up)
-        return jax.lax.psum(hidden_states, axis_name="X")
+        return hidden_states
+        # return jax.lax.psum(hidden_states, axis_name="X")
 
 
 class Gemma3DecoderLayer(nnx.Module):
@@ -745,9 +736,9 @@ class Gemma3ForCausalLM(BaseModel):
         # Scale embeddings by sqrt(hidden_size)
         hidden_states = hidden_states * jnp.sqrt(float(self.config.hidden_size))
         hidden_states = hidden_states.astype(self.config.dtype)
-        hidden_states = jax.lax.all_gather(
-            hidden_states, axis_name="X", axis=-1, tiled=True
-        )
+        # hidden_states = jax.lax.all_gather(
+        #     hidden_states, axis_name="X", axis=-1, tiled=True
+        # )
 
         # --- Prepare Inputs for Layers ---
         # Compute cache and kv sequence lengths
@@ -813,7 +804,7 @@ class Gemma3ForCausalLM(BaseModel):
         # --- Logits Calculation --- #
         # Final projection using embedding weights (weight tying)
         logits = self.lm_head(hidden_states)
-        logits = jax.lax.all_gather(logits, axis_name="X", axis=-1, tiled=True)
+        # logits = jax.lax.all_gather(logits, axis_name="X", axis=-1, tiled=True)
 
         # Apply final logit soft capping if specified
         if self.config.final_logit_soft_cap is not None:
@@ -877,55 +868,3 @@ class Gemma3ForCausalLM(BaseModel):
         sharded_state = jax.lax.with_sharding_constraint(state, spec)
         nnx.update(model, sharded_state)
         return spec
-
-    def generate(
-        self,
-        input_ids,
-        max_new_tokens=20,
-        eos_token_id=None,
-    ):
-        eos_token_id = (
-            eos_token_id
-            if eos_token_id is not None
-            else getattr(self.config, "eos_token_id", None)
-        )
-
-        generated = input_ids
-        next_token = input_ids
-
-        def model_fn(model, input_ids):
-            logits = model(
-                input_ids=next_token,
-                deterministic=True,  # No dropout during inference
-            )
-            return logits
-
-        with device_mesh:
-            if self.config.use_cache:
-                self.init_cache(input_ids)
-            model_spec = self._udpate_with_sharding(self)
-
-            shard_mlp = nnx.shard_map(
-                model_fn,
-                mesh=device_mesh,
-                in_specs=(nnx.StateSharding(model_spec), P()),
-                out_specs=(P()),
-                check_rep=False,
-            )
-
-        for _ in range(max_new_tokens):
-            # Get logits
-            logits = shard_mlp(
-                self,
-                next_token,
-            )
-            # Get next token (use argmax for simplicity)
-            next_token = jnp.argmax(logits[:, -1, :], axis=-1)
-            # Check if we hit the end of sequence
-            if next_token[0] == eos_token_id:
-                break
-            next_token = next_token[:, None]  # Add sequence dimension
-            # Append next token
-            generated = jnp.concatenate([generated, next_token], axis=1)
-
-        return generated

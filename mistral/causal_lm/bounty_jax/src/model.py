@@ -30,7 +30,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
-import flax.core.spmd
 import flax.struct
 import jax
 import jax.numpy as jnp
@@ -42,7 +41,6 @@ from jaxtyping import Float, Integer
 from transformers import MistralConfig
 
 from .embedding import apply_rotary_embedding, generate_fixed_pos_embedding
-from .util import keystr_simple, update_sharding
 
 
 class Axis(str, Enum):
