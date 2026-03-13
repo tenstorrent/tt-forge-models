@@ -1,9 +1,6 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""
-Mistral Small 3.1 24B model loader for tensor-parallel causal language modeling.
-"""
 
 from typing import Optional
 
@@ -35,9 +32,7 @@ _TP_SHARDING_RULES = [
     (Axis.HEAD, "X"),
 ]
 
-
 class ModelVariant(StrEnum):
-    """Available Mistral Small 3.1 24B model variants."""
 
     CUSTOM_1X2 = "Custom_1x2"
     CUSTOM_1X4 = "Custom_1x4"
@@ -88,7 +83,7 @@ class ModelLoader(ForgeModel):
 
         config.set_model_mesh = set_model_mesh
         config.num_hidden_layers = 10
-        config.head_dim = 128
+        config.head_dim = 128 # Default is None
         return config
 
     def _get_config(self) -> MistralConfig:

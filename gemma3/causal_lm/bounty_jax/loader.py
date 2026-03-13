@@ -1,9 +1,6 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""
-Gemma3 model loader for tensor-parallel causal language modeling.
-"""
 
 from typing import Optional
 
@@ -23,10 +20,9 @@ from ....config import (
     StrEnum,
 )
 from .src.model import Gemma3ForCausalLM
-from transformers import Gemma3TextConfig
+from transformers import Gemma3TextConfig, MistralConfig
 
 class ModelVariant(StrEnum):
-    """Available Gemma3 model variants."""
 
     CUSTOM_1X2 = "Custom_1x2"
     CUSTOM_1X4 = "Custom_1x4"
@@ -65,30 +61,39 @@ class ModelLoader(ForgeModel):
             source=ModelSource.CUSTOM,
             framework=Framework.JAX,
         )
+    
+    @staticmethod
+    def _set_config() -> Gemma3TextConfig:
+        config = Gemma3TextConfig()
+        config.mesh = None
 
-    def _get_config(self):
+        # config must have set_model_mesh from jax_workload
+        def set_model_mesh(mesh):
+            config.mesh = mesh
+
+        config.set_model_mesh = set_model_mesh
+        config.num_hidden_layers = 2
+        config.intermediate_size = 1024
+        config.hidden_size = 512
+
+         # model implementation specific
+        config.dtype = jnp.float32
+        config.mesh = None
+        config.param_dtype = jnp.bfloat16
+        config.layer_types = ["full_attention"] * config.num_hidden_layers
+        config.rope_local_base_freq = 10_000.0
+        config.query_pre_attn_scalar = 256.0
+        config.final_logit_soft_cap = None
+        config.attn_logit_soft_cap = None
+        config.hidden_activation = "gelu_pytorch_tanh"
+        config.use_cache = False
+
+        return config
+
+
+    def _get_config(self) -> Gemma3TextConfig:
         if self.config is None:
-            config = Gemma3TextConfig()
-            config.num_hidden_layers = 2
-            config.intermediate_size = 1024
-
-            # model implementation specific
-            config.dtype = jnp.float32
-            config.mesh = None
-            config.param_dtype = jnp.bfloat16
-            config.layer_types = ["full_attention"] * config.num_hidden_layers
-            config.rope_local_base_freq = 10_000.0
-            config.query_pre_attn_scalar = 256.0
-            config.final_logit_soft_cap = None
-            config.attn_logit_soft_cap = None
-            config.hidden_activation = "gelu_pytorch_tanh"
-            config.use_cache = False
-
-            def set_model_mesh(mesh):
-                config.mesh = mesh
-
-            config.set_model_mesh = set_model_mesh
-            self.config = config
+            self.config = self._set_config()
         return self.config
 
     def load_model(self, *, dtype_override=None):

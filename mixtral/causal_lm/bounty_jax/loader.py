@@ -1,9 +1,6 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""
-Mixtral model loader for tensor-parallel causal language modeling.
-"""
 
 from typing import Optional
 
@@ -25,14 +22,10 @@ from ....config import (
 )
 from .src.model import FlaxMixtralForCausalLM
 
-
 class ModelVariant(StrEnum):
-    """Available Mixtral model variants."""
-
     CUSTOM_1X2 = "Custom_1x2"
     CUSTOM_1X4 = "Custom_1x4"
     CUSTOM_1X8 = "Custom_1x8"
-
 
 class ModelLoader(ForgeModel):
 
@@ -79,7 +72,7 @@ class ModelLoader(ForgeModel):
         config.set_model_mesh = set_model_mesh
         config.num_hidden_layers = 2
         config.intermediate_size = 1024
-        config.head_dim = 128
+        config.head_dim = 128 # Default is None
         return config
 
 

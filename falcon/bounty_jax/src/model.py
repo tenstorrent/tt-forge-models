@@ -20,9 +20,8 @@ from flax.traverse_util import flatten_dict, unflatten_dict
 from jax import lax
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from .config import Falcon3Config
 from safetensors.flax import load_file
-from transformers.models.llama.configuration_llama import LlamaConfig
+from transformers import LlamaConfig as Falcon3Config
 
 
 def create_sinusoidal_positions(num_pos, theta, dim):
@@ -110,24 +109,28 @@ class FlaxFalcon3Attention(nn.Module):
             self.num_heads * self.head_dim,
             use_bias=config.attention_bias,
             dtype=self.dtype,
+            # kernel_init = kernel_init
             kernel_init=nn.with_partitioning(kernel_init, (None, "X")),
         )
         self.k_proj = nn.Dense(
             self.num_key_value_heads * self.head_dim,
             use_bias=config.attention_bias,
             dtype=self.dtype,
+            # kernel_init = kernel_init
             kernel_init=nn.with_partitioning(kernel_init, (None, "X")),
         )
         self.v_proj = nn.Dense(
             self.num_key_value_heads * self.head_dim,
             use_bias=config.attention_bias,
             dtype=self.dtype,
+            # kernel_init = kernel_init
             kernel_init=nn.with_partitioning(kernel_init, (None, "X")),
         )
         self.o_proj = nn.Dense(
             self.embed_dim,
             use_bias=config.attention_bias,
             dtype=self.dtype,
+            # kernel_init = kernel_init
             kernel_init=nn.with_partitioning(kernel_init, ("X", None)),
         )
         self.causal_mask = make_causal_mask(
@@ -264,6 +267,7 @@ class FlaxFalcon3Attention(nn.Module):
         attn_output = jnp.einsum("...hqk,...khd->...qhd", attn_weights, value)
         attn_output = self._merge_heads(attn_output)
         attn_output = self.o_proj(attn_output)
+        attn_output = lax.psum(attn_output, axis_name="X")
 
         outputs = (attn_output, attn_weights) if output_attentions else (attn_output,)
         return outputs
@@ -286,14 +290,17 @@ class FlaxFalcon3MLP(nn.Module):
 
         self.gate_proj = nn.Dense(
             inner_dim, use_bias=False, dtype=self.dtype,
+            # kernel_init = kernel_init
             kernel_init=nn.with_partitioning(kernel_init, (None, "X")),
         )
         self.down_proj = nn.Dense(
             embed_dim, use_bias=False, dtype=self.dtype,
+            # kernel_init = kernel_init
             kernel_init=nn.with_partitioning(kernel_init, ("X", None)),
         )
         self.up_proj = nn.Dense(
             inner_dim, use_bias=False, dtype=self.dtype,
+            # kernel_init = kernel_init
             kernel_init=nn.with_partitioning(kernel_init, (None, "X")),
         )
 
@@ -303,6 +310,7 @@ class FlaxFalcon3MLP(nn.Module):
         gate_states = self.act(self.gate_proj(hidden_states))
 
         hidden_states = self.down_proj(up_proj_states * gate_states)
+        hidden_states = lax.psum(hidden_states, axis_name="X")
         return hidden_states
 
 
@@ -374,7 +382,6 @@ class FlaxFalcon3LayerCollection(nn.Module):
         all_hidden_states = () if output_hidden_states else None
 
         for block in self.blocks:
-            print(f"Processing block {block.name}...")  # Debugging output
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
             layer_outputs = block(
@@ -464,7 +471,7 @@ class FlaxFalcon3Model(nn.Module):
 
 
 class FlaxFalcon3ForCausalLMModule(nn.Module):
-    config: LlamaConfig
+    config: Falcon3Config
     dtype: jnp.dtype = jnp.float32
 
     def setup(self):

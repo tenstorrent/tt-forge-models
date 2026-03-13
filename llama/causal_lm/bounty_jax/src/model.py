@@ -9,7 +9,7 @@ import flax.linen as nn  # type: ignore
 import jax  # type: ignore
 import jax.numpy as jnp  # type: ignore
 import numpy as np  # type: ignore
-from .config import LLaMAConfig
+from transformers import LlamaConfig as LLaMAConfig 
 from flax.core.frozen_dict import FrozenDict, freeze, unfreeze  # type: ignore
 from flax.linen import combine_masks, make_causal_mask  # type: ignore
 from flax.linen import partitioning as nn_partitioning  # type: ignore
@@ -116,7 +116,7 @@ def repeat_kv(
 
 
 class FlaxLLaMAAttention(nn.Module):
-    config: LLaMAConfig
+    config: LLaMAConfig 
     dtype: jnp.dtype = jnp.float32
     param_dtype: jnp.dtype = jnp.float32
     precision: Optional[Union[jax.lax.Precision, str]] = None
@@ -130,24 +130,28 @@ class FlaxLLaMAAttention(nn.Module):
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
         self.wq = ParallelDense(
             config.num_attention_heads * self.head_dim,
+            axis=(None, "X"),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
 
         self.wk = ParallelDense(
             config.num_key_value_heads * self.head_dim,
+            axis=(None, "X"),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
 
         self.wv = ParallelDense(
             config.num_key_value_heads * self.head_dim,
+            axis=(None, "X"),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
 
         self.wo = ParallelDense(
             config.hidden_size,
+            axis=("X", None),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
@@ -297,20 +301,24 @@ class FlaxLLaMAAttention(nn.Module):
 
 
 class ParallelDense(nn.Module):
-    features: float
+    features: int
+    axis: tuple  
     dtype: jnp.dtype = jnp.float32
     param_dtype: jnp.dtype = jnp.float32
 
     @nn.compact
     def __call__(self, x):
-        # The original implementation used shard_map for tensor parallelism, that is disabled here, hardcoded the (None, "X") partitioning
         x = x.astype(self.dtype)
-        in_dim = x.shape[-1]
-        out_dim = self.features
         kernel = self.param(
-            "kernel", nn.with_partitioning(nn.initializers.lecun_normal(), (None, "X")), (in_dim, out_dim), self.param_dtype
+            "kernel",
+            nn.with_partitioning(nn.initializers.lecun_normal(), self.axis),
+            (x.shape[-1], self.features),
+            self.param_dtype,
         )
-        return jnp.einsum("bsd,df->bsf", x, kernel).astype(self.dtype)
+        out = jnp.einsum("...d,df->...f", x, kernel).astype(self.dtype)
+        if self.axis[0] is not None: 
+            out = lax.psum(out, axis_name="X")
+        return out
 
 
 class FlaxLLaMAMLP(nn.Module):
@@ -324,16 +332,19 @@ class FlaxLLaMAMLP(nn.Module):
 
         self.w1 = ParallelDense(
             config.intermediate_size,
+            axis=(None, "X"),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
         self.w2 = ParallelDense(
             config.hidden_size,
+            axis=("X", None),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
         self.w3 = ParallelDense(
             config.intermediate_size,
+            axis=(None, "X"),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )

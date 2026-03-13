@@ -1,10 +1,6 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""
-Llama 3.1 8B model loader for tensor-parallel causal language modeling.
-"""
-
 from typing import Any, Optional
 
 import jax
@@ -22,13 +18,11 @@ from tt_forge_models.config import (
     ModelTask,
     StrEnum,
 )
-from .src.config import LLaMAConfig
+from transformers import LlamaConfig 
 from .src.model import FlaxLLaMAForCausalLMModule
 
 
 class _LlamaWrapper(linen.Module):
-    """ Unpacks the (input_ids, attention_mask, position_ids) tuple """
-
     config: Any
     dtype: Any
 
@@ -42,7 +36,6 @@ class _LlamaWrapper(linen.Module):
 
 
 class ModelVariant(StrEnum):
-    """ Available Llama 3.1 8B model variants """
 
     CUSTOM_1X2 = "Custom_1x2"
     CUSTOM_1X4 = "Custom_1x4"
@@ -50,20 +43,6 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """ 
-        Llama 3.1 8B tensor-parallel model loader 
-        Intentionally small model for testing purposes.
-    """
-    
-    _TEST_VOCAB_SIZE = 128256
-    _TEST_HIDDEN_SIZE = 512
-    _TEST_INTERMEDIATE_SIZE = 1024
-    _TEST_NUM_LAYERS = 4
-    _TEST_NUM_ATTENTION_HEADS = 8
-    _TEST_NUM_KV_HEADS = 2
-    _TEST_MAX_SEQ_LEN = 64
-    _TEST_BATCH_SIZE = 1
-    _TEST_SEQ_LEN = 32
 
     _VARIANTS = {
         ModelVariant.CUSTOM_1X2: ModelConfig(
@@ -81,7 +60,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._llama_config = None
+        self.config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -96,18 +75,31 @@ class ModelLoader(ForgeModel):
             framework=Framework.JAX,
         )
 
-    def _get_llama_config(self):
-        if self._llama_config is None:
-            self._llama_config = LLaMAConfig(
-                vocab_size=self._TEST_VOCAB_SIZE,
-                hidden_size=self._TEST_HIDDEN_SIZE,
-                intermediate_size=self._TEST_INTERMEDIATE_SIZE,
-                num_hidden_layers=self._TEST_NUM_LAYERS,
-                num_attention_heads=self._TEST_NUM_ATTENTION_HEADS,
-                num_key_value_heads=self._TEST_NUM_KV_HEADS,
-                max_sequence_length=self._TEST_MAX_SEQ_LEN,
-            )
-        return self._llama_config
+    @staticmethod
+    def _set_config() -> LlamaConfig:
+        config = LlamaConfig()
+        config.mesh = None
+        config.num_hidden_layers = 2
+
+        # config must have set_model_mesh from jax_workload
+        def set_model_mesh(mesh):
+            config.mesh = mesh
+
+        config.set_model_mesh = set_model_mesh
+
+        # model implementation specific
+        config.gradient_checkpointing = False
+        config.max_sequence_length = 2048
+        config.attn_pdrop = 0.0
+        config.resid_pdrop = 0.0
+        config.embd_pdrop = 0.0
+        return config
+
+
+    def _get_config(self) -> LlamaConfig:
+        if self.config is None:
+            self.config = self._set_config()
+        return self.config
 
     def load_model(self, *, dtype_override=None):
         if dtype_override is not None:
@@ -115,23 +107,20 @@ class ModelLoader(ForgeModel):
         else:
             dtype = jnp.bfloat16
     
-        return _LlamaWrapper(config=self._get_llama_config(), dtype=dtype)
+        return _LlamaWrapper(config=self._get_config(), dtype=dtype)
 
     def load_inputs(self, dtype_override=None, mesh=None):
         """
-            Return (input_ids, attention_mask, position_ids) as a single tuple.
-
-            Passed as one activation argument to model.apply, _LlamaWrapper unpacks it.
+            Since test are being called with model.apply(params, inputs), we need to wrap inputs 
+            into a single tuple and unpack them with _LlamaWrapper 
         """
-        batch_size = self._TEST_BATCH_SIZE
-        seq_len = self._TEST_SEQ_LEN
         rng = np.random.default_rng(42)
         input_ids = jnp.array(
-            rng.integers(1, 1000, size=(batch_size, seq_len), dtype=np.int32)
+            rng.integers(1, 1000, size=(8, 8), dtype=np.int32)
         )
-        attention_mask = jnp.ones((batch_size, seq_len), dtype=jnp.int32)
+        attention_mask = jnp.ones((8, 8), dtype=jnp.int32)
         position_ids = jnp.broadcast_to(
-            jnp.arange(seq_len)[None, :], (batch_size, seq_len)
+            jnp.arange(8)[None, :], (8, 8)
         )
         return (input_ids, attention_mask, position_ids)
 
