@@ -8,10 +8,13 @@ Wan diffusion model loader implementation.
 Supports:
 - Full pipeline loading (subfolder=None)
 - VAE component loading (subfolder="vae") for encoder/decoder testing
+- Text encoder loading (subfolder="text_encoder") for UMT5 testing
+- Transformer loading (subfolder="transformer") for WanTransformer3D testing
 
 Available variants:
 - WAN22_TI2V_5B: Wan 2.2 text-to-image-to-video 5B (full pipeline only)
-- WAN21_T2V_14B: Wan 2.1 text-to-video 14B (supports VAE subfolder)
+- WAN21_T2V_14B: Wan 2.1 text-to-video 14B
+- WAN21_T2V_13B: Wan 2.1 text-to-video 1.3B (lighter variant)
 """
 
 from typing import Any, Optional, Dict
@@ -30,12 +33,16 @@ from ...config import (
     StrEnum,
 )
 from .src.utils import (
+    load_text_encoder,
+    load_text_encoder_inputs,
+    load_transformer,
+    load_transformer_inputs,
     load_vae,
     load_vae_decoder_inputs,
     load_vae_encoder_inputs,
 )
 
-SUPPORTED_SUBFOLDERS = {"vae"}
+SUPPORTED_SUBFOLDERS = {"vae", "text_encoder", "transformer"}
 
 
 class ModelVariant(StrEnum):
@@ -43,6 +50,7 @@ class ModelVariant(StrEnum):
 
     WAN22_TI2V_5B = "2.2_Ti2v_5B"
     WAN21_T2V_14B = "2.1_T2v_14B"
+    WAN21_T2V_13B = "2.1_T2v_1.3B"
 
 
 class ModelLoader(ForgeModel):
@@ -54,6 +62,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.WAN21_T2V_14B: ModelConfig(
             pretrained_model_name="Wan-AI/Wan2.1-T2V-14B-Diffusers",
+        ),
+        ModelVariant.WAN21_T2V_13B: ModelConfig(
+            pretrained_model_name="Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
         ),
     }
     DEFAULT_VARIANT = ModelVariant.WAN22_TI2V_5B
@@ -83,7 +94,7 @@ class ModelLoader(ForgeModel):
             variant=variant,
             group=ModelGroup.RED,
             task=ModelTask.MM_VIDEO_TTT
-            if variant == ModelVariant.WAN21_T2V_14B
+            if variant in (ModelVariant.WAN21_T2V_14B, ModelVariant.WAN21_T2V_13B)
             else ModelTask.MM_IMAGE_TTT,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -129,7 +140,7 @@ class ModelLoader(ForgeModel):
         **kwargs,
     ):
         """
-        Load and return the Wan diffusion pipeline or VAE component.
+        Load and return the Wan diffusion pipeline or an individual component.
 
         Args:
             dtype_override: Optional torch dtype to instantiate/convert the pipeline with.
@@ -138,10 +149,22 @@ class ModelLoader(ForgeModel):
             extra_pipe_kwargs: Additional kwargs forwarded to DiffusionPipeline.from_pretrained.
 
         Returns:
-            DiffusionPipeline or AutoencoderKLWan depending on subfolder.
+            DiffusionPipeline, AutoencoderKLWan, UMT5EncoderModel, or
+            WanTransformer3DModel depending on subfolder.
         """
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
+        if self._subfolder == "text_encoder":
+            return load_text_encoder(
+                self._variant_config.pretrained_model_name, dtype
+            )
+
+        if self._subfolder == "transformer":
+            return load_transformer(
+                self._variant_config.pretrained_model_name, dtype
+            )
+
         if self._subfolder == "vae":
-            dtype = dtype_override if dtype_override is not None else torch.float32
             return load_vae(self._variant_config.pretrained_model_name, dtype)
 
         if self.pipeline is None:
@@ -162,10 +185,18 @@ class ModelLoader(ForgeModel):
         Prepare inputs for the model or component.
 
         For VAE subfolder, pass vae_type="decoder" or vae_type="encoder".
+        For text_encoder/transformer subfolder, returns appropriate input dicts.
         For full pipeline, returns a prompt dict.
         """
+        dtype = kwargs.get("dtype_override", torch.float32)
+
+        if self._subfolder == "text_encoder":
+            return load_text_encoder_inputs(dtype)
+
+        if self._subfolder == "transformer":
+            return load_transformer_inputs(dtype)
+
         if self._subfolder == "vae":
-            dtype = kwargs.get("dtype_override", torch.float32)
             vae_type = kwargs.get("vae_type")
             if vae_type == "decoder":
                 return load_vae_decoder_inputs(dtype)
