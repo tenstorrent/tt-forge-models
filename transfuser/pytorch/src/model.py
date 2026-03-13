@@ -381,7 +381,7 @@ class LidarCenterNet(nn.Module):
         preds = self.head(features[0])
         return pred_wp, preds
 
-    def postprocess(self, preds, T_inv):
+    def postprocess(self, preds):
         """Postprocess head predictions into rotated bounding boxes.
 
         This is separated from forward() so it does not run inside the
@@ -389,11 +389,13 @@ class LidarCenterNet(nn.Module):
 
         Args:
             preds: Tuple of head prediction tensors from forward().
-            T_inv: Inverse lidar-to-BEV transform matrix.
 
         Returns:
             list: Rotated bounding boxes in local metric coordinates.
         """
+        T = get_lidar_to_bevimage_transform(dtype=torch.float32)
+        T_inv = torch.linalg.inv(T)
+
         results = self.head.get_bboxes(
             preds[0], preds[1], preds[2], preds[3], preds[4], preds[5], preds[6]
         )
