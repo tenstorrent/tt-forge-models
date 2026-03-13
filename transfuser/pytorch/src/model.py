@@ -369,7 +369,6 @@ class LidarCenterNet(nn.Module):
         target_point=None,
         target_point_image=None,
         ego_vel=None,
-        T_inv=None,
     ):
         if self.use_target_point_image:
             lidar_bev = torch.cat((lidar_bev, target_point_image), dim=1)
@@ -380,6 +379,21 @@ class LidarCenterNet(nn.Module):
         pred_wp, _, _, _, _ = self.forward_gru(fused_features, target_point)
 
         preds = self.head(features[0])
+        return pred_wp, preds
+
+    def postprocess(self, preds, T_inv):
+        """Postprocess head predictions into rotated bounding boxes.
+
+        This is separated from forward() so it does not run inside the
+        compiled graph tested by the model-test infrastructure.
+
+        Args:
+            preds: Tuple of head prediction tensors from forward().
+            T_inv: Inverse lidar-to-BEV transform matrix.
+
+        Returns:
+            list: Rotated bounding boxes in local metric coordinates.
+        """
         results = self.head.get_bboxes(
             preds[0], preds[1], preds[2], preds[3], preds[4], preds[5], preds[6]
         )
@@ -388,7 +402,7 @@ class LidarCenterNet(nn.Module):
         for bbox in bboxes.detach():
             bbox = self.get_bbox_local_metric(bbox, T_inv)
             rotated_bboxes.append(bbox)
-        return pred_wp, rotated_bboxes
+        return rotated_bboxes
 
     def get_bbox_local_metric(self, bbox, T_inv):
         x, y, w, h, yaw, speed, brake, confidence = bbox
