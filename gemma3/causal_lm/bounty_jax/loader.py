@@ -22,6 +22,7 @@ from ....config import (
 from .src.model import Gemma3ForCausalLM
 from transformers import Gemma3TextConfig, MistralConfig
 
+
 class ModelVariant(StrEnum):
 
     CUSTOM_1X2 = "Custom_1x2"
@@ -61,7 +62,7 @@ class ModelLoader(ForgeModel):
             source=ModelSource.CUSTOM,
             framework=Framework.JAX,
         )
-    
+
     @staticmethod
     def _set_config() -> Gemma3TextConfig:
         config = Gemma3TextConfig()
@@ -76,7 +77,9 @@ class ModelLoader(ForgeModel):
         config.intermediate_size = 1024
         config.hidden_size = 512
 
-         # model implementation specific
+        config.vocab_size = 4096  # without this we get OOM error
+
+        # model implementation specific
         config.dtype = jnp.float32
         config.mesh = None
         config.param_dtype = jnp.bfloat16
@@ -89,7 +92,6 @@ class ModelLoader(ForgeModel):
         config.use_cache = False
 
         return config
-
 
     def _get_config(self) -> Gemma3TextConfig:
         if self.config is None:
@@ -105,9 +107,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, mesh=None):
         rng = np.random.default_rng(42)
-        input_ids = jnp.array(
-            rng.integers(1, 1000, size=(8, 8), dtype=np.int32)
-        )
+        input_ids = jnp.array(rng.integers(1, 1000, size=(8, 8), dtype=np.int32))
         return {"input_ids": input_ids}
 
     def load_parameters(
@@ -119,9 +119,13 @@ class ModelLoader(ForgeModel):
         model_for_multichip=None,
         cpu_mesh=None,
         input_activations_partition_specs=None,
-        input_parameters_partition_specs=None
+        input_parameters_partition_specs=None,
     ):
-        model = model_for_multichip if model_for_multichip is not None else self.load_model()
+        model = (
+            model_for_multichip
+            if model_for_multichip is not None
+            else self.load_model()
+        )
         return nnx.split(model)[1]
 
     def load_parameters_partition_spec(
@@ -131,12 +135,18 @@ class ModelLoader(ForgeModel):
         input_activations_partition_specs=None,
         inputs=None,
         parallelism=None,
-        dtype_override=None
+        dtype_override=None,
     ):
-        model = model_for_multichip if model_for_multichip is not None else self.load_model()
+        model = (
+            model_for_multichip
+            if model_for_multichip is not None
+            else self.load_model()
+        )
         _, state = nnx.split(model)
         return nnx.get_partition_spec(state)
 
-    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None):
+    def get_input_activations_partition_spec(
+        self, mesh, axis_name="X", parallelism=None
+    ):
         inputs = self.load_inputs()
         return tuple(PartitionSpec() for _ in inputs)

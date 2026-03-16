@@ -237,7 +237,11 @@ class Gemma3RotaryEmbedding(nnx.Module):
             # Default RoPE or other scaling types
             base_freq = self.theta
             self.inv_freq = nnx.Variable(
-                1.0 / (base_freq ** (jnp.arange(0, self.dim, 2, dtype=jnp.float32) / self.dim))
+                1.0
+                / (
+                    base_freq
+                    ** (jnp.arange(0, self.dim, 2, dtype=jnp.float32) / self.dim)
+                )
             )
             if not self.is_local_attention and rope_scaling is not None:
                 scaling_factor = rope_scaling["factor"]
@@ -838,18 +842,18 @@ class Gemma3ForCausalLM(BaseModel):
                             "kernel"
                         ].value = tensor.T.astype(self.config.param_dtype)
                 elif keys[4] == "mlp":
-                    state["layers"][int(keys[3])][keys[4]][keys[5]]["kernel"].value = (
-                        tensor.T.astype(self.config.param_dtype)
-                    )
+                    state["layers"][int(keys[3])][keys[4]][keys[5]][
+                        "kernel"
+                    ].value = tensor.T.astype(self.config.param_dtype)
                 elif (
                     keys[4] == "input_layernorm"
                     or keys[4] == "post_attention_layernorm"
                     or keys[4] == "post_feedforward_layernorm"
                     or keys[4] == "pre_feedforward_layernorm"
                 ):
-                    state["layers"][int(keys[3])][keys[4]]["weight"].value = (
-                        tensor.astype(self.config.param_dtype)
-                    )
+                    state["layers"][int(keys[3])][keys[4]][
+                        "weight"
+                    ].value = tensor.astype(self.config.param_dtype)
             elif keys[2] == "embed_tokens":
                 state["embed_tokens"].embedding.value = tensor.astype(
                     self.config.param_dtype

@@ -289,17 +289,23 @@ class FlaxFalcon3MLP(nn.Module):
         self.act = nn.silu
 
         self.gate_proj = nn.Dense(
-            inner_dim, use_bias=False, dtype=self.dtype,
+            inner_dim,
+            use_bias=False,
+            dtype=self.dtype,
             # kernel_init = kernel_init
             kernel_init=nn.with_partitioning(kernel_init, (None, "X")),
         )
         self.down_proj = nn.Dense(
-            embed_dim, use_bias=False, dtype=self.dtype,
+            embed_dim,
+            use_bias=False,
+            dtype=self.dtype,
             # kernel_init = kernel_init
             kernel_init=nn.with_partitioning(kernel_init, ("X", None)),
         )
         self.up_proj = nn.Dense(
-            inner_dim, use_bias=False, dtype=self.dtype,
+            inner_dim,
+            use_bias=False,
+            dtype=self.dtype,
             # kernel_init = kernel_init
             kernel_init=nn.with_partitioning(kernel_init, (None, "X")),
         )
@@ -480,9 +486,8 @@ class FlaxFalcon3ForCausalLMModule(nn.Module):
             self.config.vocab_size,
             use_bias=False,
             dtype=self.dtype,
-            kernel_init=nn.with_partitioning(
-                jax.nn.initializers.normal(stddev=self.config.initializer_range),
-                (None, "X"),
+            kernel_init=jax.nn.initializers.normal(
+                stddev=self.config.initializer_range
             ),
         )
 
@@ -763,7 +768,7 @@ class FlaxFalcon3ForCausalLM:
         partitioning_rules = {
             "params": {
                 "model": {
-                    "embed_tokens": {"embedding": P("X", None)},
+                    "embed_tokens": {"embedding": P()},
                     "norm": {"weight": P()},
                     "layers": {
                         f"{layer}": {
@@ -784,7 +789,7 @@ class FlaxFalcon3ForCausalLM:
                         for layer in range(self.config.num_hidden_layers)
                     },
                 },
-                "lm_head": {"kernel": P(None, "X")},
+                "lm_head": {"kernel": P()},
             },
             "cache": {
                 "model": {

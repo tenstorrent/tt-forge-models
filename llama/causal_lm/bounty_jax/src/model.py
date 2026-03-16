@@ -9,7 +9,7 @@ import flax.linen as nn  # type: ignore
 import jax  # type: ignore
 import jax.numpy as jnp  # type: ignore
 import numpy as np  # type: ignore
-from transformers import LlamaConfig as LLaMAConfig 
+from transformers import LlamaConfig as LLaMAConfig
 from flax.core.frozen_dict import FrozenDict, freeze, unfreeze  # type: ignore
 from flax.linen import combine_masks, make_causal_mask  # type: ignore
 from flax.linen import partitioning as nn_partitioning  # type: ignore
@@ -116,7 +116,7 @@ def repeat_kv(
 
 
 class FlaxLLaMAAttention(nn.Module):
-    config: LLaMAConfig 
+    config: LLaMAConfig
     dtype: jnp.dtype = jnp.float32
     param_dtype: jnp.dtype = jnp.float32
     precision: Optional[Union[jax.lax.Precision, str]] = None
@@ -302,7 +302,7 @@ class FlaxLLaMAAttention(nn.Module):
 
 class ParallelDense(nn.Module):
     features: int
-    axis: tuple  
+    axis: tuple
     dtype: jnp.dtype = jnp.float32
     param_dtype: jnp.dtype = jnp.float32
 
@@ -316,7 +316,7 @@ class ParallelDense(nn.Module):
             self.param_dtype,
         )
         out = jnp.einsum("...d,df->...f", x, kernel).astype(self.dtype)
-        if self.axis[0] is not None: 
+        if self.axis[0] is not None:
             out = lax.psum(out, axis_name="X")
         return out
 

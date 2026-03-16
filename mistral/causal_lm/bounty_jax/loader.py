@@ -25,12 +25,13 @@ from .src.model import Axis, MistralModel
 
 _TP_SHARDING_RULES = [
     (Axis.QHEAD, None),
-    (Axis.KVHEAD, None),  
+    (Axis.KVHEAD, None),
     (Axis.MLP, "X"),
     (Axis.EMBED, None),
     (Axis.VOCAB, None),
     (Axis.HEAD, "X"),
 ]
+
 
 class ModelVariant(StrEnum):
 
@@ -71,7 +72,7 @@ class ModelLoader(ForgeModel):
             source=ModelSource.CUSTOM,
             framework=Framework.JAX,
         )
-    
+
     @staticmethod
     def _set_config() -> MistralConfig:
         config = MistralConfig()
@@ -83,7 +84,7 @@ class ModelLoader(ForgeModel):
 
         config.set_model_mesh = set_model_mesh
         config.num_hidden_layers = 10
-        config.head_dim = 128 # Default is None
+        config.head_dim = 128  # Default is None
         return config
 
     def _get_config(self) -> MistralConfig:
@@ -93,13 +94,17 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None):
         config = self._get_config()
-        return MistralModel(config, dtype=jnp.float32, param_dtype=jnp.bfloat16, rngs=nnx.Rngs(0), sharding_rules=_TP_SHARDING_RULES)
+        return MistralModel(
+            config,
+            dtype=jnp.float32,
+            param_dtype=jnp.bfloat16,
+            rngs=nnx.Rngs(0),
+            sharding_rules=_TP_SHARDING_RULES,
+        )
 
     def load_inputs(self, dtype_override=None, mesh=None):
         rng = np.random.default_rng(42)
-        input_ids = jnp.array(
-            rng.integers(1, 1000, size=(8, 8), dtype=np.int32)
-        )
+        input_ids = jnp.array(rng.integers(1, 1000, size=(8, 8), dtype=np.int32))
         return {"input_ids": input_ids}
 
     def load_parameters(
@@ -126,7 +131,7 @@ class ModelLoader(ForgeModel):
         input_activations_partition_specs=None,
         inputs=None,
         parallelism=None,
-        dtype_override=None
+        dtype_override=None,
     ):
         if model_for_multichip is not None:
             model = model_for_multichip
@@ -134,7 +139,7 @@ class ModelLoader(ForgeModel):
             model = self.load_model(dtype_override=dtype_override)
         _, state = nnx.split(model)
         rules_dict = {str(axis): mesh_axis for axis, mesh_axis in _TP_SHARDING_RULES}
-    
+
         def make_spec(variable):
             logical = getattr(variable, "sharding", None)
             if logical is None:
@@ -148,6 +153,8 @@ class ModelLoader(ForgeModel):
 
         return flat_specs.to_nested_state()
 
-    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None):
+    def get_input_activations_partition_spec(
+        self, mesh, axis_name="X", parallelism=None
+    ):
         inputs = self.load_inputs()
         return tuple(PartitionSpec() for _ in inputs)

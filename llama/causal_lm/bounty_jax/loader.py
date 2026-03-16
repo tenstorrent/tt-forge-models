@@ -18,7 +18,7 @@ from tt_forge_models.config import (
     ModelTask,
     StrEnum,
 )
-from transformers import LlamaConfig 
+from transformers import LlamaConfig
 from .src.model import FlaxLLaMAForCausalLMModule
 
 
@@ -29,9 +29,7 @@ class _LlamaWrapper(linen.Module):
     @linen.compact
     def __call__(self, inputs):
         input_ids, attention_mask, position_ids = inputs
-        module = FlaxLLaMAForCausalLMModule(
-            config=self.config, dtype=self.dtype
-        )
+        module = FlaxLLaMAForCausalLMModule(config=self.config, dtype=self.dtype)
         return module(input_ids, attention_mask, position_ids)
 
 
@@ -95,7 +93,6 @@ class ModelLoader(ForgeModel):
         config.embd_pdrop = 0.0
         return config
 
-
     def _get_config(self) -> LlamaConfig:
         if self.config is None:
             self.config = self._set_config()
@@ -106,22 +103,18 @@ class ModelLoader(ForgeModel):
             dtype = dtype_override
         else:
             dtype = jnp.bfloat16
-    
+
         return _LlamaWrapper(config=self._get_config(), dtype=dtype)
 
     def load_inputs(self, dtype_override=None, mesh=None):
         """
-            Since test are being called with model.apply(params, inputs), we need to wrap inputs 
-            into a single tuple and unpack them with _LlamaWrapper 
+        Since test are being called with model.apply(params, inputs), we need to wrap inputs
+        into a single tuple and unpack them with _LlamaWrapper
         """
         rng = np.random.default_rng(42)
-        input_ids = jnp.array(
-            rng.integers(1, 1000, size=(8, 8), dtype=np.int32)
-        )
+        input_ids = jnp.array(rng.integers(1, 1000, size=(8, 8), dtype=np.int32))
         attention_mask = jnp.ones((8, 8), dtype=jnp.int32)
-        position_ids = jnp.broadcast_to(
-            jnp.arange(8)[None, :], (8, 8)
-        )
+        position_ids = jnp.broadcast_to(jnp.arange(8)[None, :], (8, 8))
         return (input_ids, attention_mask, position_ids)
 
     def load_parameters(
@@ -175,7 +168,9 @@ class ModelLoader(ForgeModel):
             model, cpu_mesh, input_activations_partition_specs, inputs
         )
 
-    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None):
+    def get_input_activations_partition_spec(
+        self, mesh, axis_name="X", parallelism=None
+    ):
         from jax.sharding import PartitionSpec
-        
+
         return (PartitionSpec(),)

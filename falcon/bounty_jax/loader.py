@@ -18,8 +18,9 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from transformers import LlamaConfig # Original used config from LlamaConfig
+from transformers import LlamaConfig  # Original used config from LlamaConfig
 from .src.model import FlaxFalcon3ForCausalLMModule
+
 
 class _FalconWrapper(linen.Module):
     config: Any
@@ -38,6 +39,7 @@ class ModelVariant(StrEnum):
     CUSTOM_1X2 = "Custom_1x2"
     CUSTOM_1X4 = "Custom_1x4"
     CUSTOM_1X8 = "Custom_1x8"
+
 
 class ModelLoader(ForgeModel):
 
@@ -96,13 +98,9 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, mesh=None):
         rng = np.random.default_rng(42)
-        input_ids = jnp.array(
-            rng.integers(1, 1000, size=(8, 8), dtype=np.int32)
-        )
+        input_ids = jnp.array(rng.integers(1, 1000, size=(8, 8), dtype=np.int32))
         attention_mask = jnp.ones((8, 8), dtype=jnp.int32)
-        position_ids = jnp.broadcast_to(
-            jnp.arange(8)[None, :], (8, 8)
-        )
+        position_ids = jnp.broadcast_to(jnp.arange(8)[None, :], (8, 8))
         return (input_ids, attention_mask, position_ids)
 
     def load_parameters(
@@ -156,7 +154,9 @@ class ModelLoader(ForgeModel):
             model, cpu_mesh, input_activations_partition_specs, inputs
         )
 
-    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None):
+    def get_input_activations_partition_spec(
+        self, mesh, axis_name="X", parallelism=None
+    ):
         from jax.sharding import PartitionSpec
 
         return (PartitionSpec(),)

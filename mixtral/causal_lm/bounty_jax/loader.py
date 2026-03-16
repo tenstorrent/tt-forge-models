@@ -22,10 +22,12 @@ from ....config import (
 )
 from .src.model import FlaxMixtralForCausalLM
 
+
 class ModelVariant(StrEnum):
     CUSTOM_1X2 = "Custom_1x2"
     CUSTOM_1X4 = "Custom_1x4"
     CUSTOM_1X8 = "Custom_1x8"
+
 
 class ModelLoader(ForgeModel):
 
@@ -59,7 +61,7 @@ class ModelLoader(ForgeModel):
             source=ModelSource.CUSTOM,
             framework=Framework.JAX,
         )
-    
+
     @staticmethod
     def _set_config() -> MixtralConfig:
         config = MixtralConfig()
@@ -72,9 +74,8 @@ class ModelLoader(ForgeModel):
         config.set_model_mesh = set_model_mesh
         config.num_hidden_layers = 2
         config.intermediate_size = 1024
-        config.head_dim = 128 # Default is None
+        config.head_dim = 128  # Default is None
         return config
-
 
     def _get_config(self) -> MixtralConfig:
         if self.config is None:
@@ -90,9 +91,7 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None, mesh=None):
         config = self._get_config()
         rng = np.random.default_rng(42)
-        input_ids = jnp.array(
-            rng.integers(1, 1000, size=(8, 8), dtype=np.int32)
-        )
+        input_ids = jnp.array(rng.integers(1, 1000, size=(8, 8), dtype=np.int32))
         attention_mask = jnp.ones((8, 8), dtype=jnp.int32)
         past_key_values = {
             f"layer_{i}": {
@@ -126,7 +125,11 @@ class ModelLoader(ForgeModel):
         input_parameters_partition_specs=None,
         **_,
     ):
-        model = model_for_multichip if model_for_multichip is not None else self.load_model()
+        model = (
+            model_for_multichip
+            if model_for_multichip is not None
+            else self.load_model()
+        )
         return nnx.split(model)[1]
 
     def load_parameters_partition_spec(
@@ -139,10 +142,16 @@ class ModelLoader(ForgeModel):
         dtype_override=None,
         **_,
     ):
-        model = model_for_multichip if model_for_multichip is not None else self.load_model()
+        model = (
+            model_for_multichip
+            if model_for_multichip is not None
+            else self.load_model()
+        )
         _, state = nnx.split(model)
         return nnx.get_partition_spec(state)
 
-    def get_input_activations_partition_spec(self, mesh, axis_name="X", parallelism=None, **_):
+    def get_input_activations_partition_spec(
+        self, mesh, axis_name="X", parallelism=None, **_
+    ):
         inputs = self.load_inputs()
         return tuple(PartitionSpec() for _ in inputs)
