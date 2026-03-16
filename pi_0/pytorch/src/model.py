@@ -56,16 +56,18 @@ def forward(
     state: Tensor,
     **kwargs
 ) -> Tensor:
-
     """
-    Forward pass replicating `select_action` behavior using preprocessed inputs.
+    Forward pass replicating ``select_action`` queue behavior.
 
-    This method overrides the default training-related `forward` of PI0Policy.
-    It handles `n_action_steps > 1` via an internal action queue:
-    if the queue is empty, it samples a chunk of actions from the model,
-    truncates them to the configured action dimension, and populates the queue.
-    Each call returns the next action in the queue, effectively mimicking
-    `select_action` for inference.
+    On the first call (or when the queue is drained), runs
+    ``sample_actions`` to produce a chunk of actions and fills a queue.
+    Subsequent calls pop the next action from that queue without
+    re-running the model.
+
+    Queues are kept **per-device** so that the test harness (which calls
+    forward once on CPU and once on the TT device using the same model
+    instance) gets independent queues -- the CPU run never leaks actions
+    into the TT run or vice-versa.
 
     Args:
         images (Tensor): Preprocessed image tensors.
@@ -78,22 +80,25 @@ def forward(
     Returns:
         Tensor: A single action from the model (shape: [batch_size, action_dim]).
     """
-    if not hasattr(self, "_action_queue"):
-        self._action_queue = deque()
+    if not hasattr(self, "_device_queues"):
+        self._device_queues = {}
 
-    if len(self._action_queue) == 0:
+    device_key = str(state.device)
+    if device_key not in self._device_queues:
+        self._device_queues[device_key] = deque()
+
+    queue = self._device_queues[device_key]
+    if len(queue) == 0:
         actions = self.model.sample_actions(
             images, img_masks, lang_tokens, lang_masks, state, **kwargs
         )
-
         original_action_dim = self.config.output_features["action"].shape[0]
         actions = actions[:, :, :original_action_dim]
-
         actions = actions[:, : self.config.n_action_steps]
 
-        self._action_queue.extend(actions.transpose(0, 1))
+        queue.extend(actions.transpose(0, 1))
 
-    return self._action_queue.popleft()
+    return queue.popleft()
 
 
 def get_custom_pi0_policy(pretrained_model_name: str) -> PI0Policy:
