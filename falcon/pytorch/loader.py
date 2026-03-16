@@ -257,10 +257,10 @@ class ModelLoader(ForgeModel):
                 shard_specs[layer.mlp.dense_4h_to_h.weight] = (None, "model")
         elif self._variant == ModelVariant.FALCON_MAMBA_7B:
             for layer in layers_container:
-                shard_specs[layer.mixer.in_proj.weight] = ("model", None)
-                shard_specs[layer.mixer.x_proj.weight] = ("model", None)
-                shard_specs[layer.mixer.dt_proj.weight] = ("model", None)
-                shard_specs[layer.mixer.out_proj.weight] = (None, "model")
+                shard_specs[layer.mixer.in_proj.weight] = ("model", "batch")
+                shard_specs[layer.mixer.x_proj.weight] = ("model", "batch")
+                shard_specs[layer.mixer.dt_proj.weight] = ("model", "batch")
+                shard_specs[layer.mixer.out_proj.weight] = ("batch", "model")
         else:
             return None
 
