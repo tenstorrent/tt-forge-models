@@ -8,6 +8,7 @@ import torch
 from typing import Optional
 from torchvision import models
 from torchvision.models.detection.anchor_utils import DefaultBoxGenerator
+from torchvision.models.detection.ssd import SSD
 from PIL import Image
 
 from ...base import ForgeModel
@@ -20,8 +21,8 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import get_file, print_compiled_model_results
-from .src.utils import SSDPostprocessor, patched_grid_default_boxes, patched_forward
+from datasets import load_dataset
+from .src.utils import patched_grid_default_boxes, patched_forward, patched_SSD_forward
 
 
 class ModelVariant(StrEnum):
@@ -54,6 +55,7 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
+        self.image_sizes = (300, 300)
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -92,18 +94,23 @@ class ModelLoader(ForgeModel):
         DefaultBoxGenerator._grid_default_boxes = patched_grid_default_boxes
         DefaultBoxGenerator.forward = patched_forward
 
+        # Workaround: Decouple post-processing from SSD.forward to avoid PCC drop
+        # in softmax -> slice -> greater_than op chain on device.
+        # Revert once https://github.com/tenstorrent/tt-metal/issues/39171 is fixed.
+        SSD.forward = patched_SSD_forward
+
         # Load model from torchvision
         weights = models.detection.SSD300_VGG16_Weights.DEFAULT
-        model = models.detection.ssd300_vgg16(weights=weights)
-        model.eval()
+        self.model = models.detection.ssd300_vgg16(weights=weights)
+        self.model.eval()
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
-            # model = model.to(dtype_override)
+            # self.model = self.model.to(dtype_override)
             # TODO (@ppadjinTT): remove this when torchvision starts supporting torchvision.ops.nms for bfloat16
             print("NOTE: dtype_override ignored - batched_nms lacks BFloat16 support")
 
-        return model
+        return self.model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the SSD300 VGG16 model with this instance's variant settings.
@@ -116,14 +123,15 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Preprocessed input tensor suitable for SSD300 VGG16.
         """
-        # Download sample image
-        input_image = get_file(self.sample_image_url)
+        # Load image from HuggingFace dataset
+        dataset = load_dataset("huggingface/cats-image")["test"]
+        image = dataset[0]["image"].convert("RGB")
 
         # Load and preprocess image using torchvision weights transforms
         weights = models.detection.SSD300_VGG16_Weights.DEFAULT
         preprocess = weights.transforms()
-        image = Image.open(str(input_image)).convert("RGB")
         img_t = preprocess(image)
+        self.original_image_sizes = (img_t.shape[-2], img_t.shape[-1])
         batch_t = torch.unsqueeze(img_t, 0)
         batch_t = batch_t.contiguous()
 
@@ -138,16 +146,30 @@ class ModelLoader(ForgeModel):
 
         return batch_t
 
-    def postprocess_results(self, model, fw_out, co_out, inputs):
-        """Postprocess detection results from framework and compiled model outputs and Print classification results
+    def postprocess_detections(self, fw_out, co_out):
+        """Run post-processing on raw model outputs (head_outputs, anchors) on CPU.
 
         Args:
-            model: The SSD model instance (typically the wrapped model)
-            fw_out: Framework model outputs
-            co_out: Compiled model outputs
-            inputs: Input tensors used for inference
+            fw_out: Framework model outputs (head_outputs, anchors) tuple.
+            co_out: Compiled model outputs (head_outputs, anchors) tuple.
 
+        Returns:
+            Tuple of (framework model detections, compiled model detections).
         """
-        postprocessor = SSDPostprocessor(model)
-        _, detection_co = postprocessor.process(fw_out, co_out, inputs)
-        print_compiled_model_results(detection_co)
+        fw_head_outputs, fw_anchors = fw_out
+        detections_fw = self.model.postprocess_detections(
+            fw_head_outputs, fw_anchors, [self.image_sizes]
+        )
+        detections_fw = self.model.transform.postprocess(
+            detections_fw, [self.image_sizes], [self.original_image_sizes]
+        )
+
+        co_head_outputs, co_anchors = co_out
+        detections_co = self.model.postprocess_detections(
+            co_head_outputs, co_anchors, [self.image_sizes]
+        )
+        detections_co = self.model.transform.postprocess(
+            detections_co, [self.image_sizes], [self.original_image_sizes]
+        )
+
+        return detections_fw, detections_co
