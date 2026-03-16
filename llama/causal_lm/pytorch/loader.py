@@ -325,6 +325,7 @@ class ModelLoader(ForgeModel):
         return get_static_cache_decode_inputs(
             tokenizer=self.tokenizer,
             config=self.config,
+            model=self.model,
             batch_size=batch_size,
             max_cache_len=max_cache_len,
             dtype=dtype_override,
@@ -411,7 +412,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_1_405B_INSTRUCT,
         ]:
             if num_devices == 32:  # Galaxy
-                mesh_shape = (8, 4)
+                mesh_shape = (4, 8)
             else:  # wh/bh llmbox
                 mesh_shape = (2, num_devices // 2)
         else:

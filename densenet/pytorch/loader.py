@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from torchvision import models
 import torch
 import os
+from datasets import load_dataset
 
 from ...tools.utils import VisionPreprocessor, VisionPostprocessor
 
@@ -30,6 +31,12 @@ try:
     import skimage
     import torchvision
     from .src.utils import op_norm
+
+    # Patch the installed torchxrayvision op_norm with our XLA-compatible version
+    # (uses torch.where instead of boolean mask indexing to avoid dynamo graph breaks)
+    import torchxrayvision.models as _xrv_models
+
+    _xrv_models.op_norm = op_norm
 
     XRAY_AVAILABLE = True
 except ImportError:
@@ -199,13 +206,15 @@ class ModelLoader(ForgeModel):
                 raise ImportError(
                     "torchxrayvision is required for X-ray models. Install it with: pip install torchxrayvision"
                 )
-            from ...tools.utils import get_file
+            # Load image from HuggingFace dataset (for non-X-ray variants, X-ray uses special image)
+            # Note: X-ray variant requires special image, but we'll use cats-image for consistency
+            dataset = load_dataset("huggingface/cats-image")["test"]
+            pil_image = dataset[0]["image"]
+            # Convert PIL to numpy array for X-ray processing
+            import numpy as np
 
-            # Use X-ray specific preprocessing
-            img_path = get_file(
-                "https://huggingface.co/spaces/torchxrayvision/torchxrayvision-classifier/resolve/main/16747_3_1.jpg"
-            )
-            img = skimage.io.imread(str(img_path))
+            img = np.array(pil_image.convert("L"))  # Convert to grayscale
+            # Normalize for X-ray processing
             img = xrv.datasets.normalize(img, 255)
             # Check that images are 2D arrays
             if len(img.shape) > 2:

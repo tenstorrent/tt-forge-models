@@ -14,8 +14,7 @@ from ...config import (
 )
 from ...base import ForgeModel
 from transformers import MgpstrProcessor, MgpstrForSceneTextRecognition
-from PIL import Image
-from ...tools.utils import get_file
+from datasets import load_dataset
 
 
 class ModelLoader(ForgeModel):
@@ -62,16 +61,19 @@ class ModelLoader(ForgeModel):
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
-            model = model.to(dtype_override)
+            # Temporary FP32 workaround: BF16 can trigger a known WH matmul/fp32-dest-acc accuracy issue
+            # Remove once https://github.com/tenstorrent/tt-metal/issues/39518 is resolved.
+            print("NOTE: dtype_override ignored")
+            # model = model.to(dtype_override)
 
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Prepare sample input for MGP-STR model"""
 
-        # Get the Image
-        image_file = get_file("https://i.postimg.cc/ZKwLg2Gw/367-14.png")
-        image = Image.open(image_file).convert("RGB")
+        # Load image from HuggingFace dataset
+        dataset = load_dataset("huggingface/cats-image")["test"]
+        image = dataset[0]["image"].convert("RGB")
 
         # Preprocess image
         self.processor = MgpstrProcessor.from_pretrained(self.model_name)
@@ -82,7 +84,10 @@ class ModelLoader(ForgeModel):
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
-            inputs = inputs.to(dtype_override)
+            # Temporary FP32 workaround: BF16 can trigger a known WH matmul/fp32-dest-acc accuracy issue
+            # Remove once https://github.com/tenstorrent/tt-metal/issues/39518 is resolved.
+            print("NOTE: dtype_override ignored")
+            # inputs = inputs.to(dtype_override)
 
         # Add batch dimension
         inputs = inputs.repeat_interleave(batch_size, dim=0)
