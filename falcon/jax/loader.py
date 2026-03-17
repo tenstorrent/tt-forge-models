@@ -137,7 +137,7 @@ class ModelLoader(ForgeModel):
             batch_size = 8
 
         from transformers import AutoTokenizer
-        
+
         tokenizer_kwargs = {}
 
         if dtype_override is not None:

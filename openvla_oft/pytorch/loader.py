@@ -119,9 +119,7 @@ class ModelLoader(ForgeModel):
             The loaded processor instance
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        image_processor = PrismaticImageProcessor.from_pretrained(
-            pretrained_model_name
-        )
+        image_processor = PrismaticImageProcessor.from_pretrained(pretrained_model_name)
         tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
         self.processor = PrismaticProcessor(
             image_processor=image_processor, tokenizer=tokenizer

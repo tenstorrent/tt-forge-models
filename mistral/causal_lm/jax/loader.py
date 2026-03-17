@@ -157,7 +157,7 @@ class ModelLoader(ForgeModel):
             # Load the model using HF for v0.1 tiny variant as there are some errors with this variant using EasyDeL
             # https://github.com/tenstorrent/tt-xla/issues/2770
             from transformers import FlaxMistralForCausalLM
-            
+
             model = FlaxMistralForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
             )

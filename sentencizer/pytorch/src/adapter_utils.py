@@ -5582,7 +5582,9 @@ class XLMRobertaSelfAttentionWithAdapters(
             if isinstance(past_key_values, EncoderDecoderCache):
                 current_past_key_values = past_key_values.self_attention_cache
             key_layer, value_layer = current_past_key_values.update(
-                key_layer, value_layer, self.layer_idx,
+                key_layer,
+                value_layer,
+                self.layer_idx,
                 {"cache_position": cache_position},
             )
 
@@ -5615,7 +5617,6 @@ class XLMRobertaSelfAttentionWithAdapters(
         )
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
         return attn_output, attn_weights
-
 
     # XLMRobertaSdpaSelfAttentionWithAdapters removed: transformers 5.x unified attention
     # into XLMRobertaSelfAttention. XLMRobertaSelfAttentionWithAdapters handles all cases now.

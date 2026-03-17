@@ -127,7 +127,7 @@ class ModelLoader(ForgeModel):
             batch_size = 8
 
         from transformers import AutoTokenizer
-        
+
         tokenizer_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             tokenizer_kwargs["dtype"] = dtype_override
