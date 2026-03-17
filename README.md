@@ -140,7 +140,7 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="my_model",
             variant=variant,
-            group=ModelGroup.PRIORITY,
+            group=ModelGroup.PRIORITY,  # Use appropriate enum
             task=ModelTask.CV_IMAGE_CLS,  # Use appropriate enum
             source=ModelSource.HUGGING_FACE,  # Use appropriate enum
             framework=Framework.TORCH,
