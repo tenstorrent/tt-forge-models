@@ -54,6 +54,7 @@ def forward(
     lang_tokens: Tensor,
     lang_masks: Tensor,
     state: Tensor,
+    noise: Tensor = None,
     **kwargs
 ) -> Tensor:
     """
@@ -75,6 +76,9 @@ def forward(
         lang_tokens (Tensor): Tokenized language observations.
         lang_masks (Tensor): Attention masks for language tokens.
         state (Tensor): State vector including proprioception / joint positions.
+        noise (Tensor, optional): Pre-generated noise tensor for deterministic
+            diffusion sampling. When provided, both CPU and device runs use
+            the same starting noise, ensuring reproducible PCC comparison.
         **kwargs: Additional keyword arguments passed to `sample_actions`.
 
     Returns:
@@ -89,9 +93,21 @@ def forward(
 
     queue = self._device_queues[device_key]
     if len(queue) == 0:
-        actions = self.model.sample_actions(
-            images, img_masks, lang_tokens, lang_masks, state, **kwargs
-        )
+        original_cumsum = torch.cumsum
+
+        def _safe_cumsum(input, dim, **kwargs):
+            if input.dtype == torch.bool:
+                input = input.to(torch.long)
+            return original_cumsum(input, dim, **kwargs)
+
+        torch.cumsum = _safe_cumsum
+        try:
+            actions = self.model.sample_actions(
+                images, img_masks, lang_tokens, lang_masks, state, noise=noise, **kwargs
+            )
+        finally:
+            torch.cumsum = original_cumsum
+
         original_action_dim = self.config.output_features["action"].shape[0]
         actions = actions[:, :, :original_action_dim]
         actions = actions[:, : self.config.n_action_steps]
