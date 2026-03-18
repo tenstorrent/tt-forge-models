@@ -179,7 +179,7 @@ class ModelLoader(ForgeModel):
                     ]
                 )
             )
-            or "70b" in variant.value
+            or "70B" in variant.value
             or variant == ModelVariant.LLAMA_3_1_405B
         ):
             group = ModelGroup.RED
@@ -325,6 +325,7 @@ class ModelLoader(ForgeModel):
         return get_static_cache_decode_inputs(
             tokenizer=self.tokenizer,
             config=self.config,
+            model=self.model,
             batch_size=batch_size,
             max_cache_len=max_cache_len,
             dtype=dtype_override,
