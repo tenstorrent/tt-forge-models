@@ -4,7 +4,7 @@
 """
 Llama model loader implementation for sequence classification.
 """
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -254,3 +254,81 @@ class ModelLoader(ForgeModel):
         predicted_class_id = logits.argmax().item()
         predicted_category = self.model.config.id2label[predicted_class_id]
         return predicted_category
+
+    def get_mesh_config(self, num_devices: int):
+        if self._variant in [
+            ModelVariant.LLAMA_3_8B,
+            ModelVariant.LLAMA_3_8B_INSTRUCT,
+            ModelVariant.LLAMA_3_1_8B,
+            ModelVariant.LLAMA_3_1_8B_INSTRUCT,
+            ModelVariant.LLAMA_3_2_1B,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT,
+            ModelVariant.LLAMA_3_2_3B,
+            ModelVariant.LLAMA_3_2_3B_INSTRUCT,
+            ModelVariant.LLAMA_3_1_70B,
+            ModelVariant.LLAMA_3_1_70B_INSTRUCT,
+            ModelVariant.LLAMA_3_3_70B_INSTRUCT,
+            ModelVariant.LLAMA_3_1_405B,
+            ModelVariant.LLAMA_3_1_405B_INSTRUCT,
+        ]:
+            if num_devices == 32:  # Galaxy
+                mesh_shape = (4, 8)
+            else:  # wh/bh llmbox
+                mesh_shape = (2, num_devices // 2)
+        else:
+            mesh_shape = (1, num_devices)
+
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        """Load weight shard specifications for sequence classification.
+
+        Args:
+            model: The model whose weights are to be sharded.
+            strategy: Sharding strategy — "fsdp" shards across both axes,
+                      "megatron" shards on "model" axis only (other axis is None).
+            batch_axis: Name of the non-model mesh axis for "fsdp" specs (ignored
+                        by "megatron"). Defaults to "batch" for a ("batch", "model")
+                        mesh; pass "data" when input sharding is enabled, because
+                        load_shard_spec_data_parallel hardcodes "data" as the input
+                        sharding axis, forcing the mesh to ("data", "model").
+        Returns:
+            dict mapping weight tensors to shard spec tuples, or None for small models.
+        """
+
+        if self._variant in [
+            ModelVariant.LLAMA_3_8B,
+            ModelVariant.LLAMA_3_8B_INSTRUCT,
+            ModelVariant.LLAMA_3_1_8B,
+            ModelVariant.LLAMA_3_1_8B_INSTRUCT,
+            ModelVariant.LLAMA_3_2_1B,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT,
+            ModelVariant.LLAMA_3_2_3B,
+            ModelVariant.LLAMA_3_2_3B_INSTRUCT,
+        ]:
+            return None
+
+        shard_specs = {}
+
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+
+        return shard_specs
+
+    def load_config(self):
+        """Load and return the configuration for the Llama model variant.
+        Returns:
+            The configuration object for the Llama model.
+        """
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+
+        return self.config
