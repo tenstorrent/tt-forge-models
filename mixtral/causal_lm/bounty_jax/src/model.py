@@ -11,7 +11,7 @@ from flax.linen import combine_masks, make_causal_mask
 from jax import Array, lax
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-from transformers.modeling_flax_utils import ACT2FN
+from transformers.activations import ACT2FN
 from transformers.models.mixtral.configuration_mixtral import MixtralConfig
 
 

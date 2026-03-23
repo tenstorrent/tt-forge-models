@@ -7,7 +7,16 @@ T5 model loader implementation for summarization.
 """
 
 from typing import Optional
-from transformers.models.t5.modeling_flax_t5 import shift_tokens_right
+
+import jax.numpy as jnp
+
+
+def shift_tokens_right(input_ids, pad_token_id, decoder_start_token_id):
+    """Shift input ids one token to the right for decoder input preparation."""
+    shifted = jnp.roll(input_ids, 1, axis=-1)
+    shifted = shifted.at[:, 0].set(decoder_start_token_id)
+    shifted = jnp.where(shifted == -100, pad_token_id, shifted)
+    return shifted
 
 from ....base import ForgeModel
 from ....config import (

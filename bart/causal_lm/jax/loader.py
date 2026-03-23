@@ -6,7 +6,7 @@
 BART model loader implementation for causal language modeling.
 """
 
-from transformers import AutoTokenizer, FlaxBartForCausalLM
+from transformers import AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -122,6 +122,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        from transformers import FlaxBartForCausalLM
 
         # Load the model
         model = FlaxBartForCausalLM.from_pretrained(

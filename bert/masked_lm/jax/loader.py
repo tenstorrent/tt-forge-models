@@ -6,7 +6,7 @@
 BERT model loader implementation for masked language modeling.
 """
 
-from transformers import AutoTokenizer, FlaxBertForMaskedLM
+from transformers import AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -120,6 +120,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        from transformers import FlaxBertForMaskedLM
 
         # Load the model
         model = FlaxBertForMaskedLM.from_pretrained(

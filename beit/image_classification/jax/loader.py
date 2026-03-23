@@ -7,7 +7,7 @@ BEiT model loader implementation for image classification.
 """
 
 import jax
-from transformers import BeitImageProcessor, FlaxBeitForImageClassification
+from transformers import BeitImageProcessor
 from datasets import load_dataset
 from typing import Optional
 
@@ -116,6 +116,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        from transformers import FlaxBeitForImageClassification
 
         # Load the model
         model = FlaxBeitForImageClassification.from_pretrained(

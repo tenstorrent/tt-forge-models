@@ -6,7 +6,7 @@
 ALBERT model loader implementation for masked language modeling.
 """
 
-from transformers import FlaxAlbertForMaskedLM, AlbertTokenizer
+from transformers import AlbertTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -131,6 +131,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        from transformers import FlaxAlbertForMaskedLM
 
         # Load the model
         model = FlaxAlbertForMaskedLM.from_pretrained(
