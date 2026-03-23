@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available BERT model variants."""
 
     BASE = "Base"
+    BASE_CASED = "Base_Cased"
     LARGE = "Large"
 
 
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: LLMModelConfig(
             pretrained_model_name="google-bert/bert-base-uncased",
+        ),
+        ModelVariant.BASE_CASED: LLMModelConfig(
+            pretrained_model_name="google-bert/bert-base-cased",
         ),
         ModelVariant.LARGE: LLMModelConfig(
             pretrained_model_name="google-bert/bert-large-uncased",
