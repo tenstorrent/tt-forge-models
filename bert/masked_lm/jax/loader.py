@@ -27,6 +27,8 @@ class ModelVariant(StrEnum):
 
     BASE = "Base"
     BASE_CASED = "Base_Cased"
+    BASE_MULTILINGUAL_CASED = "Base_Multilingual_Cased"
+    BASE_MULTILINGUAL_UNCASED = "Base_Multilingual_Uncased"
     LARGE = "Large"
 
 
@@ -40,6 +42,12 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.BASE_CASED: LLMModelConfig(
             pretrained_model_name="google-bert/bert-base-cased",
+        ),
+        ModelVariant.BASE_MULTILINGUAL_CASED: LLMModelConfig(
+            pretrained_model_name="google-bert/bert-base-multilingual-cased",
+        ),
+        ModelVariant.BASE_MULTILINGUAL_UNCASED: LLMModelConfig(
+            pretrained_model_name="google-bert/bert-base-multilingual-uncased",
         ),
         ModelVariant.LARGE: LLMModelConfig(
             pretrained_model_name="google-bert/bert-large-uncased",
