@@ -1511,7 +1511,7 @@ class HuggingCLIPLanguageBackbone(BaseModule):
         clip_config = CLIPTextConfig.from_pretrained(
             model_name, attention_dropout=dropout
         )
-        self.model = CLIPTP.from_pretrained(model_name, config=clip_config)
+        self.model = CLIPTP.from_pretrained(model_name, config=clip_config, attn_implementation="eager")
         self._freeze_modules()
 
     def forward_tokenizer(self, texts):

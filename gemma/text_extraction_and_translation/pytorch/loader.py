@@ -95,7 +95,7 @@ class ModelLoader(ForgeModel):
         """
         processor_kwargs = {}
         if dtype_override is not None:
-            processor_kwargs["torch_dtype"] = dtype_override
+            processor_kwargs["dtype"] = dtype_override
 
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name, **processor_kwargs
@@ -118,9 +118,9 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {"return_dict": False}
+        model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForImageTextToText.from_pretrained(
