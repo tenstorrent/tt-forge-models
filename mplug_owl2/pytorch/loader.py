@@ -11,6 +11,7 @@ from PIL import Image
 from transformers import AutoTokenizer
 from transformers.models.clip.image_processing_clip import CLIPImageProcessor
 
+from datasets import load_dataset
 from ...tools.utils import get_file
 from ...base import ForgeModel
 from ...config import (
@@ -155,8 +156,8 @@ class ModelLoader(ForgeModel):
             self._load_processors()
 
         # Image
-        image_file = get_file(self.default_image_url)
-        image = Image.open(image_file).convert("RGB")
+        dataset = load_dataset("huggingface/cats-image", split="test")
+        image = dataset[0]["image"].convert("RGB")
 
         image_tensor = process_images([image], self.image_processor)  # (B, C, H, W)
         if batch_size > 1:

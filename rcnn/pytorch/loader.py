@@ -23,10 +23,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import get_file
-
-# Default image for testing
-DEFAULT_IMAGE_PATH = "forge/test/models/files/samples/images/car.jpg"
+from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -138,23 +135,23 @@ class ModelLoader(ForgeModel):
         Args:
             batch_size: Number of samples in the batch
             dtype_override: Optional torch.dtype to override input dtype
-            image_path: Optional path to input image. If None, uses default test image.
+            image_path: Optional path to input image. If None, uses HuggingFace dataset image.
             use_selective_search: Whether to use selective search for region proposals
 
         Returns:
             List of input tensors matching the expected RCNN input format
         """
         if image_path is None:
-            image_path = DEFAULT_IMAGE_PATH
-
-        # Load image
-        try:
-            img = cv2.imread(image_path)
-            if img is None:
-                raise FileNotFoundError(f"Could not load image from {image_path}")
-        except Exception:
-            # Create a dummy image if file not found
-            img = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+            dataset = load_dataset("huggingface/cats-image", split="test")
+            pil_image = dataset[0]["image"].convert("RGB")
+            img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+        else:
+            try:
+                img = cv2.imread(image_path)
+                if img is None:
+                    raise FileNotFoundError(f"Could not load image from {image_path}")
+            except Exception:
+                img = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
 
         # Define transforms
         transform = transforms.Compose(
@@ -218,15 +215,16 @@ class ModelLoader(ForgeModel):
             Tuple of (index, [input_tensor]) for each region proposal
         """
         if image_path is None:
-            image_path = DEFAULT_IMAGE_PATH
-
-        try:
-            img = cv2.imread(image_path)
-            if img is None:
-                raise FileNotFoundError(f"Could not load image from {image_path}")
-        except Exception:
-            # Create a dummy image if file not found
-            img = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+            dataset = load_dataset("huggingface/cats-image", split="test")
+            pil_image = dataset[0]["image"].convert("RGB")
+            img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+        else:
+            try:
+                img = cv2.imread(image_path)
+                if img is None:
+                    raise FileNotFoundError(f"Could not load image from {image_path}")
+            except Exception:
+                img = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
 
         # Define transforms
         transform = transforms.Compose(
@@ -286,13 +284,15 @@ class ModelLoader(ForgeModel):
             List of region proposals as [xmin, ymin, xmax, ymax] coordinates
         """
         if image_path is None:
-            image_path = DEFAULT_IMAGE_PATH
-
-        try:
+            dataset = load_dataset("huggingface/cats-image", split="test")
+            pil_image = dataset[0]["image"].convert("RGB")
+            img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+        else:
             img = cv2.imread(image_path)
             if img is None:
                 raise FileNotFoundError(f"Could not load image from {image_path}")
 
+        try:
             # Selective search for region proposals
             gs = cv2.ximgproc.segmentation.createSelectiveSearchSegmentation()
             gs.setBaseImage(img)
