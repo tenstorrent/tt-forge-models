@@ -177,8 +177,6 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {
             "padding_side": "right",
         }
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
         # Initialize tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -204,7 +202,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.num_layers is not None:

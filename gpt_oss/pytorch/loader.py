@@ -97,8 +97,6 @@ class ModelLoader(ForgeModel):
         """
         # Initialize tokenizer with dtype override if specified
         tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
 
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -137,9 +135,9 @@ class ModelLoader(ForgeModel):
 
         # Set dtype - default to bfloat16 if not specified
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         else:
-            model_kwargs["torch_dtype"] = torch.bfloat16
+            model_kwargs["dtype"] = torch.bfloat16
         model_kwargs |= kwargs
 
         # Load model

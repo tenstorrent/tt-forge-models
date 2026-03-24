@@ -80,7 +80,7 @@ class ModelLoader(ForgeModel):
         """Load processor for the current variant."""
         kwargs = {}
         if dtype_override is not None:
-            kwargs["torch_dtype"] = dtype_override
+            kwargs["dtype"] = dtype_override
 
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name, **kwargs
@@ -103,7 +103,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs

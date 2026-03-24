@@ -96,7 +96,7 @@ class ModelLoader(ForgeModel):
 
             model_kwargs = {"attn_implementation": "eager", "trust_remote_code": True}
             if dtype_override is not None:
-                model_kwargs["torch_dtype"] = dtype_override
+                model_kwargs["dtype"] = dtype_override
             model_kwargs |= kwargs
 
             model = AutoModelForCausalLM.from_config(config, **model_kwargs)

@@ -83,8 +83,6 @@ class ModelLoader(ForgeModel):
         """
         # Initialize tokenizer with dtype override if specified
         tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
 
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(

@@ -100,7 +100,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         # Load pre-trained model from HuggingFace

@@ -201,7 +201,7 @@ class ModelLoader(ForgeModel):
                     weight_class_name_fn if source == ModelSource.TORCHVISION else None
                 ),
                 image_processor_kwargs=(
-                    {"use_fast": True} if source == ModelSource.HUGGING_FACE else None
+                    {"backend": "torchvision"} if source == ModelSource.HUGGING_FACE else None
                 ),
             )
 

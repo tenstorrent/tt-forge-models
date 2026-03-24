@@ -152,9 +152,9 @@ class ModelLoader(ForgeModel):
 
         # Load the model with dtype override if specified
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         else:
-            model_kwargs["torch_dtype"] = torch.float32
+            model_kwargs["dtype"] = torch.float32
         model_kwargs |= kwargs
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(

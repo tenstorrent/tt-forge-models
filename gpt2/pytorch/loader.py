@@ -96,7 +96,7 @@ class ModelLoader(ForgeModel):
             config_dict = config.to_dict()
             config_dict["use_cache"] = True
             if dtype_override is not None:
-                config_dict["torch_dtype"] = dtype_override
+                config_dict["dtype"] = dtype_override
             if self.num_layers is not None:
                 config_dict["num_hidden_layers"] = self.num_layers
             config = GPT2Config(**config_dict)
@@ -107,7 +107,7 @@ class ModelLoader(ForgeModel):
                 "use_cache": False,
             }
             if dtype_override is not None:
-                model_kwargs["torch_dtype"] = dtype_override
+                model_kwargs["dtype"] = dtype_override
             model_kwargs |= kwargs
             model = AutoModelForSequenceClassification.from_pretrained(
                 model_name, **model_kwargs

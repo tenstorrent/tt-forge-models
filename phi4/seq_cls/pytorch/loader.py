@@ -81,8 +81,6 @@ class ModelLoader(ForgeModel):
             The loaded tokenizer instance
         """
         tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
 
         # Initialize tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -114,7 +112,7 @@ class ModelLoader(ForgeModel):
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForSequenceClassification.from_pretrained(

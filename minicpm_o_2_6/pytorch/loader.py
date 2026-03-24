@@ -116,7 +116,7 @@ class ModelLoader(ForgeModel):
         self.model = AutoModel.from_pretrained(
             config.pretrained_model_name,
             trust_remote_code=True,
-            torch_dtype=torch.float32,
+            dtype=torch.float32,
             **kwargs
         )
         self.tokenizer = AutoTokenizer.from_pretrained(

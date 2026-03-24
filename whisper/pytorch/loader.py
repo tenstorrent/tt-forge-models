@@ -120,7 +120,7 @@ class ModelLoader(ForgeModel):
         # Common model kwargs
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self._variant == ModelVariant.WHISPER_LARGE_V3:

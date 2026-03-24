@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = BertForMaskedLM.from_pretrained(self.model_name, **model_kwargs)

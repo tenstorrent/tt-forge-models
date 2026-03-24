@@ -122,7 +122,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         # Load the model with dtype override if specified
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForImageClassification.from_pretrained(

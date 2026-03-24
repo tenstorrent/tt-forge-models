@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
         # Initialize processor with dtype override if specified
         processor_kwargs = {}
         if dtype_override is not None:
-            processor_kwargs["torch_dtype"] = dtype_override
+            processor_kwargs["dtype"] = dtype_override
 
         # Load the processor
         self.processor = SpeechT5Processor.from_pretrained(
@@ -113,7 +113,7 @@ class ModelLoader(ForgeModel):
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = SpeechT5ForTextToSpeech.from_pretrained(

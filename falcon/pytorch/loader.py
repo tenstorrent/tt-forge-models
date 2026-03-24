@@ -122,8 +122,6 @@ class ModelLoader(ForgeModel):
 
         # Initialize tokenizer
         tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name, **tokenizer_kwargs
         )
@@ -131,7 +129,7 @@ class ModelLoader(ForgeModel):
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
 
         config = AutoConfig.from_pretrained(pretrained_model_name)
         config.use_cache = False

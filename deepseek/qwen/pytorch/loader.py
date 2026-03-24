@@ -66,8 +66,6 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The Deepseek-Qwen model instance.
         """
         tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_name, **tokenizer_kwargs
@@ -75,7 +73,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)

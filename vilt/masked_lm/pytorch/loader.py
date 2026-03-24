@@ -87,7 +87,7 @@ class ModelLoader(ForgeModel):
         # Initialize processor with dtype override if specified
         processor_kwargs = {}
         if dtype_override is not None:
-            processor_kwargs["torch_dtype"] = dtype_override
+            processor_kwargs["dtype"] = dtype_override
 
         # Load the processor
         self.processor = ViltProcessor.from_pretrained(
@@ -116,7 +116,7 @@ class ModelLoader(ForgeModel):
         # Load the model with dtype override if specified
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = ViltForMaskedLM.from_pretrained(pretrained_model_name, **model_kwargs)

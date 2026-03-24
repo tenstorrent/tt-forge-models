@@ -97,7 +97,7 @@ class ModelLoader(ForgeModel):
         # Initialize processor with dtype override if specified
         kwargs = {}
         if dtype_override is not None:
-            kwargs["torch_dtype"] = dtype_override
+            kwargs["dtype"] = dtype_override
 
         # Load the processor
         self.processor = AutoProcessor.from_pretrained(
@@ -125,7 +125,7 @@ class ModelLoader(ForgeModel):
         # Load the model with dtype override if specified
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForImageTextToText.from_pretrained(
