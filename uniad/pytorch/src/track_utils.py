@@ -1652,13 +1652,17 @@ class Instances:
         for k, v in self._fields.items():
             if k == "kalman_models" and isinstance(item, torch.Tensor):
                 ret_list = []
-                for i, if_true in enumerate(item):
+                item_for_list = item.cpu()
+                for i, if_true in enumerate(item_for_list):
                     if if_true:
                         ret_list.append(self.kalman_models[i])
                 ret.set(k, ret_list)
 
             else:
-                ret.set(k, v[item])
+                index_item = item
+                if isinstance(item, torch.Tensor) and isinstance(v, torch.Tensor):
+                    index_item = item.cpu()
+                ret.set(k, v[index_item])
         return ret
 
     def __len__(self) -> int:
