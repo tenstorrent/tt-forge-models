@@ -28,6 +28,41 @@ class ModelVariant(StrEnum):
     )
 
 
+class _BertWithExpandedMask(torch.nn.Module):
+    """Wraps BertModel to pre-expand the attention mask to [B, 1, S, S] additive
+    float format before the forward call.  This bypasses transformers 5.x
+    create_bidirectional_mask which produces a [B,1,1,S] mask expanded via a
+    RepeatOp — a pattern that confuses the tt-mlir SDPA fusing pass and prevents
+    the fused scaled_dot_product_attention kernel from being used."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.bert = model
+
+    def forward(self, input_ids, attention_mask=None, **kwargs):
+        if attention_mask is not None and attention_mask.dim() == 2:
+            seq_len = attention_mask.size(1)
+            # Use torch.where to produce a fully materialized [B, 1, S, S] additive
+            # mask tensor.  expand() produces a stride-0 broadcast that TTNN keeps
+            # as [B, 1, 1, S] (implicit broadcast), which fails the SDPA op verifier
+            # (dim 2 must equal seqLen).  torch.where forces a concrete output that
+            # the SDPAFusingPattern's prepareMask stops at (it only strips TypecastOp
+            # and RepeatOp), so the fused kernel sees the correct [B, 1, S, S] shape.
+            # This mirrors the mask construction that transformers 4.57.1 used.
+            valid = (
+                attention_mask[:, None, None, :].expand(-1, 1, seq_len, seq_len).bool()
+            )
+            zero = torch.zeros(1, dtype=torch.bfloat16, device=attention_mask.device)
+            neg_inf = torch.full(
+                (1,),
+                torch.finfo(torch.bfloat16).min,
+                dtype=torch.bfloat16,
+                device=attention_mask.device,
+            )
+            attention_mask = torch.where(valid, zero, neg_inf)
+        return self.bert(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
+
+
 class ModelLoader(ForgeModel):
     """BERT model loader implementation for sentence embedding generation."""
 
@@ -126,7 +161,7 @@ class ModelLoader(ForgeModel):
         # Store model for potential use in decode_output
         self.model = model
 
-        return model
+        return _BertWithExpandedMask(model)
 
     def input_preprocess(self, dtype_override=None, sentence=None, max_length=None):
         """Preprocess input sentence(s) and return model-ready input tensors.
