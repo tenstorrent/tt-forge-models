@@ -87,9 +87,7 @@ class ModelLoader(ForgeModel):
                         {
                             "ori_shape": [(360, 640, 3)] * 6,
                             "img_shape": [(384, 640, 3)] * 6,
-                            "lidar2img": [
-                                torch.rand(4, 4) * 6,
-                            ],
+                            "lidar2img": [torch.rand(4, 4) * 6 for _ in range(6)],
                             "pad_shape": [(384, 640, 3)] * 6,
                             "scale_factor": 1.0,
                             "flip": False,
