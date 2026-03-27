@@ -36,6 +36,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_4B_GGUF = "4B_GGUF"
     QWEN_3_5_9B_GGUF = "9B_GGUF"
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
+    QWEN_3_5_122B_A10B_AWQ = "122B_A10B_AWQ"
 
 
 class ModelLoader(ForgeModel):
@@ -89,6 +90,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_35B_A3B_NVFP4: LLMModelConfig(
             pretrained_model_name="AxionML/Qwen3.5-35B-A3B-NVFP4",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_122B_A10B_AWQ: LLMModelConfig(
+            pretrained_model_name="QuantTrio/Qwen3.5-122B-A10B-AWQ",
             max_length=128,
         ),
     }
@@ -290,14 +295,14 @@ class ModelLoader(ForgeModel):
 
     def _is_awq_variant(self):
         """Check if the current variant uses AWQ quantization."""
-        return self._variant == ModelVariant.QWEN_3_5_35B_A3B_AWQ_4BIT
+        return self._variant in (ModelVariant.QWEN_3_5_122B_A10B_AWQ,)
 
     def _is_moe_variant(self):
         """Check if the current variant is a Mixture of Experts model."""
         return self._variant in (
             ModelVariant.QWEN_3_5_35B_A3B,
             ModelVariant.QWEN_3_5_35B_A3B_FP8,
-            ModelVariant.QWEN_3_5_122B_A10B,
+            ModelVariant.QWEN_3_5_122B_A10B_AWQ,
         )
 
     def load_shard_spec(self, model):
