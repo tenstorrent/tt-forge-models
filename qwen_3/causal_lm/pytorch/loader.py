@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
     QWEN_3_4B_BASE = "4B_Base"
     QWEN_3_4B_INSTRUCT_2507 = "4B_Instruct_2507"
     QWEN_3_4B_INSTRUCT_2507_FP8 = "4B_Instruct_2507_FP8"
+    QWEN_3_4B_THINKING_2507 = "4B_Thinking_2507"
     QWEN_3_8B = "8B"
     QWEN_3_8B_BASE = "8B_Base"
     QWEN_3_14B = "14B"
@@ -72,6 +73,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_4B_INSTRUCT_2507_FP8: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-4B-Instruct-2507-FP8",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_4B_THINKING_2507: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-4B-Thinking-2507",
             max_length=128,
         ),
         ModelVariant.QWEN_3_8B: LLMModelConfig(
@@ -147,6 +152,7 @@ class ModelLoader(ForgeModel):
         if variant in (
             ModelVariant.QWEN_3_4B_BASE,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507,
+            ModelVariant.QWEN_3_4B_THINKING_2507,
             ModelVariant.QWEN_3_8B_AWQ,
             ModelVariant.QWEN_3_8B_BASE,
             ModelVariant.QWEN_3_14B_INSTRUCT_OPENPIPE,
