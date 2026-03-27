@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa token classification model variants."""
 
     CRYPTO_NER = "CryptoNER"
+    NER_HRL = "NER-HRL"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.CRYPTO_NER: ModelConfig(
             pretrained_model_name="covalenthq/cryptoNER",
+        ),
+        ModelVariant.NER_HRL: ModelConfig(
+            pretrained_model_name="Davlan/xlm-roberta-large-ner-hrl",
         ),
     }
 
