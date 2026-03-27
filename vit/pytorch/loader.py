@@ -37,6 +37,7 @@ class ModelVariant(StrEnum):
     # HuggingFace variants
     BASE = "Base"
     LARGE = "Large"
+    BASE_OXFORD_IIIT_PETS = "Base_Oxford_IIIT_Pets"
 
     # Torchvision variants
     VIT_B_16 = "B_16"
@@ -62,6 +63,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE: ViTConfig(
             pretrained_model_name="google/vit-large-patch16-224",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.BASE_OXFORD_IIIT_PETS: ViTConfig(
+            pretrained_model_name="ISxOdin/vit-base-oxford-iiit-pets",
             source=ModelSource.HUGGING_FACE,
         ),
         # Torchvision variants
@@ -119,6 +124,8 @@ class ModelLoader(ForgeModel):
         # Determine model group
         if variant == ModelVariant.BASE:
             group = ModelGroup.RED
+        elif variant == ModelVariant.BASE_OXFORD_IIIT_PETS:
+            group = ModelGroup.VULCAN
         elif cls._VARIANTS[variant].source == ModelSource.TIMM:
             group = ModelGroup.VULCAN
         else:
