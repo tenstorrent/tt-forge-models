@@ -6,7 +6,6 @@ XLM-RoBERTa model loader implementation for sequence classification (sentiment a
 """
 
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
-from typing import Optional
 
 from ....config import (
     ModelInfo,
@@ -24,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa sequence classification model variants."""
 
     TWITTER_XLM_ROBERTA_BASE_SENTIMENT = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
+    CLAP_AI_MULTILINGUAL_SENTIMENT = "clapAI/roberta-large-multilingual-sentiment"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +32,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT: LLMModelConfig(
             pretrained_model_name="cardiffnlp/twitter-xlm-roberta-base-sentiment",
+            max_length=128,
+        ),
+        ModelVariant.CLAP_AI_MULTILINGUAL_SENTIMENT: LLMModelConfig(
+            pretrained_model_name="clapAI/roberta-large-multilingual-sentiment",
             max_length=128,
         ),
     }
