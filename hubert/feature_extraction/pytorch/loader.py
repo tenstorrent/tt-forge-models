@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available HuBERT feature extraction model variants."""
 
     BASE_LS960 = "Base_ls960"
+    MHUBERT_147 = "mHuBERT_147"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE_LS960: ModelConfig(
             pretrained_model_name="facebook/hubert-base-ls960",
+        ),
+        ModelVariant.MHUBERT_147: ModelConfig(
+            pretrained_model_name="utter-project/mHuBERT-147",
         ),
     }
 
