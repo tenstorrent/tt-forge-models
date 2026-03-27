@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     ROBERTA_BASE_SENTIMENT = "Base_Sentiment"
     ROBERTA_BASE_SENTIMENT_LATEST = "Base_Sentiment_Latest"
     ROBERTA_LARGE_MNLI = "Large_MNLI"
+    ROBERTA_BASE_ZEROSHOT_V2 = "Base_Zeroshot_V2"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.ROBERTA_LARGE_MNLI: ModelConfig(
             pretrained_model_name="FacebookAI/roberta-large-mnli",
+        ),
+        ModelVariant.ROBERTA_BASE_ZEROSHOT_V2: ModelConfig(
+            pretrained_model_name="MoritzLaurer/roberta-base-zeroshot-v2.0-c",
         ),
     }
 
@@ -62,6 +66,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.ROBERTA_BASE_SENTIMENT_LATEST,
             ModelVariant.ROBERTA_LARGE_MNLI,
+            ModelVariant.ROBERTA_BASE_ZEROSHOT_V2,
         ):
             group = ModelGroup.VULCAN
 
@@ -132,9 +137,12 @@ class ModelLoader(ForgeModel):
         self.model = model
         return model
 
-    def _is_mnli_variant(self):
-        """Check if the current variant is an MNLI model."""
-        return self._variant == ModelVariant.ROBERTA_LARGE_MNLI
+    def _is_nli_variant(self):
+        """Check if the current variant is an NLI-based model."""
+        return self._variant in (
+            ModelVariant.ROBERTA_LARGE_MNLI,
+            ModelVariant.ROBERTA_BASE_ZEROSHOT_V2,
+        )
 
     def load_inputs(self):
         """Generate sample inputs for Roberta model."""
@@ -143,7 +151,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self.load_model()  # This will initialize the tokenizer
 
-        if self._is_mnli_variant():
+        if self._is_nli_variant():
             # MNLI uses premise/hypothesis pairs
             inputs = self.tokenizer(
                 self._MNLI_PREMISE,
@@ -177,7 +185,7 @@ class ModelLoader(ForgeModel):
         """
         predicted_value = co_out[0].argmax(-1).item()
         label = self.model.config.id2label[predicted_value]
-        if self._is_mnli_variant():
+        if self._is_nli_variant():
             print(f"Predicted Label: {label}")
         else:
             print(f"Predicted Sentiment: {label}")
