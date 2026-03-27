@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_VL_3B_INSTRUCT_AWQ = "3B_INSTRUCT_Awq"
     QWEN_2_5_VL_7B_INSTRUCT_AWQ = "7B_INSTRUCT_Awq"
     QWEN_2_5_VL_72B_INSTRUCT = "72B_Instruct"
+    QWEN_2_5_VL_72B_INSTRUCT_AWQ = "72B_INSTRUCT_Awq"
 
 
 class ModelLoader(ForgeModel):
@@ -51,6 +52,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_2_5_VL_72B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-VL-72B-Instruct",
+        ),
+        ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-VL-72B-Instruct-AWQ",
         ),
     }
 
@@ -96,12 +100,16 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant == ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_AWQ:
+            group = ModelGroup.VULCAN
+        elif variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT:
+            group = ModelGroup.RED
+        else:
+            group = ModelGroup.GENERALITY
         return ModelInfo(
             model="Qwen 2.5-VL",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT
-            else ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -145,6 +153,7 @@ class ModelLoader(ForgeModel):
         if pretrained_model_name in [
             "Qwen/Qwen2.5-VL-3B-Instruct-AWQ",
             "Qwen/Qwen2.5-VL-7B-Instruct-AWQ",
+            "Qwen/Qwen2.5-VL-72B-Instruct-AWQ",
         ]:
             quantization_config = AwqConfig(version="ipex")
             model_kwargs["quantization_config"] = quantization_config
