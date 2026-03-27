@@ -43,6 +43,7 @@ class ModelVariant(StrEnum):
     QWEN_3_30B_A3B = "30B_A3b"
     QWEN_3_30B_A3B_INSTRUCT_2507 = "30B_A3B_Instruct_2507"
     QWEN_3_14B_AWQ = "14B_Awq"
+    QWEN_3_30B_A3B_GPTQ_INT4 = "30B_A3B_GPTQ_Int4"
 
 
 class ModelLoader(ForgeModel):
@@ -110,6 +111,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-14B-AWQ",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_30B_A3B_GPTQ_INT4: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-30B-A3B-GPTQ-Int4",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -152,6 +157,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_14B_INSTRUCT_OPENPIPE,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
             ModelVariant.QWEN_3_14B_AWQ,
+            ModelVariant.QWEN_3_30B_A3B_GPTQ_INT4,
         ):
             group = ModelGroup.VULCAN
         else:
@@ -211,6 +217,10 @@ class ModelLoader(ForgeModel):
 
         # Check if this is an AWQ variant and configure accordingly
         if pretrained_model_name in ("Qwen/Qwen3-8B-AWQ",):
+            model_kwargs["device_map"] = "cpu"
+
+        # GPTQ variants need device_map="cpu" for CPU-based loading
+        if self._variant == ModelVariant.QWEN_3_30B_A3B_GPTQ_INT4:
             model_kwargs["device_map"] = "cpu"
 
         model_kwargs |= kwargs
@@ -319,6 +329,7 @@ class ModelLoader(ForgeModel):
         return self._variant in (
             ModelVariant.QWEN_3_30B_A3B,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
+            ModelVariant.QWEN_3_30B_A3B_GPTQ_INT4,
             ModelVariant.QWEN_3_235B_A22B_INSTRUCT_2507_FP8,
         )
 
