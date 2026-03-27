@@ -3,6 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 FLUX.2 model loader implementation for text-to-image generation
+
+Repositories:
+- https://huggingface.co/black-forest-labs/FLUX.2-dev
+- https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4b-fp8
 """
 import torch
 from diffusers.models import Flux2Transformer2DModel
@@ -19,11 +23,14 @@ from ...config import (
     StrEnum,
 )
 
+KLEIN_FP8_CHECKPOINT_URL = "https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4b-fp8/blob/main/flux-2-klein-base-4b-fp8.safetensors"
+
 
 class ModelVariant(StrEnum):
     """Available FLUX.2 model variants."""
 
     DEV = "Dev"
+    KLEIN_BASE_4B_FP8 = "Klein-Base-4B-FP8"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +39,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEV: ModelConfig(
             pretrained_model_name="black-forest-labs/FLUX.2-dev",
+        ),
+        ModelVariant.KLEIN_BASE_4B_FP8: ModelConfig(
+            pretrained_model_name="black-forest-labs/FLUX.2-klein-base-4b-fp8",
         ),
     }
 
@@ -56,7 +66,8 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def _load_from_pretrained(self, dtype_override=None):
+        """Load transformer from a standard pretrained repository."""
         load_kwargs = {"use_safetensors": True}
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
@@ -71,6 +82,27 @@ class ModelLoader(ForgeModel):
             self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
+
+    def _load_from_single_file(self, dtype_override=None):
+        """Load transformer from a single safetensors checkpoint (FP8 variants)."""
+        load_kwargs = {}
+        if dtype_override is not None:
+            load_kwargs["torch_dtype"] = dtype_override
+
+        self.transformer = Flux2Transformer2DModel.from_single_file(
+            KLEIN_FP8_CHECKPOINT_URL,
+            **load_kwargs,
+        )
+
+        if dtype_override is not None:
+            self.transformer = self.transformer.to(dtype_override)
+
+        return self.transformer
+
+    def load_model(self, *, dtype_override=None, **kwargs):
+        if self._variant == ModelVariant.KLEIN_BASE_4B_FP8:
+            return self._load_from_single_file(dtype_override=dtype_override)
+        return self._load_from_pretrained(dtype_override=dtype_override)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.transformer is None:
