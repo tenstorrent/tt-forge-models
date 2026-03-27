@@ -41,6 +41,9 @@ class ModelVariant(StrEnum):
     SMALL = "Small"
     TINY = "Tiny"
 
+    # TIMM variants
+    DEIT_TINY_PATCH16_224_FB_IN1K = "Tiny_Patch16_224_FB_IN1K"
+
 
 class ModelLoader(ForgeModel):
     """Deit model loader implementation."""
@@ -62,6 +65,11 @@ class ModelLoader(ForgeModel):
         ModelVariant.TINY: DeitConfig(
             pretrained_model_name="facebook/deit-tiny-patch16-224",
             source=ModelSource.HUGGING_FACE,
+        ),
+        # TIMM variants
+        ModelVariant.DEIT_TINY_PATCH16_224_FB_IN1K: DeitConfig(
+            pretrained_model_name="deit_tiny_patch16_224.fb_in1k",
+            source=ModelSource.TIMM,
         ),
     }
 
@@ -97,10 +105,16 @@ class ModelLoader(ForgeModel):
         # Get source from variant config
         source = cls._VARIANTS[variant].source
 
+        # Determine model group
+        if cls._VARIANTS[variant].source == ModelSource.TIMM:
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
             model="DeiT",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_CLS,
             source=source,
             framework=Framework.TORCH,
@@ -120,7 +134,12 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
         source = self._variant_config.source
 
-        if source == ModelSource.HUGGING_FACE:
+        if source == ModelSource.TIMM:
+            # Load model from TIMM
+            import timm
+
+            model = timm.create_model(pretrained_model_name, pretrained=True)
+        elif source == ModelSource.HUGGING_FACE:
             # Load pre-trained model from HuggingFace
             model = ViTForImageClassification.from_pretrained(
                 pretrained_model_name, **kwargs
