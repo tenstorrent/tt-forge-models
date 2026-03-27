@@ -6,6 +6,7 @@ Gemma model loader implementation for text extraction and translation task.
 """
 import torch
 from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers.models.gemma3.modeling_gemma3 import Gemma3Model
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +19,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
+from .src.utils import patched_forward
 
 
 class ModelVariant(StrEnum):
@@ -117,6 +119,9 @@ class ModelLoader(ForgeModel):
 
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
+
+        # Monkey patch Gemma3Model.forward to replace masked_scatter with a static-shape decomposition
+        Gemma3Model.forward = patched_forward
 
         model_kwargs = {"return_dict": False}
         if dtype_override is not None:
