@@ -71,6 +71,9 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # Unsloth BNB 4-bit quantized variants
+    LLAMA_3_8B_BNB_4BIT = "3.0_8B_bnb_4bit"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -172,6 +175,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # Unsloth BNB 4-bit quantized variants
+        ModelVariant.LLAMA_3_8B_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/llama-3-8b-bnb-4bit",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -214,6 +222,7 @@ class ModelLoader(ForgeModel):
         if variant in [
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.LLAMA_3_8B_BNB_4BIT,
         ]:
             group = ModelGroup.VULCAN
         elif (
@@ -303,10 +312,11 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        # Check if this is an AWQ variant and configure accordingly
+        # Check if this is an AWQ or BNB variant and configure accordingly
         if (
             pretrained_model_name
             == "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"
+            or self._variant == ModelVariant.LLAMA_3_8B_BNB_4BIT
         ):
             model_kwargs["device_map"] = "cpu"
 
