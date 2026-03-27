@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     QWEN_3_CODER_NEXT = "Next"
     QWEN_3_CODER_30B_A3B_INSTRUCT = "30B_A3B_Instruct"
+    QWEN_3_CODER_480B_A35B_INSTRUCT_FP8_DYNAMIC = "480B_A35B_Instruct_FP8_Dynamic"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_CODER_30B_A3B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-Coder-30B-A3B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_CODER_480B_A35B_INSTRUCT_FP8_DYNAMIC: LLMModelConfig(
+            pretrained_model_name="BCCard/Qwen3-Coder-480B-A35B-Instruct-FP8-Dynamic",
             max_length=128,
         ),
     }
