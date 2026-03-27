@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     ROBERTA_BASE_SENTIMENT = "Base_Sentiment"
     ROBERTA_BASE_SENTIMENT_LATEST = "Base_Sentiment_Latest"
     ROBERTA_LARGE_MNLI = "Large_MNLI"
+    GARAK_ROBERTA_TOXICITY = "Garak_Toxicity_Classifier"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.ROBERTA_LARGE_MNLI: ModelConfig(
             pretrained_model_name="FacebookAI/roberta-large-mnli",
+        ),
+        ModelVariant.GARAK_ROBERTA_TOXICITY: ModelConfig(
+            pretrained_model_name="garak-llm/roberta_toxicity_classifier",
         ),
     }
 
@@ -62,6 +66,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.ROBERTA_BASE_SENTIMENT_LATEST,
             ModelVariant.ROBERTA_LARGE_MNLI,
+            ModelVariant.GARAK_ROBERTA_TOXICITY,
         ):
             group = ModelGroup.VULCAN
 
@@ -83,6 +88,10 @@ class ModelLoader(ForgeModel):
     )
     _MNLI_HYPOTHESIS = "Most of Mrinal Sen's work can be found in European collections."
 
+    _SAMPLE_TEXTS = {
+        ModelVariant.GARAK_ROBERTA_TOXICITY: "This is a perfectly normal and friendly comment.",
+    }
+
     def __init__(self, variant=None, num_layers: Optional[int] = None):
         """Initialize ModelLoader with specified variant.
 
@@ -94,7 +103,10 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
 
         # Configuration parameters
-        self.text = """Great road trip views! @ Shartlesville, Pennsylvania"""
+        self.text = self._SAMPLE_TEXTS.get(
+            self._variant,
+            "Great road trip views! @ Shartlesville, Pennsylvania",
+        )
         self.max_length = 128
         self.tokenizer = None
         self.num_layers = num_layers
@@ -179,5 +191,7 @@ class ModelLoader(ForgeModel):
         label = self.model.config.id2label[predicted_value]
         if self._is_mnli_variant():
             print(f"Predicted Label: {label}")
+        elif self._variant == ModelVariant.GARAK_ROBERTA_TOXICITY:
+            print(f"Predicted Toxicity: {label}")
         else:
             print(f"Predicted Sentiment: {label}")
