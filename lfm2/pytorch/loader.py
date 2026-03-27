@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available LFM2 model variants."""
 
     LFM2_24B_A2B = "LFM2_24B_A2B"
+    LFM2_350M = "LFM2_350M"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.LFM2_24B_A2B: LLMModelConfig(
             pretrained_model_name="LiquidAI/LFM2-24B-A2B",
             max_length=2048,
+        ),
+        ModelVariant.LFM2_350M: LLMModelConfig(
+            pretrained_model_name="LiquidAI/LFM2-350M",
+            max_length=128,
         ),
     }
 
