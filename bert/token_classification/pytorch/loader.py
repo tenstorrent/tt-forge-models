@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER = (
         "CAMeL-Lab/bert-base-arabic-camelbert-msa-ner"
     )
+    P208P2002_ZH_WIKI_PUNCTUATION_RESTORE = "p208p2002/zh-wiki-punctuation-restore"
 
 
 class ModelLoader(ForgeModel):
@@ -51,6 +52,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER: LLMModelConfig(
             pretrained_model_name="CAMeL-Lab/bert-base-arabic-camelbert-msa-ner",
+            max_length=128,
+        ),
+        ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE: LLMModelConfig(
+            pretrained_model_name="p208p2002/zh-wiki-punctuation-restore",
             max_length=128,
         ),
     }
@@ -77,6 +82,8 @@ class ModelLoader(ForgeModel):
             self.sample_text = (
                 "إمارة أبوظبي هي إحدى إمارات دولة الإمارات العربية المتحدة السبع"
             )
+        elif self._variant == ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE:
+            self.sample_text = "在一般情况下句子的结尾要用句号来表示停顿"
         else:
             self.sample_text = "HuggingFace is a company based in Paris and New York"
         self.max_length = 128
@@ -100,6 +107,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.DSLIM_BERT_BASE_NER,
             ModelVariant.HATMIMOHA_ARABIC_NER,
             ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER,
+            ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE,
         ):
             group = ModelGroup.VULCAN
 
