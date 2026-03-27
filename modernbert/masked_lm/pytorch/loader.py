@@ -24,6 +24,12 @@ class ModelVariant(StrEnum):
     BASE = "Base"
     LARGE = "Large"
     BIOCLINICAL_BASE = "BioClinical_Base"
+    SECUREBERT2_BASE = "SecureBERT2.0_Base"
+
+
+_SAMPLE_TEXTS = {
+    ModelVariant.SECUREBERT2_BASE: "The malware exploits a vulnerability in the [MASK] system.",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -42,6 +48,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="thomas-sounack/BioClinical-ModernBERT-base",
             max_length=128,
         ),
+        ModelVariant.SECUREBERT2_BASE: LLMModelConfig(
+            pretrained_model_name="cisco-ai/SecureBERT2.0-base",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BASE
@@ -57,7 +67,9 @@ class ModelLoader(ForgeModel):
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.model_name = pretrained_model_name
-        self.sample_text = "The capital of France is [MASK]."
+        self.sample_text = _SAMPLE_TEXTS.get(
+            self._variant, "The capital of France is [MASK]."
+        )
         self.max_length = 128
         self.tokenizer = None
 
