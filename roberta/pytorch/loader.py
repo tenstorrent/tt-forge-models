@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     ROBERTA_BASE_SENTIMENT = "Base_Sentiment"
     ROBERTA_BASE_SENTIMENT_LATEST = "Base_Sentiment_Latest"
     ROBERTA_LARGE_MNLI = "Large_MNLI"
+    FINANCIAL_ROBERTA_LARGE_SENTIMENT = "Financial_Large_Sentiment"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.ROBERTA_LARGE_MNLI: ModelConfig(
             pretrained_model_name="FacebookAI/roberta-large-mnli",
+        ),
+        ModelVariant.FINANCIAL_ROBERTA_LARGE_SENTIMENT: ModelConfig(
+            pretrained_model_name="soleimanian/financial-roberta-large-sentiment",
         ),
     }
 
@@ -62,6 +66,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.ROBERTA_BASE_SENTIMENT_LATEST,
             ModelVariant.ROBERTA_LARGE_MNLI,
+            ModelVariant.FINANCIAL_ROBERTA_LARGE_SENTIMENT,
         ):
             group = ModelGroup.VULCAN
 
