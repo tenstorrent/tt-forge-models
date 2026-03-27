@@ -23,11 +23,15 @@ class ModelVariant(StrEnum):
     """Available RoBERTa token classification model variants."""
 
     INDONESIAN_ROBERTA_BASE_POSP_TAGGER = "Indonesian_RoBERTa_Base_POSP_Tagger"
+    PROJECTE_AINA_ROBERTA_BASE_CA_V2_CASED_NER = (
+        "projecte-aina/roberta-base-ca-v2-cased-ner"
+    )
     TNER_ROBERTA_LARGE_TWEETNER7_ALL = "tner/roberta-large-tweetner7-all"
 
 
 _VARIANT_SAMPLE_TEXTS = {
     ModelVariant.INDONESIAN_ROBERTA_BASE_POSP_TAGGER: "Saya sedang membaca buku di perpustakaan",
+    ModelVariant.PROJECTE_AINA_ROBERTA_BASE_CA_V2_CASED_NER: "En Jordi viu a Barcelona i treballa a la Universitat de Catalunya",
     ModelVariant.TNER_ROBERTA_LARGE_TWEETNER7_ALL: "Jacob Collier is an amazing musician from London",
 }
 
@@ -38,6 +42,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.INDONESIAN_ROBERTA_BASE_POSP_TAGGER: ModelConfig(
             pretrained_model_name="w11wo/indonesian-roberta-base-posp-tagger",
+        ),
+        ModelVariant.PROJECTE_AINA_ROBERTA_BASE_CA_V2_CASED_NER: ModelConfig(
+            pretrained_model_name="projecte-aina/roberta-base-ca-v2-cased-ner",
         ),
         ModelVariant.TNER_ROBERTA_LARGE_TWEETNER7_ALL: ModelConfig(
             pretrained_model_name="tner/roberta-large-tweetner7-all",
