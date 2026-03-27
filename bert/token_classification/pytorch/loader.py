@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     )
     DSLIM_BERT_BASE_NER = "dslim/bert-base-NER"
     HATMIMOHA_ARABIC_NER = "hatmimoha/arabic-ner"
+    AVICHR_HEBERT_NER = "avichr/heBERT_NER"
 
 
 class ModelLoader(ForgeModel):
@@ -44,6 +45,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.HATMIMOHA_ARABIC_NER: LLMModelConfig(
             pretrained_model_name="hatmimoha/arabic-ner",
+            max_length=128,
+        ),
+        ModelVariant.AVICHR_HEBERT_NER: LLMModelConfig(
+            pretrained_model_name="avichr/heBERT_NER",
             max_length=128,
         ),
     }
@@ -65,6 +70,8 @@ class ModelLoader(ForgeModel):
         self.model_name = pretrained_model_name
         if self._variant == ModelVariant.HATMIMOHA_ARABIC_NER:
             self.sample_text = "نبيه بري النائب علي حسن خليل من البنك الدولي"
+        elif self._variant == ModelVariant.AVICHR_HEBERT_NER:
+            self.sample_text = "דויד לומד באוניברסיטה העברית שבירושלים"
         else:
             self.sample_text = "HuggingFace is a company based in Paris and New York"
         self.max_length = 128
@@ -87,6 +94,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.DSLIM_BERT_BASE_NER,
             ModelVariant.HATMIMOHA_ARABIC_NER,
+            ModelVariant.AVICHR_HEBERT_NER,
         ):
             group = ModelGroup.VULCAN
 
