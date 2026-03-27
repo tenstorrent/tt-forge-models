@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
         "distilbert-base-uncased-finetuned-sst-2-english"
     )
     DISTILBERT_BASE_UNCASED_EMOTION = "distilbert-base-uncased-emotion"
+    GARAK_LLM_TOXIC_COMMENT_MODEL = "garak-llm-toxic-comment-model"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +41,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bhadresh-savani/distilbert-base-uncased-emotion",
             max_length=128,
         ),
+        ModelVariant.GARAK_LLM_TOXIC_COMMENT_MODEL: LLMModelConfig(
+            pretrained_model_name="garak-llm/toxic-comment-model",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -49,6 +54,7 @@ class ModelLoader(ForgeModel):
     _SAMPLE_TEXTS = {
         ModelVariant.DISTILBERT_BASE_UNCASED_FINETUNED_SST_2_ENGLISH: "the movie was great!",
         ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION: "I love using transformers. The best part is wide range of support and its easy to use",
+        ModelVariant.GARAK_LLM_TOXIC_COMMENT_MODEL: "This is a perfectly normal and friendly comment.",
     }
 
     def __init__(self, variant=None):
@@ -80,7 +86,10 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         group = ModelGroup.GENERALITY
-        if variant_name == ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION:
+        if variant_name in (
+            ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION,
+            ModelVariant.GARAK_LLM_TOXIC_COMMENT_MODEL,
+        ):
             group = ModelGroup.VULCAN
         return ModelInfo(
             model="DistilBERT",
