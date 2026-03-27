@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available FLUX.2 model variants."""
 
     DEV = "Dev"
+    KLEIN_BASE_9B = "Klein Base 9B"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEV: ModelConfig(
             pretrained_model_name="black-forest-labs/FLUX.2-dev",
+        ),
+        ModelVariant.KLEIN_BASE_9B: ModelConfig(
+            pretrained_model_name="black-forest-labs/FLUX.2-klein-base-9B",
         ),
     }
 
