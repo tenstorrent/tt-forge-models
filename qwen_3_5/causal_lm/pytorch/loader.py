@@ -192,10 +192,6 @@ class ModelLoader(ForgeModel):
         if self._is_gguf_variant():
             model_kwargs["gguf_file"] = self._gguf_file
 
-        # GPTQ variants need device_map="cpu" for CPU-based loading
-        if self._variant == ModelVariant.QWEN_3_5_35B_A3B_GPTQ_INT4:
-            model_kwargs["device_map"] = "cpu"
-
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
@@ -284,14 +280,13 @@ class ModelLoader(ForgeModel):
 
     def _is_awq_variant(self):
         """Check if the current variant uses AWQ quantization."""
-        return self._variant == ModelVariant.QWEN_3_5_35B_A3B_AWQ_4BIT
+        return False
 
     def _is_moe_variant(self):
         """Check if the current variant is a Mixture of Experts model."""
         return self._variant in (
             ModelVariant.QWEN_3_5_35B_A3B,
             ModelVariant.QWEN_3_5_35B_A3B_FP8,
-            ModelVariant.QWEN_3_5_122B_A10B,
         )
 
     def load_shard_spec(self, model):
