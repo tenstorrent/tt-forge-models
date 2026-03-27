@@ -22,6 +22,9 @@ class ModelVariant(StrEnum):
     """Available DeBERTa model variants for sequence classification."""
 
     DEBERTA_XLARGE_MNLI = "XLarge_MNLI"
+    DEBERTA_V3_XSMALL_MNLI_FEVER_ANLI_LING_BINARY = (
+        "v3_xsmall_mnli_fever_anli_ling_binary"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEBERTA_XLARGE_MNLI: ModelConfig(
             pretrained_model_name="microsoft/deberta-xlarge-mnli",
+        ),
+        ModelVariant.DEBERTA_V3_XSMALL_MNLI_FEVER_ANLI_LING_BINARY: ModelConfig(
+            pretrained_model_name="MoritzLaurer/DeBERTa-v3-xsmall-mnli-fever-anli-ling-binary",
         ),
     }
 
@@ -95,5 +101,8 @@ class ModelLoader(ForgeModel):
     def decode_output(self, co_out):
         logits = co_out[0]
         predicted_class_id = logits.argmax(-1).item()
-        labels = ["contradiction", "neutral", "entailment"]
+        if self._variant == ModelVariant.DEBERTA_V3_XSMALL_MNLI_FEVER_ANLI_LING_BINARY:
+            labels = ["not_entailment", "entailment"]
+        else:
+            labels = ["contradiction", "neutral", "entailment"]
         print(f"Predicted: {labels[predicted_class_id]}")
