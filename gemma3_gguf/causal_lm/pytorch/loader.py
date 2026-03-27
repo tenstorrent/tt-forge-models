@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Gemma 3 GGUF model variants for causal language modeling."""
 
     GEMMA_3_4B_IT_GGUF = "4B_IT_GGUF"
+    UNSLOTH_GEMMA_3_4B_IT_GGUF = "UNSLOTH_4B_IT_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GEMMA_3_4B_IT_GGUF: LLMModelConfig(
             pretrained_model_name="lmstudio-community/gemma-3-4b-it-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.UNSLOTH_GEMMA_3_4B_IT_GGUF: LLMModelConfig(
+            pretrained_model_name="unsloth/gemma-3-4b-it-GGUF",
             max_length=128,
         ),
     }
