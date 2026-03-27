@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     QWEN_3_1_7B = "1_7B"
     QWEN_3_4B = "4B"
     QWEN_3_4B_BASE = "4B_Base"
+    QWEN_3_4B_FP8 = "4B_FP8"
     QWEN_3_4B_INSTRUCT_2507 = "4B_Instruct_2507"
     QWEN_3_4B_INSTRUCT_2507_FP8 = "4B_Instruct_2507_FP8"
     QWEN_3_8B = "8B"
@@ -64,6 +65,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_4B_BASE: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-4B-Base",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_4B_FP8: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-4B-FP8",
             max_length=128,
         ),
         ModelVariant.QWEN_3_4B_INSTRUCT_2507: LLMModelConfig(
@@ -146,6 +151,7 @@ class ModelLoader(ForgeModel):
         """
         if variant in (
             ModelVariant.QWEN_3_4B_BASE,
+            ModelVariant.QWEN_3_4B_FP8,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507,
             ModelVariant.QWEN_3_8B_AWQ,
             ModelVariant.QWEN_3_8B_BASE,
@@ -305,6 +311,7 @@ class ModelLoader(ForgeModel):
         if self._variant not in [
             ModelVariant.QWEN_3_4B,
             ModelVariant.QWEN_3_4B_BASE,
+            ModelVariant.QWEN_3_4B_FP8,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507_FP8,
         ]:
@@ -326,6 +333,7 @@ class ModelLoader(ForgeModel):
         if self._variant in [
             ModelVariant.QWEN_3_4B,
             ModelVariant.QWEN_3_4B_BASE,
+            ModelVariant.QWEN_3_4B_FP8,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507_FP8,
         ]:
