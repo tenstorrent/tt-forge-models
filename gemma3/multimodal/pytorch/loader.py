@@ -30,6 +30,7 @@ from PIL import Image
 class ModelVariant(StrEnum):
     """Available Gemma3 multimodal model variants."""
 
+    GEMMA_3_4B_PT = "unsloth/gemma-3-4b-pt"
     GEMMA_3_4B_IT = "google/gemma-3-4b-it"
     GEMMA_3_4B_IT_QAT_4BIT = "mlx-community/gemma-3-4b-it-qat-bf16"
     GEMMA_3_12B_IT = "google/gemma-3-12b-it"
@@ -40,6 +41,9 @@ class ModelLoader(ForgeModel):
     """Gemma3 model loader implementation for multimodal modeling tasks."""
 
     _VARIANTS = {
+        ModelVariant.GEMMA_3_4B_PT: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.GEMMA_3_4B_PT),
+        ),
         ModelVariant.GEMMA_3_4B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_4B_IT),
         ),
@@ -69,7 +73,10 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         if any(x in variant.value for x in ["12b", "27b"]):
             group = ModelGroup.RED
-        elif variant == ModelVariant.GEMMA_3_4B_IT_QAT_4BIT:
+        elif variant in (
+            ModelVariant.GEMMA_3_4B_IT_QAT_4BIT,
+            ModelVariant.GEMMA_3_4B_PT,
+        ):
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
@@ -175,18 +182,21 @@ class ModelLoader(ForgeModel):
         image_file = get_file(image_url or self.sample_image_url)
         image = Image.open(image_file).convert("RGB")
 
-        text_prompt = self.processor.apply_chat_template(
-            [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image"},
-                        {"type": "text", "text": prompt or self.sample_text},
-                    ],
-                }
-            ],
-            add_generation_prompt=True,
-        )
+        if self._variant == ModelVariant.GEMMA_3_4B_PT:
+            text_prompt = prompt or self.sample_text
+        else:
+            text_prompt = self.processor.apply_chat_template(
+                [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image"},
+                            {"type": "text", "text": prompt or self.sample_text},
+                        ],
+                    }
+                ],
+                add_generation_prompt=True,
+            )
 
         inputs = self.processor(
             text=text_prompt,
@@ -213,6 +223,7 @@ class ModelLoader(ForgeModel):
         """
         mesh_shape = (1, num_devices)
         if self._variant not in [
+            ModelVariant.GEMMA_3_4B_PT,
             ModelVariant.GEMMA_3_4B_IT,
             ModelVariant.GEMMA_3_4B_IT_QAT_4BIT,
             ModelVariant.GEMMA_3_12B_IT,
