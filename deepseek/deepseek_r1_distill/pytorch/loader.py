@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     DISTILL_QWEN_7B = "Distill_Qwen_7B"
     DISTILL_QWEN_14B = "Distill_Qwen_14B"
     DISTILL_LLAMA_8B = "Distill_Llama_8B"
+    DISTILL_QWEN_1_5B_GGUF = "Distill_Qwen_1_5B_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -53,6 +54,14 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
             max_length=2048,
         ),
+        ModelVariant.DISTILL_QWEN_1_5B_GGUF: LLMModelConfig(
+            pretrained_model_name="unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
+            max_length=2048,
+        ),
+    }
+
+    _GGUF_FILES = {
+        ModelVariant.DISTILL_QWEN_1_5B_GGUF: "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
     }
 
     DEFAULT_VARIANT = ModelVariant.DISTILL_QWEN_1_5B
@@ -74,10 +83,21 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _is_gguf_variant(self):
+        """Check if the current variant uses GGUF quantization."""
+        return self._variant in self._GGUF_FILES
+
+    @property
+    def _gguf_file(self):
+        """Get the GGUF filename for the current variant."""
+        return self._GGUF_FILES.get(self._variant)
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        if self._is_gguf_variant():
+            tokenizer_kwargs["gguf_file"] = self._gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -93,6 +113,8 @@ class ModelLoader(ForgeModel):
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._is_gguf_variant():
+            model_kwargs["gguf_file"] = self._gguf_file
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
