@@ -97,8 +97,8 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the MarianMT model."""
-        if self._tokenizer is None:
-            self._load_tokenizer(dtype_override)
+        if self._model is None:
+            self.load_model(dtype_override=dtype_override)
 
         inputs = self._tokenizer(
             self.sample_text,
