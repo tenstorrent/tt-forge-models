@@ -67,6 +67,7 @@ class ModelVariant(StrEnum):
 
     # TinyLlama variants
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
+    TINYLLAMA_1_1B_CHAT_V0_3_AWQ = "Tinyllama_1.1B_Chat_v0.3_Awq"
 
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
@@ -167,6 +168,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="TinyLlama/TinyLlama_v1.1",
             max_length=128,
         ),
+        ModelVariant.TINYLLAMA_1_1B_CHAT_V0_3_AWQ: LLMModelConfig(
+            pretrained_model_name="TheBloke/TinyLlama-1.1B-Chat-v0.3-AWQ",
+            max_length=128,
+        ),
         # JackFram variants
         ModelVariant.JACKFRAM_LLAMA_160M: LLMModelConfig(
             pretrained_model_name="JackFram/llama-160m",
@@ -214,6 +219,7 @@ class ModelLoader(ForgeModel):
         if variant in [
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.TINYLLAMA_1_1B_CHAT_V0_3_AWQ,
         ]:
             group = ModelGroup.VULCAN
         elif (
@@ -304,9 +310,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         # Check if this is an AWQ variant and configure accordingly
-        if (
-            pretrained_model_name
-            == "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"
+        if pretrained_model_name in (
+            "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
+            "TheBloke/TinyLlama-1.1B-Chat-v0.3-AWQ",
         ):
             model_kwargs["device_map"] = "cpu"
 
