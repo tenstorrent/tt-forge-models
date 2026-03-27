@@ -21,6 +21,7 @@ from ...base import ForgeModel
 
 class ModelVariant(StrEnum):
     OPENMED_ZEROSHOT_NER_SPECIES_SMALL = "ZeroShot-NER-Species-Small-166M"
+    OPENMED_ZEROSHOT_NER_DISEASE_XLARGE = "ZeroShot-NER-Disease-XLarge-770M"
 
 
 class ModelLoader(ForgeModel):
@@ -29,6 +30,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_SMALL: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Species-Small-166M"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_DISEASE_XLARGE: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Disease-XLarge-770M"
         ),
     }
 
@@ -60,14 +64,26 @@ class ModelLoader(ForgeModel):
         self.model = model
         return self.model.eval()
 
+    _VARIANT_SAMPLES = {
+        ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_SMALL: {
+            "text": "Escherichia coli and Staphylococcus aureus were isolated from the patient samples.",
+            "labels": ["SPECIES"],
+        },
+        ModelVariant.OPENMED_ZEROSHOT_NER_DISEASE_XLARGE: {
+            "text": "The patient was diagnosed with diabetes mellitus type 2 and hypertension.",
+            "labels": ["DISEASE"],
+        },
+    }
+
     def load_inputs(self, batch_size=1):
         """Load and return sample inputs for the OpenMed model.
 
         Returns a batch suitable for the GLiNER model forward pass.
         """
-        text = "Escherichia coli and Staphylococcus aureus were isolated from the patient samples."
+        sample = self._VARIANT_SAMPLES[self._variant]
+        text = sample["text"]
         self.text = [text]
-        labels = ["SPECIES"]
+        labels = sample["labels"]
         entity_types = list(dict.fromkeys(labels))
 
         (
