@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     GEMMA_3_4B_IT = "google/gemma-3-4b-it"
     GEMMA_3_4B_IT_QAT_4BIT = "mlx-community/gemma-3-4b-it-qat-bf16"
     GEMMA_3_12B_IT = "google/gemma-3-12b-it"
+    GEMMA_3_12B_IT_NVFP4 = "NeoChen1024/gemma-3-12b-it-NVFP4"
     GEMMA_3_27B_IT = "google/gemma-3-27b-it"
 
 
@@ -48,6 +49,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GEMMA_3_12B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_12B_IT),
+        ),
+        ModelVariant.GEMMA_3_12B_IT_NVFP4: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.GEMMA_3_12B_IT_NVFP4),
         ),
         ModelVariant.GEMMA_3_27B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_27B_IT),
@@ -67,7 +71,9 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
             variant = cls.DEFAULT_VARIANT
-        if any(x in variant.value for x in ["12b", "27b"]):
+        if variant == ModelVariant.GEMMA_3_12B_IT_NVFP4:
+            group = ModelGroup.VULCAN
+        elif any(x in variant.value for x in ["12b", "27b"]):
             group = ModelGroup.RED
         elif variant == ModelVariant.GEMMA_3_4B_IT_QAT_4BIT:
             group = ModelGroup.VULCAN
