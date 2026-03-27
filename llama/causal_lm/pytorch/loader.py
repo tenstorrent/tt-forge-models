@@ -71,6 +71,9 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # mlx-community quantized variants
+    LLAMA_3_2_3B_INSTRUCT_4BIT = "3.2_3B_Instruct_4bit"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -172,6 +175,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # mlx-community quantized variants
+        ModelVariant.LLAMA_3_2_3B_INSTRUCT_4BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/Llama-3.2-3B-Instruct-4bit",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -214,6 +222,7 @@ class ModelLoader(ForgeModel):
         if variant in [
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.LLAMA_3_2_3B_INSTRUCT_4BIT,
         ]:
             group = ModelGroup.VULCAN
         elif (
@@ -309,6 +318,8 @@ class ModelLoader(ForgeModel):
             == "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"
         ):
             model_kwargs["device_map"] = "cpu"
+        if "mlx-community" in pretrained_model_name:
+            model_kwargs["ignore_mismatched_sizes"] = True
 
         model_kwargs |= kwargs
 
