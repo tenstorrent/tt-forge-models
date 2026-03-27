@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     ROBERTA_BASE_SENTIMENT = "Base_Sentiment"
     ROBERTA_BASE_SENTIMENT_LATEST = "Base_Sentiment_Latest"
     ROBERTA_LARGE_MNLI = "Large_MNLI"
+    ROBERTA_BASE_SUICIDE_PREDICTION = "Base_Suicide_Prediction"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.ROBERTA_LARGE_MNLI: ModelConfig(
             pretrained_model_name="FacebookAI/roberta-large-mnli",
+        ),
+        ModelVariant.ROBERTA_BASE_SUICIDE_PREDICTION: ModelConfig(
+            pretrained_model_name="vibhorag101/roberta-base-suicide-prediction-phr",
         ),
     }
 
@@ -62,6 +66,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.ROBERTA_BASE_SENTIMENT_LATEST,
             ModelVariant.ROBERTA_LARGE_MNLI,
+            ModelVariant.ROBERTA_BASE_SUICIDE_PREDICTION,
         ):
             group = ModelGroup.VULCAN
 
@@ -82,6 +87,10 @@ class ModelLoader(ForgeModel):
         "shown in Europe or North America than in India itself."
     )
     _MNLI_HYPOTHESIS = "Most of Mrinal Sen's work can be found in European collections."
+
+    _SAMPLE_TEXTS = {
+        ModelVariant.ROBERTA_BASE_SUICIDE_PREDICTION: "I like you. I love you",
+    }
 
     def __init__(self, variant=None, num_layers: Optional[int] = None):
         """Initialize ModelLoader with specified variant.
@@ -156,8 +165,9 @@ class ModelLoader(ForgeModel):
             return [inputs["input_ids"], inputs["attention_mask"]]
 
         # Create tokenized inputs for single-text classification
+        text = self._SAMPLE_TEXTS.get(self._variant, self.text)
         inputs = self.tokenizer.encode(
-            self.text,
+            text,
             max_length=self.max_length,
             padding="max_length",
             truncation=True,
@@ -179,5 +189,7 @@ class ModelLoader(ForgeModel):
         label = self.model.config.id2label[predicted_value]
         if self._is_mnli_variant():
             print(f"Predicted Label: {label}")
+        elif self._variant == ModelVariant.ROBERTA_BASE_SUICIDE_PREDICTION:
+            print(f"Predicted Class: {label}")
         else:
             print(f"Predicted Sentiment: {label}")
