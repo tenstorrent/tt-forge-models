@@ -58,6 +58,7 @@ class ModelVariant(StrEnum):
 
     # hugging-quants AWQ INT4 quantized variants
     LLAMA_3_1_8B_INSTRUCT_AWQ_INT4 = "3.1_8B_Instruct_Awq_Int4"
+    LLAMA_3_1_70B_INSTRUCT_AWQ_INT4 = "3.1_70B_Instruct_Awq_Int4"
 
     # HuggingFace community variants
     HUGGYLLAMA_7B = "Huggyllama_7B"
@@ -142,6 +143,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
             max_length=128,
         ),
+        ModelVariant.LLAMA_3_1_70B_INSTRUCT_AWQ_INT4: LLMModelConfig(
+            pretrained_model_name="hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4",
+            max_length=128,
+        ),
         # Llama 3.3 variants
         ModelVariant.LLAMA_3_3_70B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.3-70B-Instruct",
@@ -214,6 +219,7 @@ class ModelLoader(ForgeModel):
         if variant in [
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.LLAMA_3_1_70B_INSTRUCT_AWQ_INT4,
         ]:
             group = ModelGroup.VULCAN
         elif (
@@ -304,9 +310,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         # Check if this is an AWQ variant and configure accordingly
-        if (
-            pretrained_model_name
-            == "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"
+        if pretrained_model_name in (
+            "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
+            "hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4",
         ):
             model_kwargs["device_map"] = "cpu"
 
@@ -468,6 +474,7 @@ class ModelLoader(ForgeModel):
         if self._variant in [
             ModelVariant.LLAMA_3_1_70B,
             ModelVariant.LLAMA_3_1_70B_INSTRUCT,
+            ModelVariant.LLAMA_3_1_70B_INSTRUCT_AWQ_INT4,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_1_405B,
