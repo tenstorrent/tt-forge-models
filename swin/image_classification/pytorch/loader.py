@@ -20,6 +20,7 @@ import torch
 from typing import Optional
 from dataclasses import dataclass
 from transformers import AutoModelForImageClassification
+import timm
 
 from ....tools.utils import VisionPreprocessor, VisionPostprocessor
 from datasets import load_dataset
@@ -38,6 +39,9 @@ class ModelVariant(StrEnum):
     # HuggingFace variants
     SWIN_TINY_HF = "Tiny_Patch4_Window7_224"
     SWINV2_TINY_HF = "v2_Tiny_Patch4_Window8_256"
+
+    # TIMM variants
+    SWIN_LARGE_PATCH4_WINDOW12_384 = "Large_Patch4_Window12_384"
 
     # Torchvision variants
     SWIN_T = "T"
@@ -61,6 +65,11 @@ class ModelLoader(ForgeModel):
         ModelVariant.SWINV2_TINY_HF: SwinConfig(
             pretrained_model_name="microsoft/swinv2-tiny-patch4-window8-256",
             source=ModelSource.HUGGING_FACE,
+        ),
+        # TIMM variants
+        ModelVariant.SWIN_LARGE_PATCH4_WINDOW12_384: SwinConfig(
+            pretrained_model_name="swin_large_patch4_window12_384.ms_in22k_ft_in1k",
+            source=ModelSource.TIMM,
         ),
         # Torchvision variants
         ModelVariant.SWIN_T: SwinConfig(
@@ -109,12 +118,18 @@ class ModelLoader(ForgeModel):
         # Get source from variant config
         source = cls._VARIANTS[variant].source
 
+        # Determine model group
+        if variant == ModelVariant.SWIN_S:
+            group = ModelGroup.RED
+        elif cls._VARIANTS[variant].source == ModelSource.TIMM:
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
             model="Swin",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == ModelVariant.SWIN_S
-            else ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_CLS,
             source=source,
             framework=Framework.TORCH,
@@ -146,7 +161,11 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
         source = self._variant_config.source
 
-        if source == ModelSource.HUGGING_FACE:
+        if source == ModelSource.TIMM:
+            # Load model from TIMM
+            model = timm.create_model(model_name, pretrained=True)
+
+        elif source == ModelSource.HUGGING_FACE:
             # Load model from HuggingFace
             model = AutoModelForImageClassification.from_pretrained(
                 model_name, **kwargs
