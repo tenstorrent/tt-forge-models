@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     NEMOTRON_3_NANO_30B_A3B_FP8 = "3_Nano_30B_A3B_FP8"
     NEMOTRON_3_SUPER_120B_A12B_NVFP4 = "3_Super_120B_A12B_NVFP4"
+    UNSLOTH_NEMOTRON_3_SUPER_120B_A12B_NVFP4 = "unsloth_3_Super_120B_A12B_NVFP4"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.NEMOTRON_3_SUPER_120B_A12B_NVFP4: LLMModelConfig(
             pretrained_model_name="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
+            max_length=128,
+        ),
+        ModelVariant.UNSLOTH_NEMOTRON_3_SUPER_120B_A12B_NVFP4: LLMModelConfig(
+            pretrained_model_name="unsloth/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
             max_length=128,
         ),
     }
@@ -84,7 +89,10 @@ class ModelLoader(ForgeModel):
 
     # Variants with NVFP4 quantized weights require ignore_mismatched_sizes
     # because the packed FP4 weight shapes differ from the model definition.
-    _NVFP4_VARIANTS = {ModelVariant.NEMOTRON_3_SUPER_120B_A12B_NVFP4}
+    _NVFP4_VARIANTS = {
+        ModelVariant.NEMOTRON_3_SUPER_120B_A12B_NVFP4,
+        ModelVariant.UNSLOTH_NEMOTRON_3_SUPER_120B_A12B_NVFP4,
+    }
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
