@@ -43,6 +43,7 @@ class ModelVariant(StrEnum):
     QWEN_3_30B_A3B = "30B_A3b"
     QWEN_3_30B_A3B_INSTRUCT_2507 = "30B_A3B_Instruct_2507"
     QWEN_3_14B_AWQ = "14B_Awq"
+    QWEN_3_32B_INT4_GPTQ = "32B_Int4_Gptq"
 
 
 class ModelLoader(ForgeModel):
@@ -110,6 +111,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-14B-AWQ",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_32B_INT4_GPTQ: LLMModelConfig(
+            pretrained_model_name="AngelSlim/Qwen3-32B_int4_gptq",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -152,6 +157,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_14B_INSTRUCT_OPENPIPE,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
             ModelVariant.QWEN_3_14B_AWQ,
+            ModelVariant.QWEN_3_32B_INT4_GPTQ,
         ):
             group = ModelGroup.VULCAN
         else:
@@ -215,10 +221,12 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        # AWQ variants: use Qwen3ForCausalLM directly with quantization_config
-        # removed so that weights are loaded as plain tensors on CPU.
+        # Quantized variants (AWQ/GPTQ): use Qwen3ForCausalLM directly with
+        # quantization_config removed so that weights are loaded as plain tensors on CPU.
         is_awq = pretrained_model_name == "Qwen/Qwen3-32B-AWQ"
-        if is_awq:
+        is_gptq = self._variant == ModelVariant.QWEN_3_32B_INT4_GPTQ
+        is_quantized = is_awq or is_gptq
+        if is_quantized:
             model_kwargs["device_map"] = "cpu"
             config = AutoConfig.from_pretrained(pretrained_model_name)
             if self.num_layers is not None:
@@ -235,7 +243,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        model_cls = Qwen3ForCausalLM if is_awq else AutoModelForCausalLM
+        model_cls = Qwen3ForCausalLM if is_quantized else AutoModelForCausalLM
         model = model_cls.from_pretrained(pretrained_model_name, **model_kwargs).eval()
 
         self.config = model.config
