@@ -291,6 +291,7 @@ class ModelLoader(ForgeModel):
         return self._variant in (
             ModelVariant.QWEN_3_5_35B_A3B,
             ModelVariant.QWEN_3_5_35B_A3B_FP8,
+            ModelVariant.QWEN_3_5_35B_A3B_MLX_4BIT,
             ModelVariant.QWEN_3_5_122B_A10B,
         )
 
