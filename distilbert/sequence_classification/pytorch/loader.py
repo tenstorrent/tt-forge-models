@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     DISTILBERT_BASE_UNCASED_FINETUNED_SST_2_ENGLISH = (
         "distilbert-base-uncased-finetuned-sst-2-english"
     )
+    DISTILBERT_BASE_UNCASED_EMOTION = "distilbert-base-uncased-emotion"
 
 
 class ModelLoader(ForgeModel):
@@ -35,10 +36,20 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="distilbert-base-uncased-finetuned-sst-2-english",
             max_length=128,
         ),
+        ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION: LLMModelConfig(
+            pretrained_model_name="bhadresh-savani/distilbert-base-uncased-emotion",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.DISTILBERT_BASE_UNCASED_FINETUNED_SST_2_ENGLISH
+
+    # Variant-specific sample texts
+    _SAMPLE_TEXTS = {
+        ModelVariant.DISTILBERT_BASE_UNCASED_FINETUNED_SST_2_ENGLISH: "the movie was great!",
+        ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION: "I love using transformers. The best part is wide range of support and its easy to use",
+    }
 
     def __init__(self, variant=None):
         """Initialize ModelLoader with specified variant.
@@ -54,7 +65,7 @@ class ModelLoader(ForgeModel):
         self.model_name = pretrained_model_name
         self.max_length = 128
         self.tokenizer = None
-        self.review = "the movie was great!"
+        self.review = self._SAMPLE_TEXTS.get(self._variant, "the movie was great!")
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -68,10 +79,13 @@ class ModelLoader(ForgeModel):
         """
         if variant_name is None:
             variant_name = "base"
+        group = ModelGroup.GENERALITY
+        if variant_name == ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION:
+            group = ModelGroup.VULCAN
         return ModelInfo(
             model="DistilBERT",
             variant=variant_name,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.NLP_TEXT_CLS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,

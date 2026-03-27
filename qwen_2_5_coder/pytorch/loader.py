@@ -5,7 +5,6 @@
 Qwen 2.5 Coder model loader implementation
 """
 
-
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import Optional
@@ -32,7 +31,9 @@ class ModelVariant(StrEnum):
     QWEN_2_5_CODER_3B_INSTRUCT = "3B_Instruct"
     QWEN_2_5_CODER_7B = "7B"
     QWEN_2_5_CODER_7B_INSTRUCT = "7B_Instruct"
+    QWEN_2_5_CODER_7B_INSTRUCT_GPTQ_INT4 = "7B_Instruct_GPTQ_Int4"
     QWEN_2_5_CODER_32B_INSTRUCT = "32B_Instruct"
+    QWEN_2_5_CODER_32B_INSTRUCT_AWQ = "32B_Instruct_Awq"
 
 
 class ModelLoader(ForgeModel):
@@ -68,8 +69,16 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen2.5-Coder-7B-Instruct",
             max_length=128,
         ),
+        ModelVariant.QWEN_2_5_CODER_7B_INSTRUCT_GPTQ_INT4: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-Coder-7B-Instruct-GPTQ-Int4",
+            max_length=128,
+        ),
         ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-Coder-32B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-Coder-32B-Instruct-AWQ",
             max_length=128,
         ),
     }
@@ -101,14 +110,19 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        group = ModelGroup.GENERALITY
+        if variant == ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT:
+            group = ModelGroup.RED
+        if variant in [
+            ModelVariant.QWEN_2_5_CODER_7B_INSTRUCT_GPTQ_INT4,
+            ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_AWQ,
+        ]:
+            group = ModelGroup.VULCAN
+
         return ModelInfo(
             model="Qwen 2.5 Coder",
             variant=variant,
-            group=(
-                ModelGroup.RED
-                if variant == ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT
-                else ModelGroup.GENERALITY
-            ),
+            group=group,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -156,6 +170,14 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # Quantized variants need device_map="cpu" for CPU-based loading
+        if pretrained_model_name in (
+            "Qwen/Qwen2.5-Coder-7B-Instruct-GPTQ-Int4",
+            "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ",
+        ):
+            model_kwargs["device_map"] = "cpu"
+
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(

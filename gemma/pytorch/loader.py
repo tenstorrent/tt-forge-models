@@ -20,19 +20,21 @@ from ...config import (
 )
 from ...base import ForgeModel
 from .src.model_utils import pad_inputs
-from ...tools.utils import cast_input_to_type, get_static_cache_decode_inputs
 
 
 class ModelVariant(StrEnum):
     """Available Gemma model variants for causal LM."""
 
     # Gemma 1.x
+    GEMMA_2B_IT = "2B_IT"
     GEMMA_1_1_2B_IT = "1.1_2B_IT"
     GEMMA_1_1_7B_IT = "1.1_7B_IT"
     GEMMA_2B = "2B"
 
     # Gemma 2.x
+    GEMMA_2_2B = "2_2B"
     GEMMA_2_2B_IT = "2_2B_IT"
+    GEMMA_2_2B_JPN_IT = "2_2B_JPN_IT"
     GEMMA_2_9B_IT = "2_9B_IT"
     GEMMA_2_27B_IT = "2_27B_IT"
 
@@ -41,6 +43,9 @@ class ModelLoader(ForgeModel):
     """Gemma model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
+        ModelVariant.GEMMA_2B_IT: LLMModelConfig(
+            pretrained_model_name="google/gemma-2b-it",
+        ),
         ModelVariant.GEMMA_1_1_2B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-1.1-2b-it",
         ),
@@ -51,8 +56,15 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="google/gemma-2b",
             max_length=256,
         ),
+        ModelVariant.GEMMA_2_2B: LLMModelConfig(
+            pretrained_model_name="google/gemma-2-2b",
+            max_length=256,
+        ),
         ModelVariant.GEMMA_2_2B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-2-2b-it",
+        ),
+        ModelVariant.GEMMA_2_2B_JPN_IT: LLMModelConfig(
+            pretrained_model_name="google/gemma-2-2b-jpn-it",
         ),
         ModelVariant.GEMMA_2_9B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-2-9b-it",
@@ -88,7 +100,9 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         # Instruct and larger models are RED, others generality
-        if any(x in variant.value for x in ["IT", "7B", "9B", "27B"]):
+        if variant == ModelVariant.GEMMA_2B_IT:
+            group = ModelGroup.VULCAN
+        elif any(x in variant.value for x in ["IT", "7B", "9B", "27B"]):
             group = ModelGroup.RED
         else:
             group = ModelGroup.GENERALITY
@@ -170,7 +184,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
         self.tokenizer.padding_side = "right"
-        if self._variant == ModelVariant.GEMMA_2B:
+        if self._variant in (ModelVariant.GEMMA_2B, ModelVariant.GEMMA_2_2B):
             input_prompt = prompt or self.sample_text
             inputs = self.tokenizer(
                 input_prompt,
@@ -201,15 +215,20 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
             if dtype_override is not None:
                 for key in inputs:
+                    from ...tools.utils import cast_input_to_type
+
                     inputs[key] = cast_input_to_type(inputs[key], dtype_override)
         return inputs
 
     def get_mesh_config(self, num_devices: int):
         mesh_shape = (1, num_devices)
         if self._variant not in [
+            ModelVariant.GEMMA_2B_IT,
             ModelVariant.GEMMA_1_1_2B_IT,
             ModelVariant.GEMMA_2B,
+            ModelVariant.GEMMA_2_2B,
             ModelVariant.GEMMA_2_2B_IT,
+            ModelVariant.GEMMA_2_2B_JPN_IT,
         ]:
             assert (
                 self.config.num_attention_heads % mesh_shape[1] == 0
@@ -218,9 +237,12 @@ class ModelLoader(ForgeModel):
 
     def load_shard_spec(self, model):
         if self._variant in [
+            ModelVariant.GEMMA_2B_IT,
             ModelVariant.GEMMA_1_1_2B_IT,
             ModelVariant.GEMMA_2B,
+            ModelVariant.GEMMA_2_2B,
             ModelVariant.GEMMA_2_2B_IT,
+            ModelVariant.GEMMA_2_2B_JPN_IT,
         ]:
             return None
 
@@ -259,6 +281,8 @@ class ModelLoader(ForgeModel):
 
         max_cache_len = getattr(self._variant_config, "max_length", None) or 128
         self.seq_len = 1
+
+        from ...tools.utils import get_static_cache_decode_inputs
 
         return get_static_cache_decode_inputs(
             tokenizer=self.tokenizer,

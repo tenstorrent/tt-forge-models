@@ -10,6 +10,7 @@ from typing import Optional, Any
 from transformers import (
     AutoProcessor,
     Gemma3ForConditionalGeneration,
+    Gemma3Processor,
 )
 
 from ....config import (
@@ -30,6 +31,7 @@ class ModelVariant(StrEnum):
     """Available Gemma3 multimodal model variants."""
 
     GEMMA_3_4B_IT = "google/gemma-3-4b-it"
+    GEMMA_3_4B_IT_QAT_4BIT = "mlx-community/gemma-3-4b-it-qat-bf16"
     GEMMA_3_12B_IT = "google/gemma-3-12b-it"
     GEMMA_3_27B_IT = "google/gemma-3-27b-it"
 
@@ -40,6 +42,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GEMMA_3_4B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_4B_IT),
+        ),
+        ModelVariant.GEMMA_3_4B_IT_QAT_4BIT: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.GEMMA_3_4B_IT_QAT_4BIT),
         ),
         ModelVariant.GEMMA_3_12B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_12B_IT),
@@ -64,6 +69,8 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         if any(x in variant.value for x in ["12b", "27b"]):
             group = ModelGroup.RED
+        elif variant == ModelVariant.GEMMA_3_4B_IT_QAT_4BIT:
+            group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
 
@@ -82,9 +89,15 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             kwargs["torch_dtype"] = dtype_override
 
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **kwargs
-        )
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        if self._variant == ModelVariant.GEMMA_3_4B_IT_QAT_4BIT:
+            self.processor = Gemma3Processor.from_pretrained(
+                pretrained_model_name, **kwargs
+            )
+        else:
+            self.processor = AutoProcessor.from_pretrained(
+                pretrained_model_name, **kwargs
+            )
 
         return self.processor
 
@@ -105,14 +118,45 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        is_mlx = "mlx-community" in pretrained_model_name
+        if is_mlx:
+            model_kwargs["ignore_mismatched_sizes"] = True
+
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        if is_mlx:
+            self._fix_mlx_patch_embedding(model, pretrained_model_name, dtype_override)
 
         model.eval()
         self.model = model
         self.config = model.config
         return model
+
+    @staticmethod
+    def _fix_mlx_patch_embedding(model, pretrained_model_name, dtype_override):
+        """Fix NHWC -> NCHW layout for patch embedding loaded from MLX models."""
+        from safetensors.torch import load_file
+        from huggingface_hub import hf_hub_download
+        import json
+
+        index_path = hf_hub_download(
+            pretrained_model_name, "model.safetensors.index.json"
+        )
+        with open(index_path) as f:
+            weight_map = json.load(f)["weight_map"]
+        key = "vision_tower.vision_model.embeddings.patch_embedding.weight"
+        shard_path = hf_hub_download(pretrained_model_name, weight_map[key])
+        shard = load_file(shard_path, device="cpu")
+        raw_w = shard[key]
+        fixed_w = raw_w.permute(0, 3, 1, 2).contiguous()
+        if dtype_override is not None:
+            fixed_w = fixed_w.to(dtype_override)
+        model.model.vision_tower.vision_model.embeddings.patch_embedding.weight.data = (
+            fixed_w
+        )
 
     def load_inputs(
         self,
@@ -170,6 +214,7 @@ class ModelLoader(ForgeModel):
         mesh_shape = (1, num_devices)
         if self._variant not in [
             ModelVariant.GEMMA_3_4B_IT,
+            ModelVariant.GEMMA_3_4B_IT_QAT_4BIT,
             ModelVariant.GEMMA_3_12B_IT,
         ]:
             assert (

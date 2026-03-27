@@ -5,7 +5,11 @@
 Qwen 3 model loader implementation for image to text.
 """
 
-from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
+from transformers import (
+    Qwen3VLForConditionalGeneration,
+    Qwen3VLMoeForConditionalGeneration,
+    AutoProcessor,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -27,6 +31,10 @@ class ModelVariant(StrEnum):
     QWEN_3_VL_2B_THINKING = "2b_thinking"
     QWEN_3_VL_4B_INSTRUCT = "4b_instruct"
     QWEN_3_VL_4B_THINKING = "4b_thinking"
+    QWEN_3_VL_8B_INSTRUCT = "8b_instruct"
+    QWEN_3_VL_8B_INSTRUCT_FP8 = "8b_instruct_fp8"
+    QWEN_3_VL_30B_A3B_INSTRUCT = "30b_a3b_instruct"
+    QWEN_3_VL_32B_INSTRUCT = "32b_instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -50,7 +58,26 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-VL-4B-Thinking",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_VL_8B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-VL-8B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_VL_8B_INSTRUCT_FP8: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-VL-8B-Instruct-FP8",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-VL-30B-A3B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_VL_32B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-VL-32B-Instruct",
+            max_length=128,
+        ),
     }
+
+    # Variants that use the MoE architecture
+    _MOE_VARIANTS = {ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT}
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.QWEN_3_VL_2B_INSTRUCT
@@ -81,10 +108,23 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
+        group = (
+            ModelGroup.VULCAN
+            if variant
+            in (
+                ModelVariant.QWEN_3_VL_8B_INSTRUCT,
+                ModelVariant.QWEN_3_VL_8B_INSTRUCT_FP8,
+                ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT,
+                ModelVariant.QWEN_3_VL_32B_INSTRUCT,
+            )
+            else ModelGroup.RED
+        )
         return ModelInfo(
             model="qwen_v3",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.NLP_IMAGE_TO_TEXT,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -107,13 +147,24 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # AWQ variant loads with device_map="cpu" to keep quantized weights on CPU
+        if self._variant == ModelVariant.QWEN_3_VL_4B_INSTRUCT_AWQ:
+            model_kwargs["device_map"] = "cpu"
+        else:
+            model_kwargs["dtype"] = "auto"
+            model_kwargs["device_map"] = "auto"
+
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
-        model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, dtype="auto", device_map="auto", **model_kwargs
+        model_cls = (
+            Qwen3VLMoeForConditionalGeneration
+            if self._variant in self._MOE_VARIANTS
+            else Qwen3VLForConditionalGeneration
         )
+        model = model_cls.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         return model

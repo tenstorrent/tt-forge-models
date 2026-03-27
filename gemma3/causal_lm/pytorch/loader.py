@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     GEMMA_3_270M_IT = "270M_Instruct"
     GEMMA_3_1B_IT = "1B_Instruct"
+    GEMMA_3_27B_IT = "27B_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GEMMA_3_1B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-3-1b-it",
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_3_27B_IT: LLMModelConfig(
+            pretrained_model_name="google/gemma-3-27b-it",
             max_length=256,
         ),
     }
@@ -59,7 +64,10 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        group = ModelGroup.GENERALITY
+        if variant == ModelVariant.GEMMA_3_27B_IT:
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.GENERALITY
 
         return ModelInfo(
             model="Gemma 3",
@@ -103,7 +111,12 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
-        model_kwargs = {"use_cache": False}
+        model_kwargs = {}
+        if self._variant == ModelVariant.GEMMA_3_27B_IT_AWQ_INT4:
+            model_kwargs["device_map"] = "cpu"
+            self._patch_torchao_int4_config()
+        else:
+            model_kwargs["use_cache"] = False
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
@@ -163,3 +176,27 @@ class ModelLoader(ForgeModel):
             input_ids = cast_input_to_type(input_ids, dtype_override)
             attn_mask = cast_input_to_type(attn_mask, dtype_override)
         return [input_ids, attn_mask]
+
+    def get_mesh_config(self, num_devices: int):
+        """Get the mesh configuration for tensor parallel execution."""
+        mesh_shape = (1, num_devices)
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        """Load the sharding specification for tensor parallel execution."""
+        if self._variant != ModelVariant.GEMMA_3_27B_IT:
+            return None
+
+        shard_specs = {}
+
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+
+        return shard_specs
