@@ -44,6 +44,7 @@ class ModelVariant(StrEnum):
     QWEN_3_30B_A3B = "30B_A3b"
     QWEN_3_30B_A3B_INSTRUCT_2507 = "30B_A3B_Instruct_2507"
     QWEN_3_14B_AWQ = "14B_Awq"
+    TINY_RANDOM_QWEN3 = "Tiny_Random"
 
 
 class ModelLoader(ForgeModel):
@@ -115,6 +116,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-14B-AWQ",
             max_length=128,
         ),
+        ModelVariant.TINY_RANDOM_QWEN3: LLMModelConfig(
+            pretrained_model_name="llamafactory/tiny-random-qwen3",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -158,6 +163,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_14B_INSTRUCT_OPENPIPE,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
             ModelVariant.QWEN_3_14B_AWQ,
+            ModelVariant.TINY_RANDOM_QWEN3,
         ):
             group = ModelGroup.VULCAN
         else:
