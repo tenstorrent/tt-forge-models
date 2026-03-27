@@ -23,11 +23,13 @@ class ModelVariant(StrEnum):
     """Available RoBERTa token classification model variants."""
 
     INDONESIAN_ROBERTA_BASE_POSP_TAGGER = "Indonesian_RoBERTa_Base_POSP_Tagger"
+    JEAN_BAPTISTE_ROBERTA_LARGE_NER_ENGLISH = "Jean-Baptiste/roberta-large-ner-english"
     TNER_ROBERTA_LARGE_TWEETNER7_ALL = "tner/roberta-large-tweetner7-all"
 
 
 _VARIANT_SAMPLE_TEXTS = {
     ModelVariant.INDONESIAN_ROBERTA_BASE_POSP_TAGGER: "Saya sedang membaca buku di perpustakaan",
+    ModelVariant.JEAN_BAPTISTE_ROBERTA_LARGE_NER_ENGLISH: "Apple was founded by Steve Jobs in Los Altos, California",
     ModelVariant.TNER_ROBERTA_LARGE_TWEETNER7_ALL: "Jacob Collier is an amazing musician from London",
 }
 
@@ -38,6 +40,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.INDONESIAN_ROBERTA_BASE_POSP_TAGGER: ModelConfig(
             pretrained_model_name="w11wo/indonesian-roberta-base-posp-tagger",
+        ),
+        ModelVariant.JEAN_BAPTISTE_ROBERTA_LARGE_NER_ENGLISH: ModelConfig(
+            pretrained_model_name="Jean-Baptiste/roberta-large-ner-english",
         ),
         ModelVariant.TNER_ROBERTA_LARGE_TWEETNER7_ALL: ModelConfig(
             pretrained_model_name="tner/roberta-large-tweetner7-all",
