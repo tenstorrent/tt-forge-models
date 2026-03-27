@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_9B_GGUF = "9B_GGUF"
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
     QWEN_3_5_35B_A3B_SEHYO_NVFP4 = "35B_A3B_Sehyo_NVFP4"
+    QWEN_3_5_35B_A3B_HUIHUI_ABLITERATED = "35B_A3B_Huihui_Abliterated"
 
 
 class ModelLoader(ForgeModel):
@@ -84,6 +85,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_35B_A3B_SEHYO_NVFP4: LLMModelConfig(
             pretrained_model_name="Sehyo/Qwen3.5-35B-A3B-NVFP4",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_35B_A3B_HUIHUI_ABLITERATED: LLMModelConfig(
+            pretrained_model_name="huihui-ai/Huihui-Qwen3.5-35B-A3B-abliterated",
             max_length=128,
         ),
     }
@@ -291,6 +296,7 @@ class ModelLoader(ForgeModel):
         return self._variant in (
             ModelVariant.QWEN_3_5_35B_A3B,
             ModelVariant.QWEN_3_5_35B_A3B_FP8,
+            ModelVariant.QWEN_3_5_35B_A3B_HUIHUI_ABLITERATED,
             ModelVariant.QWEN_3_5_122B_A10B,
         )
 
