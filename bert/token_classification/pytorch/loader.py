@@ -27,6 +27,9 @@ class ModelVariant(StrEnum):
     )
     DSLIM_BERT_BASE_NER = "dslim/bert-base-NER"
     HATMIMOHA_ARABIC_NER = "hatmimoha/arabic-ner"
+    MRM8488_BERT_SPANISH_CASED_FINETUNED_NER = (
+        "mrm8488/bert-spanish-cased-finetuned-ner"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -44,6 +47,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.HATMIMOHA_ARABIC_NER: LLMModelConfig(
             pretrained_model_name="hatmimoha/arabic-ner",
+            max_length=128,
+        ),
+        ModelVariant.MRM8488_BERT_SPANISH_CASED_FINETUNED_NER: LLMModelConfig(
+            pretrained_model_name="mrm8488/bert-spanish-cased-finetuned-ner",
             max_length=128,
         ),
     }
@@ -65,6 +72,10 @@ class ModelLoader(ForgeModel):
         self.model_name = pretrained_model_name
         if self._variant == ModelVariant.HATMIMOHA_ARABIC_NER:
             self.sample_text = "نبيه بري النائب علي حسن خليل من البنك الدولي"
+        elif self._variant == ModelVariant.MRM8488_BERT_SPANISH_CASED_FINETUNED_NER:
+            self.sample_text = (
+                "Barcelona es una ciudad de España donde nació Pablo Picasso"
+            )
         else:
             self.sample_text = "HuggingFace is a company based in Paris and New York"
         self.max_length = 128
@@ -87,6 +98,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.DSLIM_BERT_BASE_NER,
             ModelVariant.HATMIMOHA_ARABIC_NER,
+            ModelVariant.MRM8488_BERT_SPANISH_CASED_FINETUNED_NER,
         ):
             group = ModelGroup.VULCAN
 
