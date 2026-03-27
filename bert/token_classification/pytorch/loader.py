@@ -27,6 +27,9 @@ class ModelVariant(StrEnum):
     )
     DSLIM_BERT_BASE_NER = "dslim/bert-base-NER"
     HATMIMOHA_ARABIC_NER = "hatmimoha/arabic-ner"
+    OPENMED_NER_ORGANISMDETECT_MULTIMED_335M = (
+        "OpenMed-NER-OrganismDetect-MultiMed-335M"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -44,6 +47,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.HATMIMOHA_ARABIC_NER: LLMModelConfig(
             pretrained_model_name="hatmimoha/arabic-ner",
+            max_length=128,
+        ),
+        ModelVariant.OPENMED_NER_ORGANISMDETECT_MULTIMED_335M: LLMModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-NER-OrganismDetect-MultiMed-335M",
             max_length=128,
         ),
     }
@@ -65,6 +72,10 @@ class ModelLoader(ForgeModel):
         self.model_name = pretrained_model_name
         if self._variant == ModelVariant.HATMIMOHA_ARABIC_NER:
             self.sample_text = "نبيه بري النائب علي حسن خليل من البنك الدولي"
+        elif self._variant == ModelVariant.OPENMED_NER_ORGANISMDETECT_MULTIMED_335M:
+            self.sample_text = (
+                "Caenorhabditis elegans is a model organism for genetic studies."
+            )
         else:
             self.sample_text = "HuggingFace is a company based in Paris and New York"
         self.max_length = 128
@@ -87,6 +98,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.DSLIM_BERT_BASE_NER,
             ModelVariant.HATMIMOHA_ARABIC_NER,
+            ModelVariant.OPENMED_NER_ORGANISMDETECT_MULTIMED_335M,
         ):
             group = ModelGroup.VULCAN
 
