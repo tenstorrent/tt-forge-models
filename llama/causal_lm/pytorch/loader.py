@@ -71,6 +71,9 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # OpenPipe variants
+    OPENPIPE_PII_REDACT_GENERAL = "OpenPipe_PII_Redact_General"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -172,6 +175,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # OpenPipe variants
+        ModelVariant.OPENPIPE_PII_REDACT_GENERAL: LLMModelConfig(
+            pretrained_model_name="OpenPipe/PII-Redact-General",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -214,6 +222,7 @@ class ModelLoader(ForgeModel):
         if variant in [
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.OPENPIPE_PII_REDACT_GENERAL,
         ]:
             group = ModelGroup.VULCAN
         elif (
@@ -508,6 +517,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HUGGYLLAMA_7B,
             ModelVariant.LLAMA_2_7B,
             ModelVariant.JACKFRAM_LLAMA_160M,
+            ModelVariant.OPENPIPE_PII_REDACT_GENERAL,
         ]:
             return None
 
