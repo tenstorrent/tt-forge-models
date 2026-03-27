@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa token classification model variants."""
 
     CRYPTO_NER = "CryptoNER"
+    YEAJINMIN_NER_NEWSBI = "yeajinmin/NER-NewsBI-150142-e3b4"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.CRYPTO_NER: ModelConfig(
             pretrained_model_name="covalenthq/cryptoNER",
         ),
+        ModelVariant.YEAJINMIN_NER_NEWSBI: ModelConfig(
+            pretrained_model_name="yeajinmin/NER-NewsBI-150142-e3b4",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.CRYPTO_NER
@@ -42,9 +46,12 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.model = None
-        self.sample_text = (
-            "I bought mass Ethereum and mass Bitcoin on Uniswap yesterday"
-        )
+        if self._variant == ModelVariant.YEAJINMIN_NER_NEWSBI:
+            self.sample_text = "삼성전자는 서울에서 새로운 반도체 공장을 발표했다"
+        else:
+            self.sample_text = (
+                "I bought mass Ethereum and mass Bitcoin on Uniswap yesterday"
+            )
         self.max_length = 128
 
     @classmethod
