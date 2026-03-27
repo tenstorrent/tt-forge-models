@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Wav2Vec2 PyTorch speech recognition model variants."""
 
     BASE_960H = "Base_960h"
+    XLS_R_300M_PASHTO = "XLS_R_300M_Pashto"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE_960H: ModelConfig(
             pretrained_model_name="facebook/wav2vec2-base-960h",
+        ),
+        ModelVariant.XLS_R_300M_PASHTO: ModelConfig(
+            pretrained_model_name="ihanif/wav2vec2-xls-r-300m-pashto",
         ),
     }
 
