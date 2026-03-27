@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
@@ -21,6 +21,18 @@ from ...base import ForgeModel
 
 class ModelVariant(StrEnum):
     OPENMED_ZEROSHOT_NER_SPECIES_SMALL = "ZeroShot-NER-Species-Small-166M"
+    OPENMED_ZEROSHOT_NER_ANATOMY_MEDIUM = "ZeroShot-NER-Anatomy-Medium-209M"
+
+
+_VARIANT_SAMPLE_TEXTS = {
+    ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_SMALL: "Escherichia coli and Staphylococcus aureus were isolated from the patient samples.",
+    ModelVariant.OPENMED_ZEROSHOT_NER_ANATOMY_MEDIUM: "The patient complained of pain in the left ventricle region.",
+}
+
+_VARIANT_LABELS = {
+    ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_SMALL: ["SPECIES"],
+    ModelVariant.OPENMED_ZEROSHOT_NER_ANATOMY_MEDIUM: ["Anatomy"],
+}
 
 
 class ModelLoader(ForgeModel):
@@ -29,6 +41,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_SMALL: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Species-Small-166M"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_ANATOMY_MEDIUM: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Anatomy-Medium-209M"
         ),
     }
 
@@ -65,9 +80,9 @@ class ModelLoader(ForgeModel):
 
         Returns a batch suitable for the GLiNER model forward pass.
         """
-        text = "Escherichia coli and Staphylococcus aureus were isolated from the patient samples."
+        text = _VARIANT_SAMPLE_TEXTS[self._variant_name]
         self.text = [text]
-        labels = ["SPECIES"]
+        labels = _VARIANT_LABELS[self._variant_name]
         entity_types = list(dict.fromkeys(labels))
 
         (
