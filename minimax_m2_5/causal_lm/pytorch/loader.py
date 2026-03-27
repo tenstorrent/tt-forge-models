@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     """Available MiniMax-M2.5 model variants for causal language modeling."""
 
     MINIMAX_M2_5 = "M2.5"
+    MINIMAX_M2_5_AWQ = "M2.5_Awq"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MINIMAX_M2_5: LLMModelConfig(
             pretrained_model_name="MiniMaxAI/MiniMax-M2.5",
+            max_length=128,
+        ),
+        ModelVariant.MINIMAX_M2_5_AWQ: LLMModelConfig(
+            pretrained_model_name="QuantTrio/MiniMax-M2.5-AWQ",
             max_length=128,
         ),
     }
@@ -149,6 +154,11 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # AWQ variants need device_map="cpu" for loading
+        if pretrained_model_name == "QuantTrio/MiniMax-M2.5-AWQ":
+            model_kwargs["device_map"] = "cpu"
+
         model_kwargs |= kwargs
 
         config = self._build_native_config()
