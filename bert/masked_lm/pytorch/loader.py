@@ -5,7 +5,7 @@
 BERT model loader implementation for masked language modeling.
 """
 
-from transformers import BertForMaskedLM, BertTokenizer, AutoConfig
+from transformers import BertForMaskedLM, BertTokenizer, AutoConfig, AutoTokenizer
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -28,6 +28,12 @@ class ModelVariant(StrEnum):
     BIOBERT_BASE_CASED_V1_1 = "BioBERT_Base_Cased_v1.1"
     BERT_LARGE_PORTUGUESE_CASED = "Large_Portuguese_Cased"
     LEGAL_BERT_BASE_UNCASED = "nlpaueb/legal-bert-base-uncased"
+    BERT_BASE_JAPANESE_V3 = "tohoku-nlp/bert-base-japanese-v3"
+
+
+_SAMPLE_TEXTS = {
+    ModelVariant.BERT_BASE_JAPANESE_V3: "東京は日本の[MASK]です。",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -61,6 +67,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LEGAL_BERT_BASE_UNCASED: LLMModelConfig(
             pretrained_model_name="nlpaueb/legal-bert-base-uncased",
+            max_length=128,
+        ),
+        ModelVariant.BERT_BASE_JAPANESE_V3: LLMModelConfig(
+            pretrained_model_name="tohoku-nlp/bert-base-japanese-v3",
             max_length=128,
         ),
     }
@@ -106,6 +116,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.BIOBERT_BASE_CASED_V1_1,
             ModelVariant.BERT_LARGE_PORTUGUESE_CASED,
             ModelVariant.LEGAL_BERT_BASE_UNCASED,
+            ModelVariant.BERT_BASE_JAPANESE_V3,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
@@ -129,7 +140,10 @@ class ModelLoader(ForgeModel):
         """
 
         # Initialize tokenizer
-        self.tokenizer = BertTokenizer.from_pretrained(self.model_name)
+        if self._variant == ModelVariant.BERT_BASE_JAPANESE_V3:
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        else:
+            self.tokenizer = BertTokenizer.from_pretrained(self.model_name)
 
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
