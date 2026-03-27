@@ -34,6 +34,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_4B_GGUF = "4B_GGUF"
     QWEN_3_5_9B_GGUF = "9B_GGUF"
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
+    QWEN_3_5_122B_A10B_INT4_AUTOROUND = "122B_A10B_INT4_AutoRound"
 
 
 class ModelLoader(ForgeModel):
@@ -79,6 +80,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_35B_A3B_NVFP4: LLMModelConfig(
             pretrained_model_name="AxionML/Qwen3.5-35B-A3B-NVFP4",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_122B_A10B_INT4_AUTOROUND: LLMModelConfig(
+            pretrained_model_name="Intel/Qwen3.5-122B-A10B-int4-AutoRound",
             max_length=128,
         ),
     }
@@ -191,6 +196,10 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.QWEN_3_5_35B_A3B_GPTQ_INT4:
             model_kwargs["device_map"] = "cpu"
 
+        # AutoRound int4 variants need device_map="cpu" for CPU-based loading
+        if self._variant == ModelVariant.QWEN_3_5_122B_A10B_INT4_AUTOROUND:
+            model_kwargs["device_map"] = "cpu"
+
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
@@ -287,6 +296,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_5_35B_A3B,
             ModelVariant.QWEN_3_5_35B_A3B_FP8,
             ModelVariant.QWEN_3_5_122B_A10B,
+            ModelVariant.QWEN_3_5_122B_A10B_INT4_AUTOROUND,
         )
 
     def load_shard_spec(self, model):
