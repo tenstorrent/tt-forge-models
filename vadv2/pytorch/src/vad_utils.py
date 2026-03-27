@@ -14,7 +14,11 @@ import copy
 
 
 def multi_scale_deformable_attn_pytorch(
-    value, value_spatial_shapes, sampling_locations, attention_weights
+    value,
+    value_spatial_shapes,
+    sampling_locations,
+    attention_weights,
+    spatial_shapes_ints=None,
 ):
     """CPU version of multi-scale deformable attention.
 
@@ -31,6 +35,9 @@ def multi_scale_deformable_attn_pytorch(
         attention_weights (Tensor): The weight of sampling points used
             when calculate the attention, has shape
             (bs ,num_queries, num_heads, num_levels, num_points),
+        spatial_shapes_ints: Optional list of (h,w) Python int tuples.
+            When provided, avoids .item() for dynamo tracing. Pass from
+            caller when known (e.g. [(bev_h, bev_w)]).
 
     Returns:
         Tensor: has shape (bs, num_queries, embed_dims)
@@ -38,10 +45,24 @@ def multi_scale_deformable_attn_pytorch(
 
     bs, _, num_heads, embed_dims = value.shape
     _, num_queries, num_heads, num_levels, num_points, _ = sampling_locations.shape
-    value_list = value.split([H_ * W_ for H_, W_ in value_spatial_shapes], dim=1)
+
+    # Use tensor_split with tensor indices to avoid .item() / graph breaks
+    split_sizes = value_spatial_shapes[:, 0] * value_spatial_shapes[:, 1]
+    split_indices = torch.cumsum(split_sizes, 0)[:-1].to(torch.long)
+    value_list = list(torch.tensor_split(value, split_indices, dim=1))
+
+    if spatial_shapes_ints is None:
+        # Fallback: convert to ints (causes graph break from .item())
+        def _to_int(x):
+            return int(x.item()) if isinstance(x, torch.Tensor) else int(x)
+
+        spatial_shapes_ints = [
+            (_to_int(val[0]), _to_int(val[1])) for val in value_spatial_shapes
+        ]
+
     sampling_grids = 2 * sampling_locations - 1
     sampling_value_list = []
-    for level, (H_, W_) in enumerate(value_spatial_shapes):
+    for level, (H_, W_) in enumerate(spatial_shapes_ints):
         # bs, H_*W_, num_heads, embed_dims ->
         # bs, H_*W_, num_heads*embed_dims ->
         # bs, num_heads*embed_dims, H_*W_ ->
@@ -524,20 +545,12 @@ class PlanningMetric:
         """
         trajs: torch.Tensor (n_future, 2)
         gt_trajs: torch.Tensor (n_future, 2)
+        Returns tensor (not float) to avoid graph breaks from .item()/float().
         """
-        # return torch.sqrt(((trajs[:, :, :2] - gt_trajs[:, :, :2]) ** 2).sum(dim=-1))
-        pred_len = trajs.shape[0]
-        ade = float(
-            sum(
-                torch.sqrt(
-                    (trajs[i, 0] - gt_trajs[i, 0]) ** 2
-                    + (trajs[i, 1] - gt_trajs[i, 1]) ** 2
-                )
-                for i in range(pred_len)
-            )
-            / pred_len
-        )
-
+        # Use pure tensor ops instead of Python sum/float - avoids dynamo graph break
+        diff = trajs[..., :2] - gt_trajs[..., :2]
+        dist = torch.sqrt((diff**2).sum(dim=-1))
+        ade = dist.mean()
         return ade
 
 
