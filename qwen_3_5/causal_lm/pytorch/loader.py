@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3.5 model variants for causal language modeling."""
 
     QWEN_3_5_2B = "2B"
+    QWEN_3_5_2B_BASE = "2B_BASE"
     QWEN_3_5_4B = "4B"
     QWEN_3_5_9B = "9B"
     QWEN_3_5_27B = "27B"
@@ -43,6 +44,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_5_2B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3.5-2B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_2B_BASE: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3.5-2B-Base",
             max_length=128,
         ),
         ModelVariant.QWEN_3_5_4B: LLMModelConfig(
@@ -229,15 +234,18 @@ class ModelLoader(ForgeModel):
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
-        # Use chat template for Qwen 3.5 models
-        messages = [{"role": "user", "content": self.sample_text}]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=True,
-        )
-        prompts = [text]
+        # Base models use plain text; chat models use chat template
+        if self._variant in (ModelVariant.QWEN_3_5_2B_BASE,):
+            prompts = [self.sample_text]
+        else:
+            messages = [{"role": "user", "content": self.sample_text}]
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=True,
+            )
+            prompts = [text]
 
         inputs = self.tokenizer(
             prompts,
