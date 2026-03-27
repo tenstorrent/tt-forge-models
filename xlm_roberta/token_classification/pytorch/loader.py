@@ -46,9 +46,12 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.model = None
-        self.sample_text = (
-            "I bought mass Ethereum and mass Bitcoin on Uniswap yesterday"
-        )
+        if self._variant == ModelVariant.NER_HRL:
+            self.sample_text = "Nader Jokhadar had given Syria the lead with a well-struck header in the seventh minute."
+        else:
+            self.sample_text = (
+                "I bought mass Ethereum and mass Bitcoin on Uniswap yesterday"
+            )
         self.max_length = 128
 
     @classmethod
