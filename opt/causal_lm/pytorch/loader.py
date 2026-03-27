@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     OPT_350M = "350M"
     OPT_1_3B = "1.3b"
     TINY_RANDOM = "tiny-random"
+    TINY_RANDOM_EXTENDED_VOCAB = "tiny-random-extended-vocab"
 
 
 class ModelLoader(ForgeModel):
@@ -47,6 +48,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.TINY_RANDOM: LLMModelConfig(
             pretrained_model_name="peft-internal-testing/tiny-random-OPTForCausalLM",
+            max_length=256,
+        ),
+        ModelVariant.TINY_RANDOM_EXTENDED_VOCAB: LLMModelConfig(
+            pretrained_model_name="peft-internal-testing/tiny-random-OPTForCausalLM-extended-vocab",
             max_length=256,
         ),
     }
@@ -84,7 +89,8 @@ class ModelLoader(ForgeModel):
         """
         group = (
             ModelGroup.VULCAN
-            if variant == ModelVariant.TINY_RANDOM
+            if variant
+            in (ModelVariant.TINY_RANDOM, ModelVariant.TINY_RANDOM_EXTENDED_VOCAB)
             else ModelGroup.GENERALITY
         )
         return ModelInfo(
