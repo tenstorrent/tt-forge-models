@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     """Available model variants for causal LM."""
 
     GLM_4_7 = "4.7"
+    GLM_4_7_FP8 = "4.7_FP8"
     GLM_4_7_FLASH = "4.7_Flash"
     GLM_4_5 = "4.5"
     GLM_4_5_AIR = "4.5_Air"
@@ -42,6 +43,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GLM_4_7: LLMModelConfig(
             pretrained_model_name="zai-org/GLM-4.7",
+            max_length=128,
+        ),
+        ModelVariant.GLM_4_7_FP8: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-4.7-FP8",
             max_length=128,
         ),
         ModelVariant.GLM_4_7_FLASH: LLMModelConfig(
@@ -94,7 +99,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        if variant == ModelVariant.GLM_4_7_FLASH:
+        if variant in (ModelVariant.GLM_4_7_FLASH, ModelVariant.GLM_4_7_FP8):
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.RED
