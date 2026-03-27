@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     )
     BIOBERT_V1_1 = "dmis-lab/biobert-v1.1"
     TINYBERT_L4_H312_V2 = "nreimers/TinyBERT_L-4_H-312_v2"
+    TINYBERT_GENERAL_4L_312D = "huawei-noah/TinyBERT_General_4L_312D"
 
 
 class ModelLoader(ForgeModel):
@@ -52,6 +53,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.TINYBERT_L4_H312_V2: LLMModelConfig(
             pretrained_model_name="nreimers/TinyBERT_L-4_H-312_v2",
+            max_length=128,
+        ),
+        ModelVariant.TINYBERT_GENERAL_4L_312D: LLMModelConfig(
+            pretrained_model_name="huawei-noah/TinyBERT_General_4L_312D",
             max_length=128,
         ),
     }
@@ -93,6 +98,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.PARAPHRASE_MULTILINGUAL_MINILM_L12_V2: ModelGroup.VULCAN,
             ModelVariant.BIOBERT_V1_1: ModelGroup.VULCAN,
             ModelVariant.TINYBERT_L4_H312_V2: ModelGroup.VULCAN,
+            ModelVariant.TINYBERT_GENERAL_4L_312D: ModelGroup.VULCAN,
         }
 
         return ModelInfo(
