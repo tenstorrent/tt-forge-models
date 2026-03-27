@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
     QWEN_3_VL_8B_INSTRUCT_FP8 = "8b_instruct_fp8"
     QWEN_3_VL_30B_A3B_INSTRUCT = "30b_a3b_instruct"
     QWEN_3_VL_32B_INSTRUCT = "32b_instruct"
+    QWEN_3_VL_2B_INSTRUCT_BNB_4BIT = "2b_instruct_bnb_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -72,6 +73,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_VL_32B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-VL-32B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_VL_2B_INSTRUCT_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen3-VL-2B-Instruct-unsloth-bnb-4bit",
             max_length=128,
         ),
     }
@@ -118,6 +123,7 @@ class ModelLoader(ForgeModel):
                 ModelVariant.QWEN_3_VL_8B_INSTRUCT_FP8,
                 ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT,
                 ModelVariant.QWEN_3_VL_32B_INSTRUCT,
+                ModelVariant.QWEN_3_VL_2B_INSTRUCT_BNB_4BIT,
             )
             else ModelGroup.RED
         )
@@ -148,8 +154,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        # AWQ variant loads with device_map="cpu" to keep quantized weights on CPU
-        if self._variant == ModelVariant.QWEN_3_VL_4B_INSTRUCT_AWQ:
+        # Quantized variants load with device_map="cpu" to keep quantized weights on CPU
+        if self._variant in (
+            ModelVariant.QWEN_3_VL_4B_INSTRUCT_AWQ,
+            ModelVariant.QWEN_3_VL_2B_INSTRUCT_BNB_4BIT,
+        ):
             model_kwargs["device_map"] = "cpu"
         else:
             model_kwargs["dtype"] = "auto"
