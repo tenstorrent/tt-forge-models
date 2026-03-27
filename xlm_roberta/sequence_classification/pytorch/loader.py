@@ -24,6 +24,9 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa sequence classification model variants."""
 
     TWITTER_XLM_ROBERTA_BASE_SENTIMENT = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
+    TEXTDETOX_XLMR_LARGE_TOXICITY_CLASSIFIER = (
+        "textdetox/xlmr-large-toxicity-classifier"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -34,16 +37,27 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="cardiffnlp/twitter-xlm-roberta-base-sentiment",
             max_length=128,
         ),
+        ModelVariant.TEXTDETOX_XLMR_LARGE_TOXICITY_CLASSIFIER: LLMModelConfig(
+            pretrained_model_name="textdetox/xlmr-large-toxicity-classifier",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT
+
+    _SAMPLE_TEXTS = {
+        ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT: "Great road trip views! @ Shartlesville, Pennsylvania",
+        ModelVariant.TEXTDETOX_XLMR_LARGE_TOXICITY_CLASSIFIER: "This is a friendly message.",
+    }
 
     def __init__(self, variant=None):
         super().__init__(variant)
         self.model_name = self._variant_config.pretrained_model_name
         self.max_length = self._variant_config.max_length
         self.tokenizer = None
-        self.text = "Great road trip views! @ Shartlesville, Pennsylvania"
+        self.text = self._SAMPLE_TEXTS.get(
+            self._variant, "Great road trip views! @ Shartlesville, Pennsylvania"
+        )
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
