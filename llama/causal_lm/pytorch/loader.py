@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     # Llama 3 variants
     LLAMA_3_8B = "3.0_8B"
     LLAMA_3_8B_INSTRUCT = "3.0_8B_Instruct"
+    LLAMA_3_70B_INSTRUCT = "3.0_70B_Instruct"
 
     # Llama 3.1 variants
     LLAMA_3_1_8B = "3.1_8B"
@@ -84,6 +85,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LLAMA_3_8B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Meta-Llama-3-8B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_70B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="meta-llama/Meta-Llama-3-70B-Instruct",
             max_length=128,
         ),
         # Llama 3.1 variants
@@ -214,6 +219,7 @@ class ModelLoader(ForgeModel):
         if variant in [
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.LLAMA_3_70B_INSTRUCT,
         ]:
             group = ModelGroup.VULCAN
         elif (
@@ -466,6 +472,7 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
         if self._variant in [
+            ModelVariant.LLAMA_3_70B_INSTRUCT,
             ModelVariant.LLAMA_3_1_70B,
             ModelVariant.LLAMA_3_1_70B_INSTRUCT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT,
