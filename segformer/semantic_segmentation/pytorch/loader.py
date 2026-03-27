@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     B2_FINETUNED = "B2_Finetuned_Ade_512_512"
     B3_FINETUNED = "B3_Finetuned_Ade_512_512"
     B4_FINETUNED = "B4_Finetuned_Ade_512_512"
+    B5_FINETUNED_CITYSCAPES = "B5_Finetuned_Cityscapes_1024_1024"
 
 
 class ModelLoader(ForgeModel):
@@ -52,6 +53,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.B4_FINETUNED: ModelConfig(
             pretrained_model_name="nvidia/segformer-b4-finetuned-ade-512-512",
+        ),
+        ModelVariant.B5_FINETUNED_CITYSCAPES: ModelConfig(
+            pretrained_model_name="nvidia/segformer-b5-finetuned-cityscapes-1024-1024",
         ),
     }
 
@@ -83,10 +87,16 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
+        group = (
+            ModelGroup.VULCAN
+            if variant == ModelVariant.B5_FINETUNED_CITYSCAPES
+            else ModelGroup.GENERALITY
+        )
+
         return ModelInfo(
             model="SegFormer",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_SEG,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
