@@ -40,6 +40,7 @@ class ModelVariant(StrEnum):
     MISTRAL_NEMO_INSTRUCT_2407 = "Nemo_INSTRUCT_2407"
     DEVSTRAL_SMALL_2505 = "Devstral_Small_2505"
     MAGISTRAL_SMALL_2506 = "Magistral_Small_2506"
+    MAGISTRAL_SMALL_2506_FP8 = "Magistral_Small_2506_FP8"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
     MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
@@ -53,6 +54,7 @@ class ModelLoader(ForgeModel):
     _TEKKEN_TOKENIZER_VARIANTS = {
         ModelVariant.DEVSTRAL_SMALL_2505,
         ModelVariant.MAGISTRAL_SMALL_2506,
+        ModelVariant.MAGISTRAL_SMALL_2506_FP8,
     }
     _USE_MistralForCausalLM = {
         ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_2503,
@@ -95,6 +97,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MAGISTRAL_SMALL_2506: ModelConfig(
             pretrained_model_name="mistralai/Magistral-Small-2506",
+        ),
+        ModelVariant.MAGISTRAL_SMALL_2506_FP8: ModelConfig(
+            pretrained_model_name="RedHatAI/Magistral-Small-2506-FP8",
         ),
         ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_2503: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-3.1-24B-Instruct-2503",
@@ -140,6 +145,7 @@ class ModelLoader(ForgeModel):
         if variant in (
             ModelVariant.MISTRAL_7B_INSTRUCT_V02,
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
+            ModelVariant.MAGISTRAL_SMALL_2506_FP8,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
