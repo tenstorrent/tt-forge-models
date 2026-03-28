@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Nemotron model variants for causal language modeling."""
 
     NEMOTRON_3_NANO_30B_A3B_FP8 = "3_Nano_30B_A3B_FP8"
+    NEMOTRON_3_NANO_30B_A3B_MLX_4BIT = "3_Nano_30B_A3B_MLX_4bit"
     NEMOTRON_3_SUPER_120B_A12B_NVFP4 = "3_Super_120B_A12B_NVFP4"
     LLAMA_3_3_NEMOTRON_SUPER_49B_V1_5_FP8 = "Llama_3_3_Super_49B_v1_5_FP8"
 
@@ -35,6 +36,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.NEMOTRON_3_NANO_30B_A3B_FP8: LLMModelConfig(
             pretrained_model_name="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8",
+            max_length=128,
+        ),
+        ModelVariant.NEMOTRON_3_NANO_30B_A3B_MLX_4BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/NVIDIA-Nemotron-3-Nano-30B-A3B-4bit",
             max_length=128,
         ),
         ModelVariant.NEMOTRON_3_SUPER_120B_A12B_NVFP4: LLMModelConfig(
@@ -102,6 +107,8 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         if self._variant in self._NVFP4_VARIANTS:
             model_kwargs["ignore_mismatched_sizes"] = True
+        if self._variant == ModelVariant.NEMOTRON_3_NANO_30B_A3B_MLX_4BIT:
+            model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
