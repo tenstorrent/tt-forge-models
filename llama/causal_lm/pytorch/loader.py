@@ -47,6 +47,7 @@ class ModelVariant(StrEnum):
     LLAMA_3_2_1B_INSTRUCT = "3.2_1B_Instruct"
     LLAMA_3_2_3B = "3.2_3B"
     LLAMA_3_2_3B_INSTRUCT = "3.2_3B_Instruct"
+    LLAMA_3_2_3B_INSTRUCT_MLX_8BIT = "3.2_3B_Instruct_MLX_8bit"
 
     # Llama 3.3 variants
     LLAMA_3_3_70B_INSTRUCT = "3.3_70B_Instruct"
@@ -127,6 +128,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LLAMA_3_2_3B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.2-3B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_2_3B_INSTRUCT_MLX_8BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/Llama-3.2-3B-Instruct-8bit",
             max_length=128,
         ),
         # RedHatAI FP8 quantized variants
@@ -218,6 +223,7 @@ class ModelLoader(ForgeModel):
         # Set group based on variant (instruct variants are RED priority except llama_3_8b_instruct and llama_3_1_405b_instruct variant)
         if variant in [
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
+            ModelVariant.LLAMA_3_2_3B_INSTRUCT_MLX_8BIT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.TINYLLAMA_1_1B_CHAT_V0_3_AWQ,
         ]:
@@ -509,6 +515,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_1B_INSTRUCT,
             ModelVariant.LLAMA_3_2_3B,
             ModelVariant.LLAMA_3_2_3B_INSTRUCT,
+            ModelVariant.LLAMA_3_2_3B_INSTRUCT_MLX_8BIT,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.HUGGYLLAMA_7B,
