@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     PIXTRAL_12B_COMMUNITY = "12B_Community"
     PIXTRAL_12B_EXPERIMENTAL = "12B_Experimental"
+    PIXTRAL_12B_2409 = "12B_2409"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.PIXTRAL_12B_EXPERIMENTAL: ModelConfig(
             pretrained_model_name="mistral-experimental/pixtral-12b",
+        ),
+        ModelVariant.PIXTRAL_12B_2409: ModelConfig(
+            pretrained_model_name="mistralai/Pixtral-12B-2409",
         ),
     }
 
@@ -65,7 +69,10 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        if variant == ModelVariant.PIXTRAL_12B_EXPERIMENTAL:
+        if variant in (
+            ModelVariant.PIXTRAL_12B_EXPERIMENTAL,
+            ModelVariant.PIXTRAL_12B_2409,
+        ):
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.RED
