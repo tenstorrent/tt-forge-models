@@ -75,6 +75,9 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # Unsloth BNB 4-bit quantized variants
+    UNSLOTH_LLAMA_3_1_8B_BNB_4BIT = "Unsloth_3.1_8B_Bnb_4bit"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -185,6 +188,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # Unsloth BNB 4-bit quantized variants
+        ModelVariant.UNSLOTH_LLAMA_3_1_8B_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/Llama-3.1-8B-unsloth-bnb-4bit",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -229,6 +237,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_1B_QUANTIZED_W8A8,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_FP8_DYNAMIC,
+            ModelVariant.UNSLOTH_LLAMA_3_1_8B_BNB_4BIT,
         ]:
             group = ModelGroup.VULCAN
         elif (
