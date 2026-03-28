@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     NEMOTRON_3_NANO_30B_A3B_FP8 = "3_Nano_30B_A3B_FP8"
     NEMOTRON_3_SUPER_120B_A12B_NVFP4 = "3_Super_120B_A12B_NVFP4"
+    NEMOTRON_TERMINAL_32B = "Terminal_32B"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.NEMOTRON_3_SUPER_120B_A12B_NVFP4: LLMModelConfig(
             pretrained_model_name="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
+            max_length=128,
+        ),
+        ModelVariant.NEMOTRON_TERMINAL_32B: LLMModelConfig(
+            pretrained_model_name="nvidia/Nemotron-Terminal-32B",
             max_length=128,
         ),
     }
