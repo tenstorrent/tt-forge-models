@@ -72,6 +72,9 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # nm-testing nonuniform quantized variants
+    LLAMA_3_8B_INSTRUCT_NONUNIFORM = "3.0_8B_Instruct_Nonuniform"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -177,6 +180,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # nm-testing nonuniform quantized variants
+        ModelVariant.LLAMA_3_8B_INSTRUCT_NONUNIFORM: LLMModelConfig(
+            pretrained_model_name="nm-testing/Meta-Llama-3-8B-Instruct-nonuniform-test",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -220,6 +228,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_8B_INSTRUCT_BNB_4BIT,
+            ModelVariant.LLAMA_3_8B_INSTRUCT_NONUNIFORM,
         ]:
             group = ModelGroup.VULCAN
         elif (
