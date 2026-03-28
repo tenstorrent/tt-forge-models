@@ -32,6 +32,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_CODER_7B = "7B"
     QWEN_2_5_CODER_7B_INSTRUCT = "7B_Instruct"
     QWEN_2_5_CODER_7B_INSTRUCT_GPTQ_INT4 = "7B_Instruct_GPTQ_Int4"
+    QWEN_2_5_CODER_14B_INSTRUCT_4BIT = "14B_Instruct_4bit"
     QWEN_2_5_CODER_32B_INSTRUCT = "32B_Instruct"
     QWEN_2_5_CODER_32B_INSTRUCT_AWQ = "32B_Instruct_Awq"
 
@@ -71,6 +72,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_2_5_CODER_7B_INSTRUCT_GPTQ_INT4: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-Coder-7B-Instruct-GPTQ-Int4",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_CODER_14B_INSTRUCT_4BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
             max_length=128,
         ),
         ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT: LLMModelConfig(
@@ -115,6 +120,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.RED
         if variant in [
             ModelVariant.QWEN_2_5_CODER_7B_INSTRUCT_GPTQ_INT4,
+            ModelVariant.QWEN_2_5_CODER_14B_INSTRUCT_4BIT,
             ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_AWQ,
         ]:
             group = ModelGroup.VULCAN
@@ -174,6 +180,7 @@ class ModelLoader(ForgeModel):
         # Quantized variants need device_map="cpu" for CPU-based loading
         if pretrained_model_name in (
             "Qwen/Qwen2.5-Coder-7B-Instruct-GPTQ-Int4",
+            "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
             "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ",
         ):
             model_kwargs["device_map"] = "cpu"
