@@ -37,6 +37,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_122B_A10B_GGUF = "122B_A10B_GGUF"
     QWEN_3_5_27B_GUARDPOINT_GGUF = "27B_Guardpoint_GGUF"
     QWEN_3_5_35B_A3B_INT4_AUTOROUND = "35B_A3B_int4_AutoRound"
+    QWEN_3_5_397B_A17B_GPTQ_INT4 = "397B_A17B_GPTQ_Int4"
 
 
 class ModelLoader(ForgeModel):
@@ -94,6 +95,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_35B_A3B_INT4_AUTOROUND: LLMModelConfig(
             pretrained_model_name="Intel/Qwen3.5-35B-A3B-int4-AutoRound",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_397B_A17B_GPTQ_INT4: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3.5-397B-A17B-GPTQ-Int4",
             max_length=128,
         ),
     }
@@ -165,6 +170,10 @@ class ModelLoader(ForgeModel):
         if self._is_gguf_variant():
             tokenizer_kwargs["gguf_file"] = self._gguf_file
 
+        # Custom architecture variants require trust_remote_code
+        if self._needs_remote_code():
+            tokenizer_kwargs["trust_remote_code"] = True
+
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -204,8 +213,15 @@ class ModelLoader(ForgeModel):
         if self._is_gguf_variant():
             model_kwargs["gguf_file"] = self._gguf_file
 
+        # Custom architecture variants require trust_remote_code
+        if self._needs_remote_code():
+            model_kwargs["trust_remote_code"] = True
+
         # GPTQ variants need device_map="cpu" for CPU-based loading
-        if self._variant == ModelVariant.QWEN_3_5_35B_A3B_GPTQ_INT4:
+        if self._variant in (
+            ModelVariant.QWEN_3_5_35B_A3B_GPTQ_INT4,
+            ModelVariant.QWEN_3_5_397B_A17B_GPTQ_INT4,
+        ):
             model_kwargs["device_map"] = "cpu"
 
         # AutoRound int4 variants need device_map="cpu" for CPU-based loading
@@ -302,6 +318,10 @@ class ModelLoader(ForgeModel):
         """Check if the current variant uses AWQ quantization."""
         return self._variant == ModelVariant.QWEN_3_5_35B_A3B_AWQ_4BIT
 
+    def _needs_remote_code(self):
+        """Check if the current variant requires trust_remote_code for custom architecture."""
+        return self._variant in (ModelVariant.QWEN_3_5_397B_A17B_GPTQ_INT4,)
+
     def _is_moe_variant(self):
         """Check if the current variant is a Mixture of Experts model."""
         return self._variant in (
@@ -310,6 +330,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_5_35B_A3B_INT4_AUTOROUND,
             ModelVariant.QWEN_3_5_122B_A10B,
             ModelVariant.QWEN_3_5_122B_A10B_GGUF,
+            ModelVariant.QWEN_3_5_397B_A17B_GPTQ_INT4,
         )
 
     def load_shard_spec(self, model):
@@ -359,6 +380,8 @@ class ModelLoader(ForgeModel):
         config_kwargs = {}
         if self._is_gguf_variant():
             config_kwargs["gguf_file"] = self._gguf_file
+        if self._needs_remote_code():
+            config_kwargs["trust_remote_code"] = True
 
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, **config_kwargs
