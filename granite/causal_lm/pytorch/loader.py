@@ -25,6 +25,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Granite model variants."""
 
+    GRANITE_3B_CODE_INSTRUCT_2K = "3B_Code_Instruct_2K"
     GRANITE_4_0_350M = "4.0_350M"
 
 
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     """Granite model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
+        ModelVariant.GRANITE_3B_CODE_INSTRUCT_2K: ModelConfig(
+            pretrained_model_name="ibm-granite/granite-3b-code-instruct-2k",
+        ),
         ModelVariant.GRANITE_4_0_350M: ModelConfig(
             pretrained_model_name="ibm-granite/granite-4.0-350m",
         ),
