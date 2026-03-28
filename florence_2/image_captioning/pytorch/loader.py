@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
 
     BASE = "Base"
     LARGE = "Large"
+    LARGE_NO_FLASH_ATTN = "Large_No_Flash_Attn"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE: ModelConfig(
             pretrained_model_name="microsoft/Florence-2-large",
+        ),
+        ModelVariant.LARGE_NO_FLASH_ATTN: ModelConfig(
+            pretrained_model_name="multimodalart/Florence-2-large-no-flash-attn",
         ),
     }
 
