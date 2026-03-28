@@ -87,6 +87,9 @@ class ModelVariant(StrEnum):
         "ShahriarFerdoush_3.2_1B_Code_Instruct"
     )
 
+    # mlabonne variants
+    MLABONNE_LLAMA_3_1_8B_INSTRUCT_ABLITERATED = "Mlabonne_3.1_8B_Instruct_Abliterated"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -216,6 +219,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="ShahriarFerdoush/llama-3.2-1b-code-instruct",
             max_length=128,
         ),
+        # mlabonne variants
+        ModelVariant.MLABONNE_LLAMA_3_1_8B_INSTRUCT_ABLITERATED: LLMModelConfig(
+            pretrained_model_name="mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -291,6 +299,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.SHAHRIARFERDOUSH_LLAMA_3_2_1B_CODE_INSTRUCT,
+            ModelVariant.MLABONNE_LLAMA_3_1_8B_INSTRUCT_ABLITERATED,
         ]:
             group = ModelGroup.VULCAN
         else:
