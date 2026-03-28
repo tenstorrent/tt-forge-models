@@ -22,6 +22,9 @@ class ModelVariant(StrEnum):
     """Available RuBERT model variants for sequence classification."""
 
     RUBERT_BASE_CASED_SENTIMENT_RUSENTIMENT = "Base_Cased_Sentiment_RuSentiment"
+    R1CHAR9_RUBERT_BASE_CASED_RUSSIAN_SENTIMENT = (
+        "r1char9_RuBERT_Base_Cased_Russian_Sentiment"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -32,12 +35,17 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="blanchefort/rubert-base-cased-sentiment-rusentiment",
             max_length=128,
         ),
+        ModelVariant.R1CHAR9_RUBERT_BASE_CASED_RUSSIAN_SENTIMENT: LLMModelConfig(
+            pretrained_model_name="r1char9/rubert-base-cased-russian-sentiment",
+            max_length=256,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.RUBERT_BASE_CASED_SENTIMENT_RUSENTIMENT
 
     _SAMPLE_TEXTS = {
         ModelVariant.RUBERT_BASE_CASED_SENTIMENT_RUSENTIMENT: "Мне очень понравился этот фильм, он был замечательным!",
+        ModelVariant.R1CHAR9_RUBERT_BASE_CASED_RUSSIAN_SENTIMENT: "Привет, ты мне нравишься!",
     }
 
     def __init__(self, variant=None):
@@ -55,7 +63,7 @@ class ModelLoader(ForgeModel):
             self._variant,
             "Мне очень понравился этот фильм, он был замечательным!",
         )
-        self.max_length = 128
+        self.max_length = self._variant_config.max_length
         self.tokenizer = None
 
     @classmethod
