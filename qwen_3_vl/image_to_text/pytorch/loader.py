@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3 model variants for image to text."""
 
     QWEN_3_VL_2B_INSTRUCT = "2b_instruct"
+    QWEN_3_VL_2B_INSTRUCT_FP8 = "2b_instruct_fp8"
     QWEN_3_VL_2B_THINKING = "2b_thinking"
     QWEN_3_VL_4B_INSTRUCT = "4b_instruct"
     QWEN_3_VL_4B_THINKING = "4b_thinking"
@@ -46,6 +47,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_VL_2B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-VL-2B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_VL_2B_INSTRUCT_FP8: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-VL-2B-Instruct-FP8",
             max_length=128,
         ),
         ModelVariant.QWEN_3_VL_2B_THINKING: LLMModelConfig(
@@ -120,6 +125,7 @@ class ModelLoader(ForgeModel):
             ModelGroup.VULCAN
             if variant
             in (
+                ModelVariant.QWEN_3_VL_2B_INSTRUCT_FP8,
                 ModelVariant.QWEN_3_VL_8B_INSTRUCT,
                 ModelVariant.QWEN_3_VL_8B_INSTRUCT_FP8,
                 ModelVariant.QWEN_3_VL_8B_INSTRUCT_AWQ,
