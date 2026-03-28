@@ -44,6 +44,7 @@ class ModelVariant(StrEnum):
     QWEN_3_30B_A3B = "30B_A3b"
     QWEN_3_30B_A3B_INSTRUCT_2507 = "30B_A3B_Instruct_2507"
     QWEN_3_14B_AWQ = "14B_Awq"
+    QWEN_3_1_7B_GGUF = "1_7B_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -115,10 +116,19 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-14B-AWQ",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_1_7B_GGUF: LLMModelConfig(
+            pretrained_model_name="geoffmunn/Qwen3-1.7B-f16",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.QWEN_3_0_6B
+
+    # GGUF files for quantized variants
+    _GGUF_FILES = {
+        ModelVariant.QWEN_3_1_7B_GGUF: "Qwen3-1.7B-f16-Q4_K_M.gguf",
+    }
 
     # Shared configuration parameters
     sample_text = "Give me a short introduction to large language model."
@@ -158,6 +168,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_14B_INSTRUCT_OPENPIPE,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
             ModelVariant.QWEN_3_14B_AWQ,
+            ModelVariant.QWEN_3_1_7B_GGUF,
         ):
             group = ModelGroup.VULCAN
         else:
@@ -172,6 +183,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _is_gguf_variant(self):
+        """Check if the current variant uses GGUF quantization."""
+        return self._variant in self._GGUF_FILES
+
+    @property
+    def _gguf_file(self):
+        """Get the GGUF filename for the current variant."""
+        return self._GGUF_FILES.get(self._variant)
+
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
 
@@ -185,6 +205,10 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+
+        # Pass gguf_file for GGUF variants
+        if self._is_gguf_variant():
+            tokenizer_kwargs["gguf_file"] = self._gguf_file
 
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -220,6 +244,10 @@ class ModelLoader(ForgeModel):
             model_kwargs["device_map"] = "cpu"
 
         model_kwargs |= kwargs
+
+        # Pass gguf_file for GGUF variants
+        if self._is_gguf_variant():
+            model_kwargs["gguf_file"] = self._gguf_file
 
         # AWQ variants: use Qwen3ForCausalLM directly with quantization_config
         # removed so that weights are loaded as plain tensors on CPU.
@@ -377,8 +405,12 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Qwen3 model.
         """
+        config_kwargs = {}
+        if self._is_gguf_variant():
+            config_kwargs["gguf_file"] = self._gguf_file
+
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
 
         return self.config
