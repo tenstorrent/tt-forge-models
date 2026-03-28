@@ -124,8 +124,9 @@ class ModelLoader(ForgeModel):
                 self._preprocessor.set_cached_model(self.model)
 
         model_for_config = None
-        if hasattr(self, "model") and self.model is not None:
-            model_for_config = self.model
+        if self._variant_config.source == ModelSource.TIMM:
+            if hasattr(self, "model") and self.model is not None:
+                model_for_config = self.model
 
         return self._preprocessor.preprocess(
             image=image,
