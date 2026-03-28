@@ -45,6 +45,9 @@ class ModelVariant(StrEnum):
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
     MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
+    DEVSTRAL_SMALL_2505_DS_V3_2_SPECIALE_DISTILL = (
+        "Devstral_Small_2505_DS_V3.2_Speciale_Distill"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -115,6 +118,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_7B_V03_BNB_4BIT: ModelConfig(
             pretrained_model_name="unsloth/mistral-7b-v0.3-bnb-4bit",
         ),
+        ModelVariant.DEVSTRAL_SMALL_2505_DS_V3_2_SPECIALE_DISTILL: ModelConfig(
+            pretrained_model_name="TeichAI/Devstral-Small-2505-Deepseek-V3.2-Speciale-Distill",
+        ),
     }
 
     # Default variant to use
@@ -152,6 +158,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
             ModelVariant.DEVSTRAL_SMALL_2507,
             ModelVariant.MAGISTRAL_SMALL_2509,
+            ModelVariant.DEVSTRAL_SMALL_2505_DS_V3_2_SPECIALE_DISTILL,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
