@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     FALCON_10B = "3_10B_Base"
     FALCON_MAMBA_7B = "3_Mamba_7B_Base"
     FALCON_7B_INSTRUCT = "7B_Instruct"
+    FALCON_TINY_TESTING = "Tiny_Testing"
 
 
 class ModelLoader(ForgeModel):
@@ -55,6 +56,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.FALCON_7B_INSTRUCT: ModelConfig(
             pretrained_model_name="tiiuae/falcon-7b-instruct",
         ),
+        ModelVariant.FALCON_TINY_TESTING: ModelConfig(
+            pretrained_model_name="optimum-intel-internal-testing/really-tiny-falcon-testing",
+        ),
     }
 
     # Default variant to use
@@ -79,6 +83,8 @@ class ModelLoader(ForgeModel):
             ModelVariant.FALCON_10B,
         ]:
             group = ModelGroup.RED
+        elif variant == ModelVariant.FALCON_TINY_TESTING:
+            group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
 
