@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     OPUS_MT_TR_EN = "Opus_Mt_Tr_En"
     OPUS_MT_IT_ES = "Opus_Mt_It_Es"
+    OPUS_MT_EN_HI = "Opus_Mt_En_Hi"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPUS_MT_IT_ES: LLMModelConfig(
             pretrained_model_name="Helsinki-NLP/opus-mt-it-es",
         ),
+        ModelVariant.OPUS_MT_EN_HI: LLMModelConfig(
+            pretrained_model_name="Helsinki-NLP/opus-mt-en-hi",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.OPUS_MT_TR_EN
@@ -44,6 +48,7 @@ class ModelLoader(ForgeModel):
     _SAMPLE_TEXTS = {
         ModelVariant.OPUS_MT_TR_EN: "Merhaba dünya, bugün hava çok güzel.",
         ModelVariant.OPUS_MT_IT_ES: "Ciao mondo, oggi il tempo è molto bello.",
+        ModelVariant.OPUS_MT_EN_HI: "Hello, how are you today?",
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
