@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     BASE = "Base"
     LARGE = "Large"
+    TINY_RANDOM = "Tiny_Random"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE: ModelConfig(
             pretrained_model_name="microsoft/beit-large-patch16-224",
+        ),
+        ModelVariant.TINY_RANDOM: ModelConfig(
+            pretrained_model_name="optimum-intel-internal-testing/tiny-random-BeitForImageClassification",
         ),
     }
 
@@ -65,10 +69,14 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        group = ModelGroup.GENERALITY
+        if variant == ModelVariant.TINY_RANDOM:
+            group = ModelGroup.VULCAN
+
         return ModelInfo(
             model="BEiT",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_CLS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
