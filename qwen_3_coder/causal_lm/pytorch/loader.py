@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     QWEN_3_CODER_NEXT = "Next"
     QWEN_3_CODER_30B_A3B_INSTRUCT = "30B_A3B_Instruct"
+    QWEN_3_CODER_30B_A3B_INSTRUCT_AWQ = "30B_A3B_Instruct_Awq"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_CODER_30B_A3B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-Coder-30B-A3B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_CODER_30B_A3B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="stelterlab/Qwen3-Coder-30B-A3B-Instruct-AWQ",
             max_length=128,
         ),
     }
@@ -124,9 +129,18 @@ class ModelLoader(ForgeModel):
         # GPTQ variants need device_map="cpu" for CPU-based loading
         if pretrained_model_name == "btbtyler09/Qwen3-Coder-30B-A3B-Instruct-gptq-8bit":
             model_kwargs["device_map"] = "cpu"
-        model_kwargs |= kwargs
 
-        if self.num_layers is not None:
+        # AWQ variants: load on CPU with quantization_config removed
+        # so that weights are loaded as plain tensors.
+        is_awq = pretrained_model_name == "stelterlab/Qwen3-Coder-30B-A3B-Instruct-AWQ"
+        if is_awq:
+            model_kwargs["device_map"] = "cpu"
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            delattr(config, "quantization_config")
+            model_kwargs["config"] = config
+        elif self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
@@ -137,6 +151,8 @@ class ModelLoader(ForgeModel):
             else:
                 config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+
+        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
