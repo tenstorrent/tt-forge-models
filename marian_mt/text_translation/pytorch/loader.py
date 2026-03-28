@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available MarianMT model variants for text translation."""
 
     OPUS_MT_TR_EN = "Opus_Mt_Tr_En"
+    OPUS_MT_SV_EN = "Opus_Mt_Sv_En"
 
 
 class ModelLoader(ForgeModel):
@@ -33,9 +34,17 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPUS_MT_TR_EN: LLMModelConfig(
             pretrained_model_name="Helsinki-NLP/opus-mt-tr-en",
         ),
+        ModelVariant.OPUS_MT_SV_EN: LLMModelConfig(
+            pretrained_model_name="Helsinki-NLP/opus-mt-sv-en",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.OPUS_MT_TR_EN
+
+    _SAMPLE_TEXTS = {
+        ModelVariant.OPUS_MT_TR_EN: "Merhaba dünya, bugün hava çok güzel.",
+        ModelVariant.OPUS_MT_SV_EN: "Hej världen, idag är vädret väldigt fint.",
+    }
 
     sample_text = "Merhaba dünya, bugün hava çok güzel."
 
