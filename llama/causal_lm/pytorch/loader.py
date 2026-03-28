@@ -77,6 +77,9 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # qiaw99 DPO fine-tuned variants
+    LLAMA_3_1_8B_INSTRUCT_OPENBOOKQA_DPO = "3.1_8B_Instruct_OpenbookQA_DPO"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -188,6 +191,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # qiaw99 DPO fine-tuned variants
+        ModelVariant.LLAMA_3_1_8B_INSTRUCT_OPENBOOKQA_DPO: LLMModelConfig(
+            pretrained_model_name="qiaw99/Llama3.1-8B-Instruct-OpenbookQA-DPO-C-G-sequential",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -232,6 +240,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_1_8B_INSTRUCT_NVFP4,
             ModelVariant.LLAMA_3_1_8B_INSTRUCT_UNSLOTH_BNB_4BIT,
+            ModelVariant.LLAMA_3_1_8B_INSTRUCT_OPENBOOKQA_DPO,
         ]:
             group = ModelGroup.VULCAN
         elif (
