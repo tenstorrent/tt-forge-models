@@ -10,6 +10,7 @@ from transformers import (
     AutoTokenizer,
     AutoConfig,
     Qwen3ForCausalLM,
+    Qwen3MoeForCausalLM,
 )
 from typing import Optional
 
@@ -47,6 +48,7 @@ class ModelVariant(StrEnum):
     UNSLOTH_QWEN_3_14B = "unsloth_14B"
     QWEN_3_32B_QUANTIZED_W4A16 = "32B_Quantized_W4A16"
     NONEUSERNAME_QWEN_3_32B_ABLITERATED_AWQ = "noneUsername_32B_Abliterated_Awq"
+    REDHATAI_QWEN_3_30B_A3B_FP8_BLOCK = "RedHatAI_30B_A3B_FP8_Block"
     TINY_RANDOM_QWEN3 = "Tiny_Random"
 
 
@@ -131,6 +133,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="noneUsername/Qwen3-32B-abliterated-awq",
             max_length=128,
         ),
+        ModelVariant.REDHATAI_QWEN_3_30B_A3B_FP8_BLOCK: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Qwen3-30B-A3B-FP8-block",
+            max_length=128,
+        ),
         ModelVariant.TINY_RANDOM_QWEN3: LLMModelConfig(
             pretrained_model_name="llamafactory/tiny-random-qwen3",
             max_length=128,
@@ -181,6 +187,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.UNSLOTH_QWEN_3_14B,
             ModelVariant.QWEN_3_32B_QUANTIZED_W4A16,
             ModelVariant.NONEUSERNAME_QWEN_3_32B_ABLITERATED_AWQ,
+            ModelVariant.REDHATAI_QWEN_3_30B_A3B_FP8_BLOCK,
             ModelVariant.TINY_RANDOM_QWEN3,
         ):
             group = ModelGroup.VULCAN
@@ -251,6 +258,7 @@ class ModelLoader(ForgeModel):
             "Qwen/Qwen3-32B-AWQ",
             "RedHatAI/Qwen3-32B-quantized.w4a16",
             "noneUsername/Qwen3-32B-abliterated-awq",
+            "RedHatAI/Qwen3-30B-A3B-FP8-block",
         )
         if is_quantized:
             model_kwargs["device_map"] = "cpu"
@@ -269,7 +277,12 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        model_cls = Qwen3ForCausalLM if is_quantized else AutoModelForCausalLM
+        if is_quantized:
+            model_cls = (
+                Qwen3MoeForCausalLM if self._is_moe_variant() else Qwen3ForCausalLM
+            )
+        else:
+            model_cls = AutoModelForCausalLM
         model = model_cls.from_pretrained(pretrained_model_name, **model_kwargs).eval()
 
         self.config = model.config
@@ -354,6 +367,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_30B_A3B,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
             ModelVariant.QWEN_3_235B_A22B_INSTRUCT_2507_FP8,
+            ModelVariant.REDHATAI_QWEN_3_30B_A3B_FP8_BLOCK,
         )
 
     def load_shard_spec(self, model):
