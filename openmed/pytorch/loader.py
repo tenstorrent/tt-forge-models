@@ -18,9 +18,20 @@ from ...config import (
 )
 from ...base import ForgeModel
 
+_VARIANT_SAMPLE_TEXTS = {
+    "ZeroShot-NER-Species-Small-166M": "Escherichia coli and Staphylococcus aureus were isolated from the patient samples.",
+    "ZeroShot-NER-DNA-Medium-209M": "The p53 protein plays a crucial role in tumor suppression.",
+}
+
+_VARIANT_LABELS = {
+    "ZeroShot-NER-Species-Small-166M": ["SPECIES"],
+    "ZeroShot-NER-DNA-Medium-209M": ["DNA", "RNA", "cell_line", "cell_type", "protein"],
+}
+
 
 class ModelVariant(StrEnum):
     OPENMED_ZEROSHOT_NER_SPECIES_SMALL = "ZeroShot-NER-Species-Small-166M"
+    OPENMED_ZEROSHOT_NER_DNA_MEDIUM = "ZeroShot-NER-DNA-Medium-209M"
 
 
 class ModelLoader(ForgeModel):
@@ -29,6 +40,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_SMALL: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Species-Small-166M"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_DNA_MEDIUM: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-DNA-Medium-209M"
         ),
     }
 
@@ -65,9 +79,9 @@ class ModelLoader(ForgeModel):
 
         Returns a batch suitable for the GLiNER model forward pass.
         """
-        text = "Escherichia coli and Staphylococcus aureus were isolated from the patient samples."
+        text = _VARIANT_SAMPLE_TEXTS[self._variant_name]
         self.text = [text]
-        labels = ["SPECIES"]
+        labels = _VARIANT_LABELS[self._variant_name]
         entity_types = list(dict.fromkeys(labels))
 
         (
