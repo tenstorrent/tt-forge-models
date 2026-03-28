@@ -64,6 +64,7 @@ class ModelVariant(StrEnum):
 
     # Llama 2 variants
     LLAMA_2_7B = "2_7B"
+    LLAMA_2_13B = "2_13B"
 
     # TinyLlama variants
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
@@ -153,6 +154,10 @@ class ModelLoader(ForgeModel):
         # Llama 2 variants
         ModelVariant.LLAMA_2_7B: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-2-7b-hf",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_2_13B: LLMModelConfig(
+            pretrained_model_name="meta-llama/Llama-2-13b-hf",
             max_length=128,
         ),
         # HuggingFace community variants
@@ -248,6 +253,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.PRIORITY
         elif variant in [
             ModelVariant.LLAMA_2_7B,
+            ModelVariant.LLAMA_2_13B,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.JACKFRAM_LLAMA_160M,
         ]:
