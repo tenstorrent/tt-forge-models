@@ -45,6 +45,7 @@ class ModelVariant(StrEnum):
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
     MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
     MISTRAL_7B_INSTRUCT_V03_BNB_4BIT = "7B_instruct_v03_bnb_4bit"
+    MINISTRAL_3_14B_REASONING_2512_GGUF = "Ministral_3_14B_Reasoning_2512_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -62,6 +63,7 @@ class ModelLoader(ForgeModel):
     }
     _USE_Mistral3ForConditionalGeneration_VARIANTS = {
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506,
+        ModelVariant.MINISTRAL_3_14B_REASONING_2512_GGUF,
     }
 
     # Dictionary of available model variants
@@ -114,6 +116,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_7B_INSTRUCT_V03_BNB_4BIT: ModelConfig(
             pretrained_model_name="unsloth/mistral-7b-instruct-v0.3-bnb-4bit",
         ),
+        ModelVariant.MINISTRAL_3_14B_REASONING_2512_GGUF: ModelConfig(
+            pretrained_model_name="unsloth/Ministral-3-14B-Reasoning-2512-GGUF",
+        ),
     }
 
     # Default variant to use
@@ -151,6 +156,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
             ModelVariant.MISTRAL_7B_INSTRUCT_V03_BNB_4BIT,
             ModelVariant.DEVSTRAL_2_123B_INSTRUCT_2512,
+            ModelVariant.MINISTRAL_3_14B_REASONING_2512_GGUF,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
