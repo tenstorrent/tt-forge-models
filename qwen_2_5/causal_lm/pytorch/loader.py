@@ -47,6 +47,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_32B_INSTRUCT_AWQ = "32B_Instruct_Awq"
     QWEN_2_5_1_5B_QUANTIZED_W8A8 = "1.5B_Quantized_W8A8"
     UNSLOTH_QWEN_2_5_14B_INSTRUCT = "unsloth_14B_Instruct"
+    UNSLOTH_QWEN_2_5_7B_BNB_4BIT = "unsloth_7B_bnb_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -139,6 +140,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/Qwen2.5-14B-Instruct",
             max_length=128,
         ),
+        ModelVariant.UNSLOTH_QWEN_2_5_7B_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen2.5-7B-unsloth-bnb-4bit",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -192,6 +197,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_2_5_32B_INSTRUCT_AWQ,
             ModelVariant.QWEN_2_5_1_5B_QUANTIZED_W8A8,
             ModelVariant.UNSLOTH_QWEN_2_5_14B_INSTRUCT,
+            ModelVariant.UNSLOTH_QWEN_2_5_7B_BNB_4BIT,
         ]:
             group = ModelGroup.VULCAN
 
@@ -247,12 +253,16 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        # Check if this is an AWQ variant and configure accordingly
+        # Check if this is an AWQ or BNB variant and configure accordingly
         if pretrained_model_name in (
             "Qwen/Qwen2.5-14B-Instruct-AWQ",
             "Qwen/Qwen2.5-32B-Instruct-AWQ",
             "Qwen/Qwen2.5-72B-Instruct-AWQ",
         ):
+            model_kwargs["device_map"] = "cpu"
+
+        # BnB variants need device_map="cpu" for CPU-based loading
+        if self._variant == ModelVariant.UNSLOTH_QWEN_2_5_7B_BNB_4BIT:
             model_kwargs["device_map"] = "cpu"
 
         model_kwargs |= kwargs
