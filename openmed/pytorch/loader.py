@@ -22,6 +22,7 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     OPENMED_ZEROSHOT_NER_SPECIES_SMALL = "ZeroShot-NER-Species-Small-166M"
     OPENMED_ZEROSHOT_NER_DISEASE_LARGE = "ZeroShot-NER-Disease-Large-459M"
+    OPENMED_ZEROSHOT_NER_CHEMICAL_MULTI = "ZeroShot-NER-Chemical-Multi-209M"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.OPENMED_ZEROSHOT_NER_DISEASE_LARGE: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Disease-Large-459M"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_CHEMICAL_MULTI: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Chemical-Multi-209M"
         ),
     }
 
@@ -72,6 +76,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPENMED_ZEROSHOT_NER_DISEASE_LARGE: {
             "text": "The patient was diagnosed with diabetes mellitus type 2 and chronic obstructive pulmonary disease.",
             "labels": ["DISEASE"],
+        },
+        ModelVariant.OPENMED_ZEROSHOT_NER_CHEMICAL_MULTI: {
+            "text": "The patient was administered acetylsalicylic acid for pain relief.",
+            "labels": ["CHEM"],
         },
     }
 
