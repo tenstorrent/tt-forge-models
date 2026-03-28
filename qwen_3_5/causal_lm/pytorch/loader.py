@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_9B_GGUF = "9B_GGUF"
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
     QWEN_3_5_2B_UNCENSORED_HAUHAUCS_AGGRESSIVE = "2B_Uncensored_HauhauCS_Aggressive"
+    QWEN_3_5_9B_HERETIC_V2_GGUF = "9B_heretic_v2_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -86,6 +87,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="HauhauCS/Qwen3.5-2B-Uncensored-HauhauCS-Aggressive",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_5_9B_HERETIC_V2_GGUF: LLMModelConfig(
+            pretrained_model_name="AIImageStudio/Qwen3.5-9b-heretic-v2-GGUF",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -95,6 +100,7 @@ class ModelLoader(ForgeModel):
     _GGUF_FILES = {
         ModelVariant.QWEN_3_5_4B_GGUF: "Qwen3.5-4B-Q4_K_M.gguf",
         ModelVariant.QWEN_3_5_9B_GGUF: "Qwen3.5-9B-Q4_K_M.gguf",
+        ModelVariant.QWEN_3_5_9B_HERETIC_V2_GGUF: "Qwen3.5-9b-heretic-v2-q8_0.gguf",
     }
 
     # Shared configuration parameters
