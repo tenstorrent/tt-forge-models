@@ -21,6 +21,7 @@ from ...base import ForgeModel
 
 class ModelVariant(StrEnum):
     OPENMED_ZEROSHOT_NER_CHEMICAL_TINY = "ZeroShot-NER-Chemical-Tiny-60M"
+    OPENMED_ZEROSHOT_NER_DNA_TINY = "ZeroShot-NER-DNA-Tiny-60M"
     OPENMED_ZEROSHOT_NER_SPECIES_SMALL = "ZeroShot-NER-Species-Small-166M"
 
 
@@ -30,6 +31,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OPENMED_ZEROSHOT_NER_CHEMICAL_TINY: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Chemical-Tiny-60M"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_DNA_TINY: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-DNA-Tiny-60M"
         ),
         ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_SMALL: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Species-Small-166M"
@@ -72,6 +76,9 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.OPENMED_ZEROSHOT_NER_CHEMICAL_TINY:
             text = "The patient was administered acetylsalicylic acid for pain relief."
             labels = ["CHEM"]
+        elif self._variant == ModelVariant.OPENMED_ZEROSHOT_NER_DNA_TINY:
+            text = "The BRCA1 gene mutation was found to be associated with increased cancer risk."
+            labels = ["DNA"]
         else:
             text = "Escherichia coli and Staphylococcus aureus were isolated from the patient samples."
             labels = ["SPECIES"]
