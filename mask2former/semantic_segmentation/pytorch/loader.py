@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Mask2Former model variants for semantic segmentation."""
 
     SWIN_L_CITYSCAPES = "Swin_Large_Cityscapes"
+    SWIN_S_ADE = "Swin_Small_ADE"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SWIN_L_CITYSCAPES: ModelConfig(
             pretrained_model_name="facebook/mask2former-swin-large-cityscapes-semantic"
+        ),
+        ModelVariant.SWIN_S_ADE: ModelConfig(
+            pretrained_model_name="facebook/mask2former-swin-small-ade-semantic"
         ),
     }
 
