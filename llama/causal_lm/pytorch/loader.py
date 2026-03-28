@@ -73,6 +73,9 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # BAAI variants
+    BAAI_INFINITY_INSTRUCT_7M_GEN_LLAMA3_1_8B = "BAAI_Infinity_Instruct_7M_Gen_3.1_8B"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -182,6 +185,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # BAAI variants
+        ModelVariant.BAAI_INFINITY_INSTRUCT_7M_GEN_LLAMA3_1_8B: LLMModelConfig(
+            pretrained_model_name="BAAI/Infinity-Instruct-7M-Gen-Llama3_1-8B",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -253,6 +261,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_2_7B,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.JACKFRAM_LLAMA_160M,
+            ModelVariant.BAAI_INFINITY_INSTRUCT_7M_GEN_LLAMA3_1_8B,
         ]:
             group = ModelGroup.VULCAN
         else:
