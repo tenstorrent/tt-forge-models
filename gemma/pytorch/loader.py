@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     # Gemma 1.x
     GEMMA_2B_IT = "2B_IT"
     GEMMA_1_1_2B_IT = "1.1_2B_IT"
+    GEMMA_1_1_2B_IT_GPTQ = "1.1_2B_IT_GPTQ"
     GEMMA_1_1_7B_IT = "1.1_7B_IT"
     GEMMA_2B = "2B"
 
@@ -48,6 +49,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GEMMA_1_1_2B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-1.1-2b-it",
+        ),
+        ModelVariant.GEMMA_1_1_2B_IT_GPTQ: LLMModelConfig(
+            pretrained_model_name="TechxGenus/gemma-1.1-2b-it-GPTQ",
         ),
         ModelVariant.GEMMA_1_1_7B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-1.1-7b-it",
@@ -100,7 +104,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         # Instruct and larger models are RED, others generality
-        if variant == ModelVariant.GEMMA_2B_IT:
+        if variant in (ModelVariant.GEMMA_2B_IT, ModelVariant.GEMMA_1_1_2B_IT_GPTQ):
             group = ModelGroup.VULCAN
         elif any(x in variant.value for x in ["IT", "7B", "9B", "27B"]):
             group = ModelGroup.RED
@@ -152,6 +156,10 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # GPTQ quantized models need device_map="cpu" for weight dequantization
+        if pretrained_model_name == "TechxGenus/gemma-1.1-2b-it-GPTQ":
+            model_kwargs["device_map"] = "cpu"
 
         config = AutoConfig.from_pretrained(pretrained_model_name)
         config.use_cache = False
@@ -225,6 +233,7 @@ class ModelLoader(ForgeModel):
         if self._variant not in [
             ModelVariant.GEMMA_2B_IT,
             ModelVariant.GEMMA_1_1_2B_IT,
+            ModelVariant.GEMMA_1_1_2B_IT_GPTQ,
             ModelVariant.GEMMA_2B,
             ModelVariant.GEMMA_2_2B,
             ModelVariant.GEMMA_2_2B_IT,
@@ -239,6 +248,7 @@ class ModelLoader(ForgeModel):
         if self._variant in [
             ModelVariant.GEMMA_2B_IT,
             ModelVariant.GEMMA_1_1_2B_IT,
+            ModelVariant.GEMMA_1_1_2B_IT_GPTQ,
             ModelVariant.GEMMA_2B,
             ModelVariant.GEMMA_2_2B,
             ModelVariant.GEMMA_2_2B_IT,
