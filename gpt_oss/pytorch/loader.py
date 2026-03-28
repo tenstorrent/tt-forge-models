@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     GPT_OSS_20B = "20B"
     GPT_OSS_120B = "120B"
+    GPT_OSS_20B_HERETIC_ARA_V3 = "20B_Heretic_Ara_v3"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GPT_OSS_120B: LLMModelConfig(
             pretrained_model_name="openai/gpt-oss-120b",
+            max_length=256,
+        ),
+        ModelVariant.GPT_OSS_20B_HERETIC_ARA_V3: LLMModelConfig(
+            pretrained_model_name="p-e-w/gpt-oss-20b-heretic-ara-v3",
             max_length=256,
         ),
     }
@@ -77,10 +82,18 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
+
+        if variant == ModelVariant.GPT_OSS_20B_HERETIC_ARA_V3:
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.RED
+
         return ModelInfo(
             model="GPT-OSS",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
