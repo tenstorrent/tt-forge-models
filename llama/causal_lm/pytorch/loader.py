@@ -77,6 +77,11 @@ class ModelVariant(StrEnum):
     # BAAI variants
     BAAI_INFINITY_INSTRUCT_7M_GEN_LLAMA3_1_8B = "BAAI_Infinity_Instruct_7M_Gen_3.1_8B"
 
+    # COSAIL-KNU variants
+    COSAIL_KNU_LLAMA2_7B_GPTQ_DRAFT_400M_CODE = (
+        "Cosail_Knu_Llama2_7B_Gptq_Draft_400M_Code"
+    )
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -195,6 +200,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="BAAI/Infinity-Instruct-7M-Gen-Llama3_1-8B",
             max_length=128,
         ),
+        # COSAIL-KNU variants
+        ModelVariant.COSAIL_KNU_LLAMA2_7B_GPTQ_DRAFT_400M_CODE: LLMModelConfig(
+            pretrained_model_name="cosail-knu/llama2-7b_gptq-draft-400m-code",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -268,6 +278,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.BAAI_INFINITY_INSTRUCT_7M_GEN_LLAMA3_1_8B,
+            ModelVariant.COSAIL_KNU_LLAMA2_7B_GPTQ_DRAFT_400M_CODE,
         ]:
             group = ModelGroup.VULCAN
         else:
@@ -540,6 +551,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HUGGYLLAMA_7B,
             ModelVariant.LLAMA_2_7B,
             ModelVariant.JACKFRAM_LLAMA_160M,
+            ModelVariant.COSAIL_KNU_LLAMA2_7B_GPTQ_DRAFT_400M_CODE,
         ]:
             return None
 
