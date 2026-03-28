@@ -71,6 +71,9 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # TheBloke GPTQ quantized variants
+    LLAMA_2_7B_CHAT_GPTQ = "2_7B_Chat_GPTQ"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -172,6 +175,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # TheBloke GPTQ quantized variants
+        ModelVariant.LLAMA_2_7B_CHAT_GPTQ: LLMModelConfig(
+            pretrained_model_name="TheBloke/Llama-2-7B-Chat-GPTQ",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -239,6 +247,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.PRIORITY
         elif variant in [
             ModelVariant.LLAMA_2_7B,
+            ModelVariant.LLAMA_2_7B_CHAT_GPTQ,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.JACKFRAM_LLAMA_160M,
         ]:
@@ -303,10 +312,10 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        # Check if this is an AWQ variant and configure accordingly
-        if (
-            pretrained_model_name
-            == "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"
+        # Check if this is an AWQ/GPTQ variant and configure accordingly
+        if pretrained_model_name in (
+            "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
+            "TheBloke/Llama-2-7B-Chat-GPTQ",
         ):
             model_kwargs["device_map"] = "cpu"
 
@@ -507,6 +516,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.HUGGYLLAMA_7B,
             ModelVariant.LLAMA_2_7B,
+            ModelVariant.LLAMA_2_7B_CHAT_GPTQ,
             ModelVariant.JACKFRAM_LLAMA_160M,
         ]:
             return None
