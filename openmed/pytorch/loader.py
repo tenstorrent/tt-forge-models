@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     OPENMED_ZEROSHOT_NER_SPECIES_SMALL = "ZeroShot-NER-Species-Small-166M"
     OPENMED_ZEROSHOT_NER_DISEASE_XLARGE = "ZeroShot-NER-Disease-XLarge-770M"
     OPENMED_ZEROSHOT_NER_GENOMIC_SMALL = "ZeroShot-NER-Genomic-Small-166M"
+    OPENMED_ZEROSHOT_NER_CHEMICAL_XLARGE = "ZeroShot-NER-Chemical-XLarge-770M"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.OPENMED_ZEROSHOT_NER_GENOMIC_SMALL: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Genomic-Small-166M"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_CHEMICAL_XLARGE: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Chemical-XLarge-770M"
         ),
     }
 
@@ -80,6 +84,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPENMED_ZEROSHOT_NER_GENOMIC_SMALL: {
             "text": "The BRCA2 gene is associated with hereditary breast cancer.",
             "labels": ["Cell-line-name"],
+        },
+        ModelVariant.OPENMED_ZEROSHOT_NER_CHEMICAL_XLARGE: {
+            "text": "The patient was administered acetylsalicylic acid for pain relief.",
+            "labels": ["CHEM"],
         },
     }
 
