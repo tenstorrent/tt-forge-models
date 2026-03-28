@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     BASE = "Base"
     LARGE = "Large"
     BIOCLINICAL_BASE = "BioClinical_Base"
+    CLINICAL_BASE = "Clinical_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +41,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.BIOCLINICAL_BASE: LLMModelConfig(
             pretrained_model_name="thomas-sounack/BioClinical-ModernBERT-base",
+            max_length=128,
+        ),
+        ModelVariant.CLINICAL_BASE: LLMModelConfig(
+            pretrained_model_name="Simonlee711/Clinical_ModernBERT",
             max_length=128,
         ),
     }
