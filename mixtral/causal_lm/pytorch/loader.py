@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Mixtral model variants."""
 
     MIXTRAL_8X7B_INSTRUCT_V01 = "8x7B_Instruct_v0.1"
+    CLOUDYU_YI_34BX2_MOE_60B_DPO = "cloudyu_Yi-34Bx2-MoE-60B-DPO"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MIXTRAL_8X7B_INSTRUCT_V01: ModelConfig(
             pretrained_model_name="mistralai/Mixtral-8x7B-Instruct-v0.1",
+        ),
+        ModelVariant.CLOUDYU_YI_34BX2_MOE_60B_DPO: ModelConfig(
+            pretrained_model_name="cloudyu/Yi-34Bx2-MoE-60B-DPO",
         ),
     }
 
