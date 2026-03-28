@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     OPENMED_ZEROSHOT_NER_SPECIES_SMALL = "ZeroShot-NER-Species-Small-166M"
     OPENMED_ZEROSHOT_NER_DISEASE_LARGE = "ZeroShot-NER-Disease-Large-459M"
     OPENMED_ZEROSHOT_NER_CHEMICAL_MULTI = "ZeroShot-NER-Chemical-Multi-209M"
+    OPENMED_ZEROSHOT_NER_ORGANISM_TINY = "ZeroShot-NER-Organism-Tiny-60M"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.OPENMED_ZEROSHOT_NER_CHEMICAL_MULTI: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Chemical-Multi-209M"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_ORGANISM_TINY: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Organism-Tiny-60M"
         ),
     }
 
@@ -80,6 +84,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPENMED_ZEROSHOT_NER_CHEMICAL_MULTI: {
             "text": "The patient was administered acetylsalicylic acid for pain relief.",
             "labels": ["CHEM"],
+        },
+        ModelVariant.OPENMED_ZEROSHOT_NER_ORGANISM_TINY: {
+            "text": "Caenorhabditis elegans is a model organism for genetic studies.",
+            "labels": ["SPECIES"],
         },
     }
 
