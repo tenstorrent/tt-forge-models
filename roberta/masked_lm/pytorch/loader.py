@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     XLM_BASE = "Xlm_Base"
     ROBERTA_BASE = "Roberta_Base"
+    SECUREBERT = "SecureBERT"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.ROBERTA_BASE: ModelConfig(
             pretrained_model_name="FacebookAI/roberta-base",
+        ),
+        ModelVariant.SECUREBERT: ModelConfig(
+            pretrained_model_name="ehsanaghaei/SecureBERT",
         ),
     }
 
@@ -65,7 +69,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         group = ModelGroup.GENERALITY
-        if variant == ModelVariant.ROBERTA_BASE:
+        if variant in (ModelVariant.ROBERTA_BASE, ModelVariant.SECUREBERT):
             group = ModelGroup.VULCAN
         return ModelInfo(
             model="RoBERTa",
