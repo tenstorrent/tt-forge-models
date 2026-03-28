@@ -28,6 +28,11 @@ class ModelVariant(StrEnum):
 
     BASE = "Base"
     LARGE = "Large"
+    SD3_CAPTIONER = "SD3-Captioner"
+
+
+# Variants that use the <DESCRIPTION> prompt instead of <CAPTION>
+_DESCRIPTION_VARIANTS = {ModelVariant.SD3_CAPTIONER}
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +44,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE: ModelConfig(
             pretrained_model_name="microsoft/Florence-2-large",
+        ),
+        ModelVariant.SD3_CAPTIONER: ModelConfig(
+            pretrained_model_name="gokaygokay/Florence-2-SD3-Captioner",
         ),
     }
 
@@ -90,7 +98,9 @@ class ModelLoader(ForgeModel):
         image_path = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         image = Image.open(str(image_path)).convert("RGB")
 
-        prompt = "<CAPTION>"
+        prompt = (
+            "<DESCRIPTION>" if self._variant in _DESCRIPTION_VARIANTS else "<CAPTION>"
+        )
         inputs = self.processor(text=prompt, images=image, return_tensors="pt")
 
         # Florence-2 is a seq2seq model that requires decoder_input_ids
