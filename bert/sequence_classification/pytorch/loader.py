@@ -27,6 +27,9 @@ class ModelVariant(StrEnum):
         "nlptown_Bert_Base_Multilingual_Uncased_Sentiment"
     )
     TOMH_TOXIGEN_HATEBERT = "tomh_ToxiGen_HateBERT"
+    AHMEDRACHID_FINANCIALBERT_SENTIMENT_ANALYSIS = (
+        "ahmedrachid_FinancialBERT_Sentiment_Analysis"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -50,6 +53,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="tomh/toxigen_hatebert",
             max_length=128,
         ),
+        ModelVariant.AHMEDRACHID_FINANCIALBERT_SENTIMENT_ANALYSIS: LLMModelConfig(
+            pretrained_model_name="ahmedrachid/FinancialBERT-Sentiment-Analysis",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -66,6 +73,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.PROSUSAI_FINBERT: "Stocks rallied and the S&P 500 gained 3.1% on the day.",
         ModelVariant.NLPTOWN_BERT_BASE_MULTILINGUAL_UNCASED_SENTIMENT: "The product quality is excellent and I love it!",
         ModelVariant.TOMH_TOXIGEN_HATEBERT: "I really enjoyed meeting new people from different cultures.",
+        ModelVariant.AHMEDRACHID_FINANCIALBERT_SENTIMENT_ANALYSIS: "Operating profit rose to EUR 13.1 mn from EUR 8.7 mn in the corresponding period in 2007 representing 7.7 % of net sales.",
     }
 
     def __init__(self, variant=None):
@@ -101,6 +109,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.PROSUSAI_FINBERT,
             ModelVariant.NLPTOWN_BERT_BASE_MULTILINGUAL_UNCASED_SENTIMENT,
             ModelVariant.TOMH_TOXIGEN_HATEBERT,
+            ModelVariant.AHMEDRACHID_FINANCIALBERT_SENTIMENT_ANALYSIS,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
