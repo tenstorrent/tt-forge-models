@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Mixtral model variants."""
 
     MIXTRAL_8X7B_INSTRUCT_V01 = "8x7B_Instruct_v0.1"
+    HFL_CHINESE_MIXTRAL = "hfl_chinese_mixtral"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MIXTRAL_8X7B_INSTRUCT_V01: ModelConfig(
             pretrained_model_name="mistralai/Mixtral-8x7B-Instruct-v0.1",
+        ),
+        ModelVariant.HFL_CHINESE_MIXTRAL: ModelConfig(
+            pretrained_model_name="hfl/chinese-mixtral",
         ),
     }
 
