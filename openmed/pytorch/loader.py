@@ -21,6 +21,7 @@ from ...base import ForgeModel
 
 class ModelVariant(StrEnum):
     OPENMED_ZEROSHOT_NER_SPECIES_SMALL = "ZeroShot-NER-Species-Small-166M"
+    OPENMED_ZEROSHOT_NER_PHARMA_LARGE = "ZeroShot-NER-Pharma-Large-459M"
 
 
 class ModelLoader(ForgeModel):
@@ -29,6 +30,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_SMALL: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Species-Small-166M"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_PHARMA_LARGE: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Pharma-Large-459M"
         ),
     }
 
@@ -65,9 +69,13 @@ class ModelLoader(ForgeModel):
 
         Returns a batch suitable for the GLiNER model forward pass.
         """
-        text = "Escherichia coli and Staphylococcus aureus were isolated from the patient samples."
+        if self._variant == ModelVariant.OPENMED_ZEROSHOT_NER_PHARMA_LARGE:
+            text = "Administration of metformin reduced glucose levels significantly."
+            labels = ["CHE"]
+        else:
+            text = "Escherichia coli and Staphylococcus aureus were isolated from the patient samples."
+            labels = ["SPECIES"]
         self.text = [text]
-        labels = ["SPECIES"]
         entity_types = list(dict.fromkeys(labels))
 
         (
