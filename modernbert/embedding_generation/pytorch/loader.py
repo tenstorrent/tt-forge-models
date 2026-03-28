@@ -24,6 +24,7 @@ from third_party.tt_forge_models.config import (
 class ModelVariant(StrEnum):
     """Available ModernBERT model variants for embedding generation."""
 
+    GRANITE_ENGLISH_R2 = "Granite_English_R2"
     GRANITE_SMALL_ENGLISH_R2 = "Granite_Small_English_R2"
 
 
@@ -31,6 +32,9 @@ class ModelLoader(ForgeModel):
     """ModernBERT model loader implementation for embedding generation."""
 
     _VARIANTS = {
+        ModelVariant.GRANITE_ENGLISH_R2: ModelConfig(
+            pretrained_model_name="ibm-granite/granite-embedding-english-r2",
+        ),
         ModelVariant.GRANITE_SMALL_ENGLISH_R2: ModelConfig(
             pretrained_model_name="ibm-granite/granite-embedding-small-english-r2",
         ),
