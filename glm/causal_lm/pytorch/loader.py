@@ -34,6 +34,7 @@ class ModelVariant(StrEnum):
     GLM_4_7_FLASH = "4.7_Flash"
     GLM_4_5 = "4.5"
     GLM_4_5_AIR = "4.5_Air"
+    GLM_4_9B_0414 = "4_9B_0414"
 
 
 class ModelLoader(ForgeModel):
@@ -59,6 +60,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GLM_4_5_AIR: LLMModelConfig(
             pretrained_model_name="zai-org/GLM-4.5-Air",
+            max_length=128,
+        ),
+        ModelVariant.GLM_4_9B_0414: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-4-9B-0414",
             max_length=128,
         ),
     }
@@ -99,7 +104,11 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        if variant in (ModelVariant.GLM_4_7_FLASH, ModelVariant.GLM_4_9B_CHAT_HF):
+        if variant in (
+            ModelVariant.GLM_4_7_FLASH,
+            ModelVariant.GLM_4_9B_CHAT_HF,
+            ModelVariant.GLM_4_9B_0414,
+        ):
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.RED
