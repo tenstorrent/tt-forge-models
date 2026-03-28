@@ -45,6 +45,9 @@ class ModelVariant(StrEnum):
     QWEN_3_14B_AWQ = "14B_Awq"
     QWEN_3_30B_A3B_GPTQ_INT4 = "30B_A3B_GPTQ_Int4"
     QWEN_3_0_6B_REVERSE_TEXT_SFT_PRIMEINTELLECT = "0_6B_Reverse_Text_SFT_PrimeIntellect"
+    QWEN_3_30B_A3B_YOYO_V4_GEMINI250_INSTRUCT_DAVIDAU = (
+        "30B_A3B_YOYO_V4_Gemini250_Instruct_DavidAU"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -120,6 +123,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="PrimeIntellect/Qwen3-0.6B-Reverse-Text-SFT",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_30B_A3B_YOYO_V4_GEMINI250_INSTRUCT_DAVIDAU: LLMModelConfig(
+            pretrained_model_name="DavidAU/Qwen3-30B-A3B-YOYO-V4-Gemini250-Instruct",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -164,6 +171,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_14B_AWQ,
             ModelVariant.QWEN_3_30B_A3B_GPTQ_INT4,
             ModelVariant.QWEN_3_0_6B_REVERSE_TEXT_SFT_PRIMEINTELLECT,
+            ModelVariant.QWEN_3_30B_A3B_YOYO_V4_GEMINI250_INSTRUCT_DAVIDAU,
         ):
             group = ModelGroup.VULCAN
         else:
@@ -337,6 +345,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
             ModelVariant.QWEN_3_30B_A3B_GPTQ_INT4,
             ModelVariant.QWEN_3_235B_A22B_INSTRUCT_2507_FP8,
+            ModelVariant.QWEN_3_30B_A3B_YOYO_V4_GEMINI250_INSTRUCT_DAVIDAU,
         )
 
     def load_shard_spec(self, model):
