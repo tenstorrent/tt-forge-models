@@ -37,6 +37,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
     QWEN_3_5_35B_A3B_SEHYO_NVFP4 = "35B_A3B_Sehyo_NVFP4"
     QWEN_3_5_35B_A3B_HUIHUI_ABLITERATED = "35B_A3B_Huihui_Abliterated"
+    QWEN_3_5_9B_MLX_4BIT = "9B_MLX_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -94,6 +95,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_35B_A3B_HUIHUI_ABLITERATED: LLMModelConfig(
             pretrained_model_name="huihui-ai/Huihui-Qwen3.5-35B-A3B-abliterated",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_9B_MLX_4BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/Qwen3.5-9B-4bit",
             max_length=128,
         ),
     }
@@ -205,6 +210,10 @@ class ModelLoader(ForgeModel):
         # GPTQ variants need device_map="cpu" for CPU-based loading
         if self._variant == ModelVariant.QWEN_3_5_35B_A3B_GPTQ_INT4:
             model_kwargs["device_map"] = "cpu"
+
+        # MLX variants need ignore_mismatched_sizes for loading
+        if "mlx-community" in pretrained_model_name:
+            model_kwargs["ignore_mismatched_sizes"] = True
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
