@@ -28,6 +28,12 @@ class ModelVariant(StrEnum):
     BIOBERT_BASE_CASED_V1_1 = "BioBERT_Base_Cased_v1.1"
     BERT_LARGE_PORTUGUESE_CASED = "Large_Portuguese_Cased"
     LEGAL_BERT_BASE_UNCASED = "nlpaueb/legal-bert-base-uncased"
+    KLUE_BERT_BASE = "klue/bert-base"
+
+
+_SAMPLE_TEXTS = {
+    ModelVariant.KLUE_BERT_BASE: "대한민국의 수도는 [MASK]입니다.",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -61,6 +67,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LEGAL_BERT_BASE_UNCASED: LLMModelConfig(
             pretrained_model_name="nlpaueb/legal-bert-base-uncased",
+            max_length=128,
+        ),
+        ModelVariant.KLUE_BERT_BASE: LLMModelConfig(
+            pretrained_model_name="klue/bert-base",
             max_length=128,
         ),
     }
@@ -106,6 +116,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.BIOBERT_BASE_CASED_V1_1,
             ModelVariant.BERT_LARGE_PORTUGUESE_CASED,
             ModelVariant.LEGAL_BERT_BASE_UNCASED,
+            ModelVariant.KLUE_BERT_BASE,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
