@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     QWQ_32B = "Qwq_32B"
     QWEN2_7B_INSTRUCT = "Qwen2_7B_Instruct"
+    QWEN2_1_5B_INSTRUCT_AWQ = "Qwen2_1.5B_Instruct_Awq"
     TINY_QWEN2_2_5 = "tiny_Qwen2ForCausalLM_2.5"
 
 
@@ -39,6 +40,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN2_7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2-7B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN2_1_5B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2-1.5B-Instruct-AWQ",
             max_length=128,
         ),
         ModelVariant.TINY_QWEN2_2_5: LLMModelConfig(
@@ -79,7 +84,11 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         group = ModelGroup.RED
-        if variant in (ModelVariant.TINY_QWEN2_2_5, ModelVariant.QWEN2_7B_INSTRUCT):
+        if variant in (
+            ModelVariant.TINY_QWEN2_2_5,
+            ModelVariant.QWEN2_7B_INSTRUCT,
+            ModelVariant.QWEN2_1_5B_INSTRUCT_AWQ,
+        ):
             group = ModelGroup.VULCAN
 
         return ModelInfo(
@@ -134,6 +143,10 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        # Check if this is an AWQ variant and configure accordingly
+        if pretrained_model_name == "Qwen/Qwen2-1.5B-Instruct-AWQ":
+            model_kwargs["device_map"] = "cpu"
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
