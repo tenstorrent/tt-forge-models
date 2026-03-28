@@ -21,6 +21,7 @@ from ...base import ForgeModel
 
 class ModelVariant(StrEnum):
     OPENMED_ZEROSHOT_NER_SPECIES_SMALL = "ZeroShot-NER-Species-Small-166M"
+    OPENMED_ZEROSHOT_NER_PROTEIN_MULTI = "ZeroShot-NER-Protein-Multi-209M"
 
 
 class ModelLoader(ForgeModel):
@@ -29,6 +30,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_SMALL: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Species-Small-166M"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_PROTEIN_MULTI: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Protein-Multi-209M"
         ),
     }
 
@@ -65,9 +69,19 @@ class ModelLoader(ForgeModel):
 
         Returns a batch suitable for the GLiNER model forward pass.
         """
-        text = "Escherichia coli and Staphylococcus aureus were isolated from the patient samples."
+        if self._variant == ModelVariant.OPENMED_ZEROSHOT_NER_PROTEIN_MULTI:
+            text = "The p53 tumor suppressor protein interacts with the MDM2-MDMX complex to regulate cell cycle arrest."
+            labels = [
+                "protein",
+                "protein_complex",
+                "protein_enum",
+                "protein_family_or_group",
+                "protein_variant",
+            ]
+        else:
+            text = "Escherichia coli and Staphylococcus aureus were isolated from the patient samples."
+            labels = ["SPECIES"]
         self.text = [text]
-        labels = ["SPECIES"]
         entity_types = list(dict.fromkeys(labels))
 
         (
