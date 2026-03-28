@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available LLaVA-NeXT model variants."""
 
     LLAVA_V1_6_MISTRAL_7B = "v1.6_Mistral_7B"
+    LLAVA_V1_6_VICUNA_7B = "v1.6_Vicuna_7B"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LLAVA_V1_6_MISTRAL_7B: ModelConfig(
             pretrained_model_name="llava-hf/llava-v1.6-mistral-7b-hf",
+        ),
+        ModelVariant.LLAVA_V1_6_VICUNA_7B: ModelConfig(
+            pretrained_model_name="llava-hf/llava-v1.6-vicuna-7b-hf",
         ),
     }
 
