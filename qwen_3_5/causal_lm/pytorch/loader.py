@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_9B_GGUF = "9B_GGUF"
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
     QWEN_3_5_2B_UNCENSORED_HAUHAUCS_AGGRESSIVE = "2B_Uncensored_HauhauCS_Aggressive"
+    QWEN_3_5_27B_HERETIC = "27B_heretic"
     QWEN_3_5_9B_HERETIC_V2_GGUF = "9B_heretic_v2_GGUF"
 
 
@@ -85,6 +86,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_2B_UNCENSORED_HAUHAUCS_AGGRESSIVE: LLMModelConfig(
             pretrained_model_name="HauhauCS/Qwen3.5-2B-Uncensored-HauhauCS-Aggressive",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_27B_HERETIC: LLMModelConfig(
+            pretrained_model_name="coder3101/Qwen3.5-27B-heretic",
             max_length=128,
         ),
         ModelVariant.QWEN_3_5_9B_HERETIC_V2_GGUF: LLMModelConfig(
