@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available DeepSeek Coder model variants."""
 
     DEEPSEEK_1_3B_INSTRUCT = "1_3B_Instruct"
+    DEEPSEEK_6_7B_INSTRUCT = "6_7B_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEEPSEEK_1_3B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="deepseek-ai/deepseek-coder-1.3b-instruct",
+            max_length=2048,
+        ),
+        ModelVariant.DEEPSEEK_6_7B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="deepseek-ai/deepseek-coder-6.7b-instruct",
             max_length=2048,
         ),
     }
@@ -68,10 +73,14 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant.
         """
+        variant_groups = {
+            ModelVariant.DEEPSEEK_6_7B_INSTRUCT: ModelGroup.VULCAN,
+        }
+
         return ModelInfo(
             model="DeepSeek",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=variant_groups.get(variant, ModelGroup.GENERALITY),
             task=ModelTask.NLP_QA,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
