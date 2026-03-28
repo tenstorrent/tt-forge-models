@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     DISTILL_QWEN_7B = "Distill_Qwen_7B"
     DISTILL_QWEN_14B = "Distill_Qwen_14B"
     DISTILL_LLAMA_8B = "Distill_Llama_8B"
+    DISTILL_LLAMA_70B_FP8_DYNAMIC = "Distill_Llama_70B_FP8_Dynamic"
 
 
 class ModelLoader(ForgeModel):
@@ -51,6 +52,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DISTILL_LLAMA_8B: LLMModelConfig(
             pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+            max_length=2048,
+        ),
+        ModelVariant.DISTILL_LLAMA_70B_FP8_DYNAMIC: LLMModelConfig(
+            pretrained_model_name="RedHatAI/DeepSeek-R1-Distill-Llama-70B-FP8-dynamic",
             max_length=2048,
         ),
     }
