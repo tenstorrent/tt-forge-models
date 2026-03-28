@@ -74,6 +74,9 @@ class ModelVariant(StrEnum):
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
     TINYLLAMA_W8W8_STATIC = "Tinyllama_W8W8_Static"
 
+    # AMD Quark variants
+    AMD_QUARK_TINY_LLAMA = "Amd_Quark_Tiny_Llama"
+
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
@@ -190,6 +193,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="nm-testing/tinyllama-oneshot-w8w8-test-static-shape-change",
             max_length=128,
         ),
+        # AMD Quark variants
+        ModelVariant.AMD_QUARK_TINY_LLAMA: LLMModelConfig(
+            pretrained_model_name="amd-quark/tiny-llama-fast-tokenizer",
+            max_length=128,
+        ),
         # JackFram variants
         ModelVariant.JACKFRAM_LLAMA_160M: LLMModelConfig(
             pretrained_model_name="JackFram/llama-160m",
@@ -267,6 +275,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_2_7B,
             ModelVariant.LLAMA_2_7B_CHAT,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
+            ModelVariant.AMD_QUARK_TINY_LLAMA,
             ModelVariant.JACKFRAM_LLAMA_160M,
         ]:
             group = ModelGroup.VULCAN
@@ -538,6 +547,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HUGGYLLAMA_7B,
             ModelVariant.LLAMA_2_7B,
             ModelVariant.LLAMA_2_7B_CHAT,
+            ModelVariant.AMD_QUARK_TINY_LLAMA,
             ModelVariant.JACKFRAM_LLAMA_160M,
         ]:
             return None
