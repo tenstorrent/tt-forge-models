@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available DeBERTa model variants for sequence classification."""
 
     DEBERTA_XLARGE_MNLI = "XLarge_MNLI"
+    DEBERTA_SMALL_LONG_NLI = "Small_Long_NLI"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +31,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEBERTA_XLARGE_MNLI: ModelConfig(
             pretrained_model_name="microsoft/deberta-xlarge-mnli",
+        ),
+        ModelVariant.DEBERTA_SMALL_LONG_NLI: ModelConfig(
+            pretrained_model_name="tasksource/deberta-small-long-nli",
         ),
     }
 
