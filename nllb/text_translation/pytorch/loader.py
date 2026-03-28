@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available NLLB-200 model variants."""
 
     DISTILLED_600M = "Distilled_600M"
+    NLLB_200_1_3B = "1.3B"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DISTILLED_600M: LLMModelConfig(
             pretrained_model_name="facebook/nllb-200-distilled-600M",
+        ),
+        ModelVariant.NLLB_200_1_3B: LLMModelConfig(
+            pretrained_model_name="facebook/nllb-200-1.3B",
         ),
     }
 
