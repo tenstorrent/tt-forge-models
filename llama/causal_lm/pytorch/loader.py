@@ -48,6 +48,7 @@ class ModelVariant(StrEnum):
     LLAMA_3_2_3B = "3.2_3B"
     LLAMA_3_2_3B_INSTRUCT = "3.2_3B_Instruct"
     LLAMA_3_2_3B_INSTRUCT_MLX_8BIT = "3.2_3B_Instruct_MLX_8bit"
+    LLAMA_3_2_3B_BNB_4BIT = "3.2_3B_bnb_4bit"
 
     # Llama 3.3 variants
     LLAMA_3_3_70B_INSTRUCT = "3.3_70B_Instruct"
@@ -135,6 +136,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LLAMA_3_2_3B_INSTRUCT_MLX_8BIT: LLMModelConfig(
             pretrained_model_name="mlx-community/Llama-3.2-3B-Instruct-8bit",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_2_3B_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/Llama-3.2-3B-bnb-4bit",
             max_length=128,
         ),
         # RedHatAI FP8 quantized variants
@@ -232,6 +237,7 @@ class ModelLoader(ForgeModel):
         if variant in [
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_2_3B_INSTRUCT_MLX_8BIT,
+            ModelVariant.LLAMA_3_2_3B_BNB_4BIT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.TINYLLAMA_1_1B_CHAT_V0_3_AWQ,
         ]:
@@ -324,10 +330,14 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        # Check if this is an AWQ variant and configure accordingly
-        if pretrained_model_name in (
-            "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
-            "TheBloke/TinyLlama-1.1B-Chat-v0.3-AWQ",
+        # Check if this is an AWQ or BnB variant and configure accordingly
+        if (
+            pretrained_model_name
+            in (
+                "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
+                "TheBloke/TinyLlama-1.1B-Chat-v0.3-AWQ",
+            )
+            or self._variant == ModelVariant.LLAMA_3_2_3B_BNB_4BIT
         ):
             model_kwargs["device_map"] = "cpu"
 
