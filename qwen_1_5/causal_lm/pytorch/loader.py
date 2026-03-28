@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     QWEN_1_5_0_5B = "0.5B"
     QWEN_1_5_0_5B_CHAT = "0_5B_Chat"
     QWEN_1_5_7B = "7B"
+    QWEN_1_5_14B_CHAT = "14B_Chat"
 
 
 class ModelLoader(ForgeModel):
@@ -44,6 +45,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_1_5_7B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen1.5-7B",
             max_length=128,
+        ),
+        ModelVariant.QWEN_1_5_14B_CHAT: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen1.5-14B-Chat",
+            max_length=512,
         ),
     }
 
@@ -84,6 +89,7 @@ class ModelLoader(ForgeModel):
         """
         variant_groups = {
             ModelVariant.QWEN_1_5_7B: ModelGroup.VULCAN,
+            ModelVariant.QWEN_1_5_14B_CHAT: ModelGroup.VULCAN,
         }
 
         return ModelInfo(
