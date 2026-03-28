@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_35B_A3B_FP8 = "35B_A3B_FP8"
     QWEN_3_5_4B_GGUF = "4B_GGUF"
     QWEN_3_5_9B_GGUF = "9B_GGUF"
+    QWEN_3_5_27B_GGUF = "27B_GGUF"
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
     QWEN_3_5_122B_A10B_INT4_AUTOROUND = "122B_A10B_INT4_AutoRound"
     QWEN_3_5_27B_4BIT = "27B_4bit"
@@ -79,6 +80,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/Qwen3.5-9B-GGUF",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_5_27B_GGUF: LLMModelConfig(
+            pretrained_model_name="Mungert/Qwen3.5-27B-GGUF",
+            max_length=128,
+        ),
         ModelVariant.QWEN_3_5_35B_A3B_NVFP4: LLMModelConfig(
             pretrained_model_name="AxionML/Qwen3.5-35B-A3B-NVFP4",
             max_length=128,
@@ -100,6 +105,7 @@ class ModelLoader(ForgeModel):
     _GGUF_FILES = {
         ModelVariant.QWEN_3_5_4B_GGUF: "Qwen3.5-4B-Q4_K_M.gguf",
         ModelVariant.QWEN_3_5_9B_GGUF: "Qwen3.5-9B-Q4_K_M.gguf",
+        ModelVariant.QWEN_3_5_27B_GGUF: "Qwen3.5-27B-Q4_K_M.gguf",
     }
 
     # Shared configuration parameters
