@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Wav2Vec2 model loader implementation for audio classification (emotion recognition).
+Wav2Vec2 model loader implementation for audio classification.
 """
 
 from typing import Optional
@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Wav2Vec2 audio classification model variants."""
 
     LARGE_ROBUST_12_FT_EMOTION_MSP_DIM = "Large_Robust_12_FT_Emotion_MSP_Dim"
+    LARGE_XLSR_DEEPFAKE_AUDIO_CLS = "Large_XLSR_Deepfake_Audio_Cls"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LARGE_ROBUST_12_FT_EMOTION_MSP_DIM: ModelConfig(
             pretrained_model_name="audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim",
+        ),
+        ModelVariant.LARGE_XLSR_DEEPFAKE_AUDIO_CLS: ModelConfig(
+            pretrained_model_name="Gustking/wav2vec2-large-xlsr-deepfake-audio-classification",
         ),
     }
 
@@ -68,7 +72,7 @@ class ModelLoader(ForgeModel):
 
         return self._processor
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def _load_emotion_model(self, dtype_override=None, **kwargs):
         import torch
         import torch.nn as nn
         from transformers import Wav2Vec2Config
@@ -140,6 +144,31 @@ class ModelLoader(ForgeModel):
             model.to(dtype_override)
 
         return model
+
+    def _load_sequence_classification_model(self, dtype_override=None, **kwargs):
+        from transformers import Wav2Vec2ForSequenceClassification
+
+        model_kwargs = {}
+        if dtype_override is not None:
+            model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
+
+        model = Wav2Vec2ForSequenceClassification.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            **model_kwargs,
+        )
+        model.eval()
+        if dtype_override is not None:
+            model.to(dtype_override)
+
+        return model
+
+    def load_model(self, *, dtype_override=None, **kwargs):
+        if self._variant == ModelVariant.LARGE_XLSR_DEEPFAKE_AUDIO_CLS:
+            return self._load_sequence_classification_model(
+                dtype_override=dtype_override, **kwargs
+            )
+        return self._load_emotion_model(dtype_override=dtype_override, **kwargs)
 
     def load_inputs(self, dtype_override=None):
         import numpy as np
