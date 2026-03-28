@@ -43,6 +43,7 @@ class ModelVariant(StrEnum):
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
     MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
+    MISTRAL_FT_OPTIMIZED_1227 = "ft_optimized_1227"
 
 
 class ModelLoader(ForgeModel):
@@ -105,6 +106,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_7B_V03_BNB_4BIT: ModelConfig(
             pretrained_model_name="unsloth/mistral-7b-v0.3-bnb-4bit",
         ),
+        ModelVariant.MISTRAL_FT_OPTIMIZED_1227: ModelConfig(
+            pretrained_model_name="OpenPipe/mistral-ft-optimized-1227",
+        ),
     }
 
     # Default variant to use
@@ -140,6 +144,7 @@ class ModelLoader(ForgeModel):
         if variant in (
             ModelVariant.MISTRAL_7B_INSTRUCT_V02,
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
+            ModelVariant.MISTRAL_FT_OPTIMIZED_1227,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
