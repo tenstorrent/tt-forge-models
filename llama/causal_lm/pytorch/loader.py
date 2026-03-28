@@ -67,6 +67,7 @@ class ModelVariant(StrEnum):
 
     # TinyLlama variants
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
+    TINYLLAMA_1_1B_STEP_50K_105B = "TinyLlama_1.1B_step_50K_105b"
 
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
@@ -167,6 +168,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="TinyLlama/TinyLlama_v1.1",
             max_length=128,
         ),
+        ModelVariant.TINYLLAMA_1_1B_STEP_50K_105B: LLMModelConfig(
+            pretrained_model_name="TinyLlama/TinyLlama-1.1B-step-50K-105b",
+            max_length=128,
+        ),
         # JackFram variants
         ModelVariant.JACKFRAM_LLAMA_160M: LLMModelConfig(
             pretrained_model_name="JackFram/llama-160m",
@@ -214,6 +219,7 @@ class ModelLoader(ForgeModel):
         if variant in [
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.TINYLLAMA_1_1B_STEP_50K_105B,
         ]:
             group = ModelGroup.VULCAN
         elif (
@@ -508,6 +514,8 @@ class ModelLoader(ForgeModel):
             ModelVariant.HUGGYLLAMA_7B,
             ModelVariant.LLAMA_2_7B,
             ModelVariant.JACKFRAM_LLAMA_160M,
+            ModelVariant.TINYLLAMA_V1_1,
+            ModelVariant.TINYLLAMA_1_1B_STEP_50K_105B,
         ]:
             return None
 
