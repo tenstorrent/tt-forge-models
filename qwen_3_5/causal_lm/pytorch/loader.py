@@ -37,6 +37,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_4B_LMSTUDIO_GGUF = "4B_LMStudio_GGUF"
     QWEN_3_5_27B_TEXT_NVFP4_MTP = "27B_Text_NVFP4_MTP"
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
+    QWEN_3_5_397B_A17B_GGUF = "397B_A17B_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -96,6 +97,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AxionML/Qwen3.5-35B-A3B-NVFP4",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_5_397B_A17B_GGUF: LLMModelConfig(
+            pretrained_model_name="AesSedai/Qwen3.5-397B-A17B-GGUF",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -106,6 +111,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_3_5_4B_GGUF: "Qwen3.5-4B-Q4_K_M.gguf",
         ModelVariant.QWEN_3_5_4B_LMSTUDIO_GGUF: "Qwen3.5-4B-Q4_K_M.gguf",
         ModelVariant.QWEN_3_5_9B_GGUF: "Qwen3.5-9B-Q4_K_M.gguf",
+        ModelVariant.QWEN_3_5_397B_A17B_GGUF: "Qwen3.5-397B-A17B-Q4_K_M-00001-of-00007.gguf",
     }
 
     # Shared configuration parameters
@@ -306,6 +312,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_5_35B_A3B,
             ModelVariant.QWEN_3_5_35B_A3B_FP8,
             ModelVariant.QWEN_3_5_122B_A10B,
+            ModelVariant.QWEN_3_5_397B_A17B_GGUF,
         )
 
     def load_shard_spec(self, model):
