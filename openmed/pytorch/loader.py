@@ -22,6 +22,7 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     OPENMED_ZEROSHOT_NER_SPECIES_SMALL = "ZeroShot-NER-Species-Small-166M"
     OPENMED_ZEROSHOT_NER_SPECIES_BASE = "ZeroShot-NER-Species-Base-220M"
+    OPENMED_ZEROSHOT_NER_ONCOLOGY_LARGE = "ZeroShot-NER-Oncology-Large-459M"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_BASE: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Species-Base-220M"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_ONCOLOGY_LARGE: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Oncology-Large-459M"
         ),
     }
 
@@ -64,14 +68,38 @@ class ModelLoader(ForgeModel):
         self.model = model
         return self.model.eval()
 
+    _VARIANT_INPUTS = {
+        ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_SMALL: {
+            "text": "Escherichia coli and Staphylococcus aureus were isolated from the patient samples.",
+            "labels": ["SPECIES"],
+        },
+        ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_BASE: {
+            "text": "Escherichia coli and Staphylococcus aureus were isolated from the patient samples.",
+            "labels": ["SPECIES"],
+        },
+        ModelVariant.OPENMED_ZEROSHOT_NER_ONCOLOGY_LARGE: {
+            "text": "Mutations in KRAS gene drive oncogenic transformation in colorectal cancer cells.",
+            "labels": [
+                "Gene_or_gene_product",
+                "Cancer",
+                "Cell",
+                "Simple_chemical",
+                "Organ",
+                "Tissue",
+                "Organism",
+            ],
+        },
+    }
+
     def load_inputs(self, batch_size=1):
         """Load and return sample inputs for the OpenMed model.
 
         Returns a batch suitable for the GLiNER model forward pass.
         """
-        text = "Escherichia coli and Staphylococcus aureus were isolated from the patient samples."
+        variant_input = self._VARIANT_INPUTS[self.variant]
+        text = variant_input["text"]
         self.text = [text]
-        labels = ["SPECIES"]
+        labels = variant_input["labels"]
         entity_types = list(dict.fromkeys(labels))
 
         (
