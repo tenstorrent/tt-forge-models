@@ -23,6 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available MarianMT model variants for text translation."""
 
+    OPUS_MT_EN_DRA = "Opus_Mt_En_Dra"
     OPUS_MT_FR_ES = "Opus_Mt_Fr_Es"
     OPUS_MT_TR_EN = "Opus_Mt_Tr_En"
 
@@ -31,6 +32,9 @@ class ModelLoader(ForgeModel):
     """MarianMT model loader implementation for text translation."""
 
     _VARIANTS = {
+        ModelVariant.OPUS_MT_EN_DRA: LLMModelConfig(
+            pretrained_model_name="Helsinki-NLP/opus-mt-en-dra",
+        ),
         ModelVariant.OPUS_MT_FR_ES: LLMModelConfig(
             pretrained_model_name="Helsinki-NLP/opus-mt-fr-es",
         ),
