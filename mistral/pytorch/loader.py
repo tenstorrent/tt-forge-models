@@ -39,6 +39,7 @@ class ModelVariant(StrEnum):
     MISTRAL_LARGE_INSTRUCT_2411 = "Large_INSTRUCT_2411"
     MISTRAL_NEMO_INSTRUCT_2407 = "Nemo_INSTRUCT_2407"
     DEVSTRAL_SMALL_2505 = "Devstral_Small_2505"
+    DEVSTRAL_SMALL_2507 = "Devstral_Small_2507"
     MAGISTRAL_SMALL_2506 = "Magistral_Small_2506"
     MAGISTRAL_SMALL_2509 = "Magistral_Small_2509"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
@@ -53,6 +54,7 @@ class ModelLoader(ForgeModel):
     # which must be loaded via mistral-common, can't use AutoTokenizer.
     _TEKKEN_TOKENIZER_VARIANTS = {
         ModelVariant.DEVSTRAL_SMALL_2505,
+        ModelVariant.DEVSTRAL_SMALL_2507,
         ModelVariant.MAGISTRAL_SMALL_2506,
         ModelVariant.MAGISTRAL_SMALL_2509,
     }
@@ -94,6 +96,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DEVSTRAL_SMALL_2505: ModelConfig(
             pretrained_model_name="mistralai/Devstral-Small-2505",
+        ),
+        ModelVariant.DEVSTRAL_SMALL_2507: ModelConfig(
+            pretrained_model_name="mistralai/Devstral-Small-2507",
         ),
         ModelVariant.MAGISTRAL_SMALL_2506: ModelConfig(
             pretrained_model_name="mistralai/Magistral-Small-2506",
@@ -145,6 +150,7 @@ class ModelLoader(ForgeModel):
         if variant in (
             ModelVariant.MISTRAL_7B_INSTRUCT_V02,
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
+            ModelVariant.DEVSTRAL_SMALL_2507,
             ModelVariant.MAGISTRAL_SMALL_2509,
         ):
             group = ModelGroup.VULCAN
