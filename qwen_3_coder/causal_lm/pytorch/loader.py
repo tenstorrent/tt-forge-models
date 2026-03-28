@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3 Coder model variants for causal language modeling."""
 
     QWEN_3_CODER_NEXT = "Next"
+    QWEN_3_CODER_NEXT_NVFP4 = "Next_NVFP4"
     QWEN_3_CODER_30B_A3B_INSTRUCT = "30B_A3B_Instruct"
 
 
@@ -35,6 +36,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_CODER_NEXT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-Coder-Next",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_CODER_NEXT_NVFP4: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Qwen3-Coder-Next-NVFP4",
             max_length=128,
         ),
         ModelVariant.QWEN_3_CODER_30B_A3B_INSTRUCT: LLMModelConfig(
