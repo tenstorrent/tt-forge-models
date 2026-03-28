@@ -192,10 +192,6 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        # Check if this is an AWQ variant and configure accordingly
-        if self._is_awq_variant():
-            model_kwargs["device_map"] = "cpu"
-
         model_kwargs |= kwargs
 
         # Pass gguf_file for GGUF variants
@@ -294,10 +290,6 @@ class ModelLoader(ForgeModel):
     def _gguf_file(self):
         """Get the GGUF filename for the current variant."""
         return self._GGUF_FILES.get(self._variant)
-
-    def _is_awq_variant(self):
-        """Check if the current variant uses AWQ quantization."""
-        return False
 
     def _is_moe_variant(self):
         """Check if the current variant is a Mixture of Experts model."""
