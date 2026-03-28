@@ -48,6 +48,9 @@ class ModelVariant(StrEnum):
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506_MLX_6BIT = (
         "mistral_small_3.2_24b_instruct_2506_mlx_6bit"
     )
+    MISTRAL_SMALL_3_2_24B_INSTRUCT_2506_MLX_4BIT = (
+        "mistral_small_3.2_24b_instruct_2506_mlx_4bit"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -66,6 +69,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.MINISTRAL_3B_INSTRUCT_2512_BF16,
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506,
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506_MLX_6BIT,
+        ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506_MLX_4BIT,
     }
 
     # Dictionary of available model variants
@@ -121,6 +125,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506_MLX_6BIT: ModelConfig(
             pretrained_model_name="lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-6bit",
         ),
+        ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506_MLX_4BIT: ModelConfig(
+            pretrained_model_name="lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-4bit",
+        ),
     }
 
     # Default variant to use
@@ -159,6 +166,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
             ModelVariant.MISTRAL_7B_INSTRUCT_V03_MLX_4BIT,
             ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506_MLX_6BIT,
+            ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506_MLX_4BIT,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
