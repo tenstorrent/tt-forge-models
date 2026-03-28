@@ -11,6 +11,8 @@ Supports:
 
 Available variants:
 - WAN22_TI2V_5B: Wan 2.2 text-to-image-to-video 5B (full pipeline only)
+- WAN22_T2V_A14B: Wan 2.2 text-to-video A14B MoE (full pipeline only)
+  Uses Mixture-of-Experts with high/low noise experts (~14B active per step)
 - WAN21_T2V_14B: Wan 2.1 text-to-video 14B (supports VAE subfolder)
 - WAN21_VACE_1_3B: Wan 2.1 VACE (Video Creation and Editing) 1.3B
   Based on Kijai/WanVideo_comfy, uses Wan-AI/Wan2.1-VACE-1.3B-diffusers
@@ -50,6 +52,7 @@ class ModelVariant(StrEnum):
     """Available Wan diffusion model variants."""
 
     WAN22_TI2V_5B = "2.2_Ti2v_5B"
+    WAN22_T2V_A14B = "2.2_T2v_A14B"
     WAN21_T2V_14B = "2.1_T2v_14B"
     WAN21_VACE_1_3B = "2.1_VACE_1.3B"
     WAN21_I2V_14B_480P = "2.1_I2v_14B_480P"
@@ -61,6 +64,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.WAN22_TI2V_5B: ModelConfig(
             pretrained_model_name="Wan-AI/Wan2.2-TI2V-5B-Diffusers",
+        ),
+        ModelVariant.WAN22_T2V_A14B: ModelConfig(
+            pretrained_model_name="Wan-AI/Wan2.2-T2V-A14B",
         ),
         ModelVariant.WAN21_T2V_14B: ModelConfig(
             pretrained_model_name="Wan-AI/Wan2.1-T2V-14B-Diffusers",
@@ -95,7 +101,11 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        if variant in (ModelVariant.WAN21_VACE_1_3B, ModelVariant.WAN21_I2V_14B_480P):
+        if variant in (
+            ModelVariant.WAN22_T2V_A14B,
+            ModelVariant.WAN21_VACE_1_3B,
+            ModelVariant.WAN21_I2V_14B_480P,
+        ):
             group = ModelGroup.VULCAN
             task = ModelTask.MM_VIDEO_TTT
         elif variant == ModelVariant.WAN21_T2V_14B:
