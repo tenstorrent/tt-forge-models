@@ -22,6 +22,7 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     OPENMED_ZEROSHOT_NER_SPECIES_SMALL = "ZeroShot-NER-Species-Small-166M"
     OPENMED_ZEROSHOT_NER_ORGANISM_LARGE = "ZeroShot-NER-Organism-Large-459M"
+    OPENMED_ZEROSHOT_NER_GENOMIC_LARGE = "ZeroShot-NER-Genomic-Large-459M"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.OPENMED_ZEROSHOT_NER_ORGANISM_LARGE: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Organism-Large-459M"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_GENOMIC_LARGE: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Genomic-Large-459M"
         ),
     }
 
