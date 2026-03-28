@@ -29,6 +29,9 @@ class ModelVariant(StrEnum):
     MULTILINGUAL_E5_SMALL = "intfloat/multilingual-e5-small"
     MULTILINGUAL_E5_BASE = "intfloat/multilingual-e5-base"
     MULTILINGUAL_E5_LARGE_INSTRUCT = "intfloat/multilingual-e5-large-instruct"
+    SETFIT_E5_BASE_CATEGORY_CLASSIFIER_V2 = (
+        "alunadiderot/setfit-e5-base-category-classifier_v2"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -45,6 +48,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MULTILINGUAL_E5_LARGE_INSTRUCT: LLMModelConfig(
             pretrained_model_name="intfloat/multilingual-e5-large-instruct",
+            max_length=512,
+        ),
+        ModelVariant.SETFIT_E5_BASE_CATEGORY_CLASSIFIER_V2: LLMModelConfig(
+            pretrained_model_name="alunadiderot/setfit-e5-base-category-classifier_v2",
             max_length=512,
         ),
     }
@@ -102,6 +109,8 @@ class ModelLoader(ForgeModel):
         if sentence is None:
             if self._variant == ModelVariant.MULTILINGUAL_E5_LARGE_INSTRUCT:
                 sentence = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: How is the weather today?"
+            elif self._variant == ModelVariant.SETFIT_E5_BASE_CATEGORY_CLASSIFIER_V2:
+                sentence = "HDFC Bank Bonus Issue One Share For Every One Held Board Approves Plan."
             else:
                 sentence = "query: How is the weather today?"
 
