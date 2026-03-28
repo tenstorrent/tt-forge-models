@@ -38,6 +38,7 @@ class ModelVariant(StrEnum):
     MISTRAL_SMALL_24B_INSTRUCT_2501 = "Small_24B_INSTRUCT_2501"
     MISTRAL_LARGE_INSTRUCT_2411 = "Large_INSTRUCT_2411"
     MISTRAL_NEMO_INSTRUCT_2407 = "Nemo_INSTRUCT_2407"
+    MISTRAL_NEMO_INSTRUCT_2407_ABLITERATED = "Nemo_INSTRUCT_2407_abliterated"
     DEVSTRAL_SMALL_2505 = "Devstral_Small_2505"
     MAGISTRAL_SMALL_2506 = "Magistral_Small_2506"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
@@ -90,6 +91,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_NEMO_INSTRUCT_2407: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Nemo-Instruct-2407",
         ),
+        ModelVariant.MISTRAL_NEMO_INSTRUCT_2407_ABLITERATED: ModelConfig(
+            pretrained_model_name="natong19/Mistral-Nemo-Instruct-2407-abliterated",
+        ),
         ModelVariant.DEVSTRAL_SMALL_2505: ModelConfig(
             pretrained_model_name="mistralai/Devstral-Small-2505",
         ),
@@ -140,6 +144,7 @@ class ModelLoader(ForgeModel):
         if variant in (
             ModelVariant.MISTRAL_7B_INSTRUCT_V02,
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
+            ModelVariant.MISTRAL_NEMO_INSTRUCT_2407_ABLITERATED,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
