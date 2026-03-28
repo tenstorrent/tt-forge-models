@@ -70,6 +70,7 @@ class ModelVariant(StrEnum):
 
     # TinyLlama variants
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
+    TINYLLAMA_W8W8_STATIC = "Tinyllama_W8W8_Static"
 
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
@@ -175,6 +176,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="TinyLlama/TinyLlama_v1.1",
             max_length=128,
         ),
+        ModelVariant.TINYLLAMA_W8W8_STATIC: LLMModelConfig(
+            pretrained_model_name="nm-testing/tinyllama-oneshot-w8w8-test-static-shape-change",
+            max_length=128,
+        ),
         # JackFram variants
         ModelVariant.JACKFRAM_LLAMA_160M: LLMModelConfig(
             pretrained_model_name="JackFram/llama-160m",
@@ -223,6 +228,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_1_8B_INSTRUCT_QUANTIZED_W4A16,
+            ModelVariant.TINYLLAMA_W8W8_STATIC,
         ]:
             group = ModelGroup.VULCAN
         elif (
@@ -316,6 +322,7 @@ class ModelLoader(ForgeModel):
         if pretrained_model_name in (
             "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
             "RedHatAI/Meta-Llama-3.1-8B-Instruct-quantized.w4a16",
+            "nm-testing/tinyllama-oneshot-w8w8-test-static-shape-change",
         ):
             model_kwargs["device_map"] = "cpu"
 
