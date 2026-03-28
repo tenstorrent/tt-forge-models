@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
 
     # Gemma 1.x
     GEMMA_2B_IT = "2B_IT"
+    GEMMA_7B = "7B"
     GEMMA_1_1_2B_IT = "1.1_2B_IT"
     GEMMA_1_1_7B_IT = "1.1_7B_IT"
     GEMMA_2B = "2B"
@@ -45,6 +46,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GEMMA_2B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-2b-it",
+        ),
+        ModelVariant.GEMMA_7B: LLMModelConfig(
+            pretrained_model_name="google/gemma-7b",
+            max_length=256,
         ),
         ModelVariant.GEMMA_1_1_2B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-1.1-2b-it",
@@ -100,7 +105,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         # Instruct and larger models are RED, others generality
-        if variant == ModelVariant.GEMMA_2B_IT:
+        if variant in (ModelVariant.GEMMA_2B_IT, ModelVariant.GEMMA_7B):
             group = ModelGroup.VULCAN
         elif any(x in variant.value for x in ["IT", "7B", "9B", "27B"]):
             group = ModelGroup.RED
@@ -184,7 +189,11 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
         self.tokenizer.padding_side = "right"
-        if self._variant in (ModelVariant.GEMMA_2B, ModelVariant.GEMMA_2_2B):
+        if self._variant in (
+            ModelVariant.GEMMA_2B,
+            ModelVariant.GEMMA_7B,
+            ModelVariant.GEMMA_2_2B,
+        ):
             input_prompt = prompt or self.sample_text
             inputs = self.tokenizer(
                 input_prompt,
