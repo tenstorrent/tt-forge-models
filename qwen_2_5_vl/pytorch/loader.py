@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_VL_3B_INSTRUCT_AWQ = "3B_INSTRUCT_Awq"
     QWEN_2_5_VL_7B_INSTRUCT_AWQ = "7B_INSTRUCT_Awq"
     QWEN_2_5_VL_72B_INSTRUCT = "72B_Instruct"
+    QWEN_2_5_VL_7B_INSTRUCT_NVFP4 = "7B_Instruct_NVFP4"
 
 
 class ModelLoader(ForgeModel):
@@ -51,6 +52,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_2_5_VL_72B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-VL-72B-Instruct",
+        ),
+        ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_NVFP4: LLMModelConfig(
+            pretrained_model_name="nvidia/Qwen2.5-VL-7B-Instruct-NVFP4",
         ),
     }
 
@@ -96,12 +100,17 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT:
+            group = ModelGroup.RED
+        elif variant == ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_NVFP4:
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
             model="Qwen 2.5-VL",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT
-            else ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -126,6 +135,10 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
+    # Variants with NVFP4 quantized weights require ignore_mismatched_sizes
+    # because the packed FP4 weight shapes differ from the model definition.
+    _NVFP4_VARIANTS = {ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_NVFP4}
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Qwen 2.5 VL model instance for this instance's variant.
 
@@ -149,6 +162,9 @@ class ModelLoader(ForgeModel):
             quantization_config = AwqConfig(version="ipex")
             model_kwargs["quantization_config"] = quantization_config
             model_kwargs["device_map"] = "cpu"
+
+        if self._variant in self._NVFP4_VARIANTS:
+            model_kwargs["ignore_mismatched_sizes"] = True
 
         # Load the model with dtype override if specified
         if dtype_override is not None:
