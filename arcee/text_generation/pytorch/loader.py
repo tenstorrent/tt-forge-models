@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available ARCEE model variants for causal language modeling."""
 
     ARCEE_Spark = "arcee_Spark"
+    Trinity_Large_Preview_FP8 = "Trinity_Large_Preview_FP8"
     Trinity_Large_Preview_W4A16 = "Trinity_Large_Preview_W4A16"
 
 
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.ARCEE_Spark: LLMModelConfig(
             pretrained_model_name="arcee-ai/Arcee-Spark",
+            max_length=128,
+        ),
+        ModelVariant.Trinity_Large_Preview_FP8: LLMModelConfig(
+            pretrained_model_name="arcee-ai/Trinity-Large-Preview-FP8",
             max_length=128,
         ),
         ModelVariant.Trinity_Large_Preview_W4A16: LLMModelConfig(
@@ -70,7 +75,10 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         group = ModelGroup.RED
-        if variant == ModelVariant.Trinity_Large_Preview_W4A16:
+        if variant in (
+            ModelVariant.Trinity_Large_Preview_FP8,
+            ModelVariant.Trinity_Large_Preview_W4A16,
+        ):
             group = ModelGroup.VULCAN
 
         return ModelInfo(
@@ -97,7 +105,10 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         # Load the tokenizer
-        if self._variant == ModelVariant.Trinity_Large_Preview_W4A16:
+        if self._variant in (
+            ModelVariant.Trinity_Large_Preview_FP8,
+            ModelVariant.Trinity_Large_Preview_W4A16,
+        ):
             tokenizer_kwargs["trust_remote_code"] = True
 
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -128,7 +139,10 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self._variant == ModelVariant.Trinity_Large_Preview_W4A16:
+        if self._variant in (
+            ModelVariant.Trinity_Large_Preview_FP8,
+            ModelVariant.Trinity_Large_Preview_W4A16,
+        ):
             model_kwargs["trust_remote_code"] = True
 
         model = AutoModelForCausalLM.from_pretrained(
@@ -218,7 +232,10 @@ class ModelLoader(ForgeModel):
             The configuration object for the Arcee model.
         """
         config_kwargs = {}
-        if self._variant == ModelVariant.Trinity_Large_Preview_W4A16:
+        if self._variant in (
+            ModelVariant.Trinity_Large_Preview_FP8,
+            ModelVariant.Trinity_Large_Preview_W4A16,
+        ):
             config_kwargs["trust_remote_code"] = True
 
         self.config = AutoConfig.from_pretrained(
