@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     DSLIM_BERT_BASE_NER = "dslim/bert-base-NER"
     HATMIMOHA_ARABIC_NER = "hatmimoha/arabic-ner"
     OPENMED_NER_DNADETECT = "OpenMed_NER_DNADetect_BioClinical_108M"
+    OPENMED_NER_GENOMICDETECT = "OpenMed_NER_GenomicDetect_BioClinical_108M"
 
 
 class ModelLoader(ForgeModel):
@@ -51,6 +52,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="OpenMed/OpenMed-NER-DNADetect-BioClinical-108M",
             max_length=128,
         ),
+        ModelVariant.OPENMED_NER_GENOMICDETECT: LLMModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-NER-GenomicDetect-BioClinical-108M",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -70,9 +75,12 @@ class ModelLoader(ForgeModel):
         self.model_name = pretrained_model_name
         if self._variant == ModelVariant.HATMIMOHA_ARABIC_NER:
             self.sample_text = "نبيه بري النائب علي حسن خليل من البنك الدولي"
-        elif self._variant == ModelVariant.OPENMED_NER_DNADETECT:
+        elif self._variant in (
+            ModelVariant.OPENMED_NER_DNADETECT,
+            ModelVariant.OPENMED_NER_GENOMICDETECT,
+        ):
             self.sample_text = (
-                "The p53 protein plays a crucial role in tumor suppression."
+                "The BRCA2 gene is associated with hereditary breast cancer."
             )
         else:
             self.sample_text = "HuggingFace is a company based in Paris and New York"
@@ -97,6 +105,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.DSLIM_BERT_BASE_NER,
             ModelVariant.HATMIMOHA_ARABIC_NER,
             ModelVariant.OPENMED_NER_DNADETECT,
+            ModelVariant.OPENMED_NER_GENOMICDETECT,
         ):
             group = ModelGroup.VULCAN
 
