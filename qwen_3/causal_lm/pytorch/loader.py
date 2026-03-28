@@ -43,6 +43,7 @@ class ModelVariant(StrEnum):
     QWEN_3_30B_A3B = "30B_A3b"
     QWEN_3_30B_A3B_INSTRUCT_2507 = "30B_A3B_Instruct_2507"
     QWEN_3_14B_AWQ = "14B_Awq"
+    QWEN_3_30B_A3B_NVFP4 = "30B_A3B_Nvfp4"
     QWEN_3_4B_MLX_4BIT = "4B_Mlx_4bit"
 
 
@@ -111,6 +112,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-14B-AWQ",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_30B_A3B_NVFP4: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Qwen3-30B-A3B-NVFP4",
+            max_length=128,
+        ),
         ModelVariant.QWEN_3_4B_MLX_4BIT: LLMModelConfig(
             pretrained_model_name="lmstudio-community/Qwen3-4B-MLX-4bit",
             max_length=128,
@@ -157,6 +162,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_14B_INSTRUCT_OPENPIPE,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
             ModelVariant.QWEN_3_14B_AWQ,
+            ModelVariant.QWEN_3_30B_A3B_NVFP4,
             ModelVariant.QWEN_3_4B_MLX_4BIT,
         ):
             group = ModelGroup.VULCAN
@@ -326,6 +332,7 @@ class ModelLoader(ForgeModel):
         return self._variant in (
             ModelVariant.QWEN_3_30B_A3B,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
+            ModelVariant.QWEN_3_30B_A3B_NVFP4,
             ModelVariant.QWEN_3_235B_A22B_INSTRUCT_2507_FP8,
         )
 
