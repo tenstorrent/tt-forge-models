@@ -36,6 +36,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_27B_GGUF = "27B_GGUF"
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
     QWEN_3_5_122B_A10B_INT4_AUTOROUND = "122B_A10B_INT4_AutoRound"
+    QWEN_3_5_122B_A10B_NVFP4 = "122B_A10B_NVFP4"
     QWEN_3_5_27B_4BIT = "27B_4bit"
     QWEN_3_5_27B_WRITER_I1_GGUF = "27B_Writer_i1_GGUF"
 
@@ -91,6 +92,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_122B_A10B_INT4_AUTOROUND: LLMModelConfig(
             pretrained_model_name="Intel/Qwen3.5-122B-A10B-int4-AutoRound",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_122B_A10B_NVFP4: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Qwen3.5-122B-A10B-NVFP4",
             max_length=128,
         ),
         ModelVariant.QWEN_3_5_27B_4BIT: LLMModelConfig(
@@ -217,6 +222,10 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.QWEN_3_5_122B_A10B_INT4_AUTOROUND:
             model_kwargs["device_map"] = "cpu"
 
+        # NVFP4 variants require ignore_mismatched_sizes
+        if self._is_nvfp4_variant():
+            model_kwargs["ignore_mismatched_sizes"] = True
+
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
@@ -307,13 +316,21 @@ class ModelLoader(ForgeModel):
         """Check if the current variant uses AWQ quantization."""
         return self._variant == ModelVariant.QWEN_3_5_35B_A3B_AWQ_4BIT
 
+    def _is_nvfp4_variant(self):
+        """Check if the current variant uses NVFP4 quantization."""
+        return self._variant in (
+            ModelVariant.QWEN_3_5_35B_A3B_NVFP4,
+            ModelVariant.QWEN_3_5_122B_A10B_NVFP4,
+        )
+
     def _is_moe_variant(self):
         """Check if the current variant is a Mixture of Experts model."""
         return self._variant in (
             ModelVariant.QWEN_3_5_35B_A3B,
             ModelVariant.QWEN_3_5_35B_A3B_FP8,
-            ModelVariant.QWEN_3_5_122B_A10B,
+            ModelVariant.QWEN_3_5_35B_A3B_NVFP4,
             ModelVariant.QWEN_3_5_122B_A10B_INT4_AUTOROUND,
+            ModelVariant.QWEN_3_5_122B_A10B_NVFP4,
         )
 
     def load_shard_spec(self, model):
