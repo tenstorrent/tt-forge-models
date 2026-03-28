@@ -76,6 +76,9 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # UnicomLLM variants
+    UNICHAT_LLAMA3_CHINESE_8B = "Unichat_Llama3_Chinese_8B"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -190,6 +193,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # UnicomLLM variants
+        ModelVariant.UNICHAT_LLAMA3_CHINESE_8B: LLMModelConfig(
+            pretrained_model_name="UnicomLLM/Unichat-llama3-Chinese-8B",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -235,6 +243,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_UNSLOTH,
             ModelVariant.LLAMA_2_70B_CHAT,
             ModelVariant.LLAMA_3_1_8B_INSTRUCT_W_INT8_A_INT8_SYM,
+            ModelVariant.UNICHAT_LLAMA3_CHINESE_8B,
         ]:
             group = ModelGroup.VULCAN
         elif (
