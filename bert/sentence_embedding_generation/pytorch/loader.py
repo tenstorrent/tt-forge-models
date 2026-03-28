@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     )
     BIOBERT_V1_1 = "dmis-lab/biobert-v1.1"
     TINYBERT_L4_H312_V2 = "nreimers/TinyBERT_L-4_H-312_v2"
+    MOKA_AI_M3E_SMALL = "moka-ai/m3e-small"
 
 
 class ModelLoader(ForgeModel):
@@ -52,6 +53,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.TINYBERT_L4_H312_V2: LLMModelConfig(
             pretrained_model_name="nreimers/TinyBERT_L-4_H-312_v2",
+            max_length=128,
+        ),
+        ModelVariant.MOKA_AI_M3E_SMALL: LLMModelConfig(
+            pretrained_model_name="moka-ai/m3e-small",
             max_length=128,
         ),
     }
@@ -93,6 +98,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.PARAPHRASE_MULTILINGUAL_MINILM_L12_V2: ModelGroup.VULCAN,
             ModelVariant.BIOBERT_V1_1: ModelGroup.VULCAN,
             ModelVariant.TINYBERT_L4_H312_V2: ModelGroup.VULCAN,
+            ModelVariant.MOKA_AI_M3E_SMALL: ModelGroup.VULCAN,
         }
 
         return ModelInfo(
