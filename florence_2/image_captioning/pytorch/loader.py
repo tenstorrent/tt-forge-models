@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
 
     BASE = "Base"
     LARGE = "Large"
+    FLUX = "Flux"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE: ModelConfig(
             pretrained_model_name="microsoft/Florence-2-large",
+        ),
+        ModelVariant.FLUX: ModelConfig(
+            pretrained_model_name="gokaygokay/Florence-2-Flux",
         ),
     }
 
