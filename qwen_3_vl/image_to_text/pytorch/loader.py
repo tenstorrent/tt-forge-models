@@ -38,6 +38,7 @@ class ModelVariant(StrEnum):
     QWEN_3_VL_8B_INSTRUCT_AWQ = "8b_instruct_awq"
     QWEN_3_VL_30B_A3B_INSTRUCT = "30b_a3b_instruct"
     QWEN_3_VL_32B_INSTRUCT = "32b_instruct"
+    QWEN_3_VL_32B_THINKING_FP8 = "32b_thinking_fp8"
 
 
 class ModelLoader(ForgeModel):
@@ -83,6 +84,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_VL_32B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-VL-32B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_VL_32B_THINKING_FP8: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-VL-32B-Thinking-FP8",
             max_length=128,
         ),
     }
@@ -131,6 +136,7 @@ class ModelLoader(ForgeModel):
                 ModelVariant.QWEN_3_VL_8B_INSTRUCT_AWQ,
                 ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT,
                 ModelVariant.QWEN_3_VL_32B_INSTRUCT,
+                ModelVariant.QWEN_3_VL_32B_THINKING_FP8,
             )
             else ModelGroup.RED
         )
