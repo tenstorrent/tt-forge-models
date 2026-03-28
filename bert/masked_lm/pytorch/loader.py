@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     BIOBERT_BASE_CASED_V1_1 = "BioBERT_Base_Cased_v1.1"
     BERT_LARGE_PORTUGUESE_CASED = "Large_Portuguese_Cased"
     LEGAL_BERT_BASE_UNCASED = "nlpaueb/legal-bert-base-uncased"
+    RETROMAE_MSMARCO_DISTILL = "Shitao/RetroMAE_MSMARCO_distill"
 
 
 class ModelLoader(ForgeModel):
@@ -61,6 +62,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LEGAL_BERT_BASE_UNCASED: LLMModelConfig(
             pretrained_model_name="nlpaueb/legal-bert-base-uncased",
+            max_length=128,
+        ),
+        ModelVariant.RETROMAE_MSMARCO_DISTILL: LLMModelConfig(
+            pretrained_model_name="Shitao/RetroMAE_MSMARCO_distill",
             max_length=128,
         ),
     }
@@ -106,6 +111,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.BIOBERT_BASE_CASED_V1_1,
             ModelVariant.BERT_LARGE_PORTUGUESE_CASED,
             ModelVariant.LEGAL_BERT_BASE_UNCASED,
+            ModelVariant.RETROMAE_MSMARCO_DISTILL,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
