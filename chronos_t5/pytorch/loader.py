@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     TINY = "tiny"
     BASE = "base"
     LARGE = "large"
+    AUTOGLUON_LARGE = "autogluon-large"
 
 
 class ModelLoader(ForgeModel):
@@ -55,6 +56,11 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE: ChronosT5Config(
             pretrained_model_name="amazon/chronos-t5-large",
+            context_length=512,
+            prediction_length=64,
+        ),
+        ModelVariant.AUTOGLUON_LARGE: ChronosT5Config(
+            pretrained_model_name="autogluon/chronos-t5-large",
             context_length=512,
             prediction_length=64,
         ),
