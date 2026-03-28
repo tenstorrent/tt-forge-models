@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
 
     ROBERTA_BASE_SENTIMENT = "Base_Sentiment"
     ROBERTA_BASE_SENTIMENT_LATEST = "Base_Sentiment_Latest"
+    ROBERTA_BASE_OFFENSIVE = "Base_Offensive"
     ROBERTA_LARGE_MNLI = "Large_MNLI"
 
 
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.ROBERTA_BASE_SENTIMENT_LATEST: ModelConfig(
             pretrained_model_name="cardiffnlp/twitter-roberta-base-sentiment-latest",
+        ),
+        ModelVariant.ROBERTA_BASE_OFFENSIVE: ModelConfig(
+            pretrained_model_name="cardiffnlp/twitter-roberta-base-offensive",
         ),
         ModelVariant.ROBERTA_LARGE_MNLI: ModelConfig(
             pretrained_model_name="FacebookAI/roberta-large-mnli",
@@ -61,6 +65,7 @@ class ModelLoader(ForgeModel):
         group = ModelGroup.GENERALITY
         if variant_name in (
             ModelVariant.ROBERTA_BASE_SENTIMENT_LATEST,
+            ModelVariant.ROBERTA_BASE_OFFENSIVE,
             ModelVariant.ROBERTA_LARGE_MNLI,
         ):
             group = ModelGroup.VULCAN
@@ -179,5 +184,7 @@ class ModelLoader(ForgeModel):
         label = self.model.config.id2label[predicted_value]
         if self._is_mnli_variant():
             print(f"Predicted Label: {label}")
+        elif self._variant == ModelVariant.ROBERTA_BASE_OFFENSIVE:
+            print(f"Predicted Offensiveness: {label}")
         else:
             print(f"Predicted Sentiment: {label}")
