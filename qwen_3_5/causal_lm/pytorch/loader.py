@@ -38,6 +38,7 @@ class ModelVariant(StrEnum):
         "9B_Claude_4.6_HighIQ_INSTRUCT_HERETIC_UNCENSORED_GGUF"
     )
     QWEN_3_5_9B_HERETIC_GGUF = "9B_heretic_GGUF"
+    QWEN_3_5_ANTIREP_27B_GGUF = "Antirep_27B_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -93,6 +94,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/Qwen3.5-9B-heretic-GGUF",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_5_ANTIREP_27B_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Qwen3.5-Antirep-27B-i1-GGUF",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -104,6 +109,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_3_5_9B_GGUF: "Qwen3.5-9B-Q4_K_M.gguf",
         ModelVariant.QWEN_3_5_9B_CLAUDE_4_6_HIGHIQ_INSTRUCT_HERETIC_UNCENSORED_GGUF: "Qwen3.5-9B-Claude-4.6-HighIQ-INSTRUCT-HERETIC-UNCENSORED.Q4_K_M.gguf",
         ModelVariant.QWEN_3_5_9B_HERETIC_GGUF: "Qwen3.5-9B-heretic.Q4_K_M.gguf",
+        ModelVariant.QWEN_3_5_ANTIREP_27B_GGUF: "Qwen3.5-Antirep-27B.i1-Q4_K_M.gguf",
     }
 
     # Shared configuration parameters
