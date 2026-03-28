@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Sentence-Transformers distiluse-base-multilingual-cased-v1 model loader
+Sentence-Transformers distiluse-base-multilingual-cased model loader
 for sentence embedding generation.
 """
 import torch
@@ -27,14 +27,21 @@ class ModelVariant(StrEnum):
     DISTILUSE_BASE_MULTILINGUAL_CASED_V1 = (
         "sentence-transformers/distiluse-base-multilingual-cased-v1"
     )
+    DISTILUSE_BASE_MULTILINGUAL_CASED_V2 = (
+        "sentence-transformers/distiluse-base-multilingual-cased-v2"
+    )
 
 
 class ModelLoader(ForgeModel):
-    """Sentence-Transformers distiluse-base-multilingual-cased-v1 model loader."""
+    """Sentence-Transformers distiluse-base-multilingual-cased model loader."""
 
     _VARIANTS = {
         ModelVariant.DISTILUSE_BASE_MULTILINGUAL_CASED_V1: LLMModelConfig(
             pretrained_model_name="sentence-transformers/distiluse-base-multilingual-cased-v1",
+            max_length=128,
+        ),
+        ModelVariant.DISTILUSE_BASE_MULTILINGUAL_CASED_V2: LLMModelConfig(
+            pretrained_model_name="sentence-transformers/distiluse-base-multilingual-cased-v2",
             max_length=128,
         ),
     }
