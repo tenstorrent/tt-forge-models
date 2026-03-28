@@ -51,6 +51,7 @@ class ModelVariant(StrEnum):
     RESNET_34_A1_IN1K_TIMM = "ResNet34_A1_IN1K_TIMM"
     RESNET_34_RA4_E3600_R224_IN1K_TIMM = "ResNet34_RA4_E3600_R224_IN1K_TIMM"
     RESNET_50_A1_IN1K_TIMM = "ResNet50_A1_IN1K_TIMM"
+    RESNET_50_RAM_IN1K_TIMM = "ResNet50_RAM_IN1K_TIMM"
     TEST_RESNET_R160_IN1K_TIMM = "TestResNet_R160_IN1K_TIMM"
 
     # Torchvision variants
@@ -97,6 +98,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.RESNET_50_A1_IN1K_TIMM: ResNetConfig(
             pretrained_model_name="resnet50.a1_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.RESNET_50_RAM_IN1K_TIMM: ResNetConfig(
+            pretrained_model_name="resnet50.ram_in1k",
             source=ModelSource.TIMM,
         ),
         ModelVariant.TEST_RESNET_R160_IN1K_TIMM: ResNetConfig(
@@ -171,6 +176,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.RESNET_34_A1_IN1K_TIMM,
             ModelVariant.RESNET_34_RA4_E3600_R224_IN1K_TIMM,
             ModelVariant.RESNET_50_A1_IN1K_TIMM,
+            ModelVariant.RESNET_50_RAM_IN1K_TIMM,
             ModelVariant.TEST_RESNET_R160_IN1K_TIMM,
         ]:
             group = ModelGroup.VULCAN
