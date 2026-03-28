@@ -44,6 +44,7 @@ class ModelVariant(StrEnum):
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
     MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
+    TINY_RANDOM = "tiny_random"
 
 
 class ModelLoader(ForgeModel):
@@ -109,6 +110,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_7B_V03_BNB_4BIT: ModelConfig(
             pretrained_model_name="unsloth/mistral-7b-v0.3-bnb-4bit",
         ),
+        ModelVariant.TINY_RANDOM: ModelConfig(
+            pretrained_model_name="echarlaix/tiny-random-mistral",
+        ),
     }
 
     # Default variant to use
@@ -145,6 +149,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_INSTRUCT_V02,
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
             ModelVariant.MISTRAL_NEMO_BASE_2407,
+            ModelVariant.TINY_RANDOM,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
