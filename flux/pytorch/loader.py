@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     SCHNELL = "Schnell"
     DEV = "Dev"
+    SCHNELL_LZYVEGETABLE = "Schnell_lzyvegetable"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DEV: ModelConfig(
             pretrained_model_name="black-forest-labs/FLUX.1-dev",
+        ),
+        ModelVariant.SCHNELL_LZYVEGETABLE: ModelConfig(
+            pretrained_model_name="lzyvegetable/FLUX.1-schnell",
         ),
     }
 
@@ -53,7 +57,11 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self.pipe = None
-        self.guidance_scale = 0.0 if variant == ModelVariant.SCHNELL else 3.5
+        self.guidance_scale = (
+            0.0
+            if variant in (ModelVariant.SCHNELL, ModelVariant.SCHNELL_LZYVEGETABLE)
+            else 3.5
+        )
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -69,12 +77,16 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
+        variant_groups = {
+            ModelVariant.SCHNELL: ModelGroup.RED,
+            ModelVariant.SCHNELL_LZYVEGETABLE: ModelGroup.VULCAN,
+            ModelVariant.DEV: ModelGroup.GENERALITY,
+        }
+
         return ModelInfo(
             model="FLUX",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == ModelVariant.SCHNELL
-            else ModelGroup.GENERALITY,
+            group=variant_groups.get(variant, ModelGroup.GENERALITY),
             task=ModelTask.MM_IMAGE_TTT,  # FIXME: Update task to Text to Image
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
