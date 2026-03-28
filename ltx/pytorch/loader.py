@@ -11,6 +11,7 @@ within a single model.
 Repositories:
 - https://huggingface.co/Lightricks/LTX-2
 - https://huggingface.co/Lightricks/LTX-2.3
+- https://huggingface.co/Lightricks/LTX-2.3-nvfp4
 
 Available subfolders:
 - transformer: LTX2VideoTransformer3DModel
@@ -38,6 +39,7 @@ from ...config import (
 SUPPORTED_SUBFOLDERS = {"transformer", "vae", "audio_vae"}
 
 FP8_CHECKPOINT_URL = "https://huggingface.co/Lightricks/LTX-2.3-fp8/blob/main/ltx-2.3-22b-distilled-fp8.safetensors"
+NVFP4_CHECKPOINT_URL = "https://huggingface.co/Lightricks/LTX-2.3-nvfp4/blob/main/ltx-2.3-22b-dev-nvfp4.safetensors"
 
 
 class ModelVariant(StrEnum):
@@ -46,6 +48,7 @@ class ModelVariant(StrEnum):
     LTX_2 = "2"
     LTX_2_3 = "2.3"
     LTX_2_3_FP8 = "2.3-fp8"
+    LTX_2_3_NVFP4 = "2.3-nvfp4"
 
 
 class ModelLoader(ForgeModel):
@@ -70,6 +73,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LTX_2_3_FP8: ModelConfig(
             pretrained_model_name="Lightricks/LTX-2.3-fp8",
+        ),
+        ModelVariant.LTX_2_3_NVFP4: ModelConfig(
+            pretrained_model_name="Lightricks/LTX-2.3-nvfp4",
         ),
     }
 
@@ -114,6 +120,19 @@ class ModelLoader(ForgeModel):
         )
         return self._transformer
 
+    def _load_nvfp4_transformer(
+        self, dtype: torch.dtype
+    ) -> LTX2VideoTransformer3DModel:
+        """Load the NVFP4 transformer directly from a single safetensors file."""
+        self._transformer = LTX2VideoTransformer3DModel.from_single_file(
+            NVFP4_CHECKPOINT_URL,
+            torch_dtype=dtype,
+            cross_attn_mod=True,
+            audio_cross_attn_mod=True,
+            low_cpu_mem_usage=False,
+        )
+        return self._transformer
+
     def _load_pipeline(self, dtype: torch.dtype) -> LTX2Pipeline:
         self.pipeline = LTX2Pipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -127,6 +146,11 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.LTX_2_3_FP8:
             if self._transformer is None:
                 self._load_fp8_transformer(dtype)
+            return self._transformer
+
+        if self._variant == ModelVariant.LTX_2_3_NVFP4:
+            if self._transformer is None:
+                self._load_nvfp4_transformer(dtype)
             return self._transformer
 
         if self.pipeline is None:
@@ -145,6 +169,11 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.LTX_2_3_FP8:
             if self._transformer is None:
                 self._load_fp8_transformer(dtype)
+            return self._load_fp8_transformer_inputs(dtype)
+
+        if self._variant == ModelVariant.LTX_2_3_NVFP4:
+            if self._transformer is None:
+                self._load_nvfp4_transformer(dtype)
             return self._load_fp8_transformer_inputs(dtype)
 
         if self.pipeline is None:
