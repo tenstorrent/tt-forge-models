@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     OPENMED_ZEROSHOT_NER_CHEMICAL_MULTI = "ZeroShot-NER-Chemical-Multi-209M"
     OPENMED_ZEROSHOT_NER_ORGANISM_TINY = "ZeroShot-NER-Organism-Tiny-60M"
     OPENMED_ZEROSHOT_NER_ONCOLOGY_SMALL = "ZeroShot-NER-Oncology-Small-166M"
+    OPENMED_ZEROSHOT_NER_GENOMIC_MULTI = "ZeroShot-NER-Genomic-Multi-209M"
 
 
 class ModelLoader(ForgeModel):
@@ -45,6 +46,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.OPENMED_ZEROSHOT_NER_ONCOLOGY_SMALL: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Oncology-Small-166M"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_GENOMIC_MULTI: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Genomic-Multi-209M"
         ),
     }
 
@@ -100,6 +104,10 @@ class ModelLoader(ForgeModel):
                 "CANCER",
                 "ORGAN",
             ],
+        },
+        ModelVariant.OPENMED_ZEROSHOT_NER_GENOMIC_MULTI: {
+            "text": "The BRCA2 gene is associated with hereditary breast cancer.",
+            "labels": ["Cell-line-name"],
         },
     }
 
