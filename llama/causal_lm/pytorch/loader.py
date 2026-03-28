@@ -51,6 +51,7 @@ class ModelVariant(StrEnum):
     # Llama 3.3 variants
     LLAMA_3_3_70B_INSTRUCT = "3.3_70B_Instruct"
     LLAMA_3_3_70B_INSTRUCT_AWQ = "3.3_70B_Instruct_Awq"
+    LLAMA_3_3_70B_INSTRUCT_MLX_4BIT = "3.3_70B_Instruct_MLX_4bit"
 
     # RedHatAI FP8 quantized variants
     LLAMA_3_1_70B_INSTRUCT_FP8 = "3.1_70B_Instruct_FP8"
@@ -161,6 +162,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="meta-llama/Llama-3.3-70B-Instruct",
             max_length=128,
         ),
+        ModelVariant.LLAMA_3_3_70B_INSTRUCT_MLX_4BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/Llama-3.3-70B-Instruct-4bit",
+            max_length=128,
+        ),
         # Llama 2 variants
         ModelVariant.LLAMA_2_7B: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-2-7b-hf",
@@ -233,6 +238,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_1_70B_INSTRUCT_FP8,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.LLAMA_3_3_70B_INSTRUCT_MLX_4BIT,
             ModelVariant.LLAMA_3_1_8B_INSTRUCT_BNB_4BIT,
         ]:
             group = ModelGroup.VULCAN
@@ -329,6 +335,7 @@ class ModelLoader(ForgeModel):
             "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
             "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit",
             "TheBloke/Llama-2-7B-GPTQ",
+            "mlx-community/Llama-3.3-70B-Instruct-4bit",
         ):
             model_kwargs["device_map"] = "cpu"
 
@@ -493,6 +500,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_1_70B_INSTRUCT_FP8,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.LLAMA_3_3_70B_INSTRUCT_MLX_4BIT,
             ModelVariant.LLAMA_3_1_405B,
             ModelVariant.LLAMA_3_1_405B_INSTRUCT,
         ]:
