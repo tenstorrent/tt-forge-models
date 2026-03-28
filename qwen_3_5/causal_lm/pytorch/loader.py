@@ -34,6 +34,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_4B_GGUF = "4B_GGUF"
     QWEN_3_5_9B_GGUF = "9B_GGUF"
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
+    QWEN_3_5_35B_A3B_GGUF = "35B_A3B_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -81,6 +82,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AxionML/Qwen3.5-35B-A3B-NVFP4",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_5_35B_A3B_GGUF: LLMModelConfig(
+            pretrained_model_name="janhq/Qwen3.5-35B-A3B-GGUF",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -90,6 +95,7 @@ class ModelLoader(ForgeModel):
     _GGUF_FILES = {
         ModelVariant.QWEN_3_5_4B_GGUF: "Qwen3.5-4B-Q4_K_M.gguf",
         ModelVariant.QWEN_3_5_9B_GGUF: "Qwen3.5-9B-Q4_K_M.gguf",
+        ModelVariant.QWEN_3_5_35B_A3B_GGUF: "Qwen3.5-35B-A3B-Q4_K_S.gguf",
     }
 
     # Shared configuration parameters
