@@ -20,6 +20,7 @@ from ...base import ForgeModel
 
 
 class ModelVariant(StrEnum):
+    OPENMED_ZEROSHOT_NER_ANATOMY_SMALL = "ZeroShot-NER-Anatomy-Small-166M"
     OPENMED_ZEROSHOT_NER_SPECIES_SMALL = "ZeroShot-NER-Species-Small-166M"
 
 
@@ -27,12 +28,15 @@ class ModelLoader(ForgeModel):
     """OpenMed model loader implementation."""
 
     _VARIANTS = {
+        ModelVariant.OPENMED_ZEROSHOT_NER_ANATOMY_SMALL: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Anatomy-Small-166M"
+        ),
         ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_SMALL: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Species-Small-166M"
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_SMALL
+    DEFAULT_VARIANT = ModelVariant.OPENMED_ZEROSHOT_NER_ANATOMY_SMALL
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant."""
@@ -60,14 +64,26 @@ class ModelLoader(ForgeModel):
         self.model = model
         return self.model.eval()
 
+    _VARIANT_INPUTS = {
+        ModelVariant.OPENMED_ZEROSHOT_NER_ANATOMY_SMALL: {
+            "text": "The patient complained of pain in the left ventricle region.",
+            "labels": ["Anatomy"],
+        },
+        ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_SMALL: {
+            "text": "Escherichia coli and Staphylococcus aureus were isolated from the patient samples.",
+            "labels": ["SPECIES"],
+        },
+    }
+
     def load_inputs(self, batch_size=1):
         """Load and return sample inputs for the OpenMed model.
 
         Returns a batch suitable for the GLiNER model forward pass.
         """
-        text = "Escherichia coli and Staphylococcus aureus were isolated from the patient samples."
+        variant_input = self._VARIANT_INPUTS[self._variant]
+        text = variant_input["text"]
         self.text = [text]
-        labels = ["SPECIES"]
+        labels = variant_input["labels"]
         entity_types = list(dict.fromkeys(labels))
 
         (
