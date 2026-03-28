@@ -38,6 +38,7 @@ class ModelVariant(StrEnum):
     """Available ConvNeXt V2 model variants."""
 
     ATTO_FCMAE_FT_IN1K = "Atto_FCMAE_FT_IN1K"
+    LARGE_FCMAE_FT_IN22K_IN1K_384 = "Large_FCMAE_FT_IN22K_IN1K_384"
     NANO_FCMAE_FT_IN22K_IN1K = "Nano_FCMAE_FT_IN22K_IN1K"
 
 
@@ -47,6 +48,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.ATTO_FCMAE_FT_IN1K: ConvNeXtV2Config(
             pretrained_model_name="hf_hub:timm/convnextv2_atto.fcmae_ft_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.LARGE_FCMAE_FT_IN22K_IN1K_384: ConvNeXtV2Config(
+            pretrained_model_name="hf_hub:timm/convnextv2_large.fcmae_ft_in22k_in1k_384",
             source=ModelSource.TIMM,
         ),
         ModelVariant.NANO_FCMAE_FT_IN22K_IN1K: ConvNeXtV2Config(
