@@ -48,6 +48,7 @@ class ModelVariant(StrEnum):
     QWEN_3_4B_MLX_8BIT = "4B_MLX_8bit"
     QWEN_3_0_6B_8BIT = "0_6B_8bit"
     QWEN_3_30B_A3B_MLX_8BIT = "30B_A3B_MLX_8bit"
+    QWEN_3_30B_A3B_INSTRUCT_2507_AWQ = "30B_A3B_Instruct_2507_Awq"
 
 
 class ModelLoader(ForgeModel):
@@ -135,6 +136,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="lmstudio-community/Qwen3-30B-A3B-MLX-8bit",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507_AWQ: LLMModelConfig(
+            pretrained_model_name="ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -182,6 +187,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_14B_AWQ,
             ModelVariant.QWEN_3_0_6B_8BIT,
             ModelVariant.QWEN_3_30B_A3B_MLX_8BIT,
+            ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507_AWQ,
         ):
             group = ModelGroup.VULCAN
         else:
@@ -240,7 +246,10 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         # Check if this is an AWQ variant and configure accordingly
-        if pretrained_model_name in ("Qwen/Qwen3-8B-AWQ",):
+        if pretrained_model_name in (
+            "Qwen/Qwen3-8B-AWQ",
+            "ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ",
+        ):
             model_kwargs["device_map"] = "cpu"
 
         model_kwargs |= kwargs
@@ -300,6 +309,7 @@ class ModelLoader(ForgeModel):
                 ModelVariant.QWEN_3_4B_INSTRUCT_2507_4BIT,
                 ModelVariant.QWEN_3_14B_INSTRUCT_OPENPIPE,
                 ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
+                ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507_AWQ,
                 ModelVariant.QWEN_3_235B_A22B_INSTRUCT_2507_FP8,
             )
             text = self.tokenizer.apply_chat_template(
@@ -352,6 +362,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_30B_A3B,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
             ModelVariant.QWEN_3_30B_A3B_MLX_8BIT,
+            ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507_AWQ,
             ModelVariant.QWEN_3_235B_A22B_INSTRUCT_2507_FP8,
         )
 
