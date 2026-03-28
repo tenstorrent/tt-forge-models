@@ -325,7 +325,6 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_5_35B_A3B,
             ModelVariant.QWEN_3_5_35B_A3B_FP8,
             ModelVariant.QWEN_3_5_35B_A3B_INT4_AUTOROUND,
-            ModelVariant.QWEN_3_5_122B_A10B,
             ModelVariant.QWEN_3_5_122B_A10B_GGUF,
             ModelVariant.QWEN_3_5_397B_A17B_GPTQ_INT4,
         )
