@@ -238,6 +238,7 @@ class ModelLoader(ForgeModel):
         if self._variant in [
             ModelVariant.QWEN_3_EMBEDDING_0_6B,
             ModelVariant.QWEN_3_EMBEDDING_4B,
+            ModelVariant.QWEN_3_EMBEDDING_4B_W4A16_G128,
         ]:
             return None
 
