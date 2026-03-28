@@ -75,10 +75,11 @@ class ModelLoader(ForgeModel):
         self.model_name = pretrained_model_name
         if self._variant == ModelVariant.HATMIMOHA_ARABIC_NER:
             self.sample_text = "نبيه بري النائب علي حسن خليل من البنك الدولي"
-        elif self._variant in (
-            ModelVariant.OPENMED_NER_DNADETECT,
-            ModelVariant.OPENMED_NER_GENOMICDETECT,
-        ):
+        elif self._variant == ModelVariant.OPENMED_NER_DNADETECT:
+            self.sample_text = (
+                "The p53 protein plays a crucial role in tumor suppression."
+            )
+        elif self._variant == ModelVariant.OPENMED_NER_GENOMICDETECT:
             self.sample_text = (
                 "The BRCA2 gene is associated with hereditary breast cancer."
             )
