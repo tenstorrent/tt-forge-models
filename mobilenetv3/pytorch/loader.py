@@ -46,6 +46,7 @@ class ModelVariant(StrEnum):
     # TIMM variants
     MOBILENET_V3_LARGE_100_TIMM = "Large_100"
     MOBILENET_V3_SMALL_100_TIMM = "Small_100"
+    MOBILENET_V3_SMALL_050_TIMM = "Small_050"
 
 
 class ModelLoader(ForgeModel):
@@ -87,6 +88,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="hf_hub:timm/mobilenetv3_small_100.lamb_in1k",
             source=ModelSource.TIMM,
         ),
+        ModelVariant.MOBILENET_V3_SMALL_050_TIMM: MobileNetV3Config(
+            pretrained_model_name="hf_hub:timm/mobilenetv3_small_050.lamb_in1k",
+            source=ModelSource.TIMM,
+        ),
     }
 
     # Default variant to use
@@ -121,10 +126,16 @@ class ModelLoader(ForgeModel):
         # Get source from variant config
         source = cls._VARIANTS[variant].source
 
+        group = (
+            ModelGroup.VULCAN
+            if variant == ModelVariant.MOBILENET_V3_SMALL_050_TIMM
+            else ModelGroup.GENERALITY
+        )
+
         return ModelInfo(
             model="MobileNetV3",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_CLS,
             source=source,
             framework=Framework.TORCH,
