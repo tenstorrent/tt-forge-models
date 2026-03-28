@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     )
     BIOBERT_V1_1 = "dmis-lab/biobert-v1.1"
     TINYBERT_L4_H312_V2 = "nreimers/TinyBERT_L-4_H-312_v2"
+    DEEPSET_SENTENCE_BERT = "deepset/sentence_bert"
 
 
 class ModelLoader(ForgeModel):
@@ -52,6 +53,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.TINYBERT_L4_H312_V2: LLMModelConfig(
             pretrained_model_name="nreimers/TinyBERT_L-4_H-312_v2",
+            max_length=128,
+        ),
+        ModelVariant.DEEPSET_SENTENCE_BERT: LLMModelConfig(
+            pretrained_model_name="deepset/sentence_bert",
             max_length=128,
         ),
     }
@@ -93,6 +98,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.PARAPHRASE_MULTILINGUAL_MINILM_L12_V2: ModelGroup.VULCAN,
             ModelVariant.BIOBERT_V1_1: ModelGroup.VULCAN,
             ModelVariant.TINYBERT_L4_H312_V2: ModelGroup.VULCAN,
+            ModelVariant.DEEPSET_SENTENCE_BERT: ModelGroup.VULCAN,
         }
 
         return ModelInfo(
