@@ -55,6 +55,7 @@ class ModelVariant(StrEnum):
     # RedHatAI FP8 quantized variants
     LLAMA_3_2_1B_INSTRUCT_FP8 = "3.2_1B_Instruct_FP8"
     LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC = "3.2_1B_Instruct_FP8_Dynamic"
+    LLAMA_3_3_70B_INSTRUCT_FP8_DYNAMIC = "3.3_70B_Instruct_FP8_Dynamic"
 
     # hugging-quants AWQ INT4 quantized variants
     LLAMA_3_1_8B_INSTRUCT_AWQ_INT4 = "3.1_8B_Instruct_Awq_Int4"
@@ -147,6 +148,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="meta-llama/Llama-3.3-70B-Instruct",
             max_length=128,
         ),
+        ModelVariant.LLAMA_3_3_70B_INSTRUCT_FP8_DYNAMIC: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic",
+            max_length=128,
+        ),
         # Llama 2 variants
         ModelVariant.LLAMA_2_7B: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-2-7b-hf",
@@ -214,6 +219,7 @@ class ModelLoader(ForgeModel):
         if variant in [
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.LLAMA_3_3_70B_INSTRUCT_FP8_DYNAMIC,
         ]:
             group = ModelGroup.VULCAN
         elif (
@@ -470,6 +476,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_1_70B_INSTRUCT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.LLAMA_3_3_70B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_1_405B,
             ModelVariant.LLAMA_3_1_405B_INSTRUCT,
         ]:
