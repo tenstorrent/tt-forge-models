@@ -16,6 +16,7 @@ from ....config import (
 )
 from ....base import ForgeModel
 from torchvision import models
+import timm
 import torch
 from typing import Optional
 from dataclasses import dataclass
@@ -39,6 +40,9 @@ class ModelVariant(StrEnum):
     SWIN_TINY_HF = "Tiny_Patch4_Window7_224"
     SWINV2_TINY_HF = "v2_Tiny_Patch4_Window8_256"
 
+    # TIMM variants
+    SWINV2_BASE_TIMM = "v2_Base_Window8_256_TIMM"
+
     # Torchvision variants
     SWIN_T = "T"
     SWIN_S = "S"
@@ -61,6 +65,11 @@ class ModelLoader(ForgeModel):
         ModelVariant.SWINV2_TINY_HF: SwinConfig(
             pretrained_model_name="microsoft/swinv2-tiny-patch4-window8-256",
             source=ModelSource.HUGGING_FACE,
+        ),
+        # TIMM variants
+        ModelVariant.SWINV2_BASE_TIMM: SwinConfig(
+            pretrained_model_name="swinv2_base_window8_256.ms_in1k",
+            source=ModelSource.TIMM,
         ),
         # Torchvision variants
         ModelVariant.SWIN_T: SwinConfig(
@@ -109,12 +118,17 @@ class ModelLoader(ForgeModel):
         # Get source from variant config
         source = cls._VARIANTS[variant].source
 
+        if variant == ModelVariant.SWIN_S:
+            group = ModelGroup.RED
+        elif variant == ModelVariant.SWINV2_BASE_TIMM:
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
             model="Swin",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == ModelVariant.SWIN_S
-            else ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_CLS,
             source=source,
             framework=Framework.TORCH,
@@ -151,6 +165,10 @@ class ModelLoader(ForgeModel):
             model = AutoModelForImageClassification.from_pretrained(
                 model_name, **kwargs
             )
+
+        elif source == ModelSource.TIMM:
+            # Load model using timm
+            model = timm.create_model(model_name, pretrained=True)
 
         elif source == ModelSource.TORCHVISION:
             # Load model from torchvision
