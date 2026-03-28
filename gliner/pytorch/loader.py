@@ -22,6 +22,7 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     GLINER_LARGEV2 = "Large_v2"
     GLINER_MULTI_V21 = "Multi_v2.1"
+    GLINER_PII = "PII"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.GLINER_MULTI_V21: ModelConfig(
             pretrained_model_name="urchade/gliner_multi-v2.1"
         ),
+        ModelVariant.GLINER_PII: ModelConfig(pretrained_model_name="nvidia/gliner-pii"),
     }
 
     DEFAULT_VARIANT = ModelVariant.GLINER_MULTI_V21
@@ -47,6 +49,8 @@ class ModelLoader(ForgeModel):
 
         if variant in [ModelVariant.GLINER_MULTI_V21]:
             group = ModelGroup.RED
+        elif variant == ModelVariant.GLINER_PII:
+            group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
 
