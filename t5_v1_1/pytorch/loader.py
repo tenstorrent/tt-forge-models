@@ -24,6 +24,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available T5 v1.1 model variants."""
 
+    SMALL = "Small"
     XXL = "XXL"
 
 
@@ -31,6 +32,10 @@ class ModelLoader(ForgeModel):
     """T5 v1.1 model loader implementation for conditional generation tasks."""
 
     _VARIANTS = {
+        ModelVariant.SMALL: LLMModelConfig(
+            pretrained_model_name="google/t5-v1_1-small",
+            max_length=512,
+        ),
         ModelVariant.XXL: LLMModelConfig(
             pretrained_model_name="google/t5-v1_1-xxl",
             max_length=512,
