@@ -6,7 +6,7 @@ BERT model loader implementation for token classification.
 """
 
 import torch
-from transformers import BertForTokenClassification, BertTokenizer
+from transformers import AutoTokenizer, BertForTokenClassification
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -27,6 +27,9 @@ class ModelVariant(StrEnum):
     )
     DSLIM_BERT_BASE_NER = "dslim/bert-base-NER"
     HATMIMOHA_ARABIC_NER = "hatmimoha/arabic-ner"
+    LLM_BOOK_BERT_BASE_JAPANESE_V3_NER_WIKIPEDIA_DATASET = (
+        "llm-book/bert-base-japanese-v3-ner-wikipedia-dataset"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -44,6 +47,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.HATMIMOHA_ARABIC_NER: LLMModelConfig(
             pretrained_model_name="hatmimoha/arabic-ner",
+            max_length=128,
+        ),
+        ModelVariant.LLM_BOOK_BERT_BASE_JAPANESE_V3_NER_WIKIPEDIA_DATASET: LLMModelConfig(
+            pretrained_model_name="llm-book/bert-base-japanese-v3-ner-wikipedia-dataset",
             max_length=128,
         ),
     }
@@ -65,6 +72,11 @@ class ModelLoader(ForgeModel):
         self.model_name = pretrained_model_name
         if self._variant == ModelVariant.HATMIMOHA_ARABIC_NER:
             self.sample_text = "نبيه بري النائب علي حسن خليل من البنك الدولي"
+        elif (
+            self._variant
+            == ModelVariant.LLM_BOOK_BERT_BASE_JAPANESE_V3_NER_WIKIPEDIA_DATASET
+        ):
+            self.sample_text = "大谷翔平は岩手県水沢市出身のプロ野球選手"
         else:
             self.sample_text = "HuggingFace is a company based in Paris and New York"
         self.max_length = 128
@@ -87,6 +99,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.DSLIM_BERT_BASE_NER,
             ModelVariant.HATMIMOHA_ARABIC_NER,
+            ModelVariant.LLM_BOOK_BERT_BASE_JAPANESE_V3_NER_WIKIPEDIA_DATASET,
         ):
             group = ModelGroup.VULCAN
 
@@ -111,7 +124,7 @@ class ModelLoader(ForgeModel):
         """
 
         # Initialize tokenizer
-        self.tokenizer = BertTokenizer.from_pretrained(self.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
