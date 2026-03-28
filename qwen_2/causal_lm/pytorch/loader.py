@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     QWQ_32B = "Qwq_32B"
     QWEN2_7B_INSTRUCT = "Qwen2_7B_Instruct"
     TINY_QWEN2_2_5 = "tiny_Qwen2ForCausalLM_2.5"
+    QWEN2_1_5B_INSTRUCT_FP8 = "Qwen2_1.5B_Instruct_FP8"
 
 
 class ModelLoader(ForgeModel):
@@ -43,6 +44,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.TINY_QWEN2_2_5: LLMModelConfig(
             pretrained_model_name="trl-internal-testing/tiny-Qwen2ForCausalLM-2.5",
+            max_length=128,
+        ),
+        ModelVariant.QWEN2_1_5B_INSTRUCT_FP8: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Qwen2-1.5B-Instruct-FP8",
             max_length=128,
         ),
     }
@@ -79,7 +84,11 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         group = ModelGroup.RED
-        if variant in (ModelVariant.TINY_QWEN2_2_5, ModelVariant.QWEN2_7B_INSTRUCT):
+        if variant in (
+            ModelVariant.TINY_QWEN2_2_5,
+            ModelVariant.QWEN2_7B_INSTRUCT,
+            ModelVariant.QWEN2_1_5B_INSTRUCT_FP8,
+        ):
             group = ModelGroup.VULCAN
 
         return ModelInfo(
@@ -133,6 +142,11 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # FP8 quantized variants need device_map="cpu" for CPU-based loading
+        if pretrained_model_name == "RedHatAI/Qwen2-1.5B-Instruct-FP8":
+            model_kwargs["device_map"] = "cpu"
+
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
