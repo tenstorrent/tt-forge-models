@@ -9,6 +9,7 @@ from typing import Optional
 from dataclasses import dataclass
 import timm
 import torch
+from transformers import AutoModelForImageClassification
 
 from ...config import (
     ModelConfig,
@@ -38,6 +39,7 @@ class ModelVariant(StrEnum):
     """Available ConvNeXt model variants."""
 
     BASE_CLIP_LAION2B = "Base_CLIP_LAION2B"
+    TINY_224 = "Tiny_224"
 
 
 class ModelLoader(ForgeModel):
@@ -47,6 +49,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.BASE_CLIP_LAION2B: ConvNeXtConfig(
             pretrained_model_name="hf_hub:timm/convnext_base.clip_laion2b",
             source=ModelSource.TIMM,
+        ),
+        ModelVariant.TINY_224: ConvNeXtConfig(
+            pretrained_model_name="facebook/convnext-tiny-224",
+            source=ModelSource.HUGGING_FACE,
         ),
     }
 
@@ -76,8 +82,15 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         model_name = self._variant_config.pretrained_model_name
+        source = self._variant_config.source
 
-        model = timm.create_model(model_name, pretrained=True)
+        if source == ModelSource.TIMM:
+            model = timm.create_model(model_name, pretrained=True)
+        elif source == ModelSource.HUGGING_FACE:
+            model = AutoModelForImageClassification.from_pretrained(
+                model_name, **kwargs
+            )
+
         model.eval()
 
         self.model = model
