@@ -77,6 +77,11 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # ShahriarFerdoush variants
+    SHAHRIARFERDOUSH_LLAMA_3_2_1B_CODE_INSTRUCT = (
+        "ShahriarFerdoush_3.2_1B_Code_Instruct"
+    )
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -188,6 +193,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # ShahriarFerdoush variants
+        ModelVariant.SHAHRIARFERDOUSH_LLAMA_3_2_1B_CODE_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="ShahriarFerdoush/llama-3.2-1b-code-instruct",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -259,6 +269,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_2_7B,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.JACKFRAM_LLAMA_160M,
+            ModelVariant.SHAHRIARFERDOUSH_LLAMA_3_2_1B_CODE_INSTRUCT,
         ]:
             group = ModelGroup.VULCAN
         else:
@@ -526,6 +537,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HUGGYLLAMA_7B,
             ModelVariant.LLAMA_2_7B,
             ModelVariant.JACKFRAM_LLAMA_160M,
+            ModelVariant.SHAHRIARFERDOUSH_LLAMA_3_2_1B_CODE_INSTRUCT,
         ]:
             return None
 
