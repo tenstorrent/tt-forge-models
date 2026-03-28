@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
         "distilbert-base-uncased-finetuned-sst-2-english"
     )
     DISTILBERT_BASE_UNCASED_EMOTION = "distilbert-base-uncased-emotion"
+    DATALAB_TO_OCR_ERROR_DETECTION = "datalab-to/ocr_error_detection"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +41,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bhadresh-savani/distilbert-base-uncased-emotion",
             max_length=128,
         ),
+        ModelVariant.DATALAB_TO_OCR_ERROR_DETECTION: LLMModelConfig(
+            pretrained_model_name="datalab-to/ocr_error_detection",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -49,6 +54,7 @@ class ModelLoader(ForgeModel):
     _SAMPLE_TEXTS = {
         ModelVariant.DISTILBERT_BASE_UNCASED_FINETUNED_SST_2_ENGLISH: "the movie was great!",
         ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION: "I love using transformers. The best part is wide range of support and its easy to use",
+        ModelVariant.DATALAB_TO_OCR_ERROR_DETECTION: "The qulck brown fox jurnps over the lazy dog",
     }
 
     def __init__(self, variant=None):
@@ -80,7 +86,10 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         group = ModelGroup.GENERALITY
-        if variant_name == ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION:
+        if variant_name in (
+            ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION,
+            ModelVariant.DATALAB_TO_OCR_ERROR_DETECTION,
+        ):
             group = ModelGroup.VULCAN
         return ModelInfo(
             model="DistilBERT",
