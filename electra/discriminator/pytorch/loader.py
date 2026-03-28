@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available ELECTRA discriminator model variants."""
 
     BASE_DISCRIMINATOR = "Base_Discriminator"
+    LARGE_DISCRIMINATOR = "Large_Discriminator"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +31,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE_DISCRIMINATOR: LLMModelConfig(
             pretrained_model_name="google/electra-base-discriminator",
+            max_length=128,
+        ),
+        ModelVariant.LARGE_DISCRIMINATOR: LLMModelConfig(
+            pretrained_model_name="google/electra-large-discriminator",
             max_length=128,
         ),
     }
