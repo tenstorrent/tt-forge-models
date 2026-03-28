@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available DeBERTa model variants for sequence classification."""
 
     DEBERTA_XLARGE_MNLI = "XLarge_MNLI"
+    KOALAAI_TEXT_MODERATION = "KoalaAI_Text-Moderation"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +31,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEBERTA_XLARGE_MNLI: ModelConfig(
             pretrained_model_name="microsoft/deberta-xlarge-mnli",
+        ),
+        ModelVariant.KOALAAI_TEXT_MODERATION: ModelConfig(
+            pretrained_model_name="KoalaAI/Text-Moderation",
         ),
     }
 
@@ -78,22 +82,38 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
 
-        premise = "A man is eating food."
-        hypothesis = "A man is eating a meal."
+        if self._variant == ModelVariant.KOALAAI_TEXT_MODERATION:
+            inputs = self.tokenizer(
+                "I love AutoTrain",
+                max_length=384,
+                padding="max_length",
+                truncation=True,
+                return_tensors="pt",
+            )
+        else:
+            premise = "A man is eating food."
+            hypothesis = "A man is eating a meal."
 
-        inputs = self.tokenizer(
-            premise,
-            hypothesis,
-            max_length=128,
-            padding="max_length",
-            truncation=True,
-            return_tensors="pt",
-        )
+            inputs = self.tokenizer(
+                premise,
+                hypothesis,
+                max_length=128,
+                padding="max_length",
+                truncation=True,
+                return_tensors="pt",
+            )
 
         return inputs
 
-    def decode_output(self, co_out):
+    def decode_output(self, co_out, framework_model=None):
         logits = co_out[0]
         predicted_class_id = logits.argmax(-1).item()
-        labels = ["contradiction", "neutral", "entailment"]
-        print(f"Predicted: {labels[predicted_class_id]}")
+        if (
+            framework_model
+            and hasattr(framework_model, "config")
+            and hasattr(framework_model.config, "id2label")
+        ):
+            predicted_label = framework_model.config.id2label[predicted_class_id]
+            print(f"Predicted: {predicted_label}")
+        else:
+            print(f"Predicted class ID: {predicted_class_id}")
