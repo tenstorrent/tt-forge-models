@@ -34,6 +34,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_35B_A3B_FP8 = "35B_A3B_FP8"
     QWEN_3_5_4B_GGUF = "4B_GGUF"
     QWEN_3_5_9B_GGUF = "9B_GGUF"
+    QWEN_3_5_27B_NVFP4 = "27B_NVFP4"
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
     QWEN_3_5_2B_REASONING_DISTILLED_GGUF = "2B_Reasoning_Distilled_GGUF"
 
@@ -81,6 +82,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_9B_GGUF: LLMModelConfig(
             pretrained_model_name="unsloth/Qwen3.5-9B-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_27B_NVFP4: LLMModelConfig(
+            pretrained_model_name="kaitchup/Qwen3.5-27B-NVFP4",
             max_length=128,
         ),
         ModelVariant.QWEN_3_5_35B_A3B_NVFP4: LLMModelConfig(
