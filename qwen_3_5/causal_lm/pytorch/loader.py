@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_4B_GGUF = "4B_GGUF"
     QWEN_3_5_9B_GGUF = "9B_GGUF"
     QWEN_3_5_4B_LMSTUDIO_GGUF = "4B_LMStudio_GGUF"
+    QWEN_3_5_27B_TEXT_NVFP4_MTP = "27B_Text_NVFP4_MTP"
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
 
 
@@ -85,6 +86,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_9B_GGUF: LLMModelConfig(
             pretrained_model_name="unsloth/Qwen3.5-9B-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_27B_TEXT_NVFP4_MTP: LLMModelConfig(
+            pretrained_model_name="osoleve/Qwen3.5-27B-Text-NVFP4-MTP",
             max_length=128,
         ),
         ModelVariant.QWEN_3_5_35B_A3B_NVFP4: LLMModelConfig(
