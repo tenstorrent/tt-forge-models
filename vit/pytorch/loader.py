@@ -45,6 +45,9 @@ class ModelVariant(StrEnum):
     VIT_L_32 = "L_32"
     VIT_H_14 = "H_14"
 
+    # HuggingFace fine-tuned variants
+    AI_IMAGE_DETECTOR = "AI_Image_Detector"
+
     # TIMM variants
     VIT_BASE_PATCH14_DINOV2_LVD142M = "Base_Patch14_DINOv2_LVD142M"
     VIT_BASE_PATCH16_224_AUGREG_IN21K = "Base_Patch16_224_AugReg_IN21K"
@@ -63,6 +66,11 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE: ViTConfig(
             pretrained_model_name="google/vit-large-patch16-224",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        # HuggingFace fine-tuned variants
+        ModelVariant.AI_IMAGE_DETECTOR: ViTConfig(
+            pretrained_model_name="umm-maybe/AI-image-detector",
             source=ModelSource.HUGGING_FACE,
         ),
         # Torchvision variants
@@ -124,6 +132,8 @@ class ModelLoader(ForgeModel):
         # Determine model group
         if variant == ModelVariant.BASE:
             group = ModelGroup.RED
+        elif variant == ModelVariant.AI_IMAGE_DETECTOR:
+            group = ModelGroup.VULCAN
         elif cls._VARIANTS[variant].source == ModelSource.TIMM:
             group = ModelGroup.VULCAN
         else:
