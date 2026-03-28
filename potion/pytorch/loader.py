@@ -54,6 +54,7 @@ class PotionTorchModel(nn.Module):
 class ModelVariant(StrEnum):
     """Available model variants for Potion."""
 
+    POTION_BASE_2M = "minishlab/potion-base-2M"
     POTION_BASE_8M = "minishlab/potion-base-8M"
 
 
@@ -61,6 +62,10 @@ class ModelLoader(ForgeModel):
     """Potion static embedding model loader."""
 
     _VARIANTS = {
+        ModelVariant.POTION_BASE_2M: LLMModelConfig(
+            pretrained_model_name="minishlab/potion-base-2M",
+            max_length=128,
+        ),
         ModelVariant.POTION_BASE_8M: LLMModelConfig(
             pretrained_model_name="minishlab/potion-base-8M",
             max_length=128,
