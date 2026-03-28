@@ -8,6 +8,7 @@ RegNet model loader implementation
 from typing import Optional
 from dataclasses import dataclass
 from torchvision import models
+import timm
 import torch
 
 from transformers import RegNetForImageClassification
@@ -46,6 +47,9 @@ class ModelVariant(StrEnum):
     Y_120 = "Y_120"
     Y_160 = "Y_160"
     Y_320 = "Y_320"
+
+    # TIMM variants
+    Y_160_SWAG_LC = "Y_160_SWAG_LC"
 
     # Torchvision variants
     Y_400MF = "Y_400mf"
@@ -94,6 +98,11 @@ class ModelLoader(ForgeModel):
         ModelVariant.Y_320: RegNetConfig(
             pretrained_model_name="facebook/regnet-y-320",
             source=ModelSource.HUGGING_FACE,
+        ),
+        # TIMM variants
+        ModelVariant.Y_160_SWAG_LC: RegNetConfig(
+            pretrained_model_name="regnety_160.swag_lc_in1k",
+            source=ModelSource.TIMM,
         ),
         # Torchvision variants
         ModelVariant.Y_400MF: RegNetConfig(
@@ -190,10 +199,15 @@ class ModelLoader(ForgeModel):
         # Get source from variant config
         source = cls._VARIANTS[variant].source
 
+        # TIMM variants use VULCAN group
+        group = (
+            ModelGroup.VULCAN if source == ModelSource.TIMM else ModelGroup.GENERALITY
+        )
+
         return ModelInfo(
             model="RegNet",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_CLS,
             source=source,
             framework=Framework.TORCH,
@@ -216,6 +230,10 @@ class ModelLoader(ForgeModel):
         if source == ModelSource.HUGGING_FACE:
             # Load model from HuggingFace
             model = RegNetForImageClassification.from_pretrained(model_name, **kwargs)
+
+        elif source == ModelSource.TIMM:
+            # Load model from TIMM
+            model = timm.create_model(model_name, pretrained=True)
 
         elif source == ModelSource.TORCHVISION:
             # Load model from torchvision
