@@ -5,7 +5,12 @@
 Qwen 2.5 VL model loader implementation for vision-language tasks.
 """
 import torch
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AwqConfig
+from transformers import (
+    Qwen2_5_VLForConditionalGeneration,
+    AutoProcessor,
+    AwqConfig,
+    BitsAndBytesConfig,
+)
 from typing import Optional
 
 
@@ -30,6 +35,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_VL_3B_INSTRUCT_AWQ = "3B_INSTRUCT_Awq"
     QWEN_2_5_VL_7B_INSTRUCT_AWQ = "7B_INSTRUCT_Awq"
     QWEN_2_5_VL_72B_INSTRUCT = "72B_Instruct"
+    QWEN_2_5_VL_72B_INSTRUCT_BNB_4BIT = "72B_Instruct_bnb_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -51,6 +57,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_2_5_VL_72B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-VL-72B-Instruct",
+        ),
+        ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen2.5-VL-72B-Instruct-bnb-4bit",
         ),
     }
 
@@ -96,12 +105,17 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT:
+            group = ModelGroup.RED
+        elif variant == ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_BNB_4BIT:
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
             model="Qwen 2.5-VL",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT
-            else ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -149,6 +163,12 @@ class ModelLoader(ForgeModel):
             quantization_config = AwqConfig(version="ipex")
             model_kwargs["quantization_config"] = quantization_config
             model_kwargs["device_map"] = "cpu"
+
+        # Check if this is a bnb-4bit variant and configure accordingly
+        if pretrained_model_name == "unsloth/Qwen2.5-VL-72B-Instruct-bnb-4bit":
+            quantization_config = BitsAndBytesConfig(load_in_4bit=True)
+            model_kwargs["quantization_config"] = quantization_config
+            model_kwargs["device_map"] = "auto"
 
         # Load the model with dtype override if specified
         if dtype_override is not None:
