@@ -72,6 +72,9 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # Unsloth variants
+    UNSLOTH_LLAMA_3_2_3B = "Unsloth_3.2_3B"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -177,6 +180,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # Unsloth variants
+        ModelVariant.UNSLOTH_LLAMA_3_2_3B: LLMModelConfig(
+            pretrained_model_name="unsloth/Llama-3.2-3B",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -220,6 +228,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_1B_FP8,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.UNSLOTH_LLAMA_3_2_3B,
         ]:
             group = ModelGroup.VULCAN
         elif (
@@ -515,6 +524,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HUGGYLLAMA_7B,
             ModelVariant.LLAMA_2_7B,
             ModelVariant.JACKFRAM_LLAMA_160M,
+            ModelVariant.UNSLOTH_LLAMA_3_2_3B,
         ]:
             return None
 
