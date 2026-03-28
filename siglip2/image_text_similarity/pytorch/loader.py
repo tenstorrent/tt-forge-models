@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available SigLIP2 model variants for image-text similarity."""
 
     SO400M_PATCH14_384 = "So400m_Patch14_384"
+    SO400M_PATCH16_256 = "So400m_Patch16_256"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SO400M_PATCH14_384: ModelConfig(
             pretrained_model_name="google/siglip2-so400m-patch14-384",
+        ),
+        ModelVariant.SO400M_PATCH16_256: ModelConfig(
+            pretrained_model_name="google/siglip2-so400m-patch16-256",
         ),
     }
 
