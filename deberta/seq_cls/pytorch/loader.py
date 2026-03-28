@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
 
     DEBERTA_XLARGE_MNLI = "XLarge_MNLI"
     DEBERTA_V2_XLARGE_MNLI = "V2_XLarge_MNLI"
+    CLAIMBUSTER_DEBERTA_V2 = "ClaimBuster_DeBERTaV2"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DEBERTA_V2_XLARGE_MNLI: ModelConfig(
             pretrained_model_name="microsoft/deberta-v2-xlarge-mnli",
+        ),
+        ModelVariant.CLAIMBUSTER_DEBERTA_V2: ModelConfig(
+            pretrained_model_name="whispAI/ClaimBuster-DeBERTaV2",
         ),
     }
 
@@ -82,22 +86,38 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
 
-        premise = "A man is eating food."
-        hypothesis = "A man is eating a meal."
-
-        inputs = self.tokenizer(
-            premise,
-            hypothesis,
-            max_length=128,
-            padding="max_length",
-            truncation=True,
-            return_tensors="pt",
-        )
+        if self._variant == ModelVariant.CLAIMBUSTER_DEBERTA_V2:
+            text = "The economy grew by 3.5% last quarter."
+            inputs = self.tokenizer(
+                text,
+                max_length=128,
+                padding="max_length",
+                truncation=True,
+                return_tensors="pt",
+            )
+        else:
+            premise = "A man is eating food."
+            hypothesis = "A man is eating a meal."
+            inputs = self.tokenizer(
+                premise,
+                hypothesis,
+                max_length=128,
+                padding="max_length",
+                truncation=True,
+                return_tensors="pt",
+            )
 
         return inputs
 
     def decode_output(self, co_out):
         logits = co_out[0]
         predicted_class_id = logits.argmax(-1).item()
-        labels = ["contradiction", "neutral", "entailment"]
+        if self._variant == ModelVariant.CLAIMBUSTER_DEBERTA_V2:
+            labels = [
+                "Non-Factual Statement (NFS)",
+                "Unimportant Factual Statement (UFS)",
+                "Check-worthy Factual Statement (CFS)",
+            ]
+        else:
+            labels = ["contradiction", "neutral", "entailment"]
         print(f"Predicted: {labels[predicted_class_id]}")
