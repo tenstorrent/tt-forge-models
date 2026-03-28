@@ -43,6 +43,7 @@ class ModelVariant(StrEnum):
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
     MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
+    MISTRAL_7B_INSTRUCT_V02_BNB_4BIT = "7B_INSTRUCT_v02_bnb_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -105,6 +106,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_7B_V03_BNB_4BIT: ModelConfig(
             pretrained_model_name="unsloth/mistral-7b-v0.3-bnb-4bit",
         ),
+        ModelVariant.MISTRAL_7B_INSTRUCT_V02_BNB_4BIT: ModelConfig(
+            pretrained_model_name="unsloth/mistral-7b-instruct-v0.2-bnb-4bit",
+        ),
     }
 
     # Default variant to use
@@ -140,6 +144,7 @@ class ModelLoader(ForgeModel):
         if variant in (
             ModelVariant.MISTRAL_7B_INSTRUCT_V02,
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
+            ModelVariant.MISTRAL_7B_INSTRUCT_V02_BNB_4BIT,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
@@ -225,7 +230,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # BnB variants need device_map="cpu" for CPU-based loading
-        if self._variant == ModelVariant.MISTRAL_7B_V03_BNB_4BIT:
+        if self._variant in (
+            ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
+            ModelVariant.MISTRAL_7B_INSTRUCT_V02_BNB_4BIT,
+        ):
             model_kwargs["device_map"] = "cpu"
 
         if self.num_layers is not None:
