@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Olmo3 model variants for causal language modeling."""
 
     Olmo_3_7B_Think = "3_7b_think"
+    Olmo_3_7B_Think_SFT = "3_7b_think_sft"
     Olmo_3_7B_Instruct = "3_7b_instruct"
     Olmo_3_1025_7B = "3_1025_7b"
     Olmo_3_32B_Think = "3_32b_think"
@@ -38,6 +39,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.Olmo_3_7B_Think: LLMModelConfig(
             pretrained_model_name="allenai/Olmo-3-7B-Think",
+            max_length=256,
+        ),
+        ModelVariant.Olmo_3_7B_Think_SFT: LLMModelConfig(
+            pretrained_model_name="allenai/Olmo-3-7B-Think-SFT",
             max_length=256,
         ),
         ModelVariant.Olmo_3_7B_Instruct: LLMModelConfig(
@@ -89,6 +94,8 @@ class ModelLoader(ForgeModel):
         """
 
         group = ModelGroup.RED
+        if variant in (ModelVariant.Olmo_3_7B_Think_SFT,):
+            group = ModelGroup.VULCAN
         return ModelInfo(
             model="olmo_3",
             variant=variant,
