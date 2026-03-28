@@ -60,6 +60,9 @@ class ModelVariant(StrEnum):
     # hugging-quants AWQ INT4 quantized variants
     LLAMA_3_1_8B_INSTRUCT_AWQ_INT4 = "3.1_8B_Instruct_Awq_Int4"
 
+    # mlx-community quantized variants
+    LLAMA_3_1_8B_INSTRUCT_MLX_8BIT = "3.1_8B_Instruct_Mlx_8bit"
+
     # HuggingFace community variants
     HUGGYLLAMA_7B = "Huggyllama_7B"
 
@@ -145,6 +148,11 @@ class ModelLoader(ForgeModel):
         # hugging-quants AWQ INT4 quantized variants
         ModelVariant.LLAMA_3_1_8B_INSTRUCT_AWQ_INT4: LLMModelConfig(
             pretrained_model_name="hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
+            max_length=128,
+        ),
+        # mlx-community quantized variants
+        ModelVariant.LLAMA_3_1_8B_INSTRUCT_MLX_8BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/Meta-Llama-3.1-8B-Instruct-8bit",
             max_length=128,
         ),
         # Llama 3.3 variants
@@ -235,6 +243,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_FP8,
             ModelVariant.OPENPIPE_PII_REDACT_GENERAL,
             ModelVariant.TINYLLAMA_1_1B_INTERMEDIATE,
+            ModelVariant.LLAMA_3_1_8B_INSTRUCT_MLX_8BIT,
         ]:
             group = ModelGroup.VULCAN
         elif (
