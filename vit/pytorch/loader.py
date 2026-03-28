@@ -36,6 +36,7 @@ class ModelVariant(StrEnum):
 
     # HuggingFace variants
     BASE = "Base"
+    BASE_PATCH16_384 = "Base_Patch16_384"
     LARGE = "Large"
 
     # Torchvision variants
@@ -58,6 +59,10 @@ class ModelLoader(ForgeModel):
         # HuggingFace variants
         ModelVariant.BASE: ViTConfig(
             pretrained_model_name="google/vit-base-patch16-224",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.BASE_PATCH16_384: ViTConfig(
+            pretrained_model_name="google/vit-base-patch16-384",
             source=ModelSource.HUGGING_FACE,
         ),
         ModelVariant.LARGE: ViTConfig(
@@ -119,6 +124,8 @@ class ModelLoader(ForgeModel):
         # Determine model group
         if variant == ModelVariant.BASE:
             group = ModelGroup.RED
+        elif variant == ModelVariant.BASE_PATCH16_384:
+            group = ModelGroup.VULCAN
         elif cls._VARIANTS[variant].source == ModelSource.TIMM:
             group = ModelGroup.VULCAN
         else:
