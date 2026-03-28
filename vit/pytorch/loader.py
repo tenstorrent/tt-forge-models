@@ -48,6 +48,7 @@ class ModelVariant(StrEnum):
     # TIMM variants
     VIT_BASE_PATCH14_DINOV2_LVD142M = "Base_Patch14_DINOv2_LVD142M"
     VIT_BASE_PATCH16_224_AUGREG_IN21K = "Base_Patch16_224_AugReg_IN21K"
+    VIT_BASE_PATCH16_224_ORIG_IN21K = "Base_Patch16_224_Orig_IN21K"
 
 
 class ModelLoader(ForgeModel):
@@ -94,6 +95,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="vit_base_patch16_224.augreg_in21k",
             source=ModelSource.TIMM,
         ),
+        ModelVariant.VIT_BASE_PATCH16_224_ORIG_IN21K: ViTConfig(
+            pretrained_model_name="vit_base_patch16_224.orig_in21k",
+            source=ModelSource.TIMM,
+        ),
     }
 
     # Default variant to use
@@ -124,11 +129,17 @@ class ModelLoader(ForgeModel):
         else:
             group = ModelGroup.GENERALITY
 
+        # Determine task based on variant
+        if variant == ModelVariant.VIT_BASE_PATCH16_224_ORIG_IN21K:
+            task = ModelTask.CV_IMAGE_FE
+        else:
+            task = ModelTask.CV_IMAGE_CLS
+
         return ModelInfo(
             model="ViT",
             variant=variant,
             group=group,
-            task=ModelTask.CV_IMAGE_CLS,
+            task=task,
             source=source,
             framework=Framework.TORCH,
         )
