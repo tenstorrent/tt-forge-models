@@ -33,6 +33,9 @@ class ModelVariant(StrEnum):
     OPENMED_NER_ONCOLOGYDETECT_BIOPATIENT_108M = (
         "OpenMed/OpenMed-NER-OncologyDetect-BioPatient-108M"
     )
+    OPENMED_NER_ONCOLOGYDETECT_MULTIMED_335M = (
+        "OpenMed/OpenMed-NER-OncologyDetect-MultiMed-335M"
+    )
     OPENMED_PII_SPANISH_BIOCLINICALBERT_BASE_110M_V1 = (
         "OpenMed/OpenMed-PII-Spanish-BioClinicalBERT-Base-110M-v1"
     )
@@ -63,6 +66,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="OpenMed/OpenMed-NER-OncologyDetect-BioPatient-108M",
             max_length=128,
         ),
+        ModelVariant.OPENMED_NER_ONCOLOGYDETECT_MULTIMED_335M: LLMModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-NER-OncologyDetect-MultiMed-335M",
+            max_length=128,
+        ),
         ModelVariant.OPENMED_PII_SPANISH_BIOCLINICALBERT_BASE_110M_V1: LLMModelConfig(
             pretrained_model_name="OpenMed/OpenMed-PII-Spanish-BioClinicalBERT-Base-110M-v1",
             max_length=128,
@@ -89,6 +96,8 @@ class ModelLoader(ForgeModel):
         elif self._variant == ModelVariant.OPENMED_NER_ORGANISMDETECT_PUBMED_109M:
             self.sample_text = "Escherichia coli and Drosophila melanogaster are commonly studied model organisms in biology."
         elif self._variant == ModelVariant.OPENMED_NER_ONCOLOGYDETECT_BIOPATIENT_108M:
+            self.sample_text = "Mutations in KRAS gene drive oncogenic transformation."
+        elif self._variant == ModelVariant.OPENMED_NER_ONCOLOGYDETECT_MULTIMED_335M:
             self.sample_text = "Mutations in KRAS gene drive oncogenic transformation."
         elif (
             self._variant
@@ -119,6 +128,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HATMIMOHA_ARABIC_NER,
             ModelVariant.OPENMED_NER_ORGANISMDETECT_PUBMED_109M,
             ModelVariant.OPENMED_NER_ONCOLOGYDETECT_BIOPATIENT_108M,
+            ModelVariant.OPENMED_NER_ONCOLOGYDETECT_MULTIMED_335M,
             ModelVariant.OPENMED_PII_SPANISH_BIOCLINICALBERT_BASE_110M_V1,
         ):
             group = ModelGroup.VULCAN
