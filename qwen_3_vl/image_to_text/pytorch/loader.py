@@ -36,6 +36,7 @@ class ModelVariant(StrEnum):
     QWEN_3_VL_30B_A3B_INSTRUCT = "30b_a3b_instruct"
     QWEN_3_VL_32B_INSTRUCT = "32b_instruct"
     QWEN_3_VL_2B_INSTRUCT_BNB_4BIT = "2b_instruct_bnb_4bit"
+    QWEN_3_VL_2B_INSTRUCT_UNSLOTH = "2b_instruct_unsloth"
 
 
 class ModelLoader(ForgeModel):
@@ -77,6 +78,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_VL_2B_INSTRUCT_BNB_4BIT: LLMModelConfig(
             pretrained_model_name="unsloth/Qwen3-VL-2B-Instruct-unsloth-bnb-4bit",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_VL_2B_INSTRUCT_UNSLOTH: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen3-VL-2B-Instruct",
             max_length=128,
         ),
     }
@@ -124,6 +129,7 @@ class ModelLoader(ForgeModel):
                 ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT,
                 ModelVariant.QWEN_3_VL_32B_INSTRUCT,
                 ModelVariant.QWEN_3_VL_2B_INSTRUCT_BNB_4BIT,
+                ModelVariant.QWEN_3_VL_2B_INSTRUCT_UNSLOTH,
             )
             else ModelGroup.RED
         )
