@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     QWEN_3_CODER_NEXT = "Next"
     QWEN_3_CODER_30B_A3B_INSTRUCT = "30B_A3B_Instruct"
+    QWEN_3_CODER_30B_A3B_INSTRUCT_AWQ = "30B_A3B_Instruct_AWQ"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_CODER_30B_A3B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-Coder-30B-A3B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_CODER_30B_A3B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ",
             max_length=128,
         ),
     }
@@ -121,8 +126,11 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        # GPTQ variants need device_map="cpu" for CPU-based loading
-        if pretrained_model_name == "btbtyler09/Qwen3-Coder-30B-A3B-Instruct-gptq-8bit":
+        # GPTQ/AWQ variants need device_map="cpu" for CPU-based loading
+        if pretrained_model_name in (
+            "btbtyler09/Qwen3-Coder-30B-A3B-Instruct-gptq-8bit",
+            "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ",
+        ):
             model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
 
