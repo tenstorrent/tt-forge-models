@@ -9,6 +9,7 @@ from transformers import (
     Qwen3VLForConditionalGeneration,
     Qwen3VLMoeForConditionalGeneration,
     AutoProcessor,
+    AwqConfig,
 )
 from typing import Optional
 
@@ -35,6 +36,7 @@ class ModelVariant(StrEnum):
     QWEN_3_VL_8B_INSTRUCT_FP8 = "8b_instruct_fp8"
     QWEN_3_VL_30B_A3B_INSTRUCT = "30b_a3b_instruct"
     QWEN_3_VL_32B_INSTRUCT = "32b_instruct"
+    QWEN_3_VL_4B_THINKING_AWQ_4BIT = "4b_thinking_awq_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -72,6 +74,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_VL_32B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-VL-32B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_VL_4B_THINKING_AWQ_4BIT: LLMModelConfig(
+            pretrained_model_name="cyankiwi/Qwen3-VL-4B-Thinking-AWQ-4bit",
             max_length=128,
         ),
     }
@@ -118,6 +124,7 @@ class ModelLoader(ForgeModel):
                 ModelVariant.QWEN_3_VL_8B_INSTRUCT_FP8,
                 ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT,
                 ModelVariant.QWEN_3_VL_32B_INSTRUCT,
+                ModelVariant.QWEN_3_VL_4B_THINKING_AWQ_4BIT,
             )
             else ModelGroup.RED
         )
@@ -149,7 +156,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         # AWQ variant loads with device_map="cpu" to keep quantized weights on CPU
-        if self._variant == ModelVariant.QWEN_3_VL_4B_INSTRUCT_AWQ:
+        if self._variant == ModelVariant.QWEN_3_VL_4B_THINKING_AWQ_4BIT:
+            quantization_config = AwqConfig(version="ipex")
+            model_kwargs["quantization_config"] = quantization_config
             model_kwargs["device_map"] = "cpu"
         else:
             model_kwargs["dtype"] = "auto"
