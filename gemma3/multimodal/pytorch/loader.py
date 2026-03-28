@@ -8,6 +8,7 @@ Gemma3 model loader implementation for multimodal modeling.
 from typing import Optional, Any
 
 from transformers import (
+    AutoConfig,
     AutoProcessor,
     Gemma3ForConditionalGeneration,
     Gemma3Processor,
@@ -34,6 +35,7 @@ class ModelVariant(StrEnum):
     GEMMA_3_4B_IT_QAT_4BIT = "mlx-community/gemma-3-4b-it-qat-bf16"
     GEMMA_3_12B_IT = "google/gemma-3-12b-it"
     GEMMA_3_27B_IT = "google/gemma-3-27b-it"
+    GEMMA_3_27B_IT_AWQ_INT4 = "gaunernst/gemma-3-27b-it-int4-awq"
 
 
 class ModelLoader(ForgeModel):
@@ -52,6 +54,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.GEMMA_3_27B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_27B_IT),
         ),
+        ModelVariant.GEMMA_3_27B_IT_AWQ_INT4: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.GEMMA_3_27B_IT_AWQ_INT4),
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_4B_IT
@@ -67,7 +72,9 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
             variant = cls.DEFAULT_VARIANT
-        if any(x in variant.value for x in ["12b", "27b"]):
+        if variant == ModelVariant.GEMMA_3_27B_IT_AWQ_INT4:
+            group = ModelGroup.VULCAN
+        elif any(x in variant.value for x in ["12b", "27b"]):
             group = ModelGroup.RED
         elif variant == ModelVariant.GEMMA_3_4B_IT_QAT_4BIT:
             group = ModelGroup.VULCAN
@@ -120,8 +127,15 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         is_mlx = "mlx-community" in pretrained_model_name
+        is_awq = self._variant == ModelVariant.GEMMA_3_27B_IT_AWQ_INT4
         if is_mlx:
             model_kwargs["ignore_mismatched_sizes"] = True
+
+        if is_awq:
+            model_kwargs["device_map"] = "cpu"
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            delattr(config, "quantization_config")
+            model_kwargs["config"] = config
 
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
