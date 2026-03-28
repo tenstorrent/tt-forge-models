@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     QWQ_32B = "Qwq_32B"
     QWEN2_7B_INSTRUCT = "Qwen2_7B_Instruct"
+    QWEN2_AB_ZSX = "Qwen2_ab_zsx"
     TINY_QWEN2_2_5 = "tiny_Qwen2ForCausalLM_2.5"
 
 
@@ -39,6 +40,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN2_7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2-7B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN2_AB_ZSX: LLMModelConfig(
+            pretrained_model_name="NorseDrunkenSailor/Qwen2_ab_zsx",
             max_length=128,
         ),
         ModelVariant.TINY_QWEN2_2_5: LLMModelConfig(
@@ -79,7 +84,11 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         group = ModelGroup.RED
-        if variant in (ModelVariant.TINY_QWEN2_2_5, ModelVariant.QWEN2_7B_INSTRUCT):
+        if variant in (
+            ModelVariant.TINY_QWEN2_2_5,
+            ModelVariant.QWEN2_7B_INSTRUCT,
+            ModelVariant.QWEN2_AB_ZSX,
+        ):
             group = ModelGroup.VULCAN
 
         return ModelInfo(
@@ -165,12 +174,15 @@ class ModelLoader(ForgeModel):
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
-        messages = [{"role": "user", "content": self.sample_text}]
-        chat_kwargs = {"tokenize": False, "add_generation_prompt": True}
-        if self._variant == ModelVariant.QWQ_32B:
-            chat_kwargs["enable_thinking"] = True
-        text = self.tokenizer.apply_chat_template(messages, **chat_kwargs)
-        prompts = [text]
+        if self._variant == ModelVariant.QWEN2_AB_ZSX:
+            prompts = [self.sample_text]
+        else:
+            messages = [{"role": "user", "content": self.sample_text}]
+            chat_kwargs = {"tokenize": False, "add_generation_prompt": True}
+            if self._variant == ModelVariant.QWQ_32B:
+                chat_kwargs["enable_thinking"] = True
+            text = self.tokenizer.apply_chat_template(messages, **chat_kwargs)
+            prompts = [text]
 
         inputs = self.tokenizer(
             prompts,
