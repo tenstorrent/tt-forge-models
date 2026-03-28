@@ -37,6 +37,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_9B_GGUF = "9B_GGUF"
     QWEN_3_5_9B_BASE_UNSLOTH = "9B_Base_unsloth"
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
+    QWEN_3_5_4B_AWQ = "4B_Awq"
 
 
 class ModelLoader(ForgeModel):
@@ -94,6 +95,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_35B_A3B_NVFP4: LLMModelConfig(
             pretrained_model_name="AxionML/Qwen3.5-35B-A3B-NVFP4",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_4B_AWQ: LLMModelConfig(
+            pretrained_model_name="QuantTrio/Qwen3.5-4B-AWQ",
             max_length=128,
         ),
     }
@@ -198,7 +203,20 @@ class ModelLoader(ForgeModel):
         if self._is_gguf_variant():
             model_kwargs["gguf_file"] = self._gguf_file
 
-        if self.num_layers is not None:
+        # AWQ variants: load on CPU with quantization_config removed
+        if self._variant == ModelVariant.QWEN_3_5_4B_AWQ:
+            model_kwargs["device_map"] = "cpu"
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            if self.num_layers is not None:
+                if hasattr(config, "text_config"):
+                    config.text_config.num_hidden_layers = self.num_layers
+                else:
+                    config.num_hidden_layers = self.num_layers
+            if hasattr(config, "quantization_config"):
+                delattr(config, "quantization_config")
+            model_kwargs["config"] = config
+
+        if self.num_layers is not None and "config" not in model_kwargs:
             config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
