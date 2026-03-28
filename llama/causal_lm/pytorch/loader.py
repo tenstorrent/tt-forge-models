@@ -74,6 +74,7 @@ class ModelVariant(StrEnum):
 
     # Unsloth BnB 4-bit variants
     TINYLLAMA_BNB_4BIT = "Tinyllama_bnb_4bit"
+    LLAMA_3_2_1B_INSTRUCT_BNB_4BIT = "3.2_1B_Instruct_bnb_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -185,6 +186,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/tinyllama-bnb-4bit",
             max_length=128,
         ),
+        ModelVariant.LLAMA_3_2_1B_INSTRUCT_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/Llama-3.2-1B-Instruct-bnb-4bit",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -256,6 +261,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.TINYLLAMA_BNB_4BIT,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT_BNB_4BIT,
         ]:
             group = ModelGroup.VULCAN
         else:
@@ -322,7 +328,10 @@ class ModelLoader(ForgeModel):
         if (
             pretrained_model_name
             == "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"
-        ) or self._variant == ModelVariant.TINYLLAMA_BNB_4BIT:
+        ) or self._variant in (
+            ModelVariant.TINYLLAMA_BNB_4BIT,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT_BNB_4BIT,
+        ):
             model_kwargs["device_map"] = "cpu"
 
         model_kwargs |= kwargs
