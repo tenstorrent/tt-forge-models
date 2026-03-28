@@ -43,6 +43,7 @@ class ModelVariant(StrEnum):
     MAGISTRAL_SMALL_2506 = "Magistral_Small_2506"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
+    DEVSTRAL_SMALL_2_24B_INSTRUCT_2512 = "Devstral_Small_2_24B_Instruct_2512"
     MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
     MISTRAL_7B_UTTERANCE = "7B_utterance"
     TINY_RANDOM = "tiny_random"
@@ -62,6 +63,7 @@ class ModelLoader(ForgeModel):
     }
     _USE_Mistral3ForConditionalGeneration_VARIANTS = {
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506,
+        ModelVariant.DEVSTRAL_SMALL_2_24B_INSTRUCT_2512,
     }
 
     # Dictionary of available model variants
@@ -107,6 +109,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+        ),
+        ModelVariant.DEVSTRAL_SMALL_2_24B_INSTRUCT_2512: ModelConfig(
+            pretrained_model_name="mistralai/Devstral-Small-2-24B-Instruct-2512",
         ),
         ModelVariant.MISTRAL_7B_UTTERANCE: ModelConfig(
             pretrained_model_name="akashdutta1030/mistral-7b-utterance",
@@ -154,6 +159,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_UTTERANCE,
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
             ModelVariant.MISTRAL_NEMO_BASE_2407,
+            ModelVariant.DEVSTRAL_SMALL_2_24B_INSTRUCT_2512,
             ModelVariant.TINY_RANDOM,
         ):
             group = ModelGroup.VULCAN
