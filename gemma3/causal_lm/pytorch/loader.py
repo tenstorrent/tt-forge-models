@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     GEMMA_3_270M_IT = "270M_Instruct"
     GEMMA_3_1B_IT = "1B_Instruct"
+    GEMMA_3_12B_IT_ABLITERATED = "12B_Instruct_Abliterated"
     GEMMA_3_27B_IT = "27B_Instruct"
 
 
@@ -39,6 +40,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GEMMA_3_1B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-3-1b-it",
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_3_12B_IT_ABLITERATED: LLMModelConfig(
+            pretrained_model_name="mlabonne/gemma-3-12b-it-abliterated",
             max_length=256,
         ),
         ModelVariant.GEMMA_3_27B_IT: LLMModelConfig(
@@ -64,7 +69,10 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        if variant == ModelVariant.GEMMA_3_27B_IT:
+        if variant in (
+            ModelVariant.GEMMA_3_12B_IT_ABLITERATED,
+            ModelVariant.GEMMA_3_27B_IT,
+        ):
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
@@ -184,7 +192,10 @@ class ModelLoader(ForgeModel):
 
     def load_shard_spec(self, model):
         """Load the sharding specification for tensor parallel execution."""
-        if self._variant != ModelVariant.GEMMA_3_27B_IT:
+        if self._variant not in (
+            ModelVariant.GEMMA_3_12B_IT_ABLITERATED,
+            ModelVariant.GEMMA_3_27B_IT,
+        ):
             return None
 
         shard_specs = {}
