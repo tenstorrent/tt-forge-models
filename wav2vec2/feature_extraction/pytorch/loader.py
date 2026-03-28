@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     BASE = "Base"
     BASE_VI = "Base_VI"
+    TINY_RANDOM = "Tiny_Random"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.BASE_VI: ModelConfig(
             pretrained_model_name="nguyenvulebinh/wav2vec2-base-vi",
+        ),
+        ModelVariant.TINY_RANDOM: ModelConfig(
+            pretrained_model_name="optimum-intel-internal-testing/tiny-random-Wav2Vec2Model",
         ),
     }
 
