@@ -45,6 +45,9 @@ class ModelVariant(StrEnum):
     VIT_L_32 = "L_32"
     VIT_H_14 = "H_14"
 
+    # Fine-tuned HuggingFace variants
+    ETHNICITY_TEST_V003 = "Ethnicity_Test_v003"
+
     # TIMM variants
     VIT_BASE_PATCH14_DINOV2_LVD142M = "Base_Patch14_DINOv2_LVD142M"
     VIT_BASE_PATCH16_224_AUGREG_IN21K = "Base_Patch16_224_AugReg_IN21K"
@@ -66,6 +69,11 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE: ViTConfig(
             pretrained_model_name="google/vit-large-patch16-224",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        # Fine-tuned HuggingFace variants
+        ModelVariant.ETHNICITY_TEST_V003: ViTConfig(
+            pretrained_model_name="cledoux42/Ethnicity_Test_v003",
             source=ModelSource.HUGGING_FACE,
         ),
         # Torchvision variants
@@ -131,6 +139,8 @@ class ModelLoader(ForgeModel):
         # Determine model group
         if variant == ModelVariant.BASE:
             group = ModelGroup.RED
+        elif variant == ModelVariant.ETHNICITY_TEST_V003:
+            group = ModelGroup.VULCAN
         elif cls._VARIANTS[variant].source == ModelSource.TIMM:
             group = ModelGroup.VULCAN
         else:
