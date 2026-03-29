@@ -26,6 +26,9 @@ class ModelVariant(StrEnum):
         "dbmdz/bert-large-cased-finetuned-conll03-english"
     )
     DSLIM_BERT_BASE_NER = "dslim/bert-base-NER"
+    DAVLAN_BERT_BASE_MULTILINGUAL_CASED_NER_HRL = (
+        "Davlan/bert-base-multilingual-cased-ner-hrl"
+    )
     HATMIMOHA_ARABIC_NER = "hatmimoha/arabic-ner"
 
 
@@ -40,6 +43,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DSLIM_BERT_BASE_NER: LLMModelConfig(
             pretrained_model_name="dslim/bert-base-NER",
+            max_length=128,
+        ),
+        ModelVariant.DAVLAN_BERT_BASE_MULTILINGUAL_CASED_NER_HRL: LLMModelConfig(
+            pretrained_model_name="Davlan/bert-base-multilingual-cased-ner-hrl",
             max_length=128,
         ),
         ModelVariant.HATMIMOHA_ARABIC_NER: LLMModelConfig(
@@ -85,6 +92,7 @@ class ModelLoader(ForgeModel):
 
         group = ModelGroup.GENERALITY
         if variant_name in (
+            ModelVariant.DAVLAN_BERT_BASE_MULTILINGUAL_CASED_NER_HRL,
             ModelVariant.DSLIM_BERT_BASE_NER,
             ModelVariant.HATMIMOHA_ARABIC_NER,
         ):
