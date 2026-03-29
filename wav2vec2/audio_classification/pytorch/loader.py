@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Wav2Vec2 audio classification model variants."""
 
     LARGE_ROBUST_12_FT_EMOTION_MSP_DIM = "Large_Robust_12_FT_Emotion_MSP_Dim"
+    LARGE_XLSR_53_SPEECH_EMOTION = "Large_XLSR_53_Speech_Emotion"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LARGE_ROBUST_12_FT_EMOTION_MSP_DIM: ModelConfig(
             pretrained_model_name="audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim",
+        ),
+        ModelVariant.LARGE_XLSR_53_SPEECH_EMOTION: ModelConfig(
+            pretrained_model_name="firdhokk/speech-emotion-recognition-with-facebook-wav2vec2-large-xlsr-53",
         ),
     }
 
@@ -56,19 +60,54 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
-        from transformers import Wav2Vec2FeatureExtractor
-
         processor_kwargs = {}
         if dtype_override is not None:
             processor_kwargs["dtype"] = dtype_override
 
-        self._processor = Wav2Vec2FeatureExtractor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
-        )
+        if self._variant == ModelVariant.LARGE_XLSR_53_SPEECH_EMOTION:
+            from transformers import AutoFeatureExtractor
+
+            self._processor = AutoFeatureExtractor.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                do_normalize=True,
+                return_attention_mask=True,
+                **processor_kwargs,
+            )
+        else:
+            from transformers import Wav2Vec2FeatureExtractor
+
+            self._processor = Wav2Vec2FeatureExtractor.from_pretrained(
+                self._variant_config.pretrained_model_name, **processor_kwargs
+            )
 
         return self._processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        model_kwargs = {}
+        if dtype_override is not None:
+            model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
+
+        if self._variant == ModelVariant.LARGE_XLSR_53_SPEECH_EMOTION:
+            model = self._load_auto_model(**model_kwargs)
+        else:
+            model = self._load_custom_emotion_model(**model_kwargs)
+
+        model.eval()
+        if dtype_override is not None:
+            model.to(dtype_override)
+
+        return model
+
+    def _load_auto_model(self, **model_kwargs):
+        from transformers import AutoModelForAudioClassification
+
+        return AutoModelForAudioClassification.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            **model_kwargs,
+        )
+
+    def _load_custom_emotion_model(self, **model_kwargs):
         import torch
         import torch.nn as nn
         from transformers import Wav2Vec2Config
@@ -125,21 +164,11 @@ class ModelLoader(ForgeModel):
         config_dict["num_labels"] = config_dict.get("num_labels") or 3
         config = Wav2Vec2Config(**config_dict)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = EmotionModel.from_pretrained(
+        return EmotionModel.from_pretrained(
             self._variant_config.pretrained_model_name,
             config=config,
             **model_kwargs,
         )
-        model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
-
-        return model
 
     def load_inputs(self, dtype_override=None):
         import numpy as np
