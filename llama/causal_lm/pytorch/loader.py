@@ -81,6 +81,9 @@ class ModelVariant(StrEnum):
     # Lightblue variants
     SUZUME_LLAMA_3_8B_MULTILINGUAL = "Suzume_3.0_8B_Multilingual"
 
+    # turboderp variants
+    CAT_LLAMA_3_70B_INSTRUCT = "Cat_3.0_70B_Instruct"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -201,6 +204,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="lightblue/suzume-llama-3-8B-multilingual",
             max_length=128,
         ),
+        # turboderp variants
+        ModelVariant.CAT_LLAMA_3_70B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="turboderp/Cat-Llama-3-70B-instruct",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -247,6 +255,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.MLX_LLAMA_3_1_8B_INSTRUCT_BF16,
             ModelVariant.SUZUME_LLAMA_3_8B_MULTILINGUAL,
+            ModelVariant.CAT_LLAMA_3_70B_INSTRUCT,
         ]:
             group = ModelGroup.VULCAN
         elif (
