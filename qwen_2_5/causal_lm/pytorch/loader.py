@@ -48,6 +48,8 @@ class ModelVariant(StrEnum):
     QWEN_2_5_1_5B_QUANTIZED_W8A8 = "1.5B_Quantized_W8A8"
     QWEN_2_5_7B_INSTRUCT_UNSLOTH = "7B_Instruct_Unsloth"
     QWEN_2_5_32B_INSTRUCT_BNB_4BIT = "32B_Instruct_bnb_4bit"
+    # mlx-community quantized variants
+    QWEN_2_5_14B_INSTRUCT_4BIT = "14B_Instruct_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -146,6 +148,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/Qwen2.5-32B-Instruct-bnb-4bit",
             max_length=128,
         ),
+        # mlx-community quantized variants
+        ModelVariant.QWEN_2_5_14B_INSTRUCT_4BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/Qwen2.5-14B-Instruct-4bit",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -200,6 +207,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_2_5_1_5B_QUANTIZED_W8A8,
             ModelVariant.QWEN_2_5_7B_INSTRUCT_UNSLOTH,
             ModelVariant.QWEN_2_5_32B_INSTRUCT_BNB_4BIT,
+            ModelVariant.QWEN_2_5_14B_INSTRUCT_4BIT,
         ]:
             group = ModelGroup.VULCAN
 
@@ -262,6 +270,8 @@ class ModelLoader(ForgeModel):
             "Qwen/Qwen2.5-72B-Instruct-AWQ",
         ):
             model_kwargs["device_map"] = "cpu"
+        if "mlx-community" in pretrained_model_name:
+            model_kwargs["ignore_mismatched_sizes"] = True
 
         model_kwargs |= kwargs
 
