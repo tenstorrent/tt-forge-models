@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     INTERN_VL3_5_8B = "8B"
     INTERN_VL3_5_GPT_OSS_20B_A4B = "GPT_OSS_20B_A4B"
+    INTERN_VL3_5_38B = "38B"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.INTERN_VL3_5_GPT_OSS_20B_A4B: LLMModelConfig(
             pretrained_model_name="OpenGVLab/InternVL3_5-GPT-OSS-20B-A4B-Preview-HF",
+        ),
+        ModelVariant.INTERN_VL3_5_38B: LLMModelConfig(
+            pretrained_model_name="OpenGVLab/InternVL3_5-38B",
         ),
     }
 
