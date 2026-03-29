@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     NEMOTRON_3_NANO_30B_A3B_FP8 = "3_Nano_30B_A3B_FP8"
     NEMOTRON_3_SUPER_120B_A12B_NVFP4 = "3_Super_120B_A12B_NVFP4"
     UNSLOTH_NEMOTRON_3_SUPER_120B_A12B_NVFP4 = "unsloth_3_Super_120B_A12B_NVFP4"
+    LLAMA_3_3_NEMOTRON_SUPER_49B_V1_5_NVFP4 = "Llama_3_3_Super_49B_v1_5_NVFP4"
 
 
 class ModelLoader(ForgeModel):
@@ -43,6 +44,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.UNSLOTH_NEMOTRON_3_SUPER_120B_A12B_NVFP4: LLMModelConfig(
             pretrained_model_name="unsloth/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_3_NEMOTRON_SUPER_49B_V1_5_NVFP4: LLMModelConfig(
+            pretrained_model_name="nvidia/Llama-3_3-Nemotron-Super-49B-v1_5-NVFP4",
             max_length=128,
         ),
     }
@@ -92,6 +97,7 @@ class ModelLoader(ForgeModel):
     _NVFP4_VARIANTS = {
         ModelVariant.NEMOTRON_3_SUPER_120B_A12B_NVFP4,
         ModelVariant.UNSLOTH_NEMOTRON_3_SUPER_120B_A12B_NVFP4,
+        ModelVariant.LLAMA_3_3_NEMOTRON_SUPER_49B_V1_5_NVFP4,
     }
 
     def load_model(self, *, dtype_override=None, **kwargs):
