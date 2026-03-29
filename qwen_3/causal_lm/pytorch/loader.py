@@ -47,6 +47,7 @@ class ModelVariant(StrEnum):
     QWEN_3_14B_AWQ = "14B_Awq"
     QWEN_3_1_7B_GGUF = "1_7B_GGUF"
     QWEN_3_0_6B_FP8_BLOCK = "0_6B_FP8_Block"
+    QWEN_3_32B_GUARDPOINT_GGUF = "32B_Guardpoint_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -130,6 +131,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RedHatAI/Qwen3-0.6B-FP8-BLOCK",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_32B_GUARDPOINT_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Qwen3-32B-Guardpoint-i1-GGUF",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -138,6 +143,7 @@ class ModelLoader(ForgeModel):
     # GGUF files for quantized variants
     _GGUF_FILES = {
         ModelVariant.QWEN_3_1_7B_GGUF: "Qwen3-1.7B-f16-Q4_K_M.gguf",
+        ModelVariant.QWEN_3_32B_GUARDPOINT_GGUF: "Qwen3-32B-Guardpoint-i1-Q4_K_M.gguf",
     }
 
     # Shared configuration parameters
@@ -181,6 +187,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_14B_AWQ,
             ModelVariant.QWEN_3_1_7B_GGUF,
             ModelVariant.QWEN_3_0_6B_FP8_BLOCK,
+            ModelVariant.QWEN_3_32B_GUARDPOINT_GGUF,
         ):
             group = ModelGroup.VULCAN
         else:
