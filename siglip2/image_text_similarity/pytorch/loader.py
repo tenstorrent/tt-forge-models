@@ -34,6 +34,7 @@ class ModelVariant(StrEnum):
 
     SO400M_PATCH14_384 = "So400m_Patch14_384"
     LARGE_PATCH16_256 = "Large_Patch16_256"
+    GIANT_OPT_PATCH16_256 = "Giant_Opt_Patch16_256"
 
     # OpenCLIP variants
     VIT_SO400M_14_SIGLIP2 = "ViT_SO400M_14_SigLIP2"
@@ -51,6 +52,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE_PATCH16_256: SigLIP2Config(
             pretrained_model_name="google/siglip2-large-patch16-256",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.GIANT_OPT_PATCH16_256: SigLIP2Config(
+            pretrained_model_name="google/siglip2-giant-opt-patch16-256",
             source=ModelSource.HUGGING_FACE,
         ),
         ModelVariant.VIT_SO400M_14_SIGLIP2: SigLIP2Config(
