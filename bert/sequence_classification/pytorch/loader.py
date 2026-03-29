@@ -5,7 +5,7 @@
 BERT model loader implementation for sequence classification.
 """
 
-from transformers import BertForSequenceClassification, BertTokenizer
+from transformers import AutoTokenizer, BertForSequenceClassification
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -29,6 +29,9 @@ class ModelVariant(StrEnum):
     TOMH_TOXIGEN_HATEBERT = "tomh_ToxiGen_HateBERT"
     GOKULS_TINY_BERT_SST2_MOBILEBERT_DISTILLATION = (
         "gokuls_Tiny_Bert_Sst2_MobileBert_Distillation"
+    )
+    NAOKI_HOSOKAWA_SES_MAIL_CLASSIFIER_BERT_JAPANESE = (
+        "naoki_hosokawa_Ses_Mail_Classifier_Bert_Japanese"
     )
 
 
@@ -57,6 +60,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="gokuls/tiny-bert-sst2-mobilebert-distillation",
             max_length=128,
         ),
+        ModelVariant.NAOKI_HOSOKAWA_SES_MAIL_CLASSIFIER_BERT_JAPANESE: LLMModelConfig(
+            pretrained_model_name="naoki-hosokawa/ses-mail-classifier-bert-japanese",
+            max_length=512,
+        ),
     }
 
     # Default variant to use
@@ -74,6 +81,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.NLPTOWN_BERT_BASE_MULTILINGUAL_UNCASED_SENTIMENT: "The product quality is excellent and I love it!",
         ModelVariant.TOMH_TOXIGEN_HATEBERT: "I really enjoyed meeting new people from different cultures.",
         ModelVariant.GOKULS_TINY_BERT_SST2_MOBILEBERT_DISTILLATION: "the movie was great!",
+        ModelVariant.NAOKI_HOSOKAWA_SES_MAIL_CLASSIFIER_BERT_JAPANESE: "【案件】Java開発 60万〜80万 渋谷 即日〜長期 面談1回",
     }
 
     def __init__(self, variant=None):
@@ -89,7 +97,7 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.model_name = pretrained_model_name
         self.review = self._SAMPLE_TEXTS.get(self._variant, "the movie was great!")
-        self.max_length = 128
+        self.max_length = self._variant_config.max_length or 128
         self.tokenizer = None
 
     @classmethod
@@ -110,6 +118,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.NLPTOWN_BERT_BASE_MULTILINGUAL_UNCASED_SENTIMENT,
             ModelVariant.TOMH_TOXIGEN_HATEBERT,
             ModelVariant.GOKULS_TINY_BERT_SST2_MOBILEBERT_DISTILLATION,
+            ModelVariant.NAOKI_HOSOKAWA_SES_MAIL_CLASSIFIER_BERT_JAPANESE,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
@@ -134,7 +143,7 @@ class ModelLoader(ForgeModel):
 
         # Initialize tokenizer (use override if model repo has mismatched tokenizer)
         tokenizer_name = self._TOKENIZER_OVERRIDES.get(self._variant, self.model_name)
-        self.tokenizer = BertTokenizer.from_pretrained(tokenizer_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
