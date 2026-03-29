@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_VL_3B_INSTRUCT_AWQ = "3B_INSTRUCT_Awq"
     QWEN_2_5_VL_7B_INSTRUCT_AWQ = "7B_INSTRUCT_Awq"
     QWEN_2_5_VL_72B_INSTRUCT = "72B_Instruct"
+    QWEN_2_5_VL_72B_INSTRUCT_FP8_DYNAMIC = "72B_Instruct_FP8_Dynamic"
 
 
 class ModelLoader(ForgeModel):
@@ -51,6 +52,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_2_5_VL_72B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-VL-72B-Instruct",
+        ),
+        ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_FP8_DYNAMIC: LLMModelConfig(
+            pretrained_model_name="parasail-ai/Qwen2.5-VL-72B-Instruct-FP8-Dynamic",
         ),
     }
 
@@ -101,6 +105,8 @@ class ModelLoader(ForgeModel):
             variant=variant,
             group=ModelGroup.RED
             if variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT
+            else ModelGroup.VULCAN
+            if variant == ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_FP8_DYNAMIC
             else ModelGroup.GENERALITY,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
