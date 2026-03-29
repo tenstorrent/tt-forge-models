@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     B2_FINETUNED = "B2_Finetuned_Ade_512_512"
     B3_FINETUNED = "B3_Finetuned_Ade_512_512"
     B4_FINETUNED = "B4_Finetuned_Ade_512_512"
+    B3_FINETUNED_CITYSCAPES = "B3_Finetuned_Cityscapes_1024_1024"
     B4_FINETUNED_CITYSCAPES = "B4_Finetuned_Cityscapes_1024_1024"
 
 
@@ -53,6 +54,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.B4_FINETUNED: ModelConfig(
             pretrained_model_name="nvidia/segformer-b4-finetuned-ade-512-512",
+        ),
+        ModelVariant.B3_FINETUNED_CITYSCAPES: ModelConfig(
+            pretrained_model_name="nvidia/segformer-b3-finetuned-cityscapes-1024-1024",
         ),
         ModelVariant.B4_FINETUNED_CITYSCAPES: ModelConfig(
             pretrained_model_name="nvidia/segformer-b4-finetuned-cityscapes-1024-1024",
@@ -78,6 +82,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.B2_FINETUNED: ModelGroup.GENERALITY,
         ModelVariant.B3_FINETUNED: ModelGroup.GENERALITY,
         ModelVariant.B4_FINETUNED: ModelGroup.GENERALITY,
+        ModelVariant.B3_FINETUNED_CITYSCAPES: ModelGroup.VULCAN,
         ModelVariant.B4_FINETUNED_CITYSCAPES: ModelGroup.VULCAN,
     }
 
