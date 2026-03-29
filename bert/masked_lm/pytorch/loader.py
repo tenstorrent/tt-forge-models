@@ -30,11 +30,15 @@ class ModelVariant(StrEnum):
     LEGAL_BERT_BASE_UNCASED = "nlpaueb/legal-bert-base-uncased"
     TOHOKU_NLP_BERT_BASE_JAPANESE_CHAR_V2 = "tohoku-nlp/bert-base-japanese-char-v2"
     DBMDZ_BERT_BASE_FRENCH_EUROPEANA_CASED = "dbmdz/bert-base-french-europeana-cased"
+    CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MIX = (
+        "CAMeL-Lab/bert-base-arabic-camelbert-mix"
+    )
 
 
 _SAMPLE_TEXTS = {
     ModelVariant.TOHOKU_NLP_BERT_BASE_JAPANESE_CHAR_V2: "東京は日本の[MASK]です。",
     ModelVariant.DBMDZ_BERT_BASE_FRENCH_EUROPEANA_CASED: "Paris est la [MASK] de la France.",
+    ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MIX: "الهدف من الحياة هو [MASK] .",
 }
 
 
@@ -77,6 +81,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DBMDZ_BERT_BASE_FRENCH_EUROPEANA_CASED: LLMModelConfig(
             pretrained_model_name="dbmdz/bert-base-french-europeana-cased",
+            max_length=128,
+        ),
+        ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MIX: LLMModelConfig(
+            pretrained_model_name="CAMeL-Lab/bert-base-arabic-camelbert-mix",
             max_length=128,
         ),
     }
@@ -124,6 +132,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LEGAL_BERT_BASE_UNCASED,
             ModelVariant.TOHOKU_NLP_BERT_BASE_JAPANESE_CHAR_V2,
             ModelVariant.DBMDZ_BERT_BASE_FRENCH_EUROPEANA_CASED,
+            ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MIX,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
