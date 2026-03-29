@@ -53,6 +53,9 @@ class ModelVariant(StrEnum):
     # VAGOsolutions variants
     VAGOSOLUTIONS_SAUERKRAUTLM_PHI3_MEDIUM = "VAGOsolutions_SauerkrautLM_Phi3_medium"
 
+    # openaccess-ai-collective variants
+    OPENACCESS_TINY_MISTRAL = "openaccess_tiny_mistral"
+
 
 class ModelLoader(ForgeModel):
     """Mistral model loader implementation for causal language modeling tasks."""
@@ -131,6 +134,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.VAGOSOLUTIONS_SAUERKRAUTLM_PHI3_MEDIUM: ModelConfig(
             pretrained_model_name="VAGOsolutions/SauerkrautLM-Phi-3-medium",
         ),
+        # openaccess-ai-collective variants
+        ModelVariant.OPENACCESS_TINY_MISTRAL: ModelConfig(
+            pretrained_model_name="openaccess-ai-collective/tiny-mistral",
+        ),
     }
 
     # Default variant to use
@@ -171,6 +178,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.FEATHERLESS_7B_INSTRUCT_V02,
             ModelVariant.MAZIYARPANAHI_7B_INSTRUCT_V02,
             ModelVariant.VAGOSOLUTIONS_SAUERKRAUTLM_PHI3_MEDIUM,
+            ModelVariant.OPENACCESS_TINY_MISTRAL,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
@@ -417,6 +425,7 @@ class ModelLoader(ForgeModel):
         if self._variant in [
             ModelVariant.MINISTRAL_3B,
             ModelVariant.TINY_RANDOM,
+            ModelVariant.OPENACCESS_TINY_MISTRAL,
         ]:
             return None
         shard_specs = {}
