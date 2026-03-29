@@ -32,6 +32,7 @@ class ModelVariant(StrEnum):
     BERT_BASE_DUTCH_CASED = "wietsedv/bert-base-dutch-cased"
     CHINESE_MACBERT_LARGE = "hfl/chinese-macbert-large"
     BERT_UNCASED_L4_H128_A2 = "google/bert_uncased_L-4_H-128_A-2"
+    BERT_UNCASED_L10_H128_A2 = "google/bert_uncased_L-10_H-128_A-2"
 
 
 _SAMPLE_TEXTS = {
@@ -90,6 +91,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="google/bert_uncased_L-4_H-128_A-2",
             max_length=128,
         ),
+        ModelVariant.BERT_UNCASED_L10_H128_A2: LLMModelConfig(
+            pretrained_model_name="google/bert_uncased_L-10_H-128_A-2",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -137,6 +142,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.BERT_BASE_DUTCH_CASED,
             ModelVariant.CHINESE_MACBERT_LARGE,
             ModelVariant.BERT_UNCASED_L4_H128_A2,
+            ModelVariant.BERT_UNCASED_L10_H128_A2,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
