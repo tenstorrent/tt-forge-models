@@ -32,6 +32,7 @@ class ModelVariant(StrEnum):
     GBERT_BASE = "deepset/gbert-base"
     BERT_BASE_ROMANIAN_CASED_V1 = "dumitrescustefan/bert-base-romanian-cased-v1"
     BERT_BASE_FINNISH_CASED_V1 = "TurkuNLP/bert-base-finnish-cased-v1"
+    BERT_BASE_ARABERTV02_TWITTER = "aubmindlab/bert-base-arabertv02-twitter"
 
 
 class ModelLoader(ForgeModel):
@@ -83,6 +84,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="TurkuNLP/bert-base-finnish-cased-v1",
             max_length=128,
         ),
+        ModelVariant.BERT_BASE_ARABERTV02_TWITTER: LLMModelConfig(
+            pretrained_model_name="aubmindlab/bert-base-arabertv02-twitter",
+            max_length=64,
+        ),
     }
 
     # Default variant to use
@@ -130,6 +135,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GBERT_BASE,
             ModelVariant.BERT_BASE_ROMANIAN_CASED_V1,
             ModelVariant.BERT_BASE_FINNISH_CASED_V1,
+            ModelVariant.BERT_BASE_ARABERTV02_TWITTER,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
