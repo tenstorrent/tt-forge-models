@@ -78,6 +78,9 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # open-unlearning variants
+    TOFU_LLAMA_3_1_8B_INSTRUCT_FULL = "Tofu_3.1_8B_Instruct_Full"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -200,6 +203,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # open-unlearning variants
+        ModelVariant.TOFU_LLAMA_3_1_8B_INSTRUCT_FULL: LLMModelConfig(
+            pretrained_model_name="open-unlearning/tofu_Llama-3.1-8B-Instruct_full",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -246,6 +254,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_MLX_4BIT,
             ModelVariant.LLAMA_3_1_8B_INSTRUCT_BNB_4BIT,
+            ModelVariant.TOFU_LLAMA_3_1_8B_INSTRUCT_FULL,
         ]:
             group = ModelGroup.VULCAN
         elif (
