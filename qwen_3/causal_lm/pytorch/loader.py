@@ -48,6 +48,7 @@ class ModelVariant(StrEnum):
     QWEN_3_8B_FP8_DYNAMIC = "8B_FP8_Dynamic"
     QWEN_3_30B_A3B_W8A8 = "30B_A3B_W8A8"
     QWEN_3_TINY_SMOKE_MOE_W4A16 = "Tiny_Smoke_Moe_W4A16"
+    QWEN_3_4B_INT8_INT4 = "4B_INT8_INT4"
 
 
 class ModelLoader(ForgeModel):
@@ -135,6 +136,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="nm-testing/tinysmokeqwen3moe-W4A16-first-only-CTstable",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_4B_INT8_INT4: LLMModelConfig(
+            pretrained_model_name="pytorch/Qwen3-4B-INT8-INT4",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -182,6 +187,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_8B_FP8_DYNAMIC,
             ModelVariant.QWEN_3_30B_A3B_W8A8,
             ModelVariant.QWEN_3_TINY_SMOKE_MOE_W4A16,
+            ModelVariant.QWEN_3_4B_INT8_INT4,
         ):
             group = ModelGroup.VULCAN
         else:
@@ -251,6 +257,7 @@ class ModelLoader(ForgeModel):
             "Qwen/Qwen3-32B-AWQ",
             "nytopop/Qwen3-30B-A3B.w8a8",
             "nm-testing/tinysmokeqwen3moe-W4A16-first-only-CTstable",
+            "pytorch/Qwen3-4B-INT8-INT4",
         )
         if is_quantized_override:
             model_kwargs["device_map"] = "cpu"
@@ -345,6 +352,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_4B_BASE,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507_FP8,
+            ModelVariant.QWEN_3_4B_INT8_INT4,
         ]:
             text_config = self._get_text_config()
             assert (
@@ -368,6 +376,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_4B_BASE,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507_FP8,
+            ModelVariant.QWEN_3_4B_INT8_INT4,
         ]:
             return None
 
