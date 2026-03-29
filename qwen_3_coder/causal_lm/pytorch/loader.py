@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3 Coder model variants for causal language modeling."""
 
     QWEN_3_CODER_NEXT = "Next"
+    QWEN_3_CODER_NEXT_GPTQ_4BIT = "Next_GPTQ_4bit"
     QWEN_3_CODER_30B_A3B_INSTRUCT = "30B_A3B_Instruct"
 
 
@@ -35,6 +36,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_CODER_NEXT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-Coder-Next",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_CODER_NEXT_GPTQ_4BIT: LLMModelConfig(
+            pretrained_model_name="btbtyler09/Qwen3-Coder-Next-GPTQ-4bit",
             max_length=128,
         ),
         ModelVariant.QWEN_3_CODER_30B_A3B_INSTRUCT: LLMModelConfig(
@@ -122,7 +127,10 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         # GPTQ variants need device_map="cpu" for CPU-based loading
-        if pretrained_model_name == "btbtyler09/Qwen3-Coder-30B-A3B-Instruct-gptq-8bit":
+        if pretrained_model_name in (
+            "btbtyler09/Qwen3-Coder-30B-A3B-Instruct-gptq-8bit",
+            "btbtyler09/Qwen3-Coder-Next-GPTQ-4bit",
+        ):
             model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
 
