@@ -33,6 +33,12 @@ class ModelVariant(StrEnum):
     BERT_BASE_ROMANIAN_CASED_V1 = "dumitrescustefan/bert-base-romanian-cased-v1"
     BERT_BASE_FINNISH_CASED_V1 = "TurkuNLP/bert-base-finnish-cased-v1"
     BERT_BASE_ARABERTV02_TWITTER = "aubmindlab/bert-base-arabertv02-twitter"
+    MACBERT4CSC_BASE_CHINESE = "shibing624/macbert4csc-base-chinese"
+
+
+_SAMPLE_TEXTS = {
+    ModelVariant.MACBERT4CSC_BASE_CHINESE: "今天新情很好",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -88,6 +94,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="aubmindlab/bert-base-arabertv02-twitter",
             max_length=64,
         ),
+        ModelVariant.MACBERT4CSC_BASE_CHINESE: LLMModelConfig(
+            pretrained_model_name="shibing624/macbert4csc-base-chinese",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -136,6 +146,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.BERT_BASE_ROMANIAN_CASED_V1,
             ModelVariant.BERT_BASE_FINNISH_CASED_V1,
             ModelVariant.BERT_BASE_ARABERTV02_TWITTER,
+            ModelVariant.MACBERT4CSC_BASE_CHINESE,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
