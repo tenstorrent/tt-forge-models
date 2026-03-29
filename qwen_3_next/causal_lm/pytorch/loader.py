@@ -24,6 +24,9 @@ class ModelVariant(StrEnum):
     """Available Qwen 3 Next model variants for causal language modeling."""
 
     QWEN_3_NEXT_80B_A3B_INSTRUCT = "80B_A3B_Instruct"
+    HUIHUI_QWEN_3_NEXT_80B_A3B_INSTRUCT_ABLITERATED_W4A16 = (
+        "Huihui_80B_A3B_Instruct_Abliterated_W4A16"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +36,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_NEXT_80B_A3B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-Next-80B-A3B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.HUIHUI_QWEN_3_NEXT_80B_A3B_INSTRUCT_ABLITERATED_W4A16: LLMModelConfig(
+            pretrained_model_name="coughmedicine/Huihui-Qwen3-Next-80B-A3B-Instruct-abliterated-W4A16",
             max_length=128,
         ),
     }
