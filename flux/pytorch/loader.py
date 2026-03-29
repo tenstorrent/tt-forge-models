@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     SCHNELL = "Schnell"
     DEV = "Dev"
+    KREA_DEV = "Krea-Dev"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DEV: ModelConfig(
             pretrained_model_name="black-forest-labs/FLUX.1-dev",
+        ),
+        ModelVariant.KREA_DEV: ModelConfig(
+            pretrained_model_name="black-forest-labs/FLUX.1-Krea-dev",
         ),
     }
 
@@ -53,7 +57,12 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self.pipe = None
-        self.guidance_scale = 0.0 if variant == ModelVariant.SCHNELL else 3.5
+        if variant == ModelVariant.SCHNELL:
+            self.guidance_scale = 0.0
+        elif variant == ModelVariant.KREA_DEV:
+            self.guidance_scale = 4.5
+        else:
+            self.guidance_scale = 3.5
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -69,12 +78,17 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
+        if variant == ModelVariant.SCHNELL:
+            group = ModelGroup.RED
+        elif variant == ModelVariant.KREA_DEV:
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
             model="FLUX",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == ModelVariant.SCHNELL
-            else ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.MM_IMAGE_TTT,  # FIXME: Update task to Text to Image
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
