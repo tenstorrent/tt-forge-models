@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
     """Available MobileViT model variants."""
 
     SMALL = "Small"
+    TINY_RANDOM = "Tiny_Random"
 
 
 class ModelLoader(ForgeModel):
@@ -43,6 +44,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SMALL: MobileViTConfig(
             pretrained_model_name="apple/mobilevit-small",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.TINY_RANDOM: MobileViTConfig(
+            pretrained_model_name="optimum-intel-internal-testing/tiny-random-mobilevit",
             source=ModelSource.HUGGING_FACE,
         ),
     }
