@@ -38,6 +38,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_35B_A3B_SEHYO_NVFP4 = "35B_A3B_Sehyo_NVFP4"
     QWEN_3_5_35B_A3B_HUIHUI_ABLITERATED = "35B_A3B_Huihui_Abliterated"
     QWEN_3_5_9B_MLX_4BIT = "9B_MLX_4bit"
+    QWEN_3_5_24B_A3B_REAP_0_32_GGUF = "24B_A3B_REAP_0.32_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -101,6 +102,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mlx-community/Qwen3.5-9B-4bit",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_5_24B_A3B_REAP_0_32_GGUF: LLMModelConfig(
+            pretrained_model_name="sandeshrajx/Qwen3.5-24B-A3B-REAP-0.32-GGUF",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -110,6 +115,7 @@ class ModelLoader(ForgeModel):
     _GGUF_FILES = {
         ModelVariant.QWEN_3_5_4B_GGUF: "Qwen3.5-4B-Q4_K_M.gguf",
         ModelVariant.QWEN_3_5_9B_GGUF: "Qwen3.5-9B-Q4_K_M.gguf",
+        ModelVariant.QWEN_3_5_24B_A3B_REAP_0_32_GGUF: "Qwen3.5-24B-A3B-REAP-0.32-Q4_K_M.gguf",
     }
 
     # Shared configuration parameters
@@ -312,6 +318,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_5_35B_A3B_FP8,
             ModelVariant.QWEN_3_5_35B_A3B_HUIHUI_ABLITERATED,
             ModelVariant.QWEN_3_5_122B_A10B,
+            ModelVariant.QWEN_3_5_24B_A3B_REAP_0_32_GGUF,
         )
 
     def load_shard_spec(self, model):
