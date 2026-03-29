@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available DINOv3 ViT feature extraction model variants."""
 
     BASE = "Base"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="facebook/dinov3-vitb16-pretrain-lvd1689m",
+        ),
+        ModelVariant.LARGE: ModelConfig(
+            pretrained_model_name="camenduru/dinov3-vitl16-pretrain-lvd1689m",
         ),
     }
 
