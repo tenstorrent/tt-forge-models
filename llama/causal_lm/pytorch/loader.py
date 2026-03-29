@@ -80,6 +80,9 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # migtissera variants
+    SYNTHIA_3_70B_V3_5 = "Synthia_3_70B_v3.5"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -203,6 +206,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # migtissera variants
+        ModelVariant.SYNTHIA_3_70B_V3_5: LLMModelConfig(
+            pretrained_model_name="migtissera/Llama-3-70B-Synthia-v3.5",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -248,6 +256,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_FP8_BLOCK,
             ModelVariant.LLAMA_3_1_8B_INSTRUCT_QUANTIZED_W4A16,
             ModelVariant.TINYLLAMA_W8W8_STATIC,
+            ModelVariant.SYNTHIA_3_70B_V3_5,
         ]:
             group = ModelGroup.VULCAN
         elif (
@@ -509,6 +518,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_FP8_BLOCK,
+            ModelVariant.SYNTHIA_3_70B_V3_5,
             ModelVariant.LLAMA_3_1_405B,
             ModelVariant.LLAMA_3_1_405B_INSTRUCT,
         ]:
