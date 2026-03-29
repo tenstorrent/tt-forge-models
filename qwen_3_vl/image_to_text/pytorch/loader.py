@@ -37,6 +37,7 @@ class ModelVariant(StrEnum):
     QWEN_3_VL_30B_A3B_INSTRUCT_ABLITERATED = "30b_a3b_instruct_abliterated"
     QWEN_3_VL_30B_A3B_INSTRUCT_NVFP4 = "30b_a3b_instruct_nvfp4"
     QWEN_3_VL_32B_INSTRUCT = "32b_instruct"
+    QWEN_3_VL_30B_A3B_THINKING = "30b_a3b_thinking"
     UNSLOTH_QWEN_3_VL_4B_INSTRUCT = "unsloth_4b_instruct"
 
 
@@ -81,6 +82,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="ig1/Qwen3-VL-30B-A3B-Instruct-NVFP4",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_VL_30B_A3B_THINKING: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-VL-30B-A3B-Thinking",
+            max_length=128,
+        ),
         ModelVariant.QWEN_3_VL_32B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-VL-32B-Instruct",
             max_length=128,
@@ -96,6 +101,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT,
         ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT_ABLITERATED,
         ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT_NVFP4,
+        ModelVariant.QWEN_3_VL_30B_A3B_THINKING,
     }
 
     # Variants with NVFP4 quantized weights require ignore_mismatched_sizes
@@ -142,6 +148,7 @@ class ModelLoader(ForgeModel):
                 ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT,
                 ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT_ABLITERATED,
                 ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT_NVFP4,
+                ModelVariant.QWEN_3_VL_30B_A3B_THINKING,
                 ModelVariant.QWEN_3_VL_32B_INSTRUCT,
                 ModelVariant.UNSLOTH_QWEN_3_VL_4B_INSTRUCT,
             )
