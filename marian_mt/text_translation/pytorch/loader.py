@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available MarianMT model variants for text translation."""
 
     OPUS_MT_TR_EN = "Opus_Mt_Tr_En"
+    OPUS_MT_EN_AF = "Opus_Mt_En_Af"
 
 
 class ModelLoader(ForgeModel):
@@ -33,11 +34,17 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPUS_MT_TR_EN: LLMModelConfig(
             pretrained_model_name="Helsinki-NLP/opus-mt-tr-en",
         ),
+        ModelVariant.OPUS_MT_EN_AF: LLMModelConfig(
+            pretrained_model_name="Helsinki-NLP/opus-mt-en-af",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.OPUS_MT_TR_EN
 
-    sample_text = "Merhaba dünya, bugün hava çok güzel."
+    _SAMPLE_TEXTS = {
+        ModelVariant.OPUS_MT_TR_EN: "Merhaba dünya, bugün hava çok güzel.",
+        ModelVariant.OPUS_MT_EN_AF: "My name is Wolfgang and I live in Berlin.",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant."""
@@ -92,8 +99,9 @@ class ModelLoader(ForgeModel):
         if self._tokenizer is None:
             self._load_tokenizer(dtype_override)
 
+        sample_text = self._SAMPLE_TEXTS.get(self._variant)
         inputs = self._tokenizer(
-            self.sample_text,
+            sample_text,
             return_tensors="pt",
         )
 
