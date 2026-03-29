@@ -8,6 +8,7 @@ RegNet model loader implementation
 from typing import Optional
 from dataclasses import dataclass
 from torchvision import models
+import timm
 import torch
 
 from transformers import RegNetForImageClassification
@@ -38,6 +39,9 @@ class RegNetConfig(ModelConfig):
 
 class ModelVariant(StrEnum):
     """Available RegNet model variants."""
+
+    # TIMM variants
+    Y_002_PYCLS_IN1K = "Y_002_pycls_in1k"
 
     # HuggingFace variants
     Y_040 = "Y_040"
@@ -70,6 +74,11 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
+        # TIMM variants
+        ModelVariant.Y_002_PYCLS_IN1K: RegNetConfig(
+            pretrained_model_name="hf_hub:timm/regnety_002.pycls_in1k",
+            source=ModelSource.TIMM,
+        ),
         # HuggingFace variants
         ModelVariant.Y_040: RegNetConfig(
             pretrained_model_name="facebook/regnet-y-040",
@@ -190,10 +199,15 @@ class ModelLoader(ForgeModel):
         # Get source from variant config
         source = cls._VARIANTS[variant].source
 
+        # TIMM variants use VULCAN group
+        group = (
+            ModelGroup.VULCAN if source == ModelSource.TIMM else ModelGroup.GENERALITY
+        )
+
         return ModelInfo(
             model="RegNet",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_CLS,
             source=source,
             framework=Framework.TORCH,
@@ -213,7 +227,11 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
         source = self._variant_config.source
 
-        if source == ModelSource.HUGGING_FACE:
+        if source == ModelSource.TIMM:
+            # Load model from TIMM
+            model = timm.create_model(model_name, pretrained=True)
+
+        elif source == ModelSource.HUGGING_FACE:
             # Load model from HuggingFace
             model = RegNetForImageClassification.from_pretrained(model_name, **kwargs)
 
