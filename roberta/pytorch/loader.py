@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
 
     ROBERTA_BASE_SENTIMENT = "Base_Sentiment"
     ROBERTA_BASE_SENTIMENT_LATEST = "Base_Sentiment_Latest"
+    ROBERTA_BASE_MNLI = "Base_MNLI"
     ROBERTA_LARGE_MNLI = "Large_MNLI"
 
 
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.ROBERTA_BASE_SENTIMENT_LATEST: ModelConfig(
             pretrained_model_name="cardiffnlp/twitter-roberta-base-sentiment-latest",
+        ),
+        ModelVariant.ROBERTA_BASE_MNLI: ModelConfig(
+            pretrained_model_name="textattack/roberta-base-MNLI",
         ),
         ModelVariant.ROBERTA_LARGE_MNLI: ModelConfig(
             pretrained_model_name="FacebookAI/roberta-large-mnli",
@@ -61,6 +65,7 @@ class ModelLoader(ForgeModel):
         group = ModelGroup.GENERALITY
         if variant_name in (
             ModelVariant.ROBERTA_BASE_SENTIMENT_LATEST,
+            ModelVariant.ROBERTA_BASE_MNLI,
             ModelVariant.ROBERTA_LARGE_MNLI,
         ):
             group = ModelGroup.VULCAN
@@ -134,7 +139,10 @@ class ModelLoader(ForgeModel):
 
     def _is_mnli_variant(self):
         """Check if the current variant is an MNLI model."""
-        return self._variant == ModelVariant.ROBERTA_LARGE_MNLI
+        return self._variant in (
+            ModelVariant.ROBERTA_BASE_MNLI,
+            ModelVariant.ROBERTA_LARGE_MNLI,
+        )
 
     def load_inputs(self):
         """Generate sample inputs for Roberta model."""
