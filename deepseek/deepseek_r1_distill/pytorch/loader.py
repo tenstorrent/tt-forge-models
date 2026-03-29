@@ -32,6 +32,7 @@ class ModelVariant(StrEnum):
     DISTILL_QWEN_14B = "Distill_Qwen_14B"
     DISTILL_LLAMA_8B = "Distill_Llama_8B"
     DISTILL_LLAMA_70B = "Distill_Llama_70B"
+    DISTILL_LLAMA_70B_BNB_4BIT = "Distill_Llama_70B_bnb_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -56,6 +57,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DISTILL_LLAMA_70B: LLMModelConfig(
             pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+            max_length=2048,
+        ),
+        ModelVariant.DISTILL_LLAMA_70B_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/DeepSeek-R1-Distill-Llama-70B-bnb-4bit",
             max_length=2048,
         ),
     }
@@ -98,6 +103,8 @@ class ModelLoader(ForgeModel):
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._variant in (ModelVariant.DISTILL_LLAMA_70B_BNB_4BIT,):
+            model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
