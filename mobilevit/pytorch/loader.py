@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
     """Available MobileViT model variants."""
 
     SMALL = "Small"
+    XX_SMALL = "XX-Small"
 
 
 class ModelLoader(ForgeModel):
@@ -43,6 +44,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SMALL: MobileViTConfig(
             pretrained_model_name="apple/mobilevit-small",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.XX_SMALL: MobileViTConfig(
+            pretrained_model_name="apple/mobilevit-xx-small",
             source=ModelSource.HUGGING_FACE,
         ),
     }
