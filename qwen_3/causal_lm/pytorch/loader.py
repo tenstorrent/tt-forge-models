@@ -49,6 +49,7 @@ class ModelVariant(StrEnum):
     QWEN_3_32B_QUANTIZED_W4A16 = "32B_Quantized_W4A16"
     NONEUSERNAME_QWEN_3_32B_ABLITERATED_AWQ = "noneUsername_32B_Abliterated_Awq"
     REDHATAI_QWEN_3_30B_A3B_FP8_BLOCK = "RedHatAI_30B_A3B_FP8_Block"
+    UNSLOTH_QWEN_3_235B_A22B_GGUF = "unsloth_235B_A22B_GGUF"
     TINY_RANDOM_QWEN3 = "Tiny_Random"
 
 
@@ -137,6 +138,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RedHatAI/Qwen3-30B-A3B-FP8-block",
             max_length=128,
         ),
+        ModelVariant.UNSLOTH_QWEN_3_235B_A22B_GGUF: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen3-235B-A22B-GGUF",
+            max_length=128,
+        ),
         ModelVariant.TINY_RANDOM_QWEN3: LLMModelConfig(
             pretrained_model_name="llamafactory/tiny-random-qwen3",
             max_length=128,
@@ -145,6 +150,11 @@ class ModelLoader(ForgeModel):
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.QWEN_3_0_6B
+
+    # GGUF files for quantized variants
+    _GGUF_FILES = {
+        ModelVariant.UNSLOTH_QWEN_3_235B_A22B_GGUF: "Qwen3-235B-A22B-Q4_K_M.gguf",
+    }
 
     # Shared configuration parameters
     sample_text = "Give me a short introduction to large language model."
@@ -188,6 +198,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_32B_QUANTIZED_W4A16,
             ModelVariant.NONEUSERNAME_QWEN_3_32B_ABLITERATED_AWQ,
             ModelVariant.REDHATAI_QWEN_3_30B_A3B_FP8_BLOCK,
+            ModelVariant.UNSLOTH_QWEN_3_235B_A22B_GGUF,
             ModelVariant.TINY_RANDOM_QWEN3,
         ):
             group = ModelGroup.VULCAN
@@ -216,6 +227,10 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+
+        # Pass gguf_file for GGUF variants
+        if self._is_gguf_variant():
+            tokenizer_kwargs["gguf_file"] = self._gguf_file
 
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -249,6 +264,10 @@ class ModelLoader(ForgeModel):
         # Check if this is an AWQ variant and configure accordingly
         if pretrained_model_name in ("Qwen/Qwen3-8B-AWQ",):
             model_kwargs["device_map"] = "cpu"
+
+        # Pass gguf_file for GGUF variants
+        if self._is_gguf_variant():
+            model_kwargs["gguf_file"] = self._gguf_file
 
         model_kwargs |= kwargs
 
@@ -368,7 +387,17 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
             ModelVariant.QWEN_3_235B_A22B_INSTRUCT_2507_FP8,
             ModelVariant.REDHATAI_QWEN_3_30B_A3B_FP8_BLOCK,
+            ModelVariant.UNSLOTH_QWEN_3_235B_A22B_GGUF,
         )
+
+    def _is_gguf_variant(self):
+        """Check if the current variant uses GGUF quantization."""
+        return self._variant in self._GGUF_FILES
+
+    @property
+    def _gguf_file(self):
+        """Get the GGUF filename for the current variant."""
+        return self._GGUF_FILES.get(self._variant)
 
     def load_shard_spec(self, model):
         if self._variant in [
@@ -415,8 +444,12 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Qwen3 model.
         """
+        config_kwargs = {}
+        if self._is_gguf_variant():
+            config_kwargs["gguf_file"] = self._gguf_file
+
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
 
         return self.config
