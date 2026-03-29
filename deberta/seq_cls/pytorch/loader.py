@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available DeBERTa model variants for sequence classification."""
 
     DEBERTA_XLARGE_MNLI = "XLarge_MNLI"
+    DEBERTA_V3_BASE_ZEROSHOT_NLI = "V3_Base_Zeroshot_NLI"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +31,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEBERTA_XLARGE_MNLI: ModelConfig(
             pretrained_model_name="microsoft/deberta-xlarge-mnli",
+        ),
+        ModelVariant.DEBERTA_V3_BASE_ZEROSHOT_NLI: ModelConfig(
+            pretrained_model_name="Raffix/routing_module_action_question_conversation_move_hack_debertav3_nli",
         ),
     }
 
@@ -95,5 +99,9 @@ class ModelLoader(ForgeModel):
     def decode_output(self, co_out):
         logits = co_out[0]
         predicted_class_id = logits.argmax(-1).item()
-        labels = ["contradiction", "neutral", "entailment"]
+        num_labels = logits.shape[-1]
+        if num_labels == 2:
+            labels = ["not_entailment", "entailment"]
+        else:
+            labels = ["contradiction", "neutral", "entailment"]
         print(f"Predicted: {labels[predicted_class_id]}")
