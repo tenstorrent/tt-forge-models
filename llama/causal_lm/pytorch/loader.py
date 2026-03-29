@@ -72,6 +72,9 @@ class ModelVariant(StrEnum):
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
 
+    # RLHFlow variants
+    RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA = "RLHFlow_3.1_8B_PRM_Deepseek_Data"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -177,6 +180,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JackFram/llama-160m",
             max_length=128,
         ),
+        # RLHFlow variants
+        ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA: LLMModelConfig(
+            pretrained_model_name="RLHFlow/Llama3.1-8B-PRM-Deepseek-Data",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -247,6 +255,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_2_7B,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.JACKFRAM_LLAMA_160M,
+            ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA,
         ]:
             group = ModelGroup.VULCAN
         else:
