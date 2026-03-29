@@ -80,6 +80,9 @@ class ModelVariant(StrEnum):
     # chuanli11 variants
     CHUANLI11_LLAMA_3_2_3B_INSTRUCT_UNCENSORED = "Chuanli11_3.2_3B_Instruct_Uncensored"
 
+    # NousResearch variants
+    NOUSRESEARCH_LLAMA_3_1_8B = "NousResearch_3.1_8B"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -196,6 +199,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="chuanli11/Llama-3.2-3B-Instruct-uncensored",
             max_length=128,
         ),
+        # NousResearch variants
+        ModelVariant.NOUSRESEARCH_LLAMA_3_1_8B: LLMModelConfig(
+            pretrained_model_name="NousResearch/Meta-Llama-3.1-8B",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -268,6 +276,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.CHUANLI11_LLAMA_3_2_3B_INSTRUCT_UNCENSORED,
+            ModelVariant.NOUSRESEARCH_LLAMA_3_1_8B,
         ]:
             group = ModelGroup.VULCAN
         else:
