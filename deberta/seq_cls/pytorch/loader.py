@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DeBERTa model loader implementation for sequence classification (NLI).
+DeBERTa model loader implementation for sequence classification.
 """
 from typing import Optional
 
