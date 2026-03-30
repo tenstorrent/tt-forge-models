@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DeBERTa model loader implementation for sequence classification (NLI).
+DeBERTa model loader implementation for sequence classification.
 """
 from typing import Optional
 
@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available DeBERTa model variants for sequence classification."""
 
     DEBERTA_XLARGE_MNLI = "XLarge_MNLI"
+    YANGHENG_DEBERTA_V3_LARGE_ABSA = "yangheng_V3_Large_ABSA"
 
 
 class ModelLoader(ForgeModel):
@@ -31,9 +32,32 @@ class ModelLoader(ForgeModel):
         ModelVariant.DEBERTA_XLARGE_MNLI: ModelConfig(
             pretrained_model_name="microsoft/deberta-xlarge-mnli",
         ),
+        ModelVariant.YANGHENG_DEBERTA_V3_LARGE_ABSA: ModelConfig(
+            pretrained_model_name="yangheng/deberta-v3-large-absa-v1.1",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.DEBERTA_XLARGE_MNLI
+
+    _SAMPLE_INPUTS = {
+        ModelVariant.DEBERTA_XLARGE_MNLI: {
+            "text": "A man is eating food.",
+            "text_pair": "A man is eating a meal.",
+        },
+        ModelVariant.YANGHENG_DEBERTA_V3_LARGE_ABSA: {
+            "text": "The food was exceptional, although the service was a bit slow.",
+            "text_pair": "food",
+        },
+    }
+
+    _LABELS = {
+        ModelVariant.DEBERTA_XLARGE_MNLI: ["contradiction", "neutral", "entailment"],
+        ModelVariant.YANGHENG_DEBERTA_V3_LARGE_ABSA: [
+            "Negative",
+            "Neutral",
+            "Positive",
+        ],
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -78,12 +102,11 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
 
-        premise = "A man is eating food."
-        hypothesis = "A man is eating a meal."
+        sample = self._SAMPLE_INPUTS[self._variant]
 
         inputs = self.tokenizer(
-            premise,
-            hypothesis,
+            sample["text"],
+            sample["text_pair"],
             max_length=128,
             padding="max_length",
             truncation=True,
@@ -95,5 +118,5 @@ class ModelLoader(ForgeModel):
     def decode_output(self, co_out):
         logits = co_out[0]
         predicted_class_id = logits.argmax(-1).item()
-        labels = ["contradiction", "neutral", "entailment"]
+        labels = self._LABELS[self._variant]
         print(f"Predicted: {labels[predicted_class_id]}")
