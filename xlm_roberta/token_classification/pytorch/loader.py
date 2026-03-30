@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa token classification model variants."""
 
     CRYPTO_NER = "CryptoNER"
+    AR86BAT_MULTILANG_PII_NER = "Ar86Bat/multilang-pii-ner"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.CRYPTO_NER: ModelConfig(
             pretrained_model_name="covalenthq/cryptoNER",
         ),
+        ModelVariant.AR86BAT_MULTILANG_PII_NER: ModelConfig(
+            pretrained_model_name="Ar86Bat/multilang-pii-ner",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.CRYPTO_NER
@@ -42,9 +46,12 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.model = None
-        self.sample_text = (
-            "I bought mass Ethereum and mass Bitcoin on Uniswap yesterday"
-        )
+        if self._variant == ModelVariant.AR86BAT_MULTILANG_PII_NER:
+            self.sample_text = "John Doe was born on 12/12/1990 and lives in Berlin."
+        else:
+            self.sample_text = (
+                "I bought mass Ethereum and mass Bitcoin on Uniswap yesterday"
+            )
         self.max_length = 128
 
     @classmethod
