@@ -20,7 +20,12 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from .src import PointPillarsCore, PointPillarsPre, PointPillarsPos
+from .src import (
+    PointPillarsCore,
+    PointPillarsPre,
+    PointPillarsPos,
+    get_predicted_bboxes,
+)
 from .src.utils import read_points, point_range_filter, keep_bbox_from_lidar_range
 from ...tools.utils import get_file
 
@@ -71,6 +76,7 @@ class ModelLoader(ForgeModel):
         )
         model = PointPillarsCore(nclasses=len(self.CLASSES))
         model.load_state_dict(torch.load(checkpoint, map_location=torch.device("cpu")))
+        self.model = model
         return model
 
     def load_inputs(self):
@@ -100,8 +106,18 @@ class ModelLoader(ForgeModel):
         model_post = PointPillarsPos(nclasses=len(self.CLASSES))
         model_post.eval()
 
+        bbox_cls_pred, bbox_pred, bbox_dir_cls_pred, batched_anchors = co_out
+        results = get_predicted_bboxes(
+            bbox_cls_pred=bbox_cls_pred,
+            bbox_pred=bbox_pred,
+            bbox_dir_cls_pred=bbox_dir_cls_pred,
+            batched_anchors=batched_anchors,
+            nclasses=len(self.CLASSES),
+            nms_pre=self.model.nms_pre,
+        )
+
         with torch.no_grad():
-            result_filter = model_post(co_out)
+            result_filter = model_post(results)
         result_filter = keep_bbox_from_lidar_range(
             result_filter[0], self.PCD_LIMIT_RANGE
         )
