@@ -48,6 +48,7 @@ class ModelVariant(StrEnum):
     QWEN_3_1_7B_GGUF = "1_7B_GGUF"
     QWEN_3_0_6B_FP8_BLOCK = "0_6B_FP8_Block"
     QWEN_3_32B_GUARDPOINT_GGUF = "32B_Guardpoint_GGUF"
+    QWEN_3_4B_GPTQ_INT4 = "4B_GPTQ_Int4"
 
 
 class ModelLoader(ForgeModel):
@@ -135,6 +136,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/Qwen3-32B-Guardpoint-i1-GGUF",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_4B_GPTQ_INT4: LLMModelConfig(
+            pretrained_model_name="JunHowie/Qwen3-4B-GPTQ-Int4",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -188,6 +193,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_1_7B_GGUF,
             ModelVariant.QWEN_3_0_6B_FP8_BLOCK,
             ModelVariant.QWEN_3_32B_GUARDPOINT_GGUF,
+            ModelVariant.QWEN_3_4B_GPTQ_INT4,
         ):
             group = ModelGroup.VULCAN
         else:
@@ -258,8 +264,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        # Check if this is an AWQ variant and configure accordingly
-        if pretrained_model_name in ("Qwen/Qwen3-8B-AWQ",):
+        # Check if this is an AWQ or GPTQ variant and configure accordingly
+        if pretrained_model_name in (
+            "Qwen/Qwen3-8B-AWQ",
+            "JunHowie/Qwen3-4B-GPTQ-Int4",
+        ):
             model_kwargs["device_map"] = "cpu"
 
         model_kwargs |= kwargs
