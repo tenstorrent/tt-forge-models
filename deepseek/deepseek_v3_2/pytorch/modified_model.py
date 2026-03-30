@@ -221,7 +221,7 @@ def linear(
     assert bias is None
 
     if weight.dtype != torch.float8_e4m3fn:
-        return F.linear(x, weight)
+        return F.linear(x.to(weight.dtype), weight)
     else:
         x, scale = act_quant(x, block_size, scale_fmt)
         return fp8_gemm(x, scale, weight, weight.scale)
@@ -425,7 +425,7 @@ class LayerNorm(nn.Module):
 
     def forward(self, x: torch.Tensor):
         return F.layer_norm(
-            x.float(), (self.dim,), self.weight, self.bias, self.eps
+            x.float(), (self.dim,), self.weight.float(), self.bias.float(), self.eps
         ).type_as(x)
 
 
@@ -1095,16 +1095,20 @@ class MoE(nn.Module):
         x = x.view(-1, self.dim)
         weights, indices = self.gate(x)
         y = torch.zeros_like(x, dtype=torch.float32)
-        counts = torch.bincount(
-            indices.flatten(), minlength=self.n_routed_experts
-        ).tolist()
+        # Mask-based dispatch: avoids .tolist() and torch.where() which
+        # create TorchDynamo graph breaks and SIGFPE in TT-MLIR compilation.
+        # All experts compute for all tokens; routing weights zero out
+        # non-assigned tokens so only routed contributions accumulate.
         for i in range(self.experts_start_idx, self.experts_end_idx):
-            if counts[i] == 0:
-                continue
             expert = self.experts[i]
-            idx, top = torch.where(indices == i)
-            y[idx] += expert(x[idx]) * weights[idx, top, None]
-        y += self.shared_experts(x)
+            if expert is None:  # static check, safe for TorchDynamo
+                continue
+            # [T, topk] → [T, 1]: sum of routing weights assigned to expert i
+            expert_weight = (weights * (indices == i).to(weights.dtype)).sum(
+                dim=-1, keepdim=True
+            )
+            y = y + expert(x) * expert_weight
+        y = y + self.shared_experts(x)
         if world_size > 1:
             dist.all_reduce(y)
         return y.type_as(x).view(shape)
