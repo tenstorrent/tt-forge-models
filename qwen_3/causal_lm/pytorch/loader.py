@@ -50,6 +50,7 @@ class ModelVariant(StrEnum):
     QWEN_3_4B_THINKING_2507_BNB_4BIT = "4B_Thinking_2507_Bnb_4bit"
     QWEN_3_4B_INSTRUCT_2507_BNB_4BIT = "4B_Instruct_2507_Bnb_4bit"
     QWEN_3_30B_A3B_INSTRUCT_2507_UNSLOTH = "30B_A3B_Instruct_2507_Unsloth"
+    QWEN_3_30B_A3B_THINKING_2507_AWQ_4BIT = "30B_A3B_Thinking_2507_AWQ_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -145,6 +146,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/Qwen3-30B-A3B-Instruct-2507",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_30B_A3B_THINKING_2507_AWQ_4BIT: LLMModelConfig(
+            pretrained_model_name="cyankiwi/Qwen3-30B-A3B-Thinking-2507-AWQ-4bit",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -197,6 +202,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_4B_THINKING_2507_BNB_4BIT,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507_BNB_4BIT,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507_UNSLOTH,
+            ModelVariant.QWEN_3_30B_A3B_THINKING_2507_AWQ_4BIT,
         ):
             group = ModelGroup.VULCAN
         else:
@@ -266,6 +272,7 @@ class ModelLoader(ForgeModel):
             "unsloth/Qwen3-4B-Thinking-2507-unsloth-bnb-4bit",
             "unsloth/Qwen3-4B-Instruct-2507-bnb-4bit",
             "unsloth/Qwen3-30B-A3B-Instruct-2507",
+            "cyankiwi/Qwen3-30B-A3B-Thinking-2507-AWQ-4bit",
         ):
             model_kwargs["device_map"] = "cpu"
 
@@ -388,6 +395,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_30B_A3B_THINKING_2507_FP8,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507_GPTQ_INT4,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507_UNSLOTH,
+            ModelVariant.QWEN_3_30B_A3B_THINKING_2507_AWQ_4BIT,
             ModelVariant.QWEN_3_235B_A22B_INSTRUCT_2507_FP8,
         )
 
