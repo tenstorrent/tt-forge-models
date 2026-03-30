@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     ROBERTA_BASE_SENTIMENT_LATEST = "Base_Sentiment_Latest"
     ROBERTA_BASE_MNLI = "Base_MNLI"
     ROBERTA_LARGE_MNLI = "Large_MNLI"
+    MANHTEKY123_COMMENT_CLASSIFICATION = "manhteky123_Comment_Classification"
 
 
 class ModelLoader(ForgeModel):
@@ -43,6 +44,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.ROBERTA_LARGE_MNLI: ModelConfig(
             pretrained_model_name="FacebookAI/roberta-large-mnli",
+        ),
+        ModelVariant.MANHTEKY123_COMMENT_CLASSIFICATION: ModelConfig(
+            pretrained_model_name="manhteky123/comment-classification",
         ),
     }
 
@@ -67,6 +71,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.ROBERTA_BASE_SENTIMENT_LATEST,
             ModelVariant.ROBERTA_BASE_MNLI,
             ModelVariant.ROBERTA_LARGE_MNLI,
+            ModelVariant.MANHTEKY123_COMMENT_CLASSIFICATION,
         ):
             group = ModelGroup.VULCAN
 
