@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     XLM_ROBERTA_LARGE_POOLED_CAP_MINOR_V5 = (
         "poltextlab/xlm-roberta-large-pooled-cap-minor-v5"
     )
+    XLM_ROBERTA_LARGE_SPEECH_CAP_OLD = "poltextlab/xlm-roberta-large-speech-cap-old"
 
 
 class ModelLoader(ForgeModel):
@@ -46,6 +47,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.XLM_ROBERTA_LARGE_POOLED_CAP_MINOR_V5: LLMModelConfig(
             pretrained_model_name="poltextlab/xlm-roberta-large-pooled-cap-minor-v5",
+            max_length=128,
+        ),
+        ModelVariant.XLM_ROBERTA_LARGE_SPEECH_CAP_OLD: LLMModelConfig(
+            pretrained_model_name="poltextlab/xlm-roberta-large-speech-cap-old",
             max_length=128,
         ),
     }
