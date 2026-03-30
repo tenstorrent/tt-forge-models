@@ -24,6 +24,15 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa sequence classification model variants."""
 
     TWITTER_XLM_ROBERTA_BASE_SENTIMENT = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
+    XLM_ROBERTA_LARGE_PORTUGUESE_EXECORDER_CAP_V3 = (
+        "poltextlab/xlm-roberta-large-portuguese-execorder-cap-v3"
+    )
+
+
+_VARIANT_SAMPLE_TEXTS = {
+    ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT: "Great road trip views! @ Shartlesville, Pennsylvania",
+    ModelVariant.XLM_ROBERTA_LARGE_PORTUGUESE_EXECORDER_CAP_V3: "We will place an immediate 6-month halt on the finance driven closure of beds and wards, and set up an independent audit of needs and facilities.",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +41,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT: LLMModelConfig(
             pretrained_model_name="cardiffnlp/twitter-xlm-roberta-base-sentiment",
+            max_length=128,
+        ),
+        ModelVariant.XLM_ROBERTA_LARGE_PORTUGUESE_EXECORDER_CAP_V3: LLMModelConfig(
+            pretrained_model_name="poltextlab/xlm-roberta-large-portuguese-execorder-cap-v3",
             max_length=128,
         ),
     }
@@ -43,7 +56,9 @@ class ModelLoader(ForgeModel):
         self.model_name = self._variant_config.pretrained_model_name
         self.max_length = self._variant_config.max_length
         self.tokenizer = None
-        self.text = "Great road trip views! @ Shartlesville, Pennsylvania"
+        self.text = _VARIANT_SAMPLE_TEXTS.get(
+            self._variant, "Great road trip views! @ Shartlesville, Pennsylvania"
+        )
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
