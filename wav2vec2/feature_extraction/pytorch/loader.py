@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     BASE = "Base"
     BASE_VI = "Base_VI"
+    SMALL = "Small"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.BASE_VI: ModelConfig(
             pretrained_model_name="nguyenvulebinh/wav2vec2-base-vi",
+        ),
+        ModelVariant.SMALL: ModelConfig(
+            pretrained_model_name="chaanks/wav2vec2-small",
         ),
     }
 
