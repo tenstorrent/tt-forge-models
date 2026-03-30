@@ -88,6 +88,9 @@ class ModelVariant(StrEnum):
     # Facebook LayerSkip variants
     FACEBOOK_LAYERSKIP_LLAMA_3_2_1B = "Facebook_Layerskip_3.2_1B"
 
+    # WhiteRabbitNeo variants
+    WHITERABBITNEO_LLAMA_3_1_70B = "WhiteRabbitNeo_3.1_70B"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -228,6 +231,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="facebook/layerskip-llama3.2-1B",
             max_length=128,
         ),
+        # WhiteRabbitNeo variants
+        ModelVariant.WHITERABBITNEO_LLAMA_3_1_70B: LLMModelConfig(
+            pretrained_model_name="WhiteRabbitNeo/Llama-3.1-WhiteRabbitNeo-2-70B",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -277,6 +285,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.TINYLLAMA_1_1B_CHAT_V0_3_AWQ,
             ModelVariant.FACEBOOK_LAYERSKIP_LLAMA_3_2_1B,
+            ModelVariant.WHITERABBITNEO_LLAMA_3_1_70B,
         ]:
             group = ModelGroup.VULCAN
         elif (
@@ -544,6 +553,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_1_405B,
             ModelVariant.LLAMA_3_1_405B_INSTRUCT,
+            ModelVariant.WHITERABBITNEO_LLAMA_3_1_70B,
         ]:
             if num_devices == 32:  # Galaxy
                 mesh_shape = (4, 8)
