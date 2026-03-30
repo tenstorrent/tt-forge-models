@@ -25,6 +25,18 @@ class ModelVariant(StrEnum):
     DAVLAN_DISTILBERT_BASE_MULTILINGUAL_CASED_NER_HRL = (
         "Davlan/distilbert-base-multilingual-cased-ner-hrl"
     )
+    NLPIE_CLINICAL_DISTILBERT_I2B2_2010 = "nlpie/clinical-distilbert-i2b2-2010"
+
+
+_VARIANT_SAMPLE_TEXTS = {
+    ModelVariant.DAVLAN_DISTILBERT_BASE_MULTILINGUAL_CASED_NER_HRL: "HuggingFace is a company based in Paris and New York",
+    ModelVariant.NLPIE_CLINICAL_DISTILBERT_I2B2_2010: "The patient was diagnosed with diabetes and prescribed metformin",
+}
+
+_VARIANT_MODEL_GROUPS = {
+    ModelVariant.DAVLAN_DISTILBERT_BASE_MULTILINGUAL_CASED_NER_HRL: ModelGroup.GENERALITY,
+    ModelVariant.NLPIE_CLINICAL_DISTILBERT_I2B2_2010: ModelGroup.VULCAN,
+}
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +46,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DAVLAN_DISTILBERT_BASE_MULTILINGUAL_CASED_NER_HRL: LLMModelConfig(
             pretrained_model_name="Davlan/distilbert-base-multilingual-cased-ner-hrl",
+            max_length=128,
+        ),
+        ModelVariant.NLPIE_CLINICAL_DISTILBERT_I2B2_2010: LLMModelConfig(
+            pretrained_model_name="nlpie/clinical-distilbert-i2b2-2010",
             max_length=128,
         ),
     }
@@ -55,7 +71,10 @@ class ModelLoader(ForgeModel):
         self.model_name = pretrained_model_name
         self.max_length = 128
         self.tokenizer = None
-        self.sample_text = "HuggingFace is a company based in Paris and New York"
+        self.sample_text = _VARIANT_SAMPLE_TEXTS.get(
+            self._variant_name,
+            "HuggingFace is a company based in Paris and New York",
+        )
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -69,10 +88,11 @@ class ModelLoader(ForgeModel):
         """
         if variant_name is None:
             variant_name = "base"
+        group = _VARIANT_MODEL_GROUPS.get(variant_name, ModelGroup.GENERALITY)
         return ModelInfo(
             model="DistilBERT",
             variant=variant_name,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.NLP_TOKEN_CLS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
