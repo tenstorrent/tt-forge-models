@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     )
     DSLIM_BERT_BASE_NER = "dslim/bert-base-NER"
     HATMIMOHA_ARABIC_NER = "hatmimoha/arabic-ner"
+    KBLAB_BERT_BASE_SWEDISH_CASED_NER = "KBLab/bert-base-swedish-cased-ner"
     LLM_BOOK_BERT_BASE_JAPANESE_V3_NER_WIKIPEDIA_DATASET = (
         "llm-book/bert-base-japanese-v3-ner-wikipedia-dataset"
     )
@@ -47,6 +48,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.HATMIMOHA_ARABIC_NER: LLMModelConfig(
             pretrained_model_name="hatmimoha/arabic-ner",
+            max_length=128,
+        ),
+        ModelVariant.KBLAB_BERT_BASE_SWEDISH_CASED_NER: LLMModelConfig(
+            pretrained_model_name="KBLab/bert-base-swedish-cased-ner",
             max_length=128,
         ),
         ModelVariant.LLM_BOOK_BERT_BASE_JAPANESE_V3_NER_WIKIPEDIA_DATASET: LLMModelConfig(
@@ -72,6 +77,10 @@ class ModelLoader(ForgeModel):
         self.model_name = pretrained_model_name
         if self._variant == ModelVariant.HATMIMOHA_ARABIC_NER:
             self.sample_text = "نبيه بري النائب علي حسن خليل من البنك الدولي"
+        elif self._variant == ModelVariant.KBLAB_BERT_BASE_SWEDISH_CASED_NER:
+            self.sample_text = (
+                "Engelbert tar Volvon till Tele2 Arena för att titta på Djurgården IF"
+            )
         elif (
             self._variant
             == ModelVariant.LLM_BOOK_BERT_BASE_JAPANESE_V3_NER_WIKIPEDIA_DATASET
@@ -99,6 +108,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.DSLIM_BERT_BASE_NER,
             ModelVariant.HATMIMOHA_ARABIC_NER,
+            ModelVariant.KBLAB_BERT_BASE_SWEDISH_CASED_NER,
             ModelVariant.LLM_BOOK_BERT_BASE_JAPANESE_V3_NER_WIKIPEDIA_DATASET,
         ):
             group = ModelGroup.VULCAN
