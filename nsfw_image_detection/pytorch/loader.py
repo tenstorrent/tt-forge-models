@@ -34,6 +34,7 @@ class ModelVariant(StrEnum):
     """Available NSFW Image Detection model variants."""
 
     BASE = "Base"
+    V2_2026 = "V2_2026"
 
 
 class ModelLoader(ForgeModel):
@@ -42,6 +43,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: NsfwImageDetectionConfig(
             pretrained_model_name="Falconsai/nsfw_image_detection",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.V2_2026: NsfwImageDetectionConfig(
+            pretrained_model_name="Falconsai/nsfw_image_detection_26",
             source=ModelSource.HUGGING_FACE,
         ),
     }
