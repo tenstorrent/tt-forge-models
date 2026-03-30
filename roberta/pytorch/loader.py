@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     ROBERTA_BASE_SENTIMENT = "Base_Sentiment"
     ROBERTA_BASE_SENTIMENT_LATEST = "Base_Sentiment_Latest"
     ROBERTA_LARGE_MNLI = "Large_MNLI"
+    EMAIL_SPAM_DETECTION = "Email_Spam_Detection"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.ROBERTA_LARGE_MNLI: ModelConfig(
             pretrained_model_name="FacebookAI/roberta-large-mnli",
+        ),
+        ModelVariant.EMAIL_SPAM_DETECTION: ModelConfig(
+            pretrained_model_name="dima806/email-spam-detection-roberta",
         ),
     }
 
@@ -62,6 +66,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.ROBERTA_BASE_SENTIMENT_LATEST,
             ModelVariant.ROBERTA_LARGE_MNLI,
+            ModelVariant.EMAIL_SPAM_DETECTION,
         ):
             group = ModelGroup.VULCAN
 
@@ -94,7 +99,10 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
 
         # Configuration parameters
-        self.text = """Great road trip views! @ Shartlesville, Pennsylvania"""
+        if self._variant == ModelVariant.EMAIL_SPAM_DETECTION:
+            self.text = "Congratulations! You've won a $1000 gift card. Click here to claim your prize now!"
+        else:
+            self.text = """Great road trip views! @ Shartlesville, Pennsylvania"""
         self.max_length = 128
         self.tokenizer = None
         self.num_layers = num_layers
@@ -179,5 +187,7 @@ class ModelLoader(ForgeModel):
         label = self.model.config.id2label[predicted_value]
         if self._is_mnli_variant():
             print(f"Predicted Label: {label}")
+        elif self._variant == ModelVariant.EMAIL_SPAM_DETECTION:
+            print(f"Predicted Spam Classification: {label}")
         else:
             print(f"Predicted Sentiment: {label}")
