@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     ROBERTA_BASE_SENTIMENT = "Base_Sentiment"
     ROBERTA_BASE_SENTIMENT_LATEST = "Base_Sentiment_Latest"
     ROBERTA_LARGE_MNLI = "Large_MNLI"
+    ROBERTA_BASE_ROTTEN_TOMATOES = "Base_Rotten_Tomatoes"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.ROBERTA_LARGE_MNLI: ModelConfig(
             pretrained_model_name="FacebookAI/roberta-large-mnli",
+        ),
+        ModelVariant.ROBERTA_BASE_ROTTEN_TOMATOES: ModelConfig(
+            pretrained_model_name="textattack/roberta-base-rotten-tomatoes",
         ),
     }
 
@@ -62,6 +66,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.ROBERTA_BASE_SENTIMENT_LATEST,
             ModelVariant.ROBERTA_LARGE_MNLI,
+            ModelVariant.ROBERTA_BASE_ROTTEN_TOMATOES,
         ):
             group = ModelGroup.VULCAN
 
