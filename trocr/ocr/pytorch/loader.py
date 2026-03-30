@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available TrOCR model variants for OCR tasks."""
 
     TROCR_BASE_PRINTED = "trocr-base-printed"
+    TROCR_SMALL_KOREAN = "trocr-small-korean"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TROCR_BASE_PRINTED: ModelConfig(
             pretrained_model_name="microsoft/trocr-base-printed",
+        ),
+        ModelVariant.TROCR_SMALL_KOREAN: ModelConfig(
+            pretrained_model_name="team-lucid/trocr-small-korean",
         ),
     }
 
