@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MIX_NER = (
         "CAMeL-Lab/bert-base-arabic-camelbert-mix-ner"
     )
+    SSHLEIFER_TINY_DISTILBERT_BASE_CASED = "sshleifer/tiny-distilbert-base-cased"
 
 
 class ModelLoader(ForgeModel):
@@ -51,6 +52,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MIX_NER: LLMModelConfig(
             pretrained_model_name="CAMeL-Lab/bert-base-arabic-camelbert-mix-ner",
+            max_length=128,
+        ),
+        ModelVariant.SSHLEIFER_TINY_DISTILBERT_BASE_CASED: LLMModelConfig(
+            pretrained_model_name="sshleifer/tiny-distilbert-base-cased",
             max_length=128,
         ),
     }
@@ -98,6 +103,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.DSLIM_BERT_BASE_NER,
             ModelVariant.HATMIMOHA_ARABIC_NER,
             ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MIX_NER,
+            ModelVariant.SSHLEIFER_TINY_DISTILBERT_BASE_CASED,
         ):
             group = ModelGroup.VULCAN
 
