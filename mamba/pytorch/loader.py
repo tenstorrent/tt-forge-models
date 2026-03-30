@@ -23,16 +23,21 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     """Available MAMBA model variants."""
 
+    MAMBA_130M = "130M_HF"
     MAMBA_370M = "370M_HF"
     MAMBA_790M = "790M_HF"
     MAMBA_1_4B = "1.4b_HF"
     MAMBA_2_8B = "2.8b_HF"
+    TINY = "Tiny"
 
 
 class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants
     _VARIANTS = {
+        ModelVariant.MAMBA_130M: ModelConfig(
+            pretrained_model_name="state-spaces/mamba-130m-hf",
+        ),
         ModelVariant.MAMBA_370M: ModelConfig(
             pretrained_model_name="state-spaces/mamba-370m-hf",
         ),
@@ -44,6 +49,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MAMBA_2_8B: ModelConfig(
             pretrained_model_name="state-spaces/mamba-2.8b-hf",
+        ),
+        ModelVariant.TINY: ModelConfig(
+            pretrained_model_name="optimum-intel-internal-testing/tiny-mamba",
         ),
     }
 
@@ -61,10 +69,19 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
+
+        group = (
+            ModelGroup.VULCAN
+            if variant == ModelVariant.MAMBA_130M
+            else ModelGroup.GENERALITY
+        )
+
         return ModelInfo(
             model="Mamba",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,

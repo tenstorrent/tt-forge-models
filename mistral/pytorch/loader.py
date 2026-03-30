@@ -30,16 +30,28 @@ class ModelVariant(StrEnum):
     """Available Mistral model variants."""
 
     MISTRAL_7B = "7B"
+    MISTRAL_7B_INSTRUCT_V01 = "7B_INSTRUCT_v01"
+    MISTRAL_7B_INSTRUCT_V02 = "7B_INSTRUCT_v02"
     MISTRAL_7B_INSTRUCT_V03 = "7B_INSTRUCT_v03"
     MINISTRAL_3B = "Ministral_3B_Instruct"
     MINISTRAL_8B = "Ministral_8B_Instruct"
+    MISTRAL_SMALL_24B_BASE_2501 = "Small_24B_BASE_2501"
     MISTRAL_SMALL_24B_INSTRUCT_2501 = "Small_24B_INSTRUCT_2501"
+    MISTRAL_SMALL_24B_INSTRUCT_2501_FP8_DYNAMIC = "Small_24B_INSTRUCT_2501_FP8_Dynamic"
     MISTRAL_LARGE_INSTRUCT_2411 = "Large_INSTRUCT_2411"
+    MISTRAL_NEMO_BASE_2407 = "Nemo_BASE_2407"
     MISTRAL_NEMO_INSTRUCT_2407 = "Nemo_INSTRUCT_2407"
+    MISTRAL_NEMO_INSTRUCT_2407_LENIENT_CHATFIX = "Nemo_INSTRUCT_2407_lenient_chatfix"
     DEVSTRAL_SMALL_2505 = "Devstral_Small_2505"
+    DEVSTRAL_SMALL_2507 = "Devstral_Small_2507"
     MAGISTRAL_SMALL_2506 = "Magistral_Small_2506"
+    MAGISTRAL_SMALL_2506_FP8 = "Magistral_Small_2506_FP8"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
+    DEVSTRAL_SMALL_2_24B_INSTRUCT_2512 = "Devstral_Small_2_24B_Instruct_2512"
+    MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
+    MISTRAL_FT_OPTIMIZED_1227 = "ft_optimized_1227"
+    MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED = "Small_Instruct_2409_abliterated"
 
 
 class ModelLoader(ForgeModel):
@@ -49,19 +61,29 @@ class ModelLoader(ForgeModel):
     # which must be loaded via mistral-common, can't use AutoTokenizer.
     _TEKKEN_TOKENIZER_VARIANTS = {
         ModelVariant.DEVSTRAL_SMALL_2505,
+        ModelVariant.DEVSTRAL_SMALL_2507,
         ModelVariant.MAGISTRAL_SMALL_2506,
+        ModelVariant.MAGISTRAL_SMALL_2506_FP8,
     }
     _USE_MistralForCausalLM = {
         ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_2503,
     }
     _USE_Mistral3ForConditionalGeneration_VARIANTS = {
+        ModelVariant.MINISTRAL_3B_INSTRUCT_2512_BF16,
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506,
+        ModelVariant.MINISTRAL_3_14B_REASONING_AWQ_4BIT,
     }
 
     # Dictionary of available model variants
     _VARIANTS = {
         ModelVariant.MISTRAL_7B: ModelConfig(
             pretrained_model_name="mistralai/Mistral-7B-v0.1",
+        ),
+        ModelVariant.MISTRAL_7B_INSTRUCT_V01: ModelConfig(
+            pretrained_model_name="mistralai/Mistral-7B-Instruct-v0.1",
+        ),
+        ModelVariant.MISTRAL_7B_INSTRUCT_V02: ModelConfig(
+            pretrained_model_name="mistralai/Mistral-7B-Instruct-v0.2",
         ),
         ModelVariant.MISTRAL_7B_INSTRUCT_V03: ModelConfig(
             pretrained_model_name="mistralai/Mistral-7B-Instruct-v0.3",
@@ -72,26 +94,62 @@ class ModelLoader(ForgeModel):
         ModelVariant.MINISTRAL_8B: ModelConfig(
             pretrained_model_name="mistralai/Ministral-8B-Instruct-2410",
         ),
+        ModelVariant.MISTRAL_SMALL_24B_BASE_2501: ModelConfig(
+            pretrained_model_name="mistralai/Mistral-Small-24B-Base-2501",
+        ),
         ModelVariant.MISTRAL_SMALL_24B_INSTRUCT_2501: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-24B-Instruct-2501",
+        ),
+        ModelVariant.MISTRAL_SMALL_24B_INSTRUCT_2501_FP8_DYNAMIC: ModelConfig(
+            pretrained_model_name="RedHatAI/Mistral-Small-24B-Instruct-2501-FP8-dynamic",
         ),
         ModelVariant.MISTRAL_LARGE_INSTRUCT_2411: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Large-Instruct-2411",
         ),
+        ModelVariant.MISTRAL_NEMO_BASE_2407: ModelConfig(
+            pretrained_model_name="mistralai/Mistral-Nemo-Base-2407",
+        ),
         ModelVariant.MISTRAL_NEMO_INSTRUCT_2407: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Nemo-Instruct-2407",
+        ),
+        ModelVariant.MISTRAL_NEMO_INSTRUCT_2407_LENIENT_CHATFIX: ModelConfig(
+            pretrained_model_name="m8than/Mistral-Nemo-Instruct-2407-lenient-chatfix",
         ),
         ModelVariant.DEVSTRAL_SMALL_2505: ModelConfig(
             pretrained_model_name="mistralai/Devstral-Small-2505",
         ),
+        ModelVariant.DEVSTRAL_SMALL_2507: ModelConfig(
+            pretrained_model_name="mistralai/Devstral-Small-2507",
+        ),
         ModelVariant.MAGISTRAL_SMALL_2506: ModelConfig(
             pretrained_model_name="mistralai/Magistral-Small-2506",
+        ),
+        ModelVariant.MAGISTRAL_SMALL_2506_FP8: ModelConfig(
+            pretrained_model_name="RedHatAI/Magistral-Small-2506-FP8",
         ),
         ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_2503: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-3.1-24B-Instruct-2503",
         ),
+        ModelVariant.MINISTRAL_3B_INSTRUCT_2512_BF16: ModelConfig(
+            pretrained_model_name="mistralai/Ministral-3-3B-Instruct-2512-BF16",
+        ),
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+        ),
+        ModelVariant.DEVSTRAL_SMALL_2_24B_INSTRUCT_2512: ModelConfig(
+            pretrained_model_name="mistralai/Devstral-Small-2-24B-Instruct-2512",
+        ),
+        ModelVariant.MISTRAL_7B_UTTERANCE: ModelConfig(
+            pretrained_model_name="akashdutta1030/mistral-7b-utterance",
+        ),
+        ModelVariant.MISTRAL_7B_V03_BNB_4BIT: ModelConfig(
+            pretrained_model_name="unsloth/mistral-7b-v0.3-bnb-4bit",
+        ),
+        ModelVariant.MISTRAL_FT_OPTIMIZED_1227: ModelConfig(
+            pretrained_model_name="OpenPipe/mistral-ft-optimized-1227",
+        ),
+        ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED: ModelConfig(
+            pretrained_model_name="byroneverson/Mistral-Small-Instruct-2409-abliterated",
         ),
     }
 
@@ -125,7 +183,16 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
 
-        if variant in [
+        if variant in (
+            ModelVariant.MINISTRAL_3B_INSTRUCT_2512_BF16,
+            ModelVariant.MISTRAL_7B_INSTRUCT_V02,
+            ModelVariant.MISTRAL_SMALL_22B_INSTRUCT_2409,
+            ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
+            ModelVariant.MISTRAL_FT_OPTIMIZED_1227,
+            ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED,
+        ):
+            group = ModelGroup.VULCAN
+        elif variant in [
             ModelVariant.MISTRAL_7B_INSTRUCT_V03,
             ModelVariant.MINISTRAL_8B,
             ModelVariant.MISTRAL_SMALL_24B_INSTRUCT_2501,
@@ -207,7 +274,25 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
+        # BnB/AWQ variants need device_map="cpu" for CPU-based loading
+        if self._variant in (
+            ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
+            ModelVariant.MINISTRAL_3_14B_REASONING_AWQ_4BIT,
+            ModelVariant.OPEN_HERMES_2_5_MISTRAL_7B_AWQ,
+        ):
+            model_kwargs["device_map"] = "cpu"
+
+        # AWQ variants: strip quantization_config so weights load as plain
+        # tensors, and use MistralForCausalLM directly.
+        is_awq = self._variant == ModelVariant.MISTRAL_SMALL_24B_INSTRUCT_2501_AWQ
+        if is_awq:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            delattr(config, "quantization_config")
+            model_kwargs["config"] = config
+
+        if not is_awq and self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -221,7 +306,7 @@ class ModelLoader(ForgeModel):
             model = Mistral3ForConditionalGeneration.from_pretrained(
                 pretrained_model_name, **model_kwargs
             ).eval()
-        elif self._variant in self._USE_MistralForCausalLM:
+        elif self._variant in self._USE_MistralForCausalLM or is_awq:
             # Load pre-trained model from HuggingFace using MistralForCausalLM
             model = MistralForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
@@ -368,6 +453,8 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         if self._variant in [
             ModelVariant.MINISTRAL_3B,
+            ModelVariant.TINY_RANDOM,
+            ModelVariant.OPENACCESS_TINY_MISTRAL,
         ]:
             return None
         shard_specs = {}

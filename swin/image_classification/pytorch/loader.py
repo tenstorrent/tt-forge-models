@@ -16,10 +16,13 @@ from ....config import (
 )
 from ....base import ForgeModel
 from torchvision import models
+import timm
 import torch
+import timm
 from typing import Optional
 from dataclasses import dataclass
 from transformers import AutoModelForImageClassification
+import timm
 
 from ....tools.utils import VisionPreprocessor, VisionPostprocessor
 from datasets import load_dataset
@@ -37,7 +40,12 @@ class ModelVariant(StrEnum):
 
     # HuggingFace variants
     SWIN_TINY_HF = "Tiny_Patch4_Window7_224"
+    SWIN_BASE_HF = "Base_Patch4_Window7_224"
     SWINV2_TINY_HF = "v2_Tiny_Patch4_Window8_256"
+    SWIN_BASE_PATCH4_WINDOW12_384_IN22K_HF = "Base_Patch4_Window12_384_in22k"
+
+    # TIMM variants
+    SWIN_LARGE_PATCH4_WINDOW7_224_TIMM = "Large_Patch4_Window7_224_TIMM"
 
     # Torchvision variants
     SWIN_T = "T"
@@ -58,9 +66,22 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="microsoft/swin-tiny-patch4-window7-224",
             source=ModelSource.HUGGING_FACE,
         ),
+        ModelVariant.SWIN_BASE_HF: SwinConfig(
+            pretrained_model_name="microsoft/swin-base-patch4-window7-224",
+            source=ModelSource.HUGGING_FACE,
+        ),
         ModelVariant.SWINV2_TINY_HF: SwinConfig(
             pretrained_model_name="microsoft/swinv2-tiny-patch4-window8-256",
             source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.SWIN_BASE_PATCH4_WINDOW12_384_IN22K_HF: SwinConfig(
+            pretrained_model_name="microsoft/swin-base-patch4-window12-384-in22k",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        # TIMM variants
+        ModelVariant.SWIN_LARGE_PATCH4_WINDOW7_224_TIMM: SwinConfig(
+            pretrained_model_name="swin_large_patch4_window7_224.ms_in22k_ft_in1k",
+            source=ModelSource.TIMM,
         ),
         # Torchvision variants
         ModelVariant.SWIN_T: SwinConfig(
@@ -109,12 +130,20 @@ class ModelLoader(ForgeModel):
         # Get source from variant config
         source = cls._VARIANTS[variant].source
 
+        if variant in [
+            ModelVariant.SWIN_LARGE_PATCH4_WINDOW7_224_TIMM,
+            ModelVariant.SWIN_BASE_PATCH4_WINDOW12_384_IN22K_HF,
+        ]:
+            group = ModelGroup.VULCAN
+        elif variant == ModelVariant.SWIN_S:
+            group = ModelGroup.RED
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
             model="Swin",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == ModelVariant.SWIN_S
-            else ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_CLS,
             source=source,
             framework=Framework.TORCH,
@@ -146,11 +175,18 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
         source = self._variant_config.source
 
-        if source == ModelSource.HUGGING_FACE:
+        if source == ModelSource.TIMM:
+            model = timm.create_model(model_name, pretrained=True)
+
+        elif source == ModelSource.HUGGING_FACE:
             # Load model from HuggingFace
             model = AutoModelForImageClassification.from_pretrained(
                 model_name, **kwargs
             )
+
+        elif source == ModelSource.TIMM:
+            # Load model using timm
+            model = timm.create_model(model_name, pretrained=True)
 
         elif source == ModelSource.TORCHVISION:
             # Load model from torchvision

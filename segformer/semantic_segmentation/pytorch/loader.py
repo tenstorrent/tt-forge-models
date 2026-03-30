@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
@@ -29,8 +29,10 @@ class ModelVariant(StrEnum):
     B0_FINETUNED = "B0_Finetuned_Ade_512_512"
     B1_FINETUNED = "B1_Finetuned_Ade_512_512"
     B2_FINETUNED = "B2_Finetuned_Ade_512_512"
+    B2_FINETUNED_CITYSCAPES = "B2_Finetuned_Cityscapes_1024_1024"
     B3_FINETUNED = "B3_Finetuned_Ade_512_512"
     B4_FINETUNED = "B4_Finetuned_Ade_512_512"
+    B5_FINETUNED_CITYSCAPES = "B5_Finetuned_Cityscapes_1024_1024"
 
 
 class ModelLoader(ForgeModel):
@@ -47,11 +49,17 @@ class ModelLoader(ForgeModel):
         ModelVariant.B2_FINETUNED: ModelConfig(
             pretrained_model_name="nvidia/segformer-b2-finetuned-ade-512-512",
         ),
+        ModelVariant.B2_FINETUNED_CITYSCAPES: ModelConfig(
+            pretrained_model_name="nvidia/segformer-b2-finetuned-cityscapes-1024-1024",
+        ),
         ModelVariant.B3_FINETUNED: ModelConfig(
             pretrained_model_name="nvidia/segformer-b3-finetuned-ade-512-512",
         ),
         ModelVariant.B4_FINETUNED: ModelConfig(
             pretrained_model_name="nvidia/segformer-b4-finetuned-ade-512-512",
+        ),
+        ModelVariant.B5_FINETUNED_CITYSCAPES: ModelConfig(
+            pretrained_model_name="nvidia/segformer-b5-finetuned-cityscapes-1024-1024",
         ),
     }
 
@@ -68,6 +76,16 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.processor = None
 
+    _VARIANT_GROUPS = {
+        ModelVariant.B0_FINETUNED: ModelGroup.GENERALITY,
+        ModelVariant.B1_FINETUNED: ModelGroup.GENERALITY,
+        ModelVariant.B2_FINETUNED: ModelGroup.GENERALITY,
+        ModelVariant.B3_FINETUNED: ModelGroup.GENERALITY,
+        ModelVariant.B4_FINETUNED: ModelGroup.GENERALITY,
+        ModelVariant.B3_FINETUNED_CITYSCAPES: ModelGroup.VULCAN,
+        ModelVariant.B4_FINETUNED_CITYSCAPES: ModelGroup.VULCAN,
+    }
+
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Implementation method for getting model info with validated variant.
@@ -83,10 +101,16 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
+        group = (
+            ModelGroup.VULCAN
+            if variant == ModelVariant.B5_FINETUNED_CITYSCAPES
+            else ModelGroup.GENERALITY
+        )
+
         return ModelInfo(
             model="SegFormer",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_SEG,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,

@@ -5,7 +5,12 @@
 Qwen 2.5 VL model loader implementation for vision-language tasks.
 """
 import torch
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AwqConfig
+from transformers import (
+    Qwen2_5_VLForConditionalGeneration,
+    AutoProcessor,
+    AwqConfig,
+    BitsAndBytesConfig,
+)
 from typing import Optional
 
 
@@ -30,6 +35,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_VL_3B_INSTRUCT_AWQ = "3B_INSTRUCT_Awq"
     QWEN_2_5_VL_7B_INSTRUCT_AWQ = "7B_INSTRUCT_Awq"
     QWEN_2_5_VL_72B_INSTRUCT = "72B_Instruct"
+    UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT = "Unsloth_7B_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -51,6 +57,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_2_5_VL_72B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-VL-72B-Instruct",
+        ),
+        ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen2.5-VL-7B-Instruct",
         ),
     }
 
@@ -96,11 +105,20 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT:
+            group = ModelGroup.RED
+        elif variant == ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_BNB_4BIT:
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
             model="Qwen 2.5-VL",
             variant=variant,
             group=ModelGroup.RED
             if variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT
+            else ModelGroup.VULCAN
+            if variant == ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT
             else ModelGroup.GENERALITY,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
@@ -126,6 +144,10 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
+    # Variants with NVFP4 quantized weights require ignore_mismatched_sizes
+    # because the packed FP4 weight shapes differ from the model definition.
+    _NVFP4_VARIANTS = {ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_NVFP4}
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Qwen 2.5 VL model instance for this instance's variant.
 
@@ -141,14 +163,29 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
 
-        # Check if this is an AWQ variant and configure accordingly
+        # Check if this is an AWQ or BNB variant and configure accordingly
         if pretrained_model_name in [
             "Qwen/Qwen2.5-VL-3B-Instruct-AWQ",
             "Qwen/Qwen2.5-VL-7B-Instruct-AWQ",
+            "Qwen/Qwen2.5-VL-72B-Instruct-AWQ",
         ]:
             quantization_config = AwqConfig(version="ipex")
             model_kwargs["quantization_config"] = quantization_config
             model_kwargs["device_map"] = "cpu"
+        elif pretrained_model_name in [
+            "unsloth/Qwen2.5-VL-7B-Instruct-unsloth-bnb-4bit",
+            "unsloth/Qwen2.5-VL-7B-Instruct-bnb-4bit",
+        ]:
+            model_kwargs["device_map"] = "cpu"
+
+        if self._variant in self._NVFP4_VARIANTS:
+            model_kwargs["ignore_mismatched_sizes"] = True
+
+        # Check if this is a bnb-4bit variant and configure accordingly
+        if pretrained_model_name == "unsloth/Qwen2.5-VL-72B-Instruct-bnb-4bit":
+            quantization_config = BitsAndBytesConfig(load_in_4bit=True)
+            model_kwargs["quantization_config"] = quantization_config
+            model_kwargs["device_map"] = "auto"
 
         # Load the model with dtype override if specified
         if dtype_override is not None:

@@ -35,8 +35,12 @@ class ModelVariant(StrEnum):
     """Available ViT model variants."""
 
     # HuggingFace variants
+    TINY = "Tiny"
     BASE = "Base"
+    BASE_PATCH16_384 = "Base_Patch16_384"
     LARGE = "Large"
+    BASE_PATCH32_384 = "Base_Patch32_384"
+    BASE_OXFORD_IIIT_PETS = "Base_Oxford_IIIT_Pets"
 
     # Torchvision variants
     VIT_B_16 = "B_16"
@@ -45,6 +49,16 @@ class ModelVariant(StrEnum):
     VIT_L_32 = "L_32"
     VIT_H_14 = "H_14"
 
+    # HuggingFace fine-tuned variants
+    AI_IMAGE_DETECTOR = "AI_Image_Detector"
+
+    # TIMM variants
+    VIT_BASE_PATCH14_DINOV2_LVD142M = "Base_Patch14_DINOv2_LVD142M"
+    VIT_BASE_PATCH16_224_AUGREG_IN1K = "Base_Patch16_224_AugReg_IN1K"
+    VIT_BASE_PATCH16_224_AUGREG_IN21K = "Base_Patch16_224_AugReg_IN21K"
+    VIT_BASE_PATCH16_384_AUGREG_IN21K_FT_IN1K = "Base_Patch16_384_AugReg_IN21K_FT_IN1K"
+    VIT_BASE_PATCH32_CLIP_224_LAION2B_E16 = "Base_Patch32_CLIP_224_LAION2B_E16"
+
 
 class ModelLoader(ForgeModel):
     """ViT model loader implementation."""
@@ -52,12 +66,25 @@ class ModelLoader(ForgeModel):
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
         # HuggingFace variants
+        ModelVariant.TINY: ViTConfig(
+            pretrained_model_name="WinKawaks/vit-tiny-patch16-224",
+            source=ModelSource.HUGGING_FACE,
+        ),
         ModelVariant.BASE: ViTConfig(
             pretrained_model_name="google/vit-base-patch16-224",
             source=ModelSource.HUGGING_FACE,
         ),
+        ModelVariant.BASE_PATCH16_384: ViTConfig(
+            pretrained_model_name="google/vit-base-patch16-384",
+            source=ModelSource.HUGGING_FACE,
+        ),
         ModelVariant.LARGE: ViTConfig(
             pretrained_model_name="google/vit-large-patch16-224",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        # HuggingFace fine-tuned variants
+        ModelVariant.AI_IMAGE_DETECTOR: ViTConfig(
+            pretrained_model_name="umm-maybe/AI-image-detector",
             source=ModelSource.HUGGING_FACE,
         ),
         # Torchvision variants
@@ -81,6 +108,27 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="vit_h_14",
             source=ModelSource.TORCHVISION,
         ),
+        # TIMM variants
+        ModelVariant.VIT_BASE_PATCH14_DINOV2_LVD142M: ViTConfig(
+            pretrained_model_name="vit_base_patch14_dinov2.lvd142m",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.VIT_BASE_PATCH16_224_AUGREG_IN1K: ViTConfig(
+            pretrained_model_name="vit_base_patch16_224.augreg_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.VIT_BASE_PATCH16_224_AUGREG_IN21K: ViTConfig(
+            pretrained_model_name="vit_base_patch16_224.augreg_in21k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.VIT_BASE_PATCH16_384_AUGREG_IN21K_FT_IN1K: ViTConfig(
+            pretrained_model_name="vit_base_patch16_384.augreg_in21k_ft_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.VIT_BASE_PATCH32_CLIP_224_LAION2B_E16: ViTConfig(
+            pretrained_model_name="vit_base_patch32_clip_224.laion2b_e16",
+            source=ModelSource.TIMM,
+        ),
     }
 
     # Default variant to use
@@ -103,15 +151,29 @@ class ModelLoader(ForgeModel):
         # Get source from variant config
         source = cls._VARIANTS[variant].source
 
+        # Determine model group
+        if variant == ModelVariant.TINY:
+            group = ModelGroup.VULCAN
+        elif variant == ModelVariant.BASE:
+            group = ModelGroup.RED
+        elif variant == ModelVariant.AI_IMAGE_DETECTOR:
+            group = ModelGroup.VULCAN
+        elif cls._VARIANTS[variant].source == ModelSource.TIMM:
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.GENERALITY
+
+        # Determine task based on variant
+        if variant == ModelVariant.VIT_BASE_PATCH16_224_ORIG_IN21K:
+            task = ModelTask.CV_IMAGE_FE
+        else:
+            task = ModelTask.CV_IMAGE_CLS
+
         return ModelInfo(
             model="ViT",
             variant=variant,
-            group=(
-                ModelGroup.RED
-                if variant == ModelVariant.BASE
-                else ModelGroup.GENERALITY
-            ),
-            task=ModelTask.CV_IMAGE_CLS,
+            group=group,
+            task=task,
             source=source,
             framework=Framework.TORCH,
         )
@@ -142,7 +204,13 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
         source = self._variant_config.source
 
-        if source == ModelSource.HUGGING_FACE:
+        if source == ModelSource.TIMM:
+            # Load model from TIMM
+            import timm
+
+            model = timm.create_model(model_name, pretrained=True)
+
+        elif source == ModelSource.HUGGING_FACE:
             # Load model from HuggingFace
             model = ViTForImageClassification.from_pretrained(model_name, **kwargs)
 

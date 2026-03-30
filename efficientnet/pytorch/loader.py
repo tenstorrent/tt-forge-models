@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
@@ -8,6 +8,8 @@ EfficientNet model loader implementation
 import torch
 from typing import Optional
 from dataclasses import dataclass
+from PIL import Image
+from torchvision import transforms
 
 from ...config import (
     ModelConfig,
@@ -27,6 +29,7 @@ from ...tools.utils import (
     VisionPostprocessor,
 )
 from datasets import load_dataset
+from transformers import EfficientNetForImageClassification
 import timm
 
 
@@ -38,6 +41,7 @@ class EfficientNetConfig(ModelConfig):
     weights_class: str = None
     use_1k_labels: bool = False
     source: ModelSource = ModelSource.TORCHVISION
+    smp_encoder_name: Optional[str] = None
 
 
 class ModelVariant(StrEnum):
@@ -53,15 +57,21 @@ class ModelVariant(StrEnum):
     B6 = "B6"
     B7 = "B7"
 
+    # SMP (Segmentation Models PyTorch) variants
+    SMP_B3 = "SMP_B3"
+
     # TIMM variants (values are identifiers for reporting; pretrained model names live in config)
     TIMM_EFFICIENTNET_B0 = "Timm_B0"
     TIMM_EFFICIENTNET_B4 = "Timm_B4"
     HF_TIMM_EFFICIENTNET_B0_RA_IN1K = "Timm_B0_Ra_In1k"
     HF_TIMM_EFFICIENTNET_B4_RA2_IN1K = "Timm_B4_Ra2_In1k"
     HF_TIMM_EFFICIENTNET_B5_IN12K_FT_IN1K = "Timm_B5_In12k_Ft_In1k"
+    HF_TIMM_EFFICIENTNET_B5_SW_IN12K_FT_IN1K = "Timm_B5_Sw_In12k_Ft_In1k"
     HF_TIMM_TF_EFFICIENTNET_B0_AA_IN1K = "Timm_Tf_B0_Aa_In1k"
     HF_TIMM_EFFICIENTNETV2_RW_S_RA2_IN1K = "Timm_V2_Rw_S_Ra2_In1k"
     HF_TIMM_TF_EFFICIENTNETV2_S_IN21K = "Timm_Tf_V2_S_In21k"
+    HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K = "Timm_Tf_V2_Xl_In21k"
+    HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K = "Timm_Tf_B7_Ns_Jft_In1k"
 
 
 class ModelLoader(ForgeModel):
@@ -158,6 +168,11 @@ class ModelLoader(ForgeModel):
         source=ModelSource.TIMM,
         use_1k_labels=True,
     )
+    HF_TIMM_EFFICIENTNET_B5_SW_IN12K_FT_IN1K_CONFIG = EfficientNetConfig(
+        pretrained_model_name="hf_hub:timm/efficientnet_b5.sw_in12k_ft_in1k",
+        source=ModelSource.TIMM,
+        use_1k_labels=True,
+    )
     HF_TIMM_TF_EFFICIENTNET_B0_AA_IN1K_CONFIG = EfficientNetConfig(
         pretrained_model_name="hf_hub:timm/tf_efficientnet_b0.aa_in1k",
         source=ModelSource.TIMM,
@@ -172,6 +187,16 @@ class ModelLoader(ForgeModel):
         pretrained_model_name="hf_hub:timm/tf_efficientnetv2_s.in21k",
         source=ModelSource.TIMM,
         use_1k_labels=False,
+    )
+    HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K_CONFIG = EfficientNetConfig(
+        pretrained_model_name="hf_hub:timm/tf_efficientnetv2_xl.in21k",
+        source=ModelSource.TIMM,
+        use_1k_labels=False,
+    )
+    HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K_CONFIG = EfficientNetConfig(
+        pretrained_model_name="hf_hub:timm/tf_efficientnet_b7.ns_jft_in1k",
+        source=ModelSource.TIMM,
+        use_1k_labels=True,
     )
 
     # Dictionary using the static dataclass instances (for compatibility with existing tests)
@@ -191,9 +216,12 @@ class ModelLoader(ForgeModel):
         ModelVariant.HF_TIMM_EFFICIENTNET_B0_RA_IN1K: HF_TIMM_EFFICIENTNET_B0_RA_IN1K_CONFIG,
         ModelVariant.HF_TIMM_EFFICIENTNET_B4_RA2_IN1K: HF_TIMM_EFFICIENTNET_B4_RA2_IN1K_CONFIG,
         ModelVariant.HF_TIMM_EFFICIENTNET_B5_IN12K_FT_IN1K: HF_TIMM_EFFICIENTNET_B5_IN12K_FT_IN1K_CONFIG,
+        ModelVariant.HF_TIMM_EFFICIENTNET_B5_SW_IN12K_FT_IN1K: HF_TIMM_EFFICIENTNET_B5_SW_IN12K_FT_IN1K_CONFIG,
         ModelVariant.HF_TIMM_TF_EFFICIENTNET_B0_AA_IN1K: HF_TIMM_TF_EFFICIENTNET_B0_AA_IN1K_CONFIG,
         ModelVariant.HF_TIMM_EFFICIENTNETV2_RW_S_RA2_IN1K: HF_TIMM_EFFICIENTNETV2_RW_S_RA2_IN1K_CONFIG,
         ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_S_IN21K: HF_TIMM_TF_EFFICIENTNETV2_S_IN21K_CONFIG,
+        ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K: HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K_CONFIG,
+        ModelVariant.HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K: HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K_CONFIG,
     }
 
     # Default variant to use
@@ -226,11 +254,31 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         source = cls._VARIANTS[variant].source
+        if variant == ModelVariant.B0:
+            group = ModelGroup.RED
+        elif variant in [
+            ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_B3_IN1K,
+            ModelVariant.HF_B7,
+        ]:
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
             model="EfficientNet",
             variant=variant,
             group=(
-                ModelGroup.RED if variant == ModelVariant.B0 else ModelGroup.GENERALITY
+                ModelGroup.RED
+                if variant == ModelVariant.B0
+                else (
+                    ModelGroup.VULCAN
+                    if variant
+                    in (
+                        ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K,
+                        ModelVariant.HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K,
+                    )
+                    else ModelGroup.GENERALITY
+                )
             ),
             task=ModelTask.CV_IMAGE_CLS,
             source=source,
@@ -249,7 +297,17 @@ class ModelLoader(ForgeModel):
         """
         source = self._variant_config.source
 
-        if source == ModelSource.TORCHVISION:
+        if (
+            source == ModelSource.CUSTOM
+            and self._variant_config.smp_encoder_name is not None
+        ):
+            import segmentation_models_pytorch as smp
+
+            model = smp.encoders.get_encoder(
+                self._variant_config.smp_encoder_name,
+                weights="imagenet",
+            )
+        elif source == ModelSource.TORCHVISION:
             # Setup state dict function
             WeightsEnum.get_state_dict = get_state_dict
 
@@ -259,6 +317,12 @@ class ModelLoader(ForgeModel):
 
             # Load model with appropriate weights
             model = model_fn(weights=weights_class.IMAGENET1K_V1)
+        elif source == ModelSource.HUGGING_FACE:
+            # Load using HuggingFace transformers
+            model_name = self._variant_config.pretrained_model_name
+            model = EfficientNetForImageClassification.from_pretrained(
+                model_name, **kwargs
+            )
         else:
             # Load using timm
             model_name = self._variant_config.pretrained_model_name
@@ -289,8 +353,38 @@ class ModelLoader(ForgeModel):
             model_name = self._variant_config.pretrained_model_name
             source = self._variant_config.source
 
+            # For SMP encoder, use standard ImageNet preprocessing via SMP params
+            if (
+                source == ModelSource.CUSTOM
+                and self._variant_config.smp_encoder_name is not None
+            ):
+                import segmentation_models_pytorch as smp
+
+                params = smp.encoders.get_preprocessing_params(
+                    self._variant_config.smp_encoder_name
+                )
+                smp_std = torch.tensor(params["std"]).view(1, 3, 1, 1)
+                smp_mean = torch.tensor(params["mean"]).view(1, 3, 1, 1)
+
+                def custom_preprocess_fn(img: Image.Image) -> torch.Tensor:
+                    preprocess = transforms.Compose(
+                        [
+                            transforms.Resize(256),
+                            transforms.CenterCrop(224),
+                            transforms.ToTensor(),
+                        ]
+                    )
+                    img_tensor = preprocess(img).unsqueeze(0)
+                    return (img_tensor - smp_mean) / smp_std
+
+                self._preprocessor = VisionPreprocessor(
+                    model_source=ModelSource.CUSTOM,
+                    model_name=model_name,
+                    custom_preprocess_fn=custom_preprocess_fn,
+                )
+
             # For TORCHVISION, use standard ImageNet preprocessing
-            if source == ModelSource.TORCHVISION:
+            elif source == ModelSource.TORCHVISION:
 
                 def weight_class_name_fn(name: str) -> str:
                     # Handle efficientnet_b0 -> EfficientNet_B0_Weights
@@ -364,6 +458,15 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Prediction dict with top predictions.
         """
+        # SMP encoder returns a list of feature maps, not classification logits
+        if self._variant_config.smp_encoder_name is not None:
+            if isinstance(output, (list, tuple)):
+                return {
+                    "features": [f.shape for f in output],
+                    "num_stages": len(output),
+                }
+            return {"features": [output.shape], "num_stages": 1}
+
         if self._postprocessor is None:
             model_name = self._variant_config.pretrained_model_name
             source = self._variant_config.source

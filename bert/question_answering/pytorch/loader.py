@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     BERT_LARGE_CASED_WHOLE_WORD_MASKING_FINETUNED_SQUAD = (
         "bert-large-cased-whole-word-masking-finetuned-squad"
     )
+    DEEPSET_BERT_BASE_CASED_SQUAD2 = "deepset-bert-base-cased-squad2"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +41,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.BERT_LARGE_CASED_WHOLE_WORD_MASKING_FINETUNED_SQUAD: LLMModelConfig(
             pretrained_model_name="bert-large-cased-whole-word-masking-finetuned-squad",
+            max_length=384,
+        ),
+        ModelVariant.DEEPSET_BERT_BASE_CASED_SQUAD2: LLMModelConfig(
+            pretrained_model_name="deepset/bert-base-cased-squad2",
             max_length=384,
         ),
     }
@@ -86,10 +91,13 @@ class ModelLoader(ForgeModel):
         """
         if variant_name is None:
             variant_name = "base"
+        group = ModelGroup.GENERALITY
+        if variant_name in (ModelVariant.DEEPSET_BERT_BASE_CASED_SQUAD2,):
+            group = ModelGroup.VULCAN
         return ModelInfo(
             model="BERT",
             variant=variant_name,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.NLP_QA,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,

@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     # Llama 3 variants
     LLAMA_3_8B = "3.0_8B"
     LLAMA_3_8B_INSTRUCT = "3.0_8B_Instruct"
+    LLAMA_3_70B_INSTRUCT = "3.0_70B_Instruct"
 
     # Llama 3.1 variants
     LLAMA_3_1_8B = "3.1_8B"
@@ -41,21 +42,88 @@ class ModelVariant(StrEnum):
     LLAMA_3_1_70B_INSTRUCT = "3.1_70B_Instruct"
     LLAMA_3_1_405B = "3.1_405B"
     LLAMA_3_1_405B_INSTRUCT = "3.1_405B_Instruct"
+    LLAMA_3_1_405B_INSTRUCT_NVFP4 = "3.1_405B_Instruct_NVFP4"
 
     # Llama 3.2 variants
     LLAMA_3_2_1B = "3.2_1B"
     LLAMA_3_2_1B_INSTRUCT = "3.2_1B_Instruct"
     LLAMA_3_2_3B = "3.2_3B"
     LLAMA_3_2_3B_INSTRUCT = "3.2_3B_Instruct"
+    LLAMA_3_2_3B_INSTRUCT_AWQ = "3.2_3B_Instruct_Awq"
+    LLAMA_3_2_3B_INSTRUCT_MLX_8BIT = "3.2_3B_Instruct_MLX_8bit"
+    LLAMA_3_2_3B_BNB_4BIT = "3.2_3B_bnb_4bit"
+    LLAMA_3_2_3B_GPTQ_4BIT = "3.2_3B_Gptq_4bit"
 
     # Llama 3.3 variants
     LLAMA_3_3_70B_INSTRUCT = "3.3_70B_Instruct"
+    LLAMA_3_3_70B_INSTRUCT_AWQ = "3.3_70B_Instruct_Awq"
+    LLAMA_3_3_70B_INSTRUCT_NVFP4 = "3.3_70B_Instruct_Nvfp4"
+
+    # RedHatAI FP8 quantized variants
+    LLAMA_3_8B_INSTRUCT_FP8_KV = "3.0_8B_Instruct_FP8_KV"
+    LLAMA_3_1_70B_INSTRUCT_FP8 = "3.1_70B_Instruct_FP8"
+    LLAMA_3_2_1B_INSTRUCT_FP8 = "3.2_1B_Instruct_FP8"
+    LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC = "3.2_1B_Instruct_FP8_Dynamic"
+    LLAMA_3_1_70B_INSTRUCT_FP8_DYNAMIC = "3.1_70B_Instruct_FP8_Dynamic"
+
+    # RedHatAI NVFP4 quantized variants
+    LLAMA_3_1_8B_INSTRUCT_NVFP4 = "3.1_8B_Instruct_NVFP4"
+
+    # hugging-quants AWQ INT4 quantized variants
+    LLAMA_3_1_8B_INSTRUCT_AWQ_INT4 = "3.1_8B_Instruct_Awq_Int4"
+    LLAMA_3_1_70B_INSTRUCT_AWQ_INT4 = "3.1_70B_Instruct_Awq_Int4"
+
+    # NVIDIA NVFP4 quantized variants
+    LLAMA_3_1_8B_INSTRUCT_NVFP4 = "3.1_8B_Instruct_Nvfp4"
+
+    # Unsloth variants
+    LLAMA_3_1_8B_INSTRUCT_UNSLOTH_BNB_4BIT = "3.1_8B_Instruct_Unsloth_Bnb_4bit"
+    LLAMA_3_1_70B_INSTRUCT_UNSLOTH = "3.1_70B_Instruct_Unsloth"
+
+    # Unsloth BNB 4-bit quantized variants
+    LLAMA_3_2_3B_INSTRUCT_BNB_4BIT = "3.2_3B_Instruct_Bnb_4bit"
+
+    # RedHatAI GPTQ W4A16 quantized variants
+    LLAMA_3_1_8B_INSTRUCT_QUANTIZED_W4A16 = "3.1_8B_Instruct_Quantized_W4A16"
+
+    # unsloth BNB 4-bit quantized variants
+    LLAMA_3_2_1B_BNB_4BIT = "3.2_1B_Bnb_4bit"
+
+    # mlx-community 4-bit quantized variants
+    LLAMA_3_1_8B_INSTRUCT_4BIT = "3.1_8B_Instruct_4bit"
+    LLAMA_3_1_70B_INSTRUCT_4BIT = "3.1_70B_Instruct_4bit"
+
+    # AMD Quark INT8 quantized variants
+    LLAMA_3_1_8B_INSTRUCT_W_INT8_A_INT8_SYM = "3.1_8B_Instruct_W_Int8_A_Int8_Sym"
+
+    # Unsloth BnB 4-bit quantized variants
+    LLAMA_3_1_8B_INSTRUCT_BNB_4BIT = "3.1_8B_Instruct_Bnb_4bit"
+
+    # mlx-community quantized variants
+    LLAMA_3_1_8B_INSTRUCT_MLX_8BIT = "3.1_8B_Instruct_Mlx_8bit"
+
+    # unsloth BnB 4-bit quantized variants
+    LLAMA_3_1_8B_INSTRUCT_BNB_4BIT = "3.1_8B_Instruct_bnb_4bit"
 
     # HuggingFace community variants
     HUGGYLLAMA_7B = "Huggyllama_7B"
 
+    # Llama 2 variants
+    LLAMA_2_7B = "2_7B"
+    LLAMA_2_7B_GPTQ = "2_7B_GPTQ"
+
+    # Unsloth variants
+    UNSLOTH_LLAMA_2_7B = "Unsloth_2_7B"
+
     # TinyLlama variants
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
+    TINYLLAMA_1_1B_CHAT_V0_6 = "TinyLlama_1.1B_Chat_v0.6"
+
+    # JackFram variants
+    JACKFRAM_LLAMA_160M = "JackFram_160M"
+
+    # RLHFlow variants
+    RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA = "RLHFlow_3.1_8B_PRM_Deepseek_Data"
 
 
 class ModelLoader(ForgeModel):
@@ -70,6 +138,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LLAMA_3_8B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Meta-Llama-3-8B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_70B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="meta-llama/Meta-Llama-3-70B-Instruct",
             max_length=128,
         ),
         # Llama 3.1 variants
@@ -97,6 +169,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="meta-llama/Meta-Llama-3.1-405B-Instruct",
             max_length=128,
         ),
+        ModelVariant.LLAMA_3_1_405B_INSTRUCT_NVFP4: LLMModelConfig(
+            pretrained_model_name="nvidia/Llama-3.1-405B-Instruct-NVFP4",
+            max_length=128,
+        ),
         # Llama 3.2 variants
         ModelVariant.LLAMA_3_2_1B: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.2-1B",
@@ -114,9 +190,76 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="meta-llama/Llama-3.2-3B-Instruct",
             max_length=128,
         ),
+        ModelVariant.LLAMA_3_2_3B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="AMead10/Llama-3.2-3B-Instruct-AWQ",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_2_3B_INSTRUCT_MLX_8BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/Llama-3.2-3B-Instruct-8bit",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_2_3B_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/Llama-3.2-3B-bnb-4bit",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_2_3B_GPTQ_4BIT: LLMModelConfig(
+            pretrained_model_name="sliuau/Llama-3.2-3B_4bits_128group_size",
+            max_length=128,
+        ),
+        # RedHatAI FP8 quantized variants
+        ModelVariant.LLAMA_3_8B_INSTRUCT_FP8_KV: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Meta-Llama-3-8B-Instruct-FP8-KV",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_1_70B_INSTRUCT_FP8: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Meta-Llama-3.1-70B-Instruct-FP8",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Llama-3.2-1B-Instruct-FP8",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Llama-3.2-1B-Instruct-FP8-dynamic",
+            max_length=128,
+        ),
+        # RedHatAI NVFP4 quantized variants
+        ModelVariant.LLAMA_3_1_8B_INSTRUCT_NVFP4: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Llama-3.1-8B-Instruct-NVFP4",
+            max_length=128,
+        ),
+        # hugging-quants AWQ INT4 quantized variants
+        ModelVariant.LLAMA_3_1_8B_INSTRUCT_AWQ_INT4: LLMModelConfig(
+            pretrained_model_name="hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
+            max_length=128,
+        ),
+        # mlx-community quantized variants
+        ModelVariant.LLAMA_3_1_8B_INSTRUCT_MLX_8BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/Meta-Llama-3.1-8B-Instruct-8bit",
+            max_length=128,
+        ),
+        # unsloth BnB 4-bit quantized variants
+        ModelVariant.LLAMA_3_1_8B_INSTRUCT_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/Llama-3.1-8B-Instruct-bnb-4bit",
+            max_length=128,
+        ),
         # Llama 3.3 variants
         ModelVariant.LLAMA_3_3_70B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.3-70B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4: LLMModelConfig(
+            pretrained_model_name="nvidia/Llama-3.3-70B-Instruct-NVFP4",
+            max_length=128,
+        ),
+        # Llama 2 variants
+        ModelVariant.LLAMA_2_7B: LLMModelConfig(
+            pretrained_model_name="meta-llama/Llama-2-7b-hf",
+            max_length=128,
+        ),
+        # Unsloth variants
+        ModelVariant.UNSLOTH_LLAMA_2_7B: LLMModelConfig(
+            pretrained_model_name="unsloth/llama-2-7b",
             max_length=128,
         ),
         # HuggingFace community variants
@@ -124,9 +267,28 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="huggyllama/llama-7b",
             max_length=128,
         ),
+        # Yahma variants
+        ModelVariant.YAHMA_LLAMA_7B: LLMModelConfig(
+            pretrained_model_name="yahma/llama-7b-hf",
+            max_length=128,
+        ),
         # TinyLlama variants
         ModelVariant.TINYLLAMA_V1_1: LLMModelConfig(
             pretrained_model_name="TinyLlama/TinyLlama_v1.1",
+            max_length=128,
+        ),
+        ModelVariant.TINYLLAMA_1_1B_CHAT_V0_6: LLMModelConfig(
+            pretrained_model_name="TinyLlama/TinyLlama-1.1B-Chat-v0.6",
+            max_length=128,
+        ),
+        # JackFram variants
+        ModelVariant.JACKFRAM_LLAMA_160M: LLMModelConfig(
+            pretrained_model_name="JackFram/llama-160m",
+            max_length=128,
+        ),
+        # RLHFlow variants
+        ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA: LLMModelConfig(
+            pretrained_model_name="RLHFlow/Llama3.1-8B-PRM-Deepseek-Data",
             max_length=128,
         ),
     }
@@ -168,7 +330,20 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         # Set group based on variant (instruct variants are RED priority except llama_3_8b_instruct and llama_3_1_405b_instruct variant)
-        if (
+        if variant in [
+            ModelVariant.LLAMA_3_8B_INSTRUCT_FP8_KV,
+            ModelVariant.LLAMA_3_1_70B_INSTRUCT_FP8,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
+            ModelVariant.LLAMA_3_1_70B_INSTRUCT_FP8_DYNAMIC,
+            ModelVariant.LLAMA_3_2_3B_INSTRUCT_AWQ,
+            ModelVariant.LLAMA_3_2_3B_INSTRUCT_MLX_8BIT,
+            ModelVariant.LLAMA_3_2_3B_BNB_4BIT,
+            ModelVariant.LLAMA_3_2_3B_GPTQ_4BIT,
+            ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4,
+        ]:
+            group = ModelGroup.VULCAN
+        elif (
             (
                 "instruct" in variant.value
                 and (
@@ -189,6 +364,15 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_1_8B_INSTRUCT,
         ]:
             group = ModelGroup.PRIORITY
+        elif variant in [
+            ModelVariant.LLAMA_2_7B,
+            ModelVariant.UNSLOTH_LLAMA_2_7B,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
+            ModelVariant.AMD_QUARK_TINY_LLAMA,
+            ModelVariant.JACKFRAM_LLAMA_160M,
+            ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA,
+        ]:
+            group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
 
@@ -228,6 +412,10 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    # Variants with NVFP4 quantized weights require ignore_mismatched_sizes
+    # because the packed FP4 weight shapes differ from the model definition.
+    _NVFP4_VARIANTS = {ModelVariant.LLAMA_3_1_405B_INSTRUCT_NVFP4}
+
     def load_model(self, *, dtype_override=None, num_layers=None, **kwargs):
         """Load and return the Llama model instance for this instance's variant.
 
@@ -249,6 +437,15 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        # Check if this is an AWQ or BnB variant and configure accordingly
+        if pretrained_model_name in (
+            "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
+            "unsloth/Llama-3.1-8B-Instruct-bnb-4bit",
+        ):
+            model_kwargs["device_map"] = "cpu"
+        if "mlx-community" in pretrained_model_name:
+            model_kwargs["ignore_mismatched_sizes"] = True
+
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
@@ -405,11 +602,16 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
         if self._variant in [
+            ModelVariant.LLAMA_3_70B_INSTRUCT,
             ModelVariant.LLAMA_3_1_70B,
             ModelVariant.LLAMA_3_1_70B_INSTRUCT,
+            ModelVariant.LLAMA_3_1_70B_INSTRUCT_FP8,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT,
+            ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
+            ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4,
             ModelVariant.LLAMA_3_1_405B,
             ModelVariant.LLAMA_3_1_405B_INSTRUCT,
+            ModelVariant.WHITERABBITNEO_LLAMA_3_1_70B,
         ]:
             if num_devices == 32:  # Galaxy
                 mesh_shape = (4, 8)
@@ -441,7 +643,17 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_1B_INSTRUCT,
             ModelVariant.LLAMA_3_2_3B,
             ModelVariant.LLAMA_3_2_3B_INSTRUCT,
+            ModelVariant.LLAMA_3_2_3B_INSTRUCT_MLX_8BIT,
+            ModelVariant.LLAMA_3_2_3B_GPTQ_4BIT,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
+            ModelVariant.LLAMA_3_2_1B_BNB_4BIT,
             ModelVariant.HUGGYLLAMA_7B,
+            ModelVariant.LLAMA_2_7B,
+            ModelVariant.UNSLOTH_LLAMA_2_7B,
+            ModelVariant.JACKFRAM_LLAMA_160M,
+            ModelVariant.OPENPIPE_PII_REDACT_GENERAL,
+            ModelVariant.FAIRSEQ2_DUMMY_LLAMA_3_2_1B,
         ]:
             return None
 

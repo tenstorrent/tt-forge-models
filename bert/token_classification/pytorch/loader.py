@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
@@ -6,7 +6,7 @@ BERT model loader implementation for token classification.
 """
 
 import torch
-from transformers import BertForTokenClassification, BertTokenizer
+from transformers import AutoTokenizer, BertForTokenClassification
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -25,6 +25,15 @@ class ModelVariant(StrEnum):
     DBMDZ_BERT_LARGE_CASED_FINETUNED_CONLL03_ENGLISH = (
         "dbmdz/bert-large-cased-finetuned-conll03-english"
     )
+    DSLIM_BERT_BASE_NER = "dslim/bert-base-NER"
+    DAVLAN_BERT_BASE_MULTILINGUAL_CASED_NER_HRL = (
+        "Davlan/bert-base-multilingual-cased-ner-hrl"
+    )
+    HATMIMOHA_ARABIC_NER = "hatmimoha/arabic-ner"
+    CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER = (
+        "CAMeL-Lab/bert-base-arabic-camelbert-msa-ner"
+    )
+    P208P2002_ZH_WIKI_PUNCTUATION_RESTORE = "p208p2002/zh-wiki-punctuation-restore"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +43,26 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DBMDZ_BERT_LARGE_CASED_FINETUNED_CONLL03_ENGLISH: LLMModelConfig(
             pretrained_model_name="dbmdz/bert-large-cased-finetuned-conll03-english",
+            max_length=128,
+        ),
+        ModelVariant.DSLIM_BERT_BASE_NER: LLMModelConfig(
+            pretrained_model_name="dslim/bert-base-NER",
+            max_length=128,
+        ),
+        ModelVariant.DAVLAN_BERT_BASE_MULTILINGUAL_CASED_NER_HRL: LLMModelConfig(
+            pretrained_model_name="Davlan/bert-base-multilingual-cased-ner-hrl",
+            max_length=128,
+        ),
+        ModelVariant.HATMIMOHA_ARABIC_NER: LLMModelConfig(
+            pretrained_model_name="hatmimoha/arabic-ner",
+            max_length=128,
+        ),
+        ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER: LLMModelConfig(
+            pretrained_model_name="CAMeL-Lab/bert-base-arabic-camelbert-msa-ner",
+            max_length=128,
+        ),
+        ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE: LLMModelConfig(
+            pretrained_model_name="p208p2002/zh-wiki-punctuation-restore",
             max_length=128,
         ),
     }
@@ -53,8 +82,18 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.model_name = pretrained_model_name
-        self.sample_text = "HuggingFace is a company based in Paris and New York"
-        self.max_length = 128
+        if self._variant in (
+            ModelVariant.HATMIMOHA_ARABIC_NER,
+            ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER,
+        ):
+            self.sample_text = (
+                "إمارة أبوظبي هي إحدى إمارات دولة الإمارات العربية المتحدة السبع"
+            )
+        elif self._variant == ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE:
+            self.sample_text = "在一般情况下句子的结尾要用句号来表示停顿"
+        else:
+            self.sample_text = "HuggingFace is a company based in Paris and New York"
+        self.max_length = self._variant_config.max_length
         self.tokenizer = None
 
     @classmethod
@@ -69,10 +108,22 @@ class ModelLoader(ForgeModel):
         """
         if variant_name is None:
             variant_name = "base"
+
+        group = ModelGroup.GENERALITY
+        if variant_name in (
+            ModelVariant.DAVLAN_BERT_BASE_MULTILINGUAL_CASED_NER_HRL,
+            ModelVariant.DSLIM_BERT_BASE_NER,
+            ModelVariant.DSLIM_BERT_BASE_NER_UNCASED,
+            ModelVariant.HATMIMOHA_ARABIC_NER,
+            ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER,
+            ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE,
+        ):
+            group = ModelGroup.VULCAN
+
         return ModelInfo(
             model="BERT",
             variant=variant_name,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.NLP_TOKEN_CLS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -90,7 +141,7 @@ class ModelLoader(ForgeModel):
         """
 
         # Initialize tokenizer
-        self.tokenizer = BertTokenizer.from_pretrained(self.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         # Load pre-trained model from HuggingFace
         model_kwargs = {}

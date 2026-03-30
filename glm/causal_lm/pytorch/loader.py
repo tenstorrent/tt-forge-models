@@ -29,9 +29,15 @@ from ....tools.utils import (
 class ModelVariant(StrEnum):
     """Available model variants for causal LM."""
 
+    GLM_4_9B_CHAT_HF = "4_9B_Chat_HF"
     GLM_4_7 = "4.7"
+    GLM_4_7_FP8 = "4.7_FP8"
+    GLM_4_7_FLASH = "4.7_Flash"
+    GLM_4_7_FLASH_HERETIC = "4.7_Flash_heretic"
     GLM_4_5 = "4.5"
     GLM_4_5_AIR = "4.5_Air"
+    GLM_5_MXFP4_Q8 = "5_MXFP4_Q8"
+    GLM_Z1_32B_0414 = "Z1_32B_0414"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +45,24 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
+        ModelVariant.GLM_4_9B_CHAT_HF: LLMModelConfig(
+            pretrained_model_name="zai-org/glm-4-9b-chat-hf",
+            max_length=128,
+        ),
         ModelVariant.GLM_4_7: LLMModelConfig(
             pretrained_model_name="zai-org/GLM-4.7",
+            max_length=128,
+        ),
+        ModelVariant.GLM_4_7_FP8: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-4.7-FP8",
+            max_length=128,
+        ),
+        ModelVariant.GLM_4_7_FLASH: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-4.7-Flash",
+            max_length=128,
+        ),
+        ModelVariant.GLM_4_7_FLASH_HERETIC: LLMModelConfig(
+            pretrained_model_name="Olafangensan/GLM-4.7-Flash-heretic",
             max_length=128,
         ),
         ModelVariant.GLM_4_5: LLMModelConfig(
@@ -49,6 +71,14 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GLM_4_5_AIR: LLMModelConfig(
             pretrained_model_name="zai-org/GLM-4.5-Air",
+            max_length=128,
+        ),
+        ModelVariant.GLM_5_MXFP4_Q8: LLMModelConfig(
+            pretrained_model_name="mlx-community/GLM-5-MXFP4-Q8",
+            max_length=128,
+        ),
+        ModelVariant.GLM_Z1_32B_0414: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-Z1-32B-0414",
             max_length=128,
         ),
     }
@@ -89,7 +119,14 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        group = ModelGroup.RED
+        if variant in (
+            ModelVariant.GLM_4_7_FLASH,
+            ModelVariant.GLM_5_MXFP4_Q8,
+            ModelVariant.GLM_Z1_32B_0414,
+        ):
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.RED
         return ModelInfo(
             model="GLM",
             variant=variant,
@@ -98,6 +135,10 @@ class ModelLoader(ForgeModel):
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
+
+    @property
+    def _needs_trust_remote_code(self):
+        return self._variant == ModelVariant.GLM_4_9B_CHAT_1M
 
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
@@ -115,6 +156,8 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        if self._needs_trust_remote_code:
+            tokenizer_kwargs["trust_remote_code"] = True
 
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -147,9 +190,14 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._needs_trust_remote_code:
+            model_kwargs["trust_remote_code"] = True
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config_kwargs = {}
+            if self._needs_trust_remote_code:
+                config_kwargs["trust_remote_code"] = True
+            config = AutoConfig.from_pretrained(pretrained_model_name, **config_kwargs)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
         model_kwargs |= kwargs
@@ -297,8 +345,11 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the model.
         """
+        config_kwargs = {}
+        if self._needs_trust_remote_code:
+            config_kwargs["trust_remote_code"] = True
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
 
         return self.config

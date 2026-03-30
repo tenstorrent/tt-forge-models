@@ -5,7 +5,7 @@
 BERT model loader implementation for sequence classification.
 """
 
-from transformers import BertForSequenceClassification, BertTokenizer
+from transformers import AutoTokenizer, BertForSequenceClassification
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -22,6 +22,14 @@ class ModelVariant(StrEnum):
     """Available BERT model variants for sequence classification."""
 
     TEXTATTACK_BERT_BASE_UNCASED_SST_2 = "Base_Uncased_Sst_2"
+    PROSUSAI_FINBERT = "ProsusAI_FinBERT"
+    NLPTOWN_BERT_BASE_MULTILINGUAL_UNCASED_SENTIMENT = (
+        "nlptown_Bert_Base_Multilingual_Uncased_Sentiment"
+    )
+    TOMH_TOXIGEN_HATEBERT = "tomh_ToxiGen_HateBERT"
+    SASHA_REGARDV3 = "sasha_RegardV3"
+    PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
+    AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
 
 
 class ModelLoader(ForgeModel):
@@ -33,10 +41,50 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="textattack/bert-base-uncased-SST-2",
             max_length=128,
         ),
+        ModelVariant.PROSUSAI_FINBERT: LLMModelConfig(
+            pretrained_model_name="ProsusAI/finbert",
+            max_length=128,
+        ),
+        ModelVariant.NLPTOWN_BERT_BASE_MULTILINGUAL_UNCASED_SENTIMENT: LLMModelConfig(
+            pretrained_model_name="nlptown/bert-base-multilingual-uncased-sentiment",
+            max_length=128,
+        ),
+        ModelVariant.TOMH_TOXIGEN_HATEBERT: LLMModelConfig(
+            pretrained_model_name="tomh/toxigen_hatebert",
+            max_length=128,
+        ),
+        ModelVariant.SASHA_REGARDV3: LLMModelConfig(
+            pretrained_model_name="sasha/regardv3",
+            max_length=128,
+        ),
+        ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: LLMModelConfig(
+            pretrained_model_name="philschmid/tiny-bert-sst2-distilled",
+            max_length=128,
+        ),
+        ModelVariant.AMR_KELEG_NADI2024_BASELINE: LLMModelConfig(
+            pretrained_model_name="AMR-KELEG/NADI2024-baseline",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SST_2
+
+    # Variant-specific tokenizer overrides (when model repo has mismatched tokenizer)
+    _TOKENIZER_OVERRIDES = {
+        ModelVariant.TOMH_TOXIGEN_HATEBERT: "bert-base-uncased",
+    }
+
+    # Variant-specific sample texts
+    _SAMPLE_TEXTS = {
+        ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SST_2: "the movie was great!",
+        ModelVariant.PROSUSAI_FINBERT: "Stocks rallied and the S&P 500 gained 3.1% on the day.",
+        ModelVariant.NLPTOWN_BERT_BASE_MULTILINGUAL_UNCASED_SENTIMENT: "The product quality is excellent and I love it!",
+        ModelVariant.TOMH_TOXIGEN_HATEBERT: "I really enjoyed meeting new people from different cultures.",
+        ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
+        ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
+        ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
+    }
 
     def __init__(self, variant=None):
         """Initialize ModelLoader with specified variant.
@@ -50,8 +98,8 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.model_name = pretrained_model_name
-        self.review = "the movie was great!"
-        self.max_length = 128
+        self.review = self._SAMPLE_TEXTS.get(self._variant, "the movie was great!")
+        self.max_length = self._variant_config.max_length or 128
         self.tokenizer = None
 
     @classmethod
@@ -66,10 +114,20 @@ class ModelLoader(ForgeModel):
         """
         if variant_name is None:
             variant_name = "base"
+        group = ModelGroup.GENERALITY
+        if variant_name in (
+            ModelVariant.PROSUSAI_FINBERT,
+            ModelVariant.NLPTOWN_BERT_BASE_MULTILINGUAL_UNCASED_SENTIMENT,
+            ModelVariant.TOMH_TOXIGEN_HATEBERT,
+            ModelVariant.SASHA_REGARDV3,
+            ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
+            ModelVariant.AMR_KELEG_NADI2024_BASELINE,
+        ):
+            group = ModelGroup.VULCAN
         return ModelInfo(
             model="BERT",
             variant=variant_name,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.NLP_TEXT_CLS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -86,8 +144,9 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The BERT model instance.
         """
 
-        # Initialize tokenizer
-        self.tokenizer = BertTokenizer.from_pretrained(self.model_name)
+        # Initialize tokenizer (use override if model repo has mismatched tokenizer)
+        tokenizer_name = self._TOKENIZER_OVERRIDES.get(self._variant, self.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
         # Load pre-trained model from HuggingFace
         model_kwargs = {}

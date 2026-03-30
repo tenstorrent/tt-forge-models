@@ -20,19 +20,31 @@ from ...base import ForgeModel
 
 
 class ModelVariant(StrEnum):
+    GLINER_BASE = "Base"
     GLINER_LARGEV2 = "Large_v2"
+    GLINER_LARGE_V21 = "Large_v2.1"
     GLINER_MULTI_V21 = "Multi_v2.1"
+    GLINER_MULTI_PII_V1 = "Multi_PII_v1"
 
 
 class ModelLoader(ForgeModel):
     """GLiNER model loader implementation."""
 
     _VARIANTS = {
+        ModelVariant.GLINER_BASE: ModelConfig(
+            pretrained_model_name="urchade/gliner_base"
+        ),
         ModelVariant.GLINER_LARGEV2: ModelConfig(
             pretrained_model_name="urchade/gliner_largev2"
         ),
+        ModelVariant.GLINER_LARGE_V21: ModelConfig(
+            pretrained_model_name="urchade/gliner_large-v2.1"
+        ),
         ModelVariant.GLINER_MULTI_V21: ModelConfig(
             pretrained_model_name="urchade/gliner_multi-v2.1"
+        ),
+        ModelVariant.GLINER_MULTI_PII_V1: ModelConfig(
+            pretrained_model_name="urchade/gliner_multi_pii-v1"
         ),
     }
 
@@ -47,6 +59,8 @@ class ModelLoader(ForgeModel):
 
         if variant in [ModelVariant.GLINER_MULTI_V21]:
             group = ModelGroup.RED
+        elif variant in [ModelVariant.GLINER_MULTI_PII_V1]:
+            group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
 

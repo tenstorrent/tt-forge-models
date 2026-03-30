@@ -9,8 +9,10 @@ from typing import Optional
 from dataclasses import dataclass
 from torchvision import models
 import torch
+import timm
 import os
 from datasets import load_dataset
+import timm
 
 from ...tools.utils import VisionPreprocessor, VisionPostprocessor
 
@@ -59,8 +61,14 @@ class ModelVariant(StrEnum):
     DENSENET169 = "169"
     DENSENET201 = "201"
 
+    # TIMM variants
+    DENSENET121_TV_IN1K_TIMM = "DenseNet121_TV_IN1K_TIMM"
+
     # X-ray variants
     DENSENET121_XRAY = "121_Xray"
+
+    # TIMM variants
+    HF_TIMM_DENSENET201_TV_IN1K = "Timm_DenseNet201_Tv_In1k"
 
 
 class ModelLoader(ForgeModel):
@@ -85,10 +93,20 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="densenet201",
             source=ModelSource.TORCHVISION,
         ),
+        # TIMM variants
+        ModelVariant.DENSENET121_TV_IN1K_TIMM: DenseNetConfig(
+            pretrained_model_name="densenet121.tv_in1k",
+            source=ModelSource.TIMM,
+        ),
         # X-ray variants
         ModelVariant.DENSENET121_XRAY: DenseNetConfig(
             pretrained_model_name="densenet121-res224-all",
             source=ModelSource.TORCH_XRAY_VISION,
+        ),
+        # TIMM variants
+        ModelVariant.HF_TIMM_DENSENET201_TV_IN1K: DenseNetConfig(
+            pretrained_model_name="hf_hub:timm/densenet201.tv_in1k",
+            source=ModelSource.TIMM,
         ),
     }
 
@@ -124,10 +142,17 @@ class ModelLoader(ForgeModel):
         # Get source from variant config
         source = cls._VARIANTS[variant].source
 
+        if variant in [
+            ModelVariant.DENSENET121_TV_IN1K_TIMM,
+        ]:
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
             model="DenseNet",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_CLS,
             source=source,
             framework=Framework.TORCH,
@@ -147,7 +172,10 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
         source = self._variant_config.source
 
-        if source == ModelSource.TORCH_XRAY_VISION:
+        if source == ModelSource.TIMM:
+            # Load model using timm
+            model = timm.create_model(model_name, pretrained=True)
+        elif source == ModelSource.TORCH_XRAY_VISION:
             if not XRAY_AVAILABLE:
                 raise ImportError(
                     "torchxrayvision is required for X-ray models. Install it with: pip install torchxrayvision"

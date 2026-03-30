@@ -22,17 +22,33 @@ from ....tools.utils import cast_input_to_type
 
 
 class ModelVariant(StrEnum):
+    MEDIUM_128K = "Medium_128K_Instruct"
     MINI_128K = "Mini_128K_Instruct"
     MINI_4K = "Mini_4K_Instruct"
+    MINI_4K_GPTQ_4BIT = "Mini_4K_Instruct_GPTQ_4bit"
+    MINI_4K_AWQ = "Mini_4K_Instruct_AWQ"
+    TINY_RANDOM = "Tiny Random"
 
 
 class ModelLoader(ForgeModel):
     _VARIANTS = {
+        ModelVariant.MEDIUM_128K: ModelConfig(
+            pretrained_model_name="microsoft/Phi-3-medium-128k-instruct"
+        ),
         ModelVariant.MINI_128K: ModelConfig(
             pretrained_model_name="microsoft/Phi-3-mini-128k-instruct"
         ),
         ModelVariant.MINI_4K: ModelConfig(
             pretrained_model_name="microsoft/Phi-3-mini-4k-instruct"
+        ),
+        ModelVariant.MINI_4K_GPTQ_4BIT: ModelConfig(
+            pretrained_model_name="kaitchup/Phi-3-mini-4k-instruct-gptq-4bit"
+        ),
+        ModelVariant.MINI_4K_AWQ: ModelConfig(
+            pretrained_model_name="Sreenington/Phi-3-mini-4k-instruct-AWQ"
+        ),
+        ModelVariant.TINY_RANDOM: ModelConfig(
+            pretrained_model_name="optimum-intel-internal-testing/tiny-random-Phi3ForCausalLM"
         ),
     }
 
@@ -56,10 +72,17 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
             variant = cls.DEFAULT_VARIANT
+        group = ModelGroup.RED
+        if variant in (
+            ModelVariant.MEDIUM_128K,
+            ModelVariant.MINI_4K_GPTQ_4BIT,
+            ModelVariant.TINY_RANDOM,
+        ):
+            group = ModelGroup.VULCAN
         return ModelInfo(
             model="Phi-3",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -69,6 +92,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self._variant_config.pretrained_model_name,
+                trust_remote_code=True,
             )
             if self.tokenizer.pad_token is None:
                 self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
@@ -76,13 +100,19 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         self._ensure_tokenizer()
 
-        model_kwargs = {"use_cache": False}
+        model_kwargs = {"use_cache": False, "trust_remote_code": True}
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
                 self._variant_config.pretrained_model_name,
+                trust_remote_code=True,
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+
+        # GPTQ/AWQ variants need device_map="cpu" for CPU-based loading
+        if self._variant in (ModelVariant.MINI_4K_GPTQ_4BIT, ModelVariant.MINI_4K_AWQ):
+            model_kwargs["device_map"] = "cpu"
+
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(

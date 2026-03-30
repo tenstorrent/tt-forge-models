@@ -23,8 +23,12 @@ class ModelVariant(StrEnum):
     """Available OPT model variants."""
 
     OPT_125M = "125M"
+    OPT_125M_OPTIMUM_INTEL = "125M-optimum-intel"
     OPT_350M = "350M"
     OPT_1_3B = "1.3b"
+    OPT_6_7B = "6.7b"
+    TINY_RANDOM = "tiny-random"
+    TINY_RANDOM_EXTENDED_VOCAB = "tiny-random-extended-vocab"
 
 
 class ModelLoader(ForgeModel):
@@ -36,12 +40,28 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="facebook/opt-125m",
             max_length=256,
         ),
+        ModelVariant.OPT_125M_OPTIMUM_INTEL: LLMModelConfig(
+            pretrained_model_name="optimum-intel-internal-testing/opt-125m",
+            max_length=256,
+        ),
         ModelVariant.OPT_350M: LLMModelConfig(
             pretrained_model_name="facebook/opt-350m",
             max_length=256,
         ),
         ModelVariant.OPT_1_3B: LLMModelConfig(
             pretrained_model_name="facebook/opt-1.3b",
+            max_length=256,
+        ),
+        ModelVariant.OPT_6_7B: LLMModelConfig(
+            pretrained_model_name="facebook/opt-6.7b",
+            max_length=256,
+        ),
+        ModelVariant.TINY_RANDOM: LLMModelConfig(
+            pretrained_model_name="peft-internal-testing/tiny-random-OPTForCausalLM",
+            max_length=256,
+        ),
+        ModelVariant.TINY_RANDOM_EXTENDED_VOCAB: LLMModelConfig(
+            pretrained_model_name="peft-internal-testing/tiny-random-OPTForCausalLM-extended-vocab",
             max_length=256,
         ),
     }
@@ -77,10 +97,16 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        group = (
+            ModelGroup.VULCAN
+            if variant
+            in (ModelVariant.TINY_RANDOM, ModelVariant.TINY_RANDOM_EXTENDED_VOCAB)
+            else ModelGroup.GENERALITY
+        )
         return ModelInfo(
             model="OPT",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,

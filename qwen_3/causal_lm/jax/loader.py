@@ -30,10 +30,11 @@ class ModelVariant(StrEnum):
     QWEN_3_0_6B = "0_6B"
     QWEN_3_1_7B = "1_7B"
     QWEN_3_4B = "4B"
+    QWEN_3_4B_INSTRUCT_2507 = "4B_Instruct_2507"
+    QWEN_3_32B = "32B"
     ## Too large
     # QWEN_3_8B = "8B"
     # QWEN_3_14B = "14B"
-    # QWEN_3_32B = "32B"
     # QWEN_3_30B_A3B = "30B A3b"
 
 
@@ -54,6 +55,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-4B",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_4B_INSTRUCT_2507: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-4B-Instruct-2507",
+            max_length=128,
+        ),
         # ModelVariant.QWEN_3_8B: LLMModelConfig(
         #     pretrained_model_name="Qwen/Qwen3-8B",
         #     max_length=128,
@@ -62,10 +67,10 @@ class ModelLoader(ForgeModel):
         #     pretrained_model_name="Qwen/Qwen3-14B",
         #     max_length=128,
         # ),
-        # ModelVariant.QWEN_3_32B: LLMModelConfig(
-        #     pretrained_model_name="Qwen/Qwen3-32B",
-        #     max_length=128,
-        # ),
+        ModelVariant.QWEN_3_32B: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-32B",
+            max_length=128,
+        ),
         # ModelVariant.QWEN_3_30B_A3B: LLMModelConfig(
         #     pretrained_model_name="Qwen/Qwen3-30B-A3B",
         #     max_length=128,
@@ -93,6 +98,11 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_4B,
         ]:
             group = ModelGroup.RED
+        elif variant in [
+            ModelVariant.QWEN_3_32B,
+            ModelVariant.QWEN_3_4B_INSTRUCT_2507,
+        ]:
+            group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
 
