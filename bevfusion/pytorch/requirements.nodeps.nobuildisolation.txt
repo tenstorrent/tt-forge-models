@@ -1,0 +1,7 @@
+# mmcv's setup.py imports pkg_resources which is removed in setuptools>=78.
+# --no-build-isolation forces pip to use the venv's setuptools<78 instead of
+# creating a fresh build env with the latest (incompatible) setuptools.
+# --no-deps avoids pulling incompatible sub-dependencies.
+mmcv==1.4.0
+# mmdet depends on mmcv-full; use --no-deps to avoid that conflict.
+mmdet==2.25.0

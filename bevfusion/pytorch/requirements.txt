@@ -1,4 +1,5 @@
-setuptools
+setuptools<78
+yapf
 torchpack==0.3.1
 numba
 nuscenes-devkit>=1.1.11

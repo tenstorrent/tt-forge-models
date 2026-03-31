@@ -2,8 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""
-BEVFusion model loader implementation.
+"""BEVFusion model loader for tt-forge-models.
 
 BEVFusion is a multi-task, multi-sensor (Camera + LiDAR) fusion framework
 for 3D object detection. This loader clones the upstream repo, applies a
@@ -33,24 +32,6 @@ from ...config import (
 )
 from ...base import ForgeModel
 
-
-def _download_file(url: str, cache_dir: str = None) -> str:
-    """Download a file from URL to a local cache directory, return cached path."""
-    if cache_dir is None:
-        cache_dir = os.path.join(
-            os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
-            "bevfusion", "weights",
-        )
-    os.makedirs(cache_dir, exist_ok=True)
-    url_hash = hashlib.md5(url.encode()).hexdigest()[:10]
-    basename = os.path.basename(url.split("?")[0]) or "weights.pth"
-    local_path = os.path.join(cache_dir, f"{url_hash}_{basename}")
-    if os.path.isfile(local_path):
-        return local_path
-    print(f"[BEVFusion] Downloading {basename} ...")
-    urllib.request.urlretrieve(url, local_path)
-    return local_path
-
 _REPO_URL = "https://github.com/mit-han-lab/bevfusion.git"
 
 _CHECKPOINT_URLS = {
@@ -66,27 +47,35 @@ _CONFIG_PATHS = {
 }
 
 
-class ModelVariant(StrEnum):
-    """Available BEVFusion model variants."""
+def _download_file(url: str, cache_dir: str = None) -> str:
+    """Download a file from URL to a local cache, return the cached path."""
+    if cache_dir is None:
+        cache_dir = os.path.join(
+            os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
+            "bevfusion", "weights",
+        )
+    os.makedirs(cache_dir, exist_ok=True)
+    url_hash = hashlib.md5(url.encode()).hexdigest()[:10]
+    basename = os.path.basename(url.split("?")[0]) or "weights.pth"
+    local_path = os.path.join(cache_dir, f"{url_hash}_{basename}")
+    if not os.path.isfile(local_path):
+        urllib.request.urlretrieve(url, local_path)
+    return local_path
 
+
+class ModelVariant(StrEnum):
     CAMERA_LIDAR = "camera+lidar"
     CAMERA_ONLY = "camera-only"
     LIDAR_ONLY = "lidar-only"
 
 
 class ModelLoader(ForgeModel):
-    """BEVFusion model loader implementation."""
+    """BEVFusion model loader."""
 
     _VARIANTS = {
-        ModelVariant.CAMERA_LIDAR: ModelConfig(
-            pretrained_model_name="bevfusion-det",
-        ),
-        ModelVariant.CAMERA_ONLY: ModelConfig(
-            pretrained_model_name="camera-only-det",
-        ),
-        ModelVariant.LIDAR_ONLY: ModelConfig(
-            pretrained_model_name="lidar-only-det",
-        ),
+        ModelVariant.CAMERA_LIDAR: ModelConfig(pretrained_model_name="bevfusion-det"),
+        ModelVariant.CAMERA_ONLY: ModelConfig(pretrained_model_name="camera-only-det"),
+        ModelVariant.LIDAR_ONLY: ModelConfig(pretrained_model_name="lidar-only-det"),
     }
 
     DEFAULT_VARIANT = ModelVariant.CAMERA_LIDAR
@@ -114,73 +103,77 @@ class ModelLoader(ForgeModel):
         )
 
     def _ensure_repo(self):
-        """Clone the BEVFusion repo and apply the CPU-inference patch."""
-        if os.path.isdir(os.path.join(self._repo_dir, "mmdet3d")):
-            return
+        """Clone the BEVFusion repo, apply the CPU-inference patch, and build extensions."""
+        repo_exists = os.path.isdir(os.path.join(self._repo_dir, "mmdet3d"))
 
-        os.makedirs(self._CACHE_DIR, exist_ok=True)
+        if not repo_exists:
+            os.makedirs(self._CACHE_DIR, exist_ok=True)
 
-        patch_dir = Path(__file__).parent / "patches"
-        patch_file = patch_dir / "cpu-inference.patch"
-        if not patch_file.exists():
-            raise FileNotFoundError(
-                f"CPU-inference patch not found at {patch_file}. "
-                "Ensure patches/cpu-inference.patch is present."
+            patch_file = Path(__file__).parent / "patches" / "cpu-inference.patch"
+            if not patch_file.exists():
+                raise FileNotFoundError(f"CPU-inference patch not found at {patch_file}")
+
+            subprocess.check_call(
+                ["git", "clone", "--depth", "1", _REPO_URL, self._repo_dir],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
-
-        print(f"[BEVFusion] Cloning {_REPO_URL} ...")
-        subprocess.check_call(
-            ["git", "clone", "--depth", "1", _REPO_URL, self._repo_dir],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-        print("[BEVFusion] Applying CPU-inference patch ...")
-        subprocess.check_call(
-            ["git", "am", str(patch_file.resolve())],
-            cwd=self._repo_dir,
-        )
+            subprocess.check_call(
+                ["git", "am", str(patch_file.resolve())],
+                cwd=self._repo_dir,
+            )
 
         self._build_extensions()
 
     def _build_extensions(self):
-        """Build mmcv and BEVFusion C++ extensions (CPU-only)."""
-        print("[BEVFusion] Installing mmcv-full (CPU) — this may take several minutes ...")
-        subprocess.check_call(
-            [
-                sys.executable, "-m", "pip", "install",
-                "mmcv-full==1.4.0",
-                "-f", "https://download.openmmlab.com/mmcv/dist/cpu/torch1.9.0/index.html",
-                "--no-build-isolation",
-                "--quiet",
-            ],
-        )
+        """Build BEVFusion C++ extensions (CPU-only) if not already built."""
+        marker = os.path.join(self._repo_dir, ".cpu_extensions_built")
+        if os.path.isfile(marker):
+            return
 
-        print("[BEVFusion] Building BEVFusion extensions (setup.py develop) ...")
         subprocess.check_call(
             [sys.executable, "setup.py", "develop"],
             cwd=self._repo_dir,
             stdout=subprocess.DEVNULL,
         )
 
+        with open(marker, "w") as f:
+            f.write("done")
+
     def _add_to_path(self):
-        """Add BEVFusion repo to sys.path so its modules are importable."""
         if self._repo_dir not in sys.path:
             sys.path.insert(0, self._repo_dir)
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the BEVFusion model with pretrained weights.
+    @staticmethod
+    def _patch_mmcv_ext_loader():
+        """Patch mmcv's extension loader to handle missing C++ extensions.
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            torch.nn.Module: The BEVFusion model in eval mode.
+        We use mmcv (lite) which lacks compiled C++ ops (mmcv._ext).
+        mmdet eagerly imports mmcv.ops which triggers ext_loader.load_ext().
+        Since BEVFusion has its own CPU fallbacks, we stub out the loader.
         """
+        import types
+        import mmcv.utils.ext_loader as ext_loader
+
+        _original = ext_loader.load_ext
+
+        def _safe_load_ext(name, funcs):
+            try:
+                return _original(name, funcs)
+            except (ImportError, ModuleNotFoundError):
+                dummy = types.ModuleType(name)
+                for fn in funcs:
+                    setattr(dummy, fn, None)
+                return dummy
+
+        ext_loader.load_ext = _safe_load_ext
+
+    def load_model(self, *, dtype_override=None, **kwargs):
         self._ensure_repo()
         self._add_to_path()
 
         warnings.filterwarnings("ignore")
+        self._patch_mmcv_ext_loader()
 
         from torchpack.utils.config import configs
         from mmcv import Config
@@ -198,21 +191,13 @@ class ModelLoader(ForgeModel):
         model = build_model(cfg.model, test_cfg=cfg.get("test_cfg"))
         model.eval()
 
-        ckpt_url = _CHECKPOINT_URLS[variant_key]
-        ckpt_path = _download_file(ckpt_url)
-        ckpt = load_checkpoint(model, ckpt_path, map_location="cpu")
-
-        if "CLASSES" in ckpt.get("meta", {}):
-            model.CLASSES = ckpt["meta"]["CLASSES"]
-
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        ckpt_path = _download_file(_CHECKPOINT_URLS[variant_key])
+        load_checkpoint(model, ckpt_path, map_location="cpu")
 
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1, num_points=30000):
         """Load random inputs matching real nuScenes data shapes.
-
         Shapes match nuScenes Camera+LiDAR data:
             img:               [B, 6, 3, 256, 704]  (6 camera views)
             points:            list of [N, 5] tensors (x, y, z, intensity, ring)
@@ -225,28 +210,25 @@ class ModelLoader(ForgeModel):
             img_aug_matrix:    [B, 6, 4, 4]
             lidar_aug_matrix:  [B, 4, 4]
             metas:             list of dicts
-
         Args:
             dtype_override: Optional torch.dtype for float tensors.
             batch_size: Batch size (default 1).
             num_points: Number of LiDAR points per sample (default 30000).
-
         Returns:
-            dict: Input dictionary that can be unpacked into model(**inputs).
-        """
+            dict: Input dictionary that can be unpacked into model(**inputs)."""
         self._add_to_path()
         from mmdet3d.core.bbox import LiDARInstance3DBoxes
 
-        dt = dtype_override or torch.float32
+        dt = torch.float32
         B = batch_size
-        N = 6  # cameras
+        N = 6
 
         img = torch.randn(B, N, 3, 256, 704, dtype=dt)
 
         points = []
         for _ in range(B):
             pts = torch.randn(num_points, 5, dtype=dt)
-            pts[:, :3] *= 50.0  # realistic spatial range
+            pts[:, :3] *= 50.0
             points.append(pts)
 
         camera2ego = torch.eye(4, dtype=dt).unsqueeze(0).unsqueeze(0).expand(B, N, -1, -1).contiguous()
