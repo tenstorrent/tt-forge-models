@@ -347,7 +347,11 @@ class ModelLoader(ForgeModel):
         return self.tokenizer.decode([next_token])
 
     def get_mesh_config(self, num_devices: int):
-        mesh_shape = (1, num_devices)
+        if num_devices == 32:  # Galaxy
+            mesh_shape = (4, 8)
+        else:
+            mesh_shape = (2, num_devices // 2)
+
         if self._variant not in [
             ModelVariant.MINISTRAL_3B,
         ]:

@@ -306,6 +306,10 @@ class Anchors:
         )  # (feature_map_size[0], )
         z_centers = z_centers[:1] + z_shift  # (1, )
 
+        # Keep z_centers dtype aligned with the other meshgrid inputs.
+        # See https://github.com/tenstorrent/tt-xla/issues/3823.
+
+        z_centers = z_centers.to(x_centers.dtype)
         # [feature_map_size[1], feature_map_size[0], 1, 2] * 4
         meshgrids = torch.meshgrid(x_centers, y_centers, z_centers, rotations)
         meshgrids = list(meshgrids)
