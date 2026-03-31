@@ -123,23 +123,6 @@ class ModelLoader(ForgeModel):
                 cwd=self._repo_dir,
             )
 
-        self._build_extensions()
-
-    def _build_extensions(self):
-        """Build BEVFusion C++ extensions (CPU-only) if not already built."""
-        marker = os.path.join(self._repo_dir, ".cpu_extensions_built")
-        if os.path.isfile(marker):
-            return
-
-        subprocess.check_call(
-            [sys.executable, "setup.py", "develop"],
-            cwd=self._repo_dir,
-            stdout=subprocess.DEVNULL,
-        )
-
-        with open(marker, "w") as f:
-            f.write("done")
-
     def _add_to_path(self):
         if self._repo_dir not in sys.path:
             sys.path.insert(0, self._repo_dir)
@@ -197,25 +180,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1, num_points=30000):
-        """Load random inputs matching real nuScenes data shapes.
-        Shapes match nuScenes Camera+LiDAR data:
-            img:               [B, 6, 3, 256, 704]  (6 camera views)
-            points:            list of [N, 5] tensors (x, y, z, intensity, ring)
-            camera2ego:        [B, 6, 4, 4]
-            lidar2ego:         [B, 4, 4]
-            lidar2camera:      [B, 6, 4, 4]
-            lidar2image:       [B, 6, 4, 4]
-            camera_intrinsics: [B, 6, 4, 4]
-            camera2lidar:      [B, 6, 4, 4]
-            img_aug_matrix:    [B, 6, 4, 4]
-            lidar_aug_matrix:  [B, 4, 4]
-            metas:             list of dicts
-        Args:
-            dtype_override: Optional torch.dtype for float tensors.
-            batch_size: Batch size (default 1).
-            num_points: Number of LiDAR points per sample (default 30000).
-        Returns:
-            dict: Input dictionary that can be unpacked into model(**inputs)."""
+        """Return random inputs matching nuScenes Camera+LiDAR data shapes."""
         self._add_to_path()
         from mmdet3d.core.bbox import LiDARInstance3DBoxes
 
