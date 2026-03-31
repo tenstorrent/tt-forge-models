@@ -1,0 +1,8 @@
+setuptools
+torchpack==0.3.1
+numba
+nuscenes-devkit>=1.1.11
+pyquaternion
+shapely
+opencv-python-headless
+Pillow
