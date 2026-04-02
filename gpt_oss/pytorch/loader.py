@@ -201,8 +201,13 @@ class ModelLoader(ForgeModel):
             mesh_shape = (4, 8)
         elif num_devices == 8:  # llmbox
             mesh_shape = (2, 4)
+        elif num_devices == 4:  # single QB (1x4)
+            mesh_shape = (1, 4)
         else:
-            raise ValueError(f"Gpt-oss is only supported on llmbox and galaxy")
+            raise ValueError(
+                f"Gpt-oss is only supported on single QB (4), llmbox (8) and galaxy (32), "
+                f"got {num_devices} devices"
+            )
 
         return mesh_shape, ("batch", "model")
 
