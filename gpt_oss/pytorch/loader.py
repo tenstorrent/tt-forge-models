@@ -4,6 +4,8 @@
 """
 gpt-oss model loader implementation for causal language modeling tasks.
 """
+import os
+
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import Mxfp4Config
@@ -62,6 +64,7 @@ class ModelLoader(ForgeModel):
             num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
+        # num_layers = 2
         self.config = None
         self.tokenizer = None
         self.num_layers = num_layers
@@ -152,6 +155,21 @@ class ModelLoader(ForgeModel):
 
         return model
 
+    def get_weight_dtype_config_path(self) -> Optional[str]:
+        """Return path to per-tensor weight dtype override JSON for this variant."""
+        config_map = {
+            ModelVariant.GPT_OSS_20B: "gpt-oss-20b.json",
+            ModelVariant.GPT_OSS_120B: "gpt-oss-120b.json",
+        }
+        config_file = config_map.get(self._variant)
+        if config_file:
+            path = os.path.join(
+                os.path.dirname(__file__), "mixed_precision_configs", config_file
+            )
+            if os.path.exists(path):
+                return path
+        return None
+
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the gpt-oss model with this instance's variant settings.
 
@@ -201,6 +219,8 @@ class ModelLoader(ForgeModel):
             mesh_shape = (4, 8)
         elif num_devices == 8:  # llmbox
             mesh_shape = (2, 4)
+        elif num_devices == 4:
+            mesh_shape = (1, 4)
         else:
             raise ValueError(f"Gpt-oss is only supported on llmbox and galaxy")
 
@@ -216,6 +236,22 @@ class ModelLoader(ForgeModel):
             Dictionary mapping model parameters to their shard specifications,
             or None if sharding is not needed for this variant
         """
+        shard_specs = {}
+        shard_specs[model.model.embed_tokens.weight] = (None, None)
+        shard_specs[model.model.norm.weight] = (None,)
+        # shard_specs[model.lm_head.weight] = ("model", None)
+        for layer in model.model.layers:
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", None)
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", None)
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", None)
+            shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
+            shard_specs[layer.self_attn.sinks] = (None,)
+            shard_specs[layer.mlp.experts.gate_up_proj] = (("model"), None, None)
+            shard_specs[layer.mlp.experts.gate_up_proj_bias] = (("model"), None)
+            shard_specs[layer.mlp.experts.down_proj] = (("model"), None, None)
+            shard_specs[layer.mlp.experts.down_proj_bias] = (("model"), None)
+        return shard_specs
+
         shard_specs = {}
 
         # Embedding and output layers
