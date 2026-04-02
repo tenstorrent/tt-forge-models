@@ -121,12 +121,8 @@ def _expert_router_forward(self, hidden_states):
 
     # Force float32 for router.
     router_logits = F.linear(flat, self.weight.float(), self.bias.float())
-    router_top_value, router_indices = torch.topk(
-        router_logits, self.top_k, dim=-1
-    )
-    router_top_value = F.softmax(
-        router_top_value, dim=1, dtype=router_top_value.dtype
-    )
+    router_top_value, router_indices = torch.topk(router_logits, self.top_k, dim=-1)
+    router_top_value = F.softmax(router_top_value, dim=1, dtype=router_top_value.dtype)
 
     router_scores = torch.zeros_like(router_logits).scatter_(
         1, router_indices, router_top_value
