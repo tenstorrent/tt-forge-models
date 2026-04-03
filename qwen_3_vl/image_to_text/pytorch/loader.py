@@ -7,6 +7,7 @@ Qwen 3 model loader implementation for image to text.
 
 from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 from typing import Optional
+from datasets import load_dataset
 
 from ....base import ForgeModel
 from ....config import (
@@ -128,13 +129,16 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
+        ds = load_dataset("huggingface/cats-image", split="test")
+        image = ds[0]["image"].convert("RGB")
+
         messages = [
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
+                        "image": image,
                     },
                     {"type": "text", "text": "Describe this image."},
                 ],

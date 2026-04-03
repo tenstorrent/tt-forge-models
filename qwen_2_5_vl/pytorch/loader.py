@@ -7,7 +7,7 @@ Qwen 2.5 VL model loader implementation for vision-language tasks.
 import torch
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AwqConfig
 from typing import Optional
-
+from datasets import load_dataset
 
 from ...base import ForgeModel
 from ...config import (
@@ -58,18 +58,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.QWEN_2_5_VL_3B_INSTRUCT
 
     # Shared configuration parameters
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "image",
-                    "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                },
-                {"type": "text", "text": "Describe this image."},
-            ],
-        }
-    ]
+    messages = None
 
     # Vision processing parameters
     min_pixels = 56 * 56
@@ -178,6 +167,23 @@ class ModelLoader(ForgeModel):
         # Ensure processor is initialized
         if self.processor is None:
             self._load_processor()
+
+        # Load image from HuggingFace dataset
+        ds = load_dataset("huggingface/cats-image", split="test")
+        image = ds[0]["image"].convert("RGB")
+
+        self.messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "image": image,
+                    },
+                    {"type": "text", "text": "Describe this image."},
+                ],
+            }
+        ]
 
         # Apply chat template to get text prompt
         text = self.processor.apply_chat_template(
