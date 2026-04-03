@@ -154,6 +154,32 @@ class ModelLoader(ForgeModel):
             return (PartitionSpec(),)
 
         return (PartitionSpec(axis_name),)
+
+    def load_parameters_partition_spec(
+        self,
+        model_for_multichip=None,
+        cpu_mesh=None,
+        input_activations_partition_specs=None,
+        inputs=None,
+        dtype_override=None,
+        parallelism=None,
+    ):
+        if model_for_multichip is None or cpu_mesh is None or input_activations_partition_specs is None:
+            raise ValueError(
+                "Multi-chip parameter partition spec requires model_for_multichip, cpu_mesh, and input_activations_partition_specs"
+            )
+
+        from infra.utilities import make_flax_linen_parameters_partition_specs_on_cpu
+
+        if inputs is None:
+            inputs = self.load_inputs(dtype_override=dtype_override, mesh=cpu_mesh)
+
+        return make_flax_linen_parameters_partition_specs_on_cpu(
+            model_for_multichip,
+            cpu_mesh,
+            input_activations_partition_specs,
+            inputs,
+        )
     def load_inputs(self, dtype_override=None, mesh=None, **kwargs):
         """Load and return sample inputs for the ALBERT model with this instance's variant settings.
 
