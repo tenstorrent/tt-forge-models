@@ -143,7 +143,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self, dtype_override=None, mesh=None, **kwargs):
         """Load and return sample inputs for the ALBERT model with this instance's variant settings.
 
         Args:
