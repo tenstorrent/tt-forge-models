@@ -9,6 +9,9 @@ ALBERT model loader implementation for masked language modeling.
 from transformers import FlaxAlbertForMaskedLM, AlbertTokenizer
 from typing import Optional
 
+import numpy as np
+from jax.sharding import PartitionSpec
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -143,6 +146,14 @@ class ModelLoader(ForgeModel):
 
         return model
 
+
+    def get_input_activations_partition_spec(self, mesh, parallelism, axis_name="X"):
+        parallelism_name = getattr(parallelism, "name", str(parallelism))
+        mesh_size = 1 if mesh is None else np.prod(list(mesh.shape.values()))
+        if mesh is None or parallelism_name in {"TENSOR_PARALLEL", "SINGLE_DEVICE"} or mesh_size == 1:
+            return (PartitionSpec(),)
+
+        return (PartitionSpec(axis_name),)
     def load_inputs(self, dtype_override=None, mesh=None, **kwargs):
         """Load and return sample inputs for the ALBERT model with this instance's variant settings.
 
