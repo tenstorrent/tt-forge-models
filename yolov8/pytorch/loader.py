@@ -2,13 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-YOLOv8 model loader implementation
+YOLOv8 model loader — https://github.com/ultralytics/ultralytics
+
+Uses the Ultralytics YOLOv8 implementation directly. The Detect head is set
+to export mode so forward() returns a single (B, 84, N_anchors) tensor
+instead of the non-traceable post-processing dict.
+
+Dynamo config flags are set for fullgraph compilation because Ultralytics'
+make_anchors uses data-dependent scalar ops (aten._local_scalar_dense).
 """
+
 import torch
-import cv2
-import numpy as np
+import torch._dynamo
+from dataclasses import dataclass
 from typing import Optional
-from ...tools.utils import get_file
+
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -19,133 +27,83 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from torch.hub import load_state_dict_from_url
-from torchvision import transforms
-from datasets import load_dataset
-from ...tools.utils import yolo_postprocess
+
+torch._dynamo.config.capture_scalar_outputs = True
+torch._dynamo.config.capture_dynamic_output_shape_ops = True
+
+
+@dataclass
+class YOLOv8Config(ModelConfig):
+    resolution: int = 640
 
 
 class ModelVariant(StrEnum):
-    """Available YOLOv8 model variants."""
-
-    YOLOV8X = "X"
-    YOLOV8N = "N"
+    YOLOV8S_640 = "YOLOv8s_640"
+    YOLOV8L_1280 = "YOLOv8l_1280"
 
 
 class ModelLoader(ForgeModel):
-    """YOLOv8 model loader implementation."""
 
-    # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.YOLOV8X: ModelConfig(
-            pretrained_model_name="yolov8x",
+        ModelVariant.YOLOV8S_640: YOLOv8Config(
+            pretrained_model_name="yolov8s",
+            resolution=640,
         ),
-        ModelVariant.YOLOV8N: ModelConfig(
-            pretrained_model_name="yolov8n",
+        ModelVariant.YOLOV8L_1280: YOLOv8Config(
+            pretrained_model_name="yolov8l",
+            resolution=1280,
         ),
     }
 
-    # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.YOLOV8X
+    DEFAULT_VARIANT = ModelVariant.YOLOV8S_640
 
     def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
         super().__init__(variant)
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Get model information for dashboard and metrics reporting.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
-
-        if variant in [ModelVariant.YOLOV8X]:
-            group = ModelGroup.RED
-        else:
-            group = ModelGroup.GENERALITY
-
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
             model="YOLOv8",
             variant=variant,
-            group=group,
+            group=ModelGroup.RED,
             task=ModelTask.CV_OBJECT_DET,
-            source=ModelSource.CUSTOM,
+            source=ModelSource.GITHUB,
             framework=Framework.TORCH,
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the YOLOv8 model instance with default settings.
+        from ultralytics import YOLO
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
-
-        Returns:
-            torch.nn.Module: The YOLOv8 model instance.
-        """
-        # Get the model name from the instance's variant config
         variant = self._variant_config.pretrained_model_name
-        model = DetectionModel(cfg=weights["model"].yaml)
-        model.load_state_dict(weights["model"].float().state_dict())
-        model.eval()
+        yolo = YOLO(f"{variant}.pt")
+        model = yolo.model.eval()
+        # Export mode on Detect head: bypasses non-traceable post-processing
+        # and returns a clean (B, num_classes+4, anchors) tensor.
+        model.model[-1].export = True
 
-        # Only convert dtype if explicitly requested
         if dtype_override is not None:
             model = model.to(dtype_override)
-
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the YOLOv8 model with default settings.
+        from torchvision import transforms
+        from ...tools.utils import get_file
 
-        Args:
-            dtype_override: Optional torch.dtype to override the inputs' default dtype.
-                           If not provided, inputs will use the default dtype (typically float32).
-            batch_size: Optional batch size to override the default batch size of 1.
+        cfg = self._variant_config
+        image_path = str(get_file("https://ultralytics.com/images/bus.jpg"))
 
-        Returns:
-            torch.Tensor: Sample input tensor that can be fed to the model.
-        """
+        from PIL import Image
+        image = Image.open(image_path).convert("RGB")
 
-        # Load sample image and preprocess
-        dataset = load_dataset("huggingface/cats-image", split="test[:1]")
-        image = dataset[0]["image"]
-        preprocess = transforms.Compose(
-            [
-                transforms.Resize((640, 640)),
-                transforms.ToTensor(),
-            ]
-        )
+        preprocess = transforms.Compose([
+            transforms.Resize((cfg.resolution, cfg.resolution)),
+            transforms.ToTensor(),
+        ])
         batch_tensor = preprocess(image).unsqueeze(0)
-
-        # Replicate tensors for batch size
         batch_tensor = batch_tensor.repeat_interleave(batch_size, dim=0)
 
-        # Only convert dtype if explicitly requested
         if dtype_override is not None:
             batch_tensor = batch_tensor.to(dtype_override)
-
         return batch_tensor
-
-    def post_process(self, co_out):
-        """Post-process YOLOv8 model outputs to extract detection results.
-
-        Args:
-            co_out: Raw model output tensor from YOLOv8 forward pass.
-
-        Returns:
-            Post-processed detection results.
-        """
-        return yolo_postprocess(co_out)
