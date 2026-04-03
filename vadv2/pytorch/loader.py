@@ -80,6 +80,7 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: A dictionary of input tensors and metadata suitable for the model.
         """
+
         input_dict = {
             "img_metas": [
                 [
