@@ -25,6 +25,7 @@ from ...config import (
 )
 from ...base import ForgeModel
 from ...tools.utils import get_file
+from datasets import load_dataset
 
 from .src.utils import (
     load_lane_detection_model,
@@ -201,22 +202,11 @@ class ModelLoader(ForgeModel):
 
         return self.model
 
-    def _get_sample_image_path(self) -> Optional[str]:
-        """Get sample image path for the dataset using get_file."""
-        dataset = self.config.dataset
-        sample_image_key = self.SAMPLE_IMAGE_PATHS.get(dataset)
-
-        if not sample_image_key:
-            return None
-
-        try:
-            sample_image_path = str(get_file(sample_image_key))
-            if os.path.exists(sample_image_path):
-                return sample_image_path
-        except Exception as e:
-            print(f"Warning: Could not get sample image: {e}")
-
-        return None
+    def _get_sample_image(self):
+        """Load sample image from HuggingFace dataset."""
+        ds = load_dataset("huggingface/cats-image", split="test")
+        pil_image = ds[0]["image"].convert("RGB")
+        return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
 
     def input_preprocess(self, dtype_override=None, batch_size=1, image=None):
         """Preprocess input image(s) and return model-ready input tensor.
@@ -229,22 +219,9 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Preprocessed input tensor [batch_size, 3, H, W].
         """
-        # If no image provided, use default sample image for the dataset
+        # If no image provided, load sample image from HuggingFace dataset
         if image is None:
-            dataset = self.config.dataset
-            sample_image_path = self._get_sample_image_path()
-
-            if sample_image_path and os.path.exists(sample_image_path):
-                print(
-                    f"Using predefined sample image for {dataset} dataset: {sample_image_path}"
-                )
-                image = cv2.imread(sample_image_path)
-            else:
-                expected_image = self.SAMPLE_IMAGE_PATHS.get(dataset)
-                raise FileNotFoundError(
-                    f"Sample image not found for {dataset} dataset. "
-                    f"Expected: {expected_image}"
-                )
+            image = self._get_sample_image()
 
         # Convert image to numpy array (BGR format) if needed
         if isinstance(image, Image.Image):
