@@ -9,6 +9,8 @@ ALBERT model loader implementation for masked language modeling.
 from transformers import FlaxAlbertForMaskedLM, AlbertTokenizer
 from typing import Optional
 
+import jax
+
 import numpy as np
 from jax.sharding import PartitionSpec
 
@@ -164,22 +166,17 @@ class ModelLoader(ForgeModel):
         dtype_override=None,
         parallelism=None,
     ):
-        if model_for_multichip is None or cpu_mesh is None or input_activations_partition_specs is None:
-            raise ValueError(
-                "Multi-chip parameter partition spec requires model_for_multichip, cpu_mesh, and input_activations_partition_specs"
-            )
+        if model_for_multichip is None:
+            raise ValueError("Multi-chip parameter partition spec requires model_for_multichip")
 
-        from infra.utilities import make_flax_linen_parameters_partition_specs_on_cpu
+        if not hasattr(model_for_multichip, "params"):
+            raise ValueError("Flax HF multichip partition spec requires model params on the loaded model")
 
-        if inputs is None:
-            inputs = self.load_inputs(dtype_override=dtype_override, mesh=cpu_mesh)
+        # HuggingFace FlaxPreTrainedModel instances like ALBERT do not expose linen.Module.init.
+        # For these families, start with fully replicated parameter specs so the multichip path
+        # can compile and run without assuming a Linen-style initialization contract.
+        return jax.tree_util.tree_map(lambda _: PartitionSpec(), model_for_multichip.params)
 
-        return make_flax_linen_parameters_partition_specs_on_cpu(
-            model_for_multichip,
-            cpu_mesh,
-            input_activations_partition_specs,
-            inputs,
-        )
     def load_inputs(self, dtype_override=None, mesh=None, **kwargs):
         """Load and return sample inputs for the ALBERT model with this instance's variant settings.
 
