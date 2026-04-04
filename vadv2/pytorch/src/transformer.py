@@ -308,6 +308,12 @@ class VADPerceptionTransformer(nn.Module):
             prev_bev=prev_bev,
             **kwargs,
         )  # bev_embed shape: bs, bev_h*bev_w, embed_dims
+        bev_spatial_shapes = torch.tensor(
+            [[bev_h, bev_w]], device=bev_embed.device, dtype=torch.long
+        )
+        bev_level_start_index = torch.tensor(
+            [0], device=bev_embed.device, dtype=torch.long
+        )
 
         bs = mlvl_feats[0].size(0)
         query_pos, query = torch.split(object_query_embed, self.embed_dims, dim=1)
@@ -340,8 +346,8 @@ class VADPerceptionTransformer(nn.Module):
                 reference_points=reference_points,
                 reg_branches=reg_branches,
                 cls_branches=cls_branches,
-                spatial_shapes=torch.tensor([[bev_h, bev_w]]),
-                level_start_index=torch.tensor([0]),
+                spatial_shapes=bev_spatial_shapes,
+                level_start_index=bev_level_start_index,
                 **kwargs,
             )
             inter_references_out = inter_references
@@ -359,8 +365,8 @@ class VADPerceptionTransformer(nn.Module):
                 reference_points=map_reference_points,
                 reg_branches=map_reg_branches,
                 cls_branches=map_cls_branches,
-                spatial_shapes=torch.tensor([[bev_h, bev_w]]),
-                level_start_index=torch.tensor([0]),
+                spatial_shapes=bev_spatial_shapes,
+                level_start_index=bev_level_start_index,
                 **kwargs,
             )
             map_inter_references_out = map_inter_references
@@ -835,10 +841,10 @@ class BEVFormerEncoder(nn.Module):
             dim="3d",
             bs=bev_query.size(1),
             dtype=bev_query.dtype,
-        )
+        ).to(bev_query.device)
         ref_2d = self.get_reference_points(
             bev_h, bev_w, dim="2d", bs=bev_query.size(1), dtype=bev_query.dtype
-        )
+        ).to(bev_query.device)
 
         reference_points_cam, bev_mask = self.point_sampling(
             ref_3d, self.pc_range, kwargs["img_metas"]
@@ -2457,8 +2463,12 @@ class BEVFormerLayer(MyCustomBaseTransformerLayer):
                     attn_mask=attn_masks[attn_index],
                     key_padding_mask=query_key_padding_mask,
                     reference_points=ref_2d,
-                    spatial_shapes=torch.tensor([[bev_h, bev_w]]),
-                    level_start_index=torch.tensor([0]),
+                    spatial_shapes=torch.tensor(
+                        [[bev_h, bev_w]], device=query.device, dtype=torch.long
+                    ),
+                    level_start_index=torch.tensor(
+                        [0], device=query.device, dtype=torch.long
+                    ),
                     **kwargs,
                 )
                 attn_index += 1

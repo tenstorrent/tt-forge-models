@@ -216,6 +216,15 @@ class VAD(MVXTwoStageDetector):
             if not isinstance(var, list):
                 raise TypeError("{} must be a list, but got {}".format(name, type(var)))
         img = [img] if img is None else img
+        # # Keep test-time API compatible with both:
+        # # - img as Tensor [bs, num_cam, C, H, W]
+        # # - img as list (multi-augmentation style)
+        # # Without this normalization, passing a raw Tensor makes img[0] drop
+        # # batch dim and swaps semantics (bs<->num_cam) downstream.
+        # if img is None:
+        #     img = [img]
+        # elif not isinstance(img, list):
+        #     img = [img]
 
         if img_metas[0][0][0]["scene_token"] != self.prev_frame_info["scene_token"]:
             # the first sample of each scene is truncated
@@ -228,8 +237,15 @@ class VAD(MVXTwoStageDetector):
             self.prev_frame_info["prev_bev"] = None
 
         # Get the delta of ego position and angle between two timestamps.
-        tmp_pos = copy.deepcopy(img_metas[0][0][0]["can_bus"][:3])
-        tmp_angle = copy.deepcopy(img_metas[0][0][0]["can_bus"][-1])
+        # Use clone() for tensors to avoid copy.deepcopy triggering Tensor.__deepcopy__
+        # through TorchFunctionMode, which causes dynamo tracing failures.
+        _can_bus = img_metas[0][0][0]["can_bus"]
+        if isinstance(_can_bus, torch.Tensor):
+            tmp_pos = _can_bus[:3].clone()
+            tmp_angle = _can_bus[-1].clone()
+        else:
+            tmp_pos = copy.deepcopy(_can_bus[:3])
+            tmp_angle = copy.deepcopy(_can_bus[-1])
         if self.prev_frame_info["prev_bev"] is not None:
             img_metas[0][0][0]["can_bus"][:3] -= self.prev_frame_info["prev_pos"]
             img_metas[0][0][0]["can_bus"][-1] -= self.prev_frame_info["prev_angle"]
@@ -284,6 +300,17 @@ class VAD(MVXTwoStageDetector):
     ):
         """Test function without augmentaiton."""
         img_feats = self.extract_feat(img=img, img_metas=img_metas)
+        # The TT/XLA backend may return feature maps with batch and camera dims
+        # transposed: (num_cam, bs, C, H, W) instead of (bs, num_cam, C, H, W).
+        # This occurs because view(1, N, C, H, W) on a (N, C, H, W) tensor gets
+        # compiled as a reshape that the TT device executes with swapped leading dims.
+        # Detect and correct before downstream code observes the wrong shape.
+        img_feats = [
+            feat.permute(1, 0, 2, 3, 4).contiguous()
+            if feat.dim() == 5 and feat.size(0) != 1 and feat.size(1) == 1
+            else feat
+            for feat in img_feats
+        ]
         bbox_list = [dict() for i in range(len(img_metas))]
         new_prev_bev, bbox_pts, metric_dict = self.simple_test_pts(
             img_feats,
@@ -372,7 +399,9 @@ class VAD(MVXTwoStageDetector):
         assert len(bbox_results) == 1, "only support batch_size=1 now"
         score_threshold = 0.6
         with torch.no_grad():
-            c_bbox_results = copy.deepcopy(bbox_results)
+            # Avoid deepcopy on tensor-containing structures under torch.compile/Dynamo.
+            # We only rebind dict entries below, so a shallow structural copy is sufficient.
+            c_bbox_results = [dict(bbox_result) for bbox_result in bbox_results]
 
             bbox_result = c_bbox_results[0]
             gt_bbox = gt_bboxes_3d[0][0][0]
