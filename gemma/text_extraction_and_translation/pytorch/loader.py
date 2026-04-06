@@ -118,10 +118,12 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {"return_dict": False}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+        # Gemma3 ImageTextToText breaks with config return_dict=False (tuple vs ModelOutput).
+        # model_kwargs["return_dict"] = True
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
