@@ -1069,25 +1069,25 @@ class BEVFormer(MVXTwoStageDetector):
             float(img_metas[0][0]["can_bus"][2]),
         ]
         tmp_angle = float(img_metas[0][0]["can_bus"][-1])
-        if self.prev_frame_info["prev_bev"] is not None:
-            can_bus = img_metas[0][0]["can_bus"]
-            can_bus[:3] = [
-                float(can_bus[0]) - float(self.prev_frame_info["prev_pos"][0]),
-                float(can_bus[1]) - float(self.prev_frame_info["prev_pos"][1]),
-                float(can_bus[2]) - float(self.prev_frame_info["prev_pos"][2]),
-            ]
-            can_bus[-1] = float(can_bus[-1]) - float(self.prev_frame_info["prev_angle"])
-        else:
-            img_metas[0][0]["can_bus"][-1] = 0
-            img_metas[0][0]["can_bus"][:3] = 0
-
-        # Convert can_bus from numpy to a tensor on the model's device so that
-        # the compiled graph fragment for simple_test receives a properly placed
-        # tensor instead of a CPU tensor (which breaks XLA graph partitioning).
+        # Keep can_bus as a tensor on the model device before any in-place edits.
+        # Using Python-list slice assignment on an XLA tensor can introduce CPU
+        # values into the graph and trigger device propagation failures.
         _dev = next(self.parameters()).device
-        img_metas[0][0]["can_bus"] = torch.as_tensor(
-            img_metas[0][0]["can_bus"], dtype=torch.float64
-        ).to(_dev)
+        can_bus = torch.as_tensor(img_metas[0][0]["can_bus"], dtype=torch.float64).to(
+            _dev
+        )
+        can_bus = can_bus.clone()
+
+        if self.prev_frame_info["prev_bev"] is not None:
+            prev_pos = can_bus.new_tensor(self.prev_frame_info["prev_pos"])
+            prev_angle = can_bus.new_tensor(self.prev_frame_info["prev_angle"])
+            can_bus[:3] = can_bus[:3] - prev_pos
+            can_bus[-1] = can_bus[-1] - prev_angle
+        else:
+            can_bus[:3] = 0.0
+            can_bus[-1] = 0.0
+
+        img_metas[0][0]["can_bus"] = can_bus
 
         new_prev_bev, bbox_results = self.simple_test(
             img_metas[0], img[0], prev_bev=self.prev_frame_info["prev_bev"], **kwargs
