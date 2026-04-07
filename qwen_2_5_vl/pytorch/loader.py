@@ -139,7 +139,7 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
+        model_kwargs = {"low_cpu_mem_usage": True}
 
         # Check if this is an AWQ variant and configure accordingly
         if pretrained_model_name in [
@@ -160,6 +160,9 @@ class ModelLoader(ForgeModel):
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        # transformers 5.x no longer accepts use_cache as a from_pretrained kwarg;
+        # set it on the config directly after loading instead.
+        model.config.use_cache = False
         model.eval()
         model = Wrapper(model)
 
