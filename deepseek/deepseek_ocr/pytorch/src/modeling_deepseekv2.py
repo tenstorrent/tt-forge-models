@@ -613,6 +613,7 @@ class DeepseekV2Model(DeepseekV2PreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
+        early_stop: str = "",
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         output_attentions = (
             output_attentions
@@ -654,7 +655,8 @@ class DeepseekV2Model(DeepseekV2PreTrainedModel):
             if use_legacy_cache:
                 past_key_values = DynamicCache.from_legacy_cache(past_key_values)
             past_key_values_length = past_key_values.get_usable_length(seq_length)
-
+        if early_stop == "before_position_ids":
+            return (inputs_embeds,)
         if position_ids is None:
             device = input_ids.device if input_ids is not None else inputs_embeds.device
             position_ids = torch.arange(
@@ -664,7 +666,8 @@ class DeepseekV2Model(DeepseekV2PreTrainedModel):
                 device=device,
             )
             position_ids = position_ids.unsqueeze(0)
-
+        if early_stop == "after_position_ids":
+            return (inputs_embeds, position_ids)
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 

@@ -53,7 +53,7 @@ class DeepseekOCRModel(DeepseekV2Model):
         images_seq_mask: Optional[torch.FloatTensor] = None,
         images_spatial_crop: Optional[torch.FloatTensor] = None,
         return_dict: Optional[bool] = None,
-        early_stop: bool = False,
+        early_stop: str = "",
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         if inputs_embeds is None:
             inputs_embeds = self.get_input_embeddings()(input_ids)
@@ -175,10 +175,6 @@ class DeepseekOCRModel(DeepseekV2Model):
 
                 if images_in_this_batch:
                     images_in_this_batch = torch.cat(images_in_this_batch, dim=0)
-                    # inputs_embeds[idx].masked_scatter_(
-                    #     images_seq_mask[idx].unsqueeze(-1),
-                    #     images_in_this_batch,
-                    # )
                     # Decomposed masked_scatter_ to avoid introduction of dynamic shapes.
                     # https://github.com/tenstorrent/tt-xla/issues/3316
                     mask = images_seq_mask[idx].unsqueeze(-1)
@@ -189,7 +185,6 @@ class DeepseekOCRModel(DeepseekV2Model):
                     # Convert bool mask to int for cumsum
                     mask_i = mask_flat.long()
                     source_idx = torch.cumsum(mask_i, 0) - 1
-                    
                     source_idx = torch.clamp(source_idx, 0, source_flat.shape[0] - 1)
                     # Gather source values for all positions (dummy values at False positions)
                     gathered = source_flat[source_idx]
@@ -197,7 +192,7 @@ class DeepseekOCRModel(DeepseekV2Model):
                     inputs_embeds[idx] = result_flat.view_as(inputs_embeds[idx])
 
                 idx += 1
-        if early_stop:
+        if early_stop == "before_super":
             return (inputs_embeds,)
         return super(DeepseekOCRModel, self).forward(
             input_ids=None,
@@ -209,6 +204,7 @@ class DeepseekOCRModel(DeepseekV2Model):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
+            early_stop=early_stop
         )
 
 
@@ -240,7 +236,7 @@ class DeepseekOCRForCausalLM(DeepseekV2ForCausalLM):
         images_seq_mask: Optional[torch.FloatTensor] = None,
         images_spatial_crop: Optional[torch.FloatTensor] = None,
         return_dict: Optional[bool] = None,
-        early_stop: bool = False,
+        early_stop: str = "",
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         output_attentions = (
             output_attentions
@@ -272,7 +268,7 @@ class DeepseekOCRForCausalLM(DeepseekV2ForCausalLM):
             early_stop=early_stop,
         )
         if early_stop:
-            return outputs
+            return outputs  # tuple from early-return point
 
         hidden_states = outputs[0]
         logits = self.lm_head(hidden_states)
