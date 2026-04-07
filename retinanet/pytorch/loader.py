@@ -197,7 +197,6 @@ class ModelLoader(ForgeModel):
         # Configuration parameters
         self._cleanup_files = []  # Track files to cleanup
         self.image_sizes = None
-        self.original_image_sizes = None
 
     def _download_nvidia_model(self, variant_name):
         """Download and extract NVIDIA RetinaNet model."""
@@ -317,7 +316,6 @@ class ModelLoader(ForgeModel):
 
         # Store image sizes for postprocessing
         self.image_sizes = [(batch_t.shape[2], batch_t.shape[3])]
-        self.original_image_sizes = [(batch_t.shape[2], batch_t.shape[3])]
 
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
@@ -344,7 +342,7 @@ class ModelLoader(ForgeModel):
             head_outputs, anchors, self.image_sizes
         )
         detections = self.model.transform.postprocess(
-            detections, self.image_sizes, self.original_image_sizes
+            detections, self.image_sizes, self.image_sizes
         )
         return detections
 
