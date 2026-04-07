@@ -1,0 +1,256 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+"""Base class for model loaders.
+
+This module provides the ForgeModel base class with common functionality
+for loading models, inputs, etc.
+"""
+import inspect
+import os
+import warnings
+from abc import ABC, abstractmethod
+from typing import Dict, Optional, Union, Type, Any
+
+from .config import ModelConfig, ModelInfo, StrEnum
+from .training_utils import unpack_forward_output
+import torch
+
+
+class ForgeModel(ABC):
+    """Base class for all TT-Forge model loaders."""
+
+    # This is intended to be overridden by subclasses to define available model variants
+    # Format: {ModelVariant: ModelConfig(...), ...}
+    _VARIANTS: Dict[
+        StrEnum, ModelConfig
+    ] = {}  # Empty by default for models without variants
+    DEFAULT_VARIANT = None
+
+    def __init__(self, variant=None):
+        """Initialize a ForgeModel instance.
+
+        Args:
+            variant: Optional StrEnum value specifying which variant to use.
+                    If None, the default variant will be used.
+        """
+        # Validate and store the variant for this instance
+        self._variant = self._validate_variant(variant)
+
+        # Cache the variant configuration for efficiency
+        self._variant_config = self.get_variant_config(variant)
+
+    @classmethod
+    def query_available_variants(cls) -> Dict[StrEnum, ModelConfig]:
+        """Returns a dictionary of available model variants and their configs.
+
+        Returns:
+            Dict[StrEnum, ModelConfig]:
+                Mapping of variant enum members to their ModelConfig,
+                or an empty dict if the model doesn't support variants.
+
+        """
+        if not cls._VARIANTS:
+            return {}
+        return cls._VARIANTS
+
+    @classmethod
+    def _validate_variant(cls, variant: Optional[StrEnum] = None) -> Optional[StrEnum]:
+        """Validates and returns the variant to use.
+
+        Args:
+            variant: Optional StrEnum specifying which variant to validate.
+
+        Returns:
+            StrEnum or None: Validated variant, or None for models without variants.
+
+        Raises:
+            TypeError: If caller passed something other than StrEnum/Variants
+            ValueError: If the specified variant doesn't exist.
+
+        """
+
+        # If model doesn't support variants, return None
+        if not cls._VARIANTS:
+            return None
+
+        # Use default if none specified
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
+
+        # Enforce user provided correct variant type (same as default variant)
+        if not isinstance(variant, type(cls.DEFAULT_VARIANT)):
+            raise TypeError(
+                f"variant must be a {type(cls.DEFAULT_VARIANT).__name__}, not {type(variant).__name__}"
+            )
+
+        # Validate the variant exists
+        if variant not in cls._VARIANTS:
+            valid_variants = [v.value for v in cls._VARIANTS.keys()]
+            raise ValueError(
+                f"Invalid variant '{variant}'. Available variants: {valid_variants}"
+            )
+
+        return variant
+
+    @classmethod
+    def get_variant_config(
+        cls, variant: Optional[StrEnum] = None
+    ) -> Optional[ModelConfig]:
+        """Get configuration for a specific variant after validation.
+
+        Args:
+            variant: Optional StrEnum specifying which variant to get config for.
+
+        Returns:
+            ModelConfig or None: Variant configuration object, or None for models without variants.
+        """
+        variant = cls._validate_variant(variant)
+        if variant is None:
+            return None
+
+        return cls._VARIANTS[variant]
+
+    @classmethod
+    def get_model_info(cls, variant: Optional[StrEnum] = None) -> ModelInfo:
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant: Optional StrEnum specifying which variant to get info for.
+                     If None, DEFAULT_VARIANT is used.
+
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        variant_enum = cls._validate_variant(variant)
+        return cls._get_model_info(variant_enum)
+
+    @classmethod
+    @abstractmethod
+    def _get_model_info(cls, variant: Optional[StrEnum] = None) -> ModelInfo:
+        """Implementation method for getting model info with validated variant.
+
+        Args:
+            variant: Optional StrEnum specifying which variant to get info for.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        raise NotImplementedError("Subclasses must implement _get_model_info")
+
+    @abstractmethod
+    def load_model(self, **kwargs):
+        """Load and return the model instance using this instance's variant.
+
+        Args:
+            **kwargs: Additional model-specific arguments.
+
+        Returns:
+            torch.nn.Module: The model instance
+        """
+        pass
+
+    @abstractmethod
+    def load_inputs(self, **kwargs):
+        """Load and return sample inputs for the model using this instance's variant.
+
+        Args:
+            **kwargs: Additional input-specific arguments.
+
+        Returns:
+            Any: Sample inputs that can be fed to the model
+        """
+        pass
+
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        """Unpack forward pass output for further analysis.
+
+        Currently this method is only called in training mode, after the forward pass and before the backward pass.
+
+        Args:
+            fwd_output: Output from the forward pass
+
+        Returns:
+            torch.Tensor: Tensor that can be fed to the backward pass
+        """
+        return unpack_forward_output(fwd_output)
+
+    @classmethod
+    def decode_output(cls, **kwargs):
+        """Decode model outputs into a human-readable format if applicable.
+
+        This method is optional - only text-based models typically need it.
+        Default implementation returns the outputs unchanged.
+
+        Args:
+            **kwargs: Model-specific arguments like outputs, inputs, etc.
+
+        Returns:
+            Any: Decoded outputs or raw outputs if decoding is not implemented
+        """
+        # Default implementation just returns outputs if present in kwargs
+        return kwargs.get("outputs", None)
+
+    def get_mesh_config(self, num_devices: int):
+        """Get the mesh shape for the model.
+
+        Args:
+            num_devices: Number of devices to distribute the model across
+
+        Returns:
+            tuple: Mesh shape tuple, mesh names tuple, or None if not applicable for this model
+        """
+        return None, ()
+
+    def load_shard_spec(self, model):
+        """Load the shard spec of the model. Note: model needs to be on device first.
+
+        Args:
+            model: The model instance (should be on device)
+
+        Returns:
+            Dict[Tensor, Tuple(str, str)]: Shard specification object, or None if not applicable for this model
+        """
+        return None
+
+    def load_config(self, **kwargs):
+        """Load and return the model configuration using this instance's variant.
+
+        Args:
+            **kwargs: Additional config-specific arguments.
+
+        Returns:
+            Any: Model configuration object
+        """
+        return None
+
+    def get_weight_dtype_config_path(self) -> Optional[str]:
+        """Return path to a per-variant weight dtype override JSON, if it exists.
+
+        Looks for mixed_precision_configs/{hf_model_name}.json relative to this
+        loader's directory, where hf_model_name is the part after '/' in the
+        pretrained_model_name (e.g. "Mistral-7B-Instruct-v0.3").
+
+        Returns:
+            Absolute path to the JSON file, or None if not found.
+        """
+        if self._variant is None:
+            return None
+        variant_config = self.get_variant_config(self._variant)
+        if variant_config is None or not hasattr(
+            variant_config, "pretrained_model_name"
+        ):
+            return None
+        hf_model_name = variant_config.pretrained_model_name.split("/")[-1]
+        loader_dir = os.path.dirname(os.path.abspath(inspect.getfile(self.__class__)))
+        config_dir = os.path.join(loader_dir, "mixed_precision_configs")
+        config_path = os.path.join(config_dir, f"{hf_model_name}.json")
+        if os.path.exists(config_path):
+            return config_path
+        if os.path.isdir(config_dir):
+            warnings.warn(
+                f"Weight dtype config not found at {config_path}. "
+                f"Available configs: {os.listdir(config_dir)}"
+            )
+        return None
