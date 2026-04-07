@@ -368,7 +368,7 @@ class ModelLoader(ForgeModel):
         )
 
     def get_input_sharding(self):
-        """Return sharding spec for input_ids on the Galaxy (4×8) mesh.
+        """Return sharding spec for input_ids on the Galaxy (4x8) mesh.
 
         DeepSeek's MoE layer uses all_to_all_dispatch which assumes that the
         batch dimension of the hidden states is split across the model axis
@@ -443,8 +443,8 @@ class ModelLoader(ForgeModel):
                 None,
                 "batch",
             )  # [kv_lora_rank+rope_hd, dim]
-            shard_specs[attn.q_norm.weight] = (None,)
-            shard_specs[attn.kv_norm.weight] = (None,)
+            # shard_specs[attn.q_norm.weight] = (None,)
+            # shard_specs[attn.kv_norm.weight] = (None,)
             shard_specs[attn.wq_b.weight] = (
                 "batch",
                 None,
@@ -466,8 +466,8 @@ class ModelLoader(ForgeModel):
                     None,
                 )  # [n_idx_heads*idx_hd, q_lora_rank]
                 shard_specs[idx.wk.weight] = (None, "batch")  # [idx_hd, dim]
-                shard_specs[idx.k_norm.weight] = (None,)
-                shard_specs[idx.k_norm.bias] = (None,)
+                # shard_specs[idx.k_norm.weight] = (None,)
+                # shard_specs[idx.k_norm.bias] = (None,)
                 shard_specs[idx.weights_proj.weight] = (
                     None,
                     "batch",
@@ -476,13 +476,8 @@ class ModelLoader(ForgeModel):
 
             # ── FFN ───────────────────────────────────────────────────────────
             ffn = layer.ffn
-            if isinstance(ffn, MLP):
-                # Dense layer
-                shard_specs[ffn.w1.weight] = ("model", "batch")
-                shard_specs[ffn.w3.weight] = ("model", "batch")
-                shard_specs[ffn.w2.weight] = ("batch", "model")
-            elif hasattr(ffn, "mlp"):
-                # A2aSparseMLPWithSharedExperts — produced by enable_sparse_mlp
+            if hasattr(ffn, "mlp"):
+                # A2aSparseMLPWithSharedExperts (MoE layer)
                 mlp = ffn.mlp
                 shard_specs[mlp.router.gate.weight] = (None, "batch")
                 shard_specs[mlp.experts.gate_proj] = (("batch", "model"), None, None)
@@ -497,6 +492,11 @@ class ModelLoader(ForgeModel):
                     shard_specs[shared.w1.weight] = (None, "batch")
                     shard_specs[shared.w3.weight] = (None, "batch")
                     shard_specs[shared.w2.weight] = ("batch", None)
+            else:
+                # Dense MLP
+                shard_specs[ffn.w1.weight] = ("model", "batch")
+                shard_specs[ffn.w3.weight] = ("model", "batch")
+                shard_specs[ffn.w2.weight] = ("batch", "model")
 
             # ── Layer norms ───────────────────────────────────────────────────
             shard_specs[layer.attn_norm.weight] = ("batch",)
