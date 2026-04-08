@@ -1001,8 +1001,9 @@ class YOLOWorldDetector(nn.Module):
         """Inference forward — must call reparameterize first."""
         assert self.text_feats is not None, "Call reparameterize(texts) before forward()"
         img_feats = self.backbone.forward_image(img)
-        neck_feats = self.neck(img_feats, self.text_feats)
-        return self.bbox_head(neck_feats, self.text_feats)
+        text_feats = self.text_feats.to(device=img.device)
+        neck_feats = self.neck(img_feats, text_feats)
+        return self.bbox_head(neck_feats, text_feats)
 
 
 class _YOLOWorldHead(nn.Module):
