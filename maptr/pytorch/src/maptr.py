@@ -6388,16 +6388,17 @@ class MapTR(MVXTwoStageDetector):
         tmp_pos = copy.deepcopy(img_metas[0][0]["can_bus"][:3])
         tmp_angle = copy.deepcopy(img_metas[0][0]["can_bus"][-1])
 
-        img_metas[0][0]["can_bus"][-1] = 0
-        img_metas[0][0]["can_bus"][:3] = 0
-
-        # Convert can_bus from numpy to a tensor on the model's device so that
-        # the compiled graph fragment for simple_test receives a properly placed
-        # tensor instead of a CPU tensor (which breaks XLA graph partitioning).
+        # Keep can_bus as a tensor on the model device before any in-place edits.
+        # Using Python scalar/list slice assignment on an XLA tensor can introduce
+        # CPU values into the graph and trigger device propagation failures.
         _dev = next(self.parameters()).device
-        img_metas[0][0]["can_bus"] = torch.as_tensor(
-            img_metas[0][0]["can_bus"], dtype=torch.float64
-        ).to(_dev)
+        can_bus = torch.as_tensor(img_metas[0][0]["can_bus"], dtype=torch.float64).to(
+            _dev
+        )
+        can_bus = can_bus.clone()
+        can_bus[:3] = 0.0
+        can_bus[-1] = 0.0
+        img_metas[0][0]["can_bus"] = can_bus
 
         new_prev_bev, bbox_results = self.simple_test(
             img_metas[0],
