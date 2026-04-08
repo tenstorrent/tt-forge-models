@@ -8,6 +8,7 @@ RoBERTa model loader implementation for sequence classification.
 
 from typing import Optional
 
+from .src.model import apply_easydel_roberta_patches
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -110,6 +111,9 @@ class ModelLoader(ForgeModel):
 
         from easydel import AutoEasyDeLModelForSequenceClassification
 
+        # Apply patches before model instantiation
+        apply_easydel_roberta_patches()
+
         # Ensure tokenizer is loaded
         if self._tokenizer is None:
             self._load_tokenizer(dtype_override)
@@ -165,10 +169,6 @@ class ModelLoader(ForgeModel):
             return_tensors="jax",
         )
 
-        from transformers import RobertaConfig
-
-        num_layers = RobertaConfig.from_pretrained(self._model_name).num_hidden_layers
-
         inputs["input_ids"] = jnp.repeat(inputs["input_ids"], batch_size, axis=0)
         inputs["attention_mask"] = jnp.repeat(
             inputs["attention_mask"], batch_size, axis=0
@@ -177,7 +177,7 @@ class ModelLoader(ForgeModel):
         inputs["position_ids"] = jnp.broadcast_to(
             jnp.arange(inputs["input_ids"].shape[1]), inputs["input_ids"].shape
         )
-        inputs["head_mask"] = jnp.ones((num_layers,))
+        inputs["head_mask"] = None
         return inputs
 
     def get_input_activations_partition_spec(self, mesh, parallelism, axis_name="X"):
