@@ -25,6 +25,10 @@ from ...config import (
 from ...base import ForgeModel
 from datasets import load_dataset
 from ...tools.utils import print_compiled_model_results
+import transformers.models.perceiver.modeling_perceiver as pm
+from .src.utils import MathShim
+
+pm.np = MathShim()
 
 
 class ModelVariant(StrEnum):
