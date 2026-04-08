@@ -184,16 +184,101 @@ class DeepseekOCRModel(DeepseekV2Model):
                     source_flat = images_in_this_batch.reshape(-1)
                     # Convert bool mask to int for cumsum
                     mask_i = mask_flat.long()
+
                     source_idx = torch.cumsum(mask_i, 0) - 1
+
                     source_idx = torch.clamp(source_idx, 0, source_flat.shape[0] - 1)
                     # Gather source values for all positions (dummy values at False positions)
                     gathered = source_flat[source_idx]
                     result_flat = torch.where(mask_flat, gathered, data_flat)
                     inputs_embeds[idx] = result_flat.view_as(inputs_embeds[idx])
-
+                    
                 idx += 1
+        
         if early_stop == "before_super":
             return (inputs_embeds,)
+        if early_stop == "before_super_with_posids":
+            batch_size, seq_length = inputs_embeds.shape[:2]
+            device = inputs_embeds.device
+            position_ids = torch.arange(
+                0, seq_length, dtype=torch.long, device=device,
+            ).unsqueeze(0)
+            return (inputs_embeds, position_ids)
+        if early_stop == "before_super_with_v2_ops":
+            batch_size, seq_length = inputs_embeds.shape[:2]
+            use_cache_local = use_cache if use_cache is not None else self.config.use_cache
+            past_key_values_length = 0
+            if use_cache_local and past_key_values is not None:
+                from transformers import DynamicCache
+                use_legacy_cache = not isinstance(past_key_values, DynamicCache)
+                if use_legacy_cache:
+                    past_key_values = DynamicCache.from_legacy_cache(past_key_values)
+                past_key_values_length = past_key_values.get_usable_length(seq_length)
+            device = inputs_embeds.device
+            position_ids_local = torch.arange(
+                past_key_values_length,
+                seq_length + past_key_values_length,
+                dtype=torch.long,
+                device=device,
+            ).unsqueeze(0)
+            return (inputs_embeds, position_ids_local,past_key_values)
+        if early_stop == "super_early_then_posids":
+            outputs = super(DeepseekOCRModel, self).forward(
+                input_ids=None,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                use_cache=use_cache,
+                position_ids=position_ids,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+                early_stop="before_position_ids",
+            )
+            batch_size, seq_length = inputs_embeds.shape[:2]
+            device = inputs_embeds.device
+            position_ids_local = torch.arange(
+                0, seq_length, dtype=torch.long, device=device,
+            ).unsqueeze(0)
+            return (outputs[0], position_ids_local)
+        if early_stop == "super_with_precomputed_posids":
+            batch_size, seq_length = inputs_embeds.shape[:2]
+            device = inputs_embeds.device
+            position_ids_local = torch.arange(
+                0, seq_length, dtype=torch.long, device=device,
+            ).unsqueeze(0)
+            outputs = super(DeepseekOCRModel, self).forward(
+                input_ids=None,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                use_cache=use_cache,
+                position_ids=position_ids_local,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+                early_stop="after_position_ids",
+            )
+            return outputs
+        if early_stop == "super_full_with_precomputed_posids":
+            batch_size, seq_length = inputs_embeds.shape[:2]
+            device = inputs_embeds.device
+            position_ids_local = torch.arange(
+                0, seq_length, dtype=torch.long, device=device,
+            ).unsqueeze(0)
+            outputs = super(DeepseekOCRModel, self).forward(
+                input_ids=None,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                use_cache=use_cache,
+                position_ids=position_ids_local,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+                early_stop="",
+            )
+            return outputs
         return super(DeepseekOCRModel, self).forward(
             input_ids=None,
             attention_mask=attention_mask,

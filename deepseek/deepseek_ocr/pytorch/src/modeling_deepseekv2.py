@@ -656,7 +656,7 @@ class DeepseekV2Model(DeepseekV2PreTrainedModel):
                 past_key_values = DynamicCache.from_legacy_cache(past_key_values)
             past_key_values_length = past_key_values.get_usable_length(seq_length)
         if early_stop == "before_position_ids":
-            return (inputs_embeds,)
+            return (inputs_embeds,past_key_values,attention_mask)
         if position_ids is None:
             device = input_ids.device if input_ids is not None else inputs_embeds.device
             position_ids = torch.arange(
@@ -666,8 +666,9 @@ class DeepseekV2Model(DeepseekV2PreTrainedModel):
                 device=device,
             )
             position_ids = position_ids.unsqueeze(0)
+        
         if early_stop == "after_position_ids":
-            return (inputs_embeds, position_ids)
+            return (inputs_embeds, position_ids,past_key_values,attention_mask)
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
