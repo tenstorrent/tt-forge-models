@@ -34,6 +34,8 @@ class ModelLoader(ForgeModel):
     """DeepSeek Coder model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants using structured configs
+    _GGUF_FILES = []
+
     _VARIANTS = {
         ModelVariant.DEEPSEEK_1_3B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="deepseek-ai/deepseek-coder-1.3b-instruct",
