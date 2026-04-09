@@ -638,6 +638,7 @@ class Indexer(torch.nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        cache_layer=None,
     ):
         bsz, seqlen, _ = x.size()
         end_pos = start_pos + seqlen
@@ -678,13 +679,21 @@ class Indexer(torch.nn.Module):
         bsz, seqlen, n_heads, head_dim = q.shape
         end_pos = start_pos + seqlen
 
-        self.k_cache[:bsz, start_pos:end_pos] = k
+        # Write k into the external cache layer (allocated by MLA's update() call
+        # which always runs before Indexer) or into the internal buffer.
+        if cache_layer is not None and cache_layer.k is not None:
+            cache_position = torch.arange(start_pos, end_pos, device=x.device, dtype=torch.long)
+            cache_layer.k.index_copy_(1, cache_position, k)
+            k_stored = cache_layer.k
+        else:
+            self.k_cache[:bsz, start_pos:end_pos] = k
+            k_stored = self.k_cache
 
         # In full implementation, this would use fp8_index with quantized values
         weights = self.weights_proj(x) * self.n_heads**-0.5
         weights = weights.unsqueeze(-1) * self.softmax_scale
 
-        index_score = bf16_index(q, weights, self.k_cache[:bsz, :end_pos])
+        index_score = bf16_index(q, weights, k_stored[:bsz, :end_pos])
 
         if mask is not None:
             index_score += mask
@@ -790,6 +799,7 @@ class MLA(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        cache_layer=None,
     ):
         """
         Forward pass for the Multi-Head Latent Attention (MLA) Layer.
@@ -824,8 +834,16 @@ class MLA(nn.Module):
                 .to(kv.dtype)
                 .view_as(kv)
             )
-        self.kv_cache[:bsz, start_pos:end_pos] = kv
-        self.pe_cache[:bsz, start_pos:end_pos] = k_pe.squeeze(2)
+        cache_position = torch.arange(start_pos, end_pos, device=x.device, dtype=torch.long)
+        if cache_layer is not None:
+            kv_stored, pe_stored, _ = cache_layer.update(
+                kv, k_pe.squeeze(2),
+                cache_kwargs={"cache_position": cache_position},
+            )
+        else:
+            self.kv_cache[:bsz, start_pos:end_pos] = kv
+            self.pe_cache[:bsz, start_pos:end_pos] = k_pe.squeeze(2)
+            kv_stored, pe_stored = self.kv_cache, self.pe_cache
         if mask is not None:  # MHA prefill
             q = torch.cat([q_nope, q_pe], dim=-1)
             kv = self.wkv_b(kv)
@@ -840,7 +858,7 @@ class MLA(nn.Module):
 
             # indexer
             if self.indexer is not None:
-                topk_indices = self.indexer(x, qr, start_pos, freqs_cis, mask)
+                topk_indices = self.indexer(x, qr, start_pos, freqs_cis, mask, cache_layer=cache_layer)
                 index_mask = torch.full(
                     (bsz, seqlen, seqlen), float("-inf"), device=x.device
                 ).scatter_(-1, topk_indices, 0)
@@ -860,20 +878,20 @@ class MLA(nn.Module):
                 "bshd,hdc->bshc", q_nope, wkv_b[:, : self.qk_nope_head_dim]
             )
             scores = (
-                torch.einsum("bshc,btc->bsht", q_nope, self.kv_cache[:bsz, :end_pos])
-                + torch.einsum("bshr,btr->bsht", q_pe, self.pe_cache[:bsz, :end_pos])
+                torch.einsum("bshc,btc->bsht", q_nope, kv_stored[:bsz, :end_pos])
+                + torch.einsum("bshr,btr->bsht", q_pe, pe_stored[:bsz, :end_pos])
             ) * self.softmax_scale
 
             # indexer
             if self.indexer is not None:
-                topk_indices = self.indexer(x, qr, start_pos, freqs_cis, mask)
+                topk_indices = self.indexer(x, qr, start_pos, freqs_cis, mask, cache_layer=cache_layer)
                 index_mask = torch.full(
                     (bsz, 1, end_pos), float("-inf"), device=x.device
                 ).scatter_(-1, topk_indices, 0)
                 scores += index_mask.unsqueeze(2)
 
             scores = scores.softmax(dim=-1)
-            x = torch.einsum("bsht,btc->bshc", scores, self.kv_cache[:bsz, :end_pos])
+            x = torch.einsum("bsht,btc->bshc", scores, kv_stored[:bsz, :end_pos])
             x = torch.einsum("bshc,hdc->bshd", x, wkv_b[:, -self.v_head_dim :])
         x = self.wo(x.flatten(2))
         return x
@@ -1147,6 +1165,7 @@ class Block(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        cache_layer=None,
     ) -> torch.Tensor:
         """
         Forward pass for the Transformer block.
@@ -1156,6 +1175,7 @@ class Block(nn.Module):
             start_pos (int): Starting position in the sequence.
             freqs_cis (torch.Tensor): Precomputed complex exponential values for rotary embeddings.
             mask (Optional[torch.Tensor]): Mask tensor to exclude certain positions from attention.
+            cache_layer: Optional DeepSeekMLAStaticLayer for external KV cache management.
 
         Returns:
             torch.Tensor: Output tensor after block computation.
@@ -1164,7 +1184,7 @@ class Block(nn.Module):
             x, residual = self.attn_norm(x), x
         else:
             x, residual = self.attn_norm(x, residual)
-        x = self.attn(x, start_pos, freqs_cis, mask)
+        x = self.attn(x, start_pos, freqs_cis, mask, cache_layer=cache_layer)
         x, residual = self.ffn_norm(x, residual)
         x = self.ffn(x)
         return x, residual
@@ -1245,6 +1265,7 @@ class Transformer(nn.Module):
         start_pos: int = 0,
         freqs_cis: Optional[torch.Tensor] = None,
         mask: Optional[torch.Tensor] = None,
+        cache=None,
     ):
         """
         Forward pass for the Transformer model.
@@ -1268,8 +1289,9 @@ class Transformer(nn.Module):
                 device=tokens.device,
             ).triu_(1)
         h, residual = self.embed(tokens), None
-        for layer in self.layers:
-            h, residual = layer(h, residual, start_pos, freqs_cis, mask)
+        for i, layer in enumerate(self.layers):
+            cache_layer = cache.layers[i] if cache is not None else None
+            h, residual = layer(h, residual, start_pos, freqs_cis, mask, cache_layer=cache_layer)
         h, _ = self.norm(h, residual)
         logits = self.head(h[:, -1].float())
         if world_size > 1:

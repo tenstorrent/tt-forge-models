@@ -93,37 +93,37 @@ class DeepSeekV32ForCausalLM(nn.Module):
         self,
         input_ids: Optional[torch.Tensor] = None,
         past_key_values=None,
-        cache_position: Optional[torch.Tensor] = None,
-        use_cache: bool = False,
         **kwargs,
     ) -> _CausalLMOutput:
-        # start_pos is fixed at 0 for TT compilation compatibility.
-        # Any Python-level computation before self.transformer() that touches
-        # tensor values (cache_position[0].item()) or mutates self attributes
-        # with SymInts (self._current_pos += seqlen) causes TorchDynamo to split
-        # the forward into two sub-graphs.  The second sub-graph (the transformer
-        # call) is then compiled in isolation by the TT backend and crashes with
-        # SIGFPE during MLIR lowering.  Using a constant 0 keeps the entire
-        # forward as a single compiled graph, matching the behaviour of the
-        # working unit test (test_deepseek_modified_transformer_single_layer).
-        # TODO: support proper KV-cache position tracking once TT compilation
-        # handles dynamic start_pos.
+        # When a DeepSeekMLACache is passed as past_key_values, use its
+        # current_pos as start_pos and route cache writes/reads through it.
+        # Otherwise fall back to start_pos=0 with internal model buffers.
         #
-        # freqs_cis and mask are sliced from pre-registered buffers rather than
-        # being computed with torch.full(..., device=tokens.device).  The device
-        # attribute access in torch.full was the trigger for TorchDynamo emitting
-        # a separate unsharded graph segment before the main transformer — that
-        # segment compiled with a trivial [1,1] shardy mesh and produced the
-        # wrong [1,N] layout, causing a segfault.  Buffer slices are traced
-        # symbolically within the single compiled graph with no graph break.
-        # NOTE: @torch._dynamo.disable must NOT be used here for the same reason
-        # — it introduces a graph break that produces the same wrong-mesh segment.
+        # NOTE: start_pos must remain a Python int (not derived from a tensor
+        # via .item()) to avoid TorchDynamo graph splits.  When past_key_values
+        # is None, start_pos=0 is a compile-time constant.  When a
+        # DeepSeekMLACache is provided, start_pos = cache.current_pos which is
+        # also a Python int updated outside the compiled graph — this causes one
+        # recompilation per unique start_pos value (each decode step).  Proper
+        # compile-friendly position tracking is a future TODO.
+        from tests.torch.models.utils.mla_cache import DeepSeekMLACache
+
+        if isinstance(past_key_values, DeepSeekMLACache):
+            start_pos = past_key_values.current_pos
+            cache = past_key_values
+        else:
+            start_pos = 0
+            cache = None
+
         seqlen = input_ids.size(1)
-        freqs_cis = self.transformer.freqs_cis[:seqlen]
+        freqs_cis = self.transformer.freqs_cis[start_pos : start_pos + seqlen]
         mask = self._causal_mask[:seqlen, :seqlen] if seqlen > 1 else None
         logits = self.transformer(
-            tokens=input_ids, start_pos=0, freqs_cis=freqs_cis, mask=mask
+            tokens=input_ids, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask,
+            cache=cache,
         )
+        if cache is not None:
+            cache.current_pos += seqlen
         return _CausalLMOutput(logits=logits.unsqueeze(1))
 
 
@@ -137,6 +137,15 @@ class ModelLoader(ForgeModel):
     }
 
     DEFAULT_VARIANT = ModelVariant.DEEPSEEK_V3_2_EXP
+
+    # DeepSeek uses its own internal KV cache (attn.kv_cache / attn.pe_cache)
+    # and ignores the HuggingFace StaticCache passed via past_key_values.
+    # Setting this to False prevents llm_benchmark from marking the StaticCache
+    # tensors as sharded — those sharded tensors would otherwise appear as
+    # graph inputs with an unexpected layout to the SPMD partitioner, which
+    # could corrupt the in_sharding seen by sdy.manual_computation and cause
+    # the all_to_all_dispatch to hang.
+    uses_external_kv_cache: bool = False
 
     def __init__(
         self,
@@ -159,7 +168,7 @@ class ModelLoader(ForgeModel):
         self.max_batch_size = max_batch_size
         self.tokenizer = None
         self.model = None
-        # self.config = None
+        #self.config = None
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -274,29 +283,29 @@ class ModelLoader(ForgeModel):
             _cfg = json.load(_f)
         # Maps config.json keys → ModelArgs field names.
         _JSON_TO_ARGS = {
-            "hidden_size": "dim",
-            "intermediate_size": "inter_dim",
+            "hidden_size":           "dim",
+            "intermediate_size":     "inter_dim",
             "moe_intermediate_size": "moe_inter_dim",
-            "num_hidden_layers": "n_layers",
+            "num_hidden_layers":     "n_layers",
             "first_k_dense_replace": "n_dense_layers",
-            "num_attention_heads": "n_heads",
-            "n_routed_experts": "n_routed_experts",
-            "n_shared_experts": "n_shared_experts",
-            "num_experts_per_tok": "n_activated_experts",
-            "n_group": "n_expert_groups",
-            "topk_group": "n_limited_groups",
-            "scoring_func": "score_func",
+            "num_attention_heads":   "n_heads",
+            "n_routed_experts":      "n_routed_experts",
+            "n_shared_experts":      "n_shared_experts",
+            "num_experts_per_tok":   "n_activated_experts",
+            "n_group":               "n_expert_groups",
+            "topk_group":            "n_limited_groups",
+            "scoring_func":          "score_func",
             "routed_scaling_factor": "route_scale",
-            "q_lora_rank": "q_lora_rank",
-            "kv_lora_rank": "kv_lora_rank",
-            "qk_nope_head_dim": "qk_nope_head_dim",
-            "qk_rope_head_dim": "qk_rope_head_dim",
-            "v_head_dim": "v_head_dim",
-            "vocab_size": "vocab_size",
-            "rope_theta": "rope_theta",
-            "index_n_heads": "index_n_heads",
-            "index_head_dim": "index_head_dim",
-            "index_topk": "index_topk",
+            "q_lora_rank":           "q_lora_rank",
+            "kv_lora_rank":          "kv_lora_rank",
+            "qk_nope_head_dim":      "qk_nope_head_dim",
+            "qk_rope_head_dim":      "qk_rope_head_dim",
+            "v_head_dim":            "v_head_dim",
+            "vocab_size":            "vocab_size",
+            "rope_theta":            "rope_theta",
+            "index_n_heads":         "index_n_heads",
+            "index_head_dim":        "index_head_dim",
+            "index_topk":            "index_topk",
         }
         model_args_kwargs = {
             args_key: _cfg[json_key]
@@ -310,6 +319,7 @@ class ModelLoader(ForgeModel):
         # layers 0-2 as dense MLP and layers 3+ as MoE for a 5-layer test.
         if self.num_layers is not None:
             model_args_kwargs["n_layers"] = self.num_layers
+            #TODO (gengelage): Remove this.
             # config.json has n_dense_layers=3, which makes every layer dense
             # when num_layers is small (e.g. 2 for bringup tests).  Cap it to
             # n_layers-1 so there is always at least one MoE layer, matching
@@ -419,41 +429,25 @@ class ModelLoader(ForgeModel):
         # Without this, those slice sub-graphs compile under the default 1×32
         # mesh, producing tensors with an incompatible layout that causes a
         # segfault when the main 4×8 graph consumes them.
-        shard_specs[t.freqs_cis] = (
-            None,
-            None,
-            None,
-        )  # [max_seq, rope_hd, 2] — replicated
-        shard_specs[model._causal_mask] = (
-            None,
-            None,
-        )  # [max_seq, max_seq] — replicated
+        shard_specs[t.freqs_cis] = (None, None, None)    # [max_seq, rope_hd, 2] — replicated
+        shard_specs[model._causal_mask] = (None, None)   # [max_seq, max_seq] — replicated
 
         # ── Global tensors ────────────────────────────────────────────────────
-        shard_specs[t.embed.weight] = (None, "batch")  # [vocab, dim]
-        shard_specs[t.norm.weight] = ("batch",)  # [dim]
-        shard_specs[t.head.weight] = (None, "batch")  # [vocab/world, dim]
+        shard_specs[t.embed.weight] = (None, "batch")   # [vocab, dim]
+        shard_specs[t.norm.weight] = ("batch",)         # [dim]
+        shard_specs[t.head.weight] = (None, "batch")    # [vocab/world, dim]
 
         for layer in t.layers:
             attn = layer.attn
 
             # ── MLA attention — model-parallel on batch axis ──────────────────
-            shard_specs[attn.wq_a.weight] = (None, "batch")  # [q_lora_rank, dim]
-            shard_specs[attn.wkv_a.weight] = (
-                None,
-                "batch",
-            )  # [kv_lora_rank+rope_hd, dim]
+            shard_specs[attn.wq_a.weight] = (None, "batch")    # [q_lora_rank, dim]
+            shard_specs[attn.wkv_a.weight] = (None, "batch")   # [kv_lora_rank+rope_hd, dim]
             # shard_specs[attn.q_norm.weight] = (None,)
             # shard_specs[attn.kv_norm.weight] = (None,)
-            shard_specs[attn.wq_b.weight] = (
-                "batch",
-                None,
-            )  # [n_heads*qk_hd, q_lora_rank]
-            shard_specs[attn.wkv_b.weight] = (
-                "batch",
-                None,
-            )  # [n_heads*(nope+v_hd), kv_lora_rank]
-            shard_specs[attn.wo.weight] = (None, "batch")  # [dim, n_heads*v_head_dim]
+            shard_specs[attn.wq_b.weight] = ("batch", None)    # [n_heads*qk_hd, q_lora_rank]
+            shard_specs[attn.wkv_b.weight] = ("batch", None)   # [n_heads*(nope+v_hd), kv_lora_rank]
+            shard_specs[attn.wo.weight] = (None, "batch")      # [dim, n_heads*v_head_dim]
             # KV and positional caches — shard on model axis (batch dimension)
             shard_specs[attn.kv_cache] = ("model", None, None)
             shard_specs[attn.pe_cache] = ("model", None, None)
@@ -461,17 +455,11 @@ class ModelLoader(ForgeModel):
             # ── Indexer ───────────────────────────────────────────────────────
             if attn.indexer is not None:
                 idx = attn.indexer
-                shard_specs[idx.wq_b.weight] = (
-                    "batch",
-                    None,
-                )  # [n_idx_heads*idx_hd, q_lora_rank]
-                shard_specs[idx.wk.weight] = (None, "batch")  # [idx_hd, dim]
+                shard_specs[idx.wq_b.weight] = ("batch", None)     # [n_idx_heads*idx_hd, q_lora_rank]
+                shard_specs[idx.wk.weight] = (None, "batch")       # [idx_hd, dim]
                 # shard_specs[idx.k_norm.weight] = (None,)
                 # shard_specs[idx.k_norm.bias] = (None,)
-                shard_specs[idx.weights_proj.weight] = (
-                    None,
-                    "batch",
-                )  # [n_idx_heads, dim]
+                shard_specs[idx.weights_proj.weight] = (None, "batch")  # [n_idx_heads, dim]
                 shard_specs[idx.k_cache] = ("model", None, None)
 
             # ── FFN ───────────────────────────────────────────────────────────
