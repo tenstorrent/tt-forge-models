@@ -118,7 +118,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {"return_dict": False}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -126,8 +126,11 @@ class ModelLoader(ForgeModel):
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if getattr(model.config, "use_cache", True):
+            model.config.text_config.layer_types = [
+                "full_attention"
+            ] * model.config.text_config.num_hidden_layers
         self.model = model
-
         return model
 
     def load_inputs(self, dtype_override=None):
