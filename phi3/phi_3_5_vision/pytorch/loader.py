@@ -8,7 +8,7 @@ import torch
 from transformers import AutoProcessor, AutoModelForCausalLM
 from PIL import Image
 from typing import Optional
-from ....tools.utils import get_file
+from datasets import load_dataset
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
@@ -124,11 +124,9 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        # Load image from URL
-        image_file = get_file(
-            "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
-        )
-        image = Image.open(image_file)
+        # Load image from HuggingFace dataset
+        ds = load_dataset("huggingface/cats-image", split="test")
+        image = ds[0]["image"].convert("RGB")
 
         # Set up messages
         self.messages = [
