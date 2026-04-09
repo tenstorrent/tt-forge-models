@@ -3109,117 +3109,166 @@ def get_indice_pairs_3d_cpu(
 
     N = indices.shape[0]
     dev = indices.device
-    
+
     spatial_volume = out_shape[0] * out_shape[1] * out_shape[2]
     total_grid_size = batch_size * spatial_volume
-    grids_out = torch.full((total_grid_size+1,), -1, dtype=torch.int32, device=dev)
-    
+    grids_out = torch.full((total_grid_size + 1,), -1, dtype=torch.int32, device=dev)
+
     K = ksize[0] * ksize[1] * ksize[2]
     max_indices = N
-    
+
     if N == 0:
-        return torch.zeros((0, 4), dtype=torch.int32, device=dev), torch.full((K, 2, max_indices), -1, dtype=torch.int32, device=dev), torch.zeros(K, dtype=torch.int32, device=dev)
+        return (
+            torch.zeros((0, 4), dtype=torch.int32, device=dev),
+            torch.full((K, 2, max_indices), -1, dtype=torch.int32, device=dev),
+            torch.zeros(K, dtype=torch.int32, device=dev),
+        )
 
     pad_t = torch.tensor(padding, device=dev)
     str_t = torch.tensor(stride, device=dev)
     dil_t = torch.tensor(dilation, device=dev)
     out_shp_t = torch.tensor(out_shape, device=dev)
-    
+
     cx = torch.arange(ksize[0], device=dev)
     cy = torch.arange(ksize[1], device=dev)
     cz = torch.arange(ksize[2], device=dev)
-    c_grid_x, c_grid_y, c_grid_z = torch.meshgrid(cx, cy, cz, indexing='ij')
-    c_offsets = torch.stack([c_grid_x, c_grid_y, c_grid_z], dim=-1).view(-1, 3) # [K, 3]
+    c_grid_x, c_grid_y, c_grid_z = torch.meshgrid(cx, cy, cz, indexing="ij")
+    c_offsets = torch.stack([c_grid_x, c_grid_y, c_grid_z], dim=-1).view(
+        -1, 3
+    )  # [K, 3]
 
     in_batch = indices[:, 0]
     in_pos = indices[:, 1:4]
-    
-    in_pos_ext = in_pos.unsqueeze(1) # [N, 1, 3]
-    c_off_ext = c_offsets.unsqueeze(0) # [1, K, 3]
+
+    in_pos_ext = in_pos.unsqueeze(1)  # [N, 1, 3]
+    c_off_ext = c_offsets.unsqueeze(0)  # [1, K, 3]
     batch_idx_ext = in_batch.view(N, 1, 1).expand(N, K, 1)
-    
+
     if subm == 1:
         out_indices = indices.to(torch.int32)
-        in_idx_1d = in_batch * spatial_volume + in_pos[:, 0] * out_shape[1] * out_shape[2] + in_pos[:, 1] * out_shape[2] + in_pos[:, 2]
-        
+        in_idx_1d = (
+            in_batch * spatial_volume
+            + in_pos[:, 0] * out_shape[1] * out_shape[2]
+            + in_pos[:, 1] * out_shape[2]
+            + in_pos[:, 2]
+        )
+
         grids_out[in_idx_1d.long()] = torch.arange(N, dtype=torch.int32, device=dev)
-        
-        out_pos_all = in_pos_ext + pad_t - c_off_ext # [N, K, 3]
-        bound_mask = (out_pos_all >= 0).all(dim=-1) & (out_pos_all < out_shp_t).all(dim=-1) # [N, K]
-        
-        out_idx_1d_all = batch_idx_ext[..., 0] * spatial_volume + out_pos_all[..., 0] * out_shape[1] * out_shape[2] + out_pos_all[..., 1] * out_shape[2] + out_pos_all[..., 2] # [N, K]
-        
+
+        out_pos_all = in_pos_ext + pad_t - c_off_ext  # [N, K, 3]
+        bound_mask = (out_pos_all >= 0).all(dim=-1) & (out_pos_all < out_shp_t).all(
+            dim=-1
+        )  # [N, K]
+
+        out_idx_1d_all = (
+            batch_idx_ext[..., 0] * spatial_volume
+            + out_pos_all[..., 0] * out_shape[1] * out_shape[2]
+            + out_pos_all[..., 1] * out_shape[2]
+            + out_pos_all[..., 2]
+        )  # [N, K]
+
         # Natively trace dense statically allocated TT-tensors across the map without generating size variants!
-        safe_flat_indices = torch.where(bound_mask, out_idx_1d_all.long(), torch.tensor(0, dtype=torch.long, device=dev))
-        mapped_ids = grids_out[safe_flat_indices] # [N, K]
-        hit_mask = (mapped_ids > -1) & bound_mask # [N, K]
-        
-        local_idx = torch.cumsum(hit_mask.int(), dim=0) - 1 # [N, K]
-        safe_local_idx = torch.where(hit_mask, local_idx.long(), torch.tensor(max_indices, device=dev, dtype=torch.long)) # [N, K]
-        
-        indice_pairs_ext = torch.full((K, 2, max_indices + 1), -1, dtype=torch.int32, device=dev)
-        
+        safe_flat_indices = torch.where(
+            bound_mask,
+            out_idx_1d_all.long(),
+            torch.tensor(0, dtype=torch.long, device=dev),
+        )
+        mapped_ids = grids_out[safe_flat_indices]  # [N, K]
+        hit_mask = (mapped_ids > -1) & bound_mask  # [N, K]
+
+        local_idx = torch.cumsum(hit_mask.int(), dim=0) - 1  # [N, K]
+        safe_local_idx = torch.where(
+            hit_mask,
+            local_idx.long(),
+            torch.tensor(max_indices, device=dev, dtype=torch.long),
+        )  # [N, K]
+
+        indice_pairs_ext = torch.full(
+            (K, 2, max_indices + 1), -1, dtype=torch.int32, device=dev
+        )
+
         N_arange = torch.arange(N, device=dev).unsqueeze(1).expand(N, K)
-        src_stack = torch.stack([N_arange, mapped_ids], dim=2).int() # [N, K, 2]
-        src_stack_t = src_stack.permute(1, 2, 0) # [K, 2, N]
-        
-        idx_stack = safe_local_idx.t().unsqueeze(1).expand(K, 2, N) # [K, 2, N]
-        
+        src_stack = torch.stack([N_arange, mapped_ids], dim=2).int()  # [N, K, 2]
+        src_stack_t = src_stack.permute(1, 2, 0)  # [K, 2, N]
+
+        idx_stack = safe_local_idx.t().unsqueeze(1).expand(K, 2, N)  # [K, 2, N]
+
         indice_pairs_ext.scatter_(dim=2, index=idx_stack, src=src_stack_t)
         indice_pairs = indice_pairs_ext[:, :, :max_indices]
-        indice_num = hit_mask.int().sum(dim=0).int() # [K]
-                
+        indice_num = hit_mask.int().sum(dim=0).int()  # [K]
+
     else:
-        numerator = (in_pos_ext + pad_t - c_off_ext * dil_t)
+        numerator = in_pos_ext + pad_t - c_off_ext * dil_t
         div_mask = (numerator % str_t == 0).all(dim=-1)
         out_pos_all = numerator // str_t
-        
-        bound_mask = (out_pos_all >= 0).all(dim=-1) & (out_pos_all < out_shp_t).all(dim=-1)
-        valid_mask = div_mask & bound_mask # [N, K]
-        
-        out_idx_1d_all = batch_idx_ext[..., 0] * spatial_volume + out_pos_all[..., 0] * out_shape[1] * out_shape[2] + out_pos_all[..., 1] * out_shape[2] + out_pos_all[..., 2]
-        safe_coords_raw = torch.where(valid_mask, out_idx_1d_all.long(), torch.tensor(total_grid_size, device=dev, dtype=torch.long)) # [N, K]
-        
+
+        bound_mask = (out_pos_all >= 0).all(dim=-1) & (out_pos_all < out_shp_t).all(
+            dim=-1
+        )
+        valid_mask = div_mask & bound_mask  # [N, K]
+
+        out_idx_1d_all = (
+            batch_idx_ext[..., 0] * spatial_volume
+            + out_pos_all[..., 0] * out_shape[1] * out_shape[2]
+            + out_pos_all[..., 1] * out_shape[2]
+            + out_pos_all[..., 2]
+        )
+        safe_coords_raw = torch.where(
+            valid_mask,
+            out_idx_1d_all.long(),
+            torch.tensor(total_grid_size, device=dev, dtype=torch.long),
+        )  # [N, K]
+
         # Instantly aggregate consecutive unique output destinations utilizing purely static dense shapes
-        active_cells_ext = torch.zeros(total_grid_size + 1, dtype=torch.int32, device=dev)
+        active_cells_ext = torch.zeros(
+            total_grid_size + 1, dtype=torch.int32, device=dev
+        )
         ones_flat = torch.ones(N * K, dtype=torch.int32, device=dev)
         active_cells_ext.scatter_(dim=0, index=safe_coords_raw.view(-1), src=ones_flat)
-        active_cells = active_cells_ext[:total_grid_size] # [total_grid_size]
-        
+        active_cells = active_cells_ext[:total_grid_size]  # [total_grid_size]
+
         active_id_map_ext = torch.cumsum(active_cells_ext, dim=0) - 1  # size 945001
-        
+
         valid_flat_unique_mask = active_cells > 0
-        unique_flat = torch.where(valid_flat_unique_mask)[0].int() 
-        grids_out = torch.where(                                        # size 945001
+        unique_flat = torch.where(valid_flat_unique_mask)[0].int()
+        grids_out = torch.where(  # size 945001
             active_cells_ext > 0,
             active_id_map_ext,
-            torch.tensor(-1, dtype=torch.int32, device=dev)
+            torch.tensor(-1, dtype=torch.int32, device=dev),
         )
-        
+
         out_batch = unique_flat // spatial_volume
         rem = unique_flat % spatial_volume
         out_x = rem // (out_shape[1] * out_shape[2])
         rem = rem % (out_shape[1] * out_shape[2])
         out_y = rem // out_shape[2]
         out_z = rem % out_shape[2]
-        out_indices = torch.stack([out_batch, out_x, out_y, out_z], dim=-1).int() # [V, 4]
-        
-        mapped_ids = grids_out[safe_coords_raw] # [N, K]
-        hit_mask = (mapped_ids > -1) & valid_mask # [N, K]
-        
-        local_idx = torch.cumsum(hit_mask.int(), dim=0) - 1 # [N, K]
+        out_indices = torch.stack(
+            [out_batch, out_x, out_y, out_z], dim=-1
+        ).int()  # [V, 4]
+
+        mapped_ids = grids_out[safe_coords_raw]  # [N, K]
+        hit_mask = (mapped_ids > -1) & valid_mask  # [N, K]
+
+        local_idx = torch.cumsum(hit_mask.int(), dim=0) - 1  # [N, K]
         N_arange = torch.arange(N, device=dev).unsqueeze(1).expand(N, K)
-        safe_local_idx = torch.where(hit_mask, local_idx.long(), torch.tensor(max_indices, device=dev, dtype=torch.long)) # [N, K]
-        
-        indice_pairs_ext = torch.full((K, 2, max_indices + 1), -1, dtype=torch.int32, device=dev)
-        src_stack = torch.stack([N_arange, mapped_ids], dim=2).int() # [N, K, 2]
-        src_stack_t = src_stack.permute(1, 2, 0) # [K, 2, N]
-        idx_stack = safe_local_idx.t().unsqueeze(1).expand(K, 2, N) # [K, 2, N]
-        
+        safe_local_idx = torch.where(
+            hit_mask,
+            local_idx.long(),
+            torch.tensor(max_indices, device=dev, dtype=torch.long),
+        )  # [N, K]
+
+        indice_pairs_ext = torch.full(
+            (K, 2, max_indices + 1), -1, dtype=torch.int32, device=dev
+        )
+        src_stack = torch.stack([N_arange, mapped_ids], dim=2).int()  # [N, K, 2]
+        src_stack_t = src_stack.permute(1, 2, 0)  # [K, 2, N]
+        idx_stack = safe_local_idx.t().unsqueeze(1).expand(K, 2, N)  # [K, 2, N]
+
         indice_pairs_ext.scatter_(dim=2, index=idx_stack, src=src_stack_t)
-        
+
         indice_pairs = indice_pairs_ext[:, :, :max_indices]
-        indice_num = hit_mask.int().sum(dim=0).int() # [K]
+        indice_num = hit_mask.int().sum(dim=0).int()  # [K]
 
     return out_indices, indice_pairs, indice_num
 
@@ -3774,7 +3823,12 @@ class SparseConvTensor:
 
     @property
     def sparity(self):
-        return self.indices.shape[0] / torch.prod(torch.tensor(self.spatial_shape)) / self.batch_size
+        # return self.indices.shape[0] / np.prod(self.spatial_shape) / self.batch_size
+        return (
+            self.indices.shape[0]
+            / torch.prod(torch.tensor(self.spatial_shape))
+            / self.batch_size
+        )
 
 
 def is_spconv_module(module):
@@ -6435,4 +6489,4 @@ class MapTR(MVXTwoStageDetector):
         )
         for result_dict, pts_bbox in zip(bbox_list, bbox_pts):
             result_dict["pts_bbox"] = pts_bbox
-        return new_prev_bev, bbox_lgit ist
+        return new_prev_bev, bbox_list
