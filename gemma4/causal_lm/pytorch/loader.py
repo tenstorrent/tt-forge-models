@@ -44,8 +44,6 @@ _INSTRUCT_VARIANTS = {
 _SMALL_VARIANTS = {
     ModelVariant.GEMMA_4_E2B,
     ModelVariant.GEMMA_4_E2B_IT,
-    ModelVariant.GEMMA_4_E4B,
-    ModelVariant.GEMMA_4_E4B_IT,
 }
 
 _MOE_VARIANTS = {
@@ -218,8 +216,8 @@ class ModelLoader(ForgeModel):
             return None, None
 
         tc = self.config.text_config
-        global_kv_heads = getattr(
-            tc, "num_global_key_value_heads", tc.num_key_value_heads
+        global_kv_heads = (
+            getattr(tc, "num_global_key_value_heads", None) or tc.num_key_value_heads
         )
 
         def heads_divide(model_axis):
@@ -256,8 +254,8 @@ class ModelLoader(ForgeModel):
         # Determine if attention can be sharded based on head divisibility
         tc = self.config.text_config
         num_devices = 8  # llmbox
-        global_kv_heads = getattr(
-            tc, "num_global_key_value_heads", tc.num_key_value_heads
+        global_kv_heads = (
+            getattr(tc, "num_global_key_value_heads", None) or tc.num_key_value_heads
         )
         _, mesh_names = self.get_mesh_config(num_devices)
         # Find effective model axis size from mesh config
