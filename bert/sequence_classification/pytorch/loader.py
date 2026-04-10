@@ -1,140 +1,84 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""
-BERT model loader implementation for sequence classification.
-"""
 
-from transformers import BertForSequenceClassification, BertTokenizer
+"""Bert model loader implementation for sequence classification."""
+from typing import Optional
+
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+from third_party.tt_forge_models.base import ForgeModel
 from third_party.tt_forge_models.config import (
-    ModelInfo,
+    ModelConfig,
     ModelGroup,
-    ModelTask,
+    ModelInfo,
     ModelSource,
+    ModelTask,
     Framework,
     StrEnum,
-    LLMModelConfig,
 )
-from third_party.tt_forge_models.base import ForgeModel
 
 
 class ModelVariant(StrEnum):
-    """Available BERT model variants for sequence classification."""
-
-    TEXTATTACK_BERT_BASE_UNCASED_SST_2 = "Base_Uncased_Sst_2"
+    DEFAULT = "Default"
 
 
 class ModelLoader(ForgeModel):
-    """BERT model loader implementation for sequence classification."""
-
-    # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SST_2: LLMModelConfig(
-            pretrained_model_name="textattack/bert-base-uncased-SST-2",
-            max_length=128,
+        ModelVariant.DEFAULT: ModelConfig(
+            pretrained_model_name="ba-claim/bert",
         ),
     }
 
-    # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SST_2
+    DEFAULT_VARIANT = ModelVariant.DEFAULT
 
-    def __init__(self, variant=None):
-        """Initialize ModelLoader with specified variant.
+    sample_text_a = "How similar are these two passages?"
+    sample_text_b = "They are semantically related."
 
-        Args:
-            variant: Optional string specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
+    def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-
-        # Get the pretrained model name from the instance's variant config
-        pretrained_model_name = self._variant_config.pretrained_model_name
-        self.model_name = pretrained_model_name
-        self.review = "the movie was great!"
-        self.max_length = 128
-        self.tokenizer = None
+        self._tokenizer = None
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
-        """Get model information for dashboard and metrics reporting.
-
-        Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
-        if variant_name is None:
-            variant_name = "base"
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="BERT",
-            variant=variant_name,
-            group=ModelGroup.GENERALITY,
+            model="Bert",
+            variant=variant or cls.DEFAULT_VARIANT,
+            group=ModelGroup.VULCAN,
             task=ModelTask.NLP_TEXT_CLS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
+    def _load_tokenizer(self):
+        if self._tokenizer is None:
+            self._tokenizer = AutoTokenizer.from_pretrained(self._variant_config.pretrained_model_name)
+        return self._tokenizer
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load BERT model for sequence classification from Hugging Face.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                            If not provided, the model will use its default dtype (typically float32).
-
-        Returns:
-            torch.nn.Module: The BERT model instance.
-        """
-
-        # Initialize tokenizer
-        self.tokenizer = BertTokenizer.from_pretrained(self.model_name)
-
-        # Load pre-trained model from HuggingFace
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-
-        model = BertForSequenceClassification.from_pretrained(
-            self.model_name, **model_kwargs
+        model = AutoModelForSequenceClassification.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            **model_kwargs,
         )
-        self.model = model
         model.eval()
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Prepare sample input for BERT sequence classification.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                            If not provided, the model will use its default dtype (typically float32).
-
-        Returns:
-            dict: Input tensors that can be fed to the model.
-        """
-        if self.tokenizer is None:
-            # Ensure tokenizer is initialized
-            self.load_model(dtype_override=dtype_override)
-
-        # Data preprocessing
-        inputs = self.tokenizer(
-            self.review,
-            max_length=self.max_length,
+        tokenizer = self._load_tokenizer()
+        return tokenizer(
+            self.sample_text_a,
+            self.sample_text_b,
             padding="max_length",
             truncation=True,
+            max_length=32,
             return_tensors="pt",
         )
 
-        return inputs
-
-    def decode_output(self, co_out):
-        """Decode the model output for sequence classification.
-
-        Args:
-            co_out: Model output
-            framework_model: Framework model with config (needed for id2label mapping)
-        """
-        predicted_value = co_out[0].argmax(-1).item()
-
-        # Answer - "positive"
-        print(f"Predicted Sentiment: {self.model.config.id2label[predicted_value]}")
+    def decode_output(self, outputs, **kwargs):
+        if hasattr(outputs, "logits"):
+            return outputs.logits
+        return outputs[0] if isinstance(outputs, (tuple, list)) else outputs
