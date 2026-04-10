@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-04-10T01:10:00Z",
+  "source": "vulcan-orchestration quietbox forge repro candidate export",
+  "scope": "torch-only forge-repro-worthy quietbox failures",
+  "candidates": [
+    {
+      "model_id": "dandelin/vilt-b32-mlm",
+      "specific_test_case": "test_all_models_torch[vilt/masked_lm/pytorch-Mlm-single_device-inference]",
+      "loader_path": "vilt/masked_lm/pytorch/loader.py",
+      "wave": "hf100k-quietbox-direct-wave36",
+      "outcome": "known_xfail",
+      "bringup_status": "UNKNOWN",
+      "model_status": "ModelTestStatus.KNOWN_FAILURE_XFAIL",
+      "reason_code": "junit_failure",
+      "junit_xml_path": "/Users/dfredriksen/Desktop/vulcan-orch-story-269/artifacts/hf10k/ttxla-batch/hf100k-quietbox-direct-wave36/qb2-120-p02t02-dandelin-vilt-b32-mlm/junit.xml",
+      "error_message": "Failed to legalize operation 'ttir.gather': ' - https://github.com/tenstorrent/tt-xla/issues/318",
+      "failing_reason": "module 'spacy' has no attribute 'Language'"
+    }
+  ]
+}
