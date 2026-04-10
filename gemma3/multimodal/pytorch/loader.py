@@ -7,6 +7,7 @@ Gemma3 model loader implementation for multimodal modeling.
 
 from typing import Optional, Any
 
+import torch
 from transformers import (
     AutoProcessor,
     Gemma3ForConditionalGeneration,
@@ -24,6 +25,43 @@ from ....config import (
 from ....base import ForgeModel
 from ....tools.utils import cast_input_to_type, get_file
 from PIL import Image
+
+
+def _patch_hf_dynamic_sliding_window_layer_for_torch_compile() -> None:
+    """HuggingFace uses ``[:, :, -sliding_window + 1:, :]`` on KV cat; when seq <
+    ``sliding_window - 1`` that negative start is invalid under torch.compile/XLA."""
+    from transformers.cache_utils import DynamicSlidingWindowLayer
+
+    if getattr(
+        DynamicSlidingWindowLayer, "_tt_forge_sliding_window_update_patch", False
+    ):
+        return
+
+    def update(self, key_states, value_states, cache_kwargs=None):
+        if not self.is_initialized:
+            self.lazy_initialization(key_states, value_states)
+
+        self.cumulative_length += key_states.shape[-2]
+
+        full_key_states = torch.cat([self.keys, key_states], dim=-2)
+        full_value_states = torch.cat([self.values, value_states], dim=-2)
+
+        max_keep = self.sliding_window - 1
+        seq_len = full_key_states.shape[-2]
+        if seq_len > max_keep:
+            self.keys = full_key_states[:, :, -max_keep:, :]
+            self.values = full_value_states[:, :, -max_keep:, :]
+        else:
+            self.keys = full_key_states
+            self.values = full_value_states
+
+        return full_key_states, full_value_states
+
+    DynamicSlidingWindowLayer.update = update
+    DynamicSlidingWindowLayer._tt_forge_sliding_window_update_patch = True
+
+
+_patch_hf_dynamic_sliding_window_layer_for_torch_compile()
 
 
 class ModelVariant(StrEnum):
