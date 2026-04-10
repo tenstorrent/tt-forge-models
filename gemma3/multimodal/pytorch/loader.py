@@ -108,6 +108,16 @@ class ModelLoader(ForgeModel):
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if getattr(model.config, "use_cache", True):
+            text_cfg = model.config.text_config
+            text_cfg.layer_types = ["full_attention"] * text_cfg.num_hidden_layers
+            # Decoder layers cache attention_type / self_attn.layer_type at construction;
+            # mask creation uses updated config.layer_types only, so keys must match.
+            for dec_layer in model.model.language_model.layers:
+                dec_layer.attention_type = "full_attention"
+                dec_layer.self_attn.layer_type = "full_attention"
+                dec_layer.self_attn.sliding_window = None
+                dec_layer.self_attn.is_sliding = False
 
         model.eval()
         self.model = model
