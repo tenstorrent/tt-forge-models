@@ -5,7 +5,11 @@
 Llama 3.2 Vision model loader implementation for multimodal visual question answering
 """
 import torch
-from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers import (
+    AutoProcessor,
+    AutoModelForCausalLM,
+    AutoModelForImageTextToText,
+)
 from PIL import Image
 from typing import Optional
 from ....tools.utils import get_file, cast_input_to_type
@@ -26,6 +30,7 @@ class ModelVariant(StrEnum):
 
     LLAMA_3_2_11B_VISION = "3.2_11B_Vision"
     LLAMA_3_2_11B_VISION_INSTRUCT = "3.2_11B_Vision_Instruct"
+    LLAMA_3_2_90B_VISION_INSTRUCT = "3.2_90B_Vision_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +43,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LLAMA_3_2_11B_VISION_INSTRUCT: ModelConfig(
             pretrained_model_name="meta-llama/Llama-3.2-11B-Vision-Instruct",
+        ),
+        ModelVariant.LLAMA_3_2_90B_VISION_INSTRUCT: ModelConfig(
+            pretrained_model_name="meta-llama/Llama-3.2-90B-Vision-Instruct",
         ),
     }
 
@@ -116,13 +124,19 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        if self._variant == ModelVariant.LLAMA_3_2_90B_VISION_INSTRUCT:
+            model = AutoModelForImageTextToText.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
 
         model.eval()
         self.model = model
-
+        print("model", model)
+        print("model.config", model.config)
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -135,8 +149,41 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input arguments that can be fed to the model.
         """
+
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if self._variant == ModelVariant.LLAMA_3_2_90B_VISION_INSTRUCT:
+            if self.processor is None:
+                self._load_processor()
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG",
+                        },
+                        {"type": "text", "text": "What animal is on the candy?"},
+                    ],
+                },
+            ]
+            inputs = self.processor.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                tokenize=True,
+                return_dict=True,
+                return_tensors="pt",
+            )
+            if batch_size > 1:
+                for key in inputs:
+                    if torch.is_tensor(inputs[key]):
+                        inputs[key] = (
+                            inputs[key]
+                            .repeat_interleave(batch_size, dim=0)
+                            .contiguous()
+                        )
+            return inputs
 
         # Ensure processor is initialized
         if self.processor is None:
@@ -226,3 +273,51 @@ class ModelLoader(ForgeModel):
             decoded_output = self.tokenizer.decode(next_token_id)
 
         return decoded_output
+
+    def get_mesh_config(self, num_devices: int):
+        if num_devices == 32:  # Galaxy
+            mesh_shape = (4, 8)
+        else:
+            mesh_shape = (1, num_devices)
+
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        if self._variant == ModelVariant.LLAMA_3_2_90B_VISION_INSTRUCT:
+            # MllamaForConditionalGeneration: vision_model (MllamaVisionModel) + language_model (MllamaTextModel)
+            vm = model.model.vision_model
+
+            def _add_mllama_vision_encoder_layer(layer):
+                sa = layer.self_attn
+                shard_specs[sa.q_proj.weight] = ("model", "batch")
+                shard_specs[sa.k_proj.weight] = ("model", "batch")
+                shard_specs[sa.v_proj.weight] = ("model", "batch")
+                shard_specs[sa.o_proj.weight] = ("batch", "model")
+                mlp = layer.mlp
+                shard_specs[mlp.fc1.weight] = ("model", "batch")
+                shard_specs[mlp.fc2.weight] = ("batch", "model")
+
+            for layer in vm.transformer.layers:
+                _add_mllama_vision_encoder_layer(layer)
+            for layer in vm.global_transformer.layers:
+                _add_mllama_vision_encoder_layer(layer)
+
+            for layer in model.model.language_model.layers:
+                attn = getattr(layer, "self_attn", None) or getattr(
+                    layer, "cross_attn", None
+                )
+                if attn is not None:
+                    shard_specs[attn.q_proj.weight] = ("model", "batch")
+                    shard_specs[attn.k_proj.weight] = ("model", "batch")
+                    shard_specs[attn.v_proj.weight] = ("model", "batch")
+                    shard_specs[attn.o_proj.weight] = ("batch", "model")
+                mlp = layer.mlp
+                shard_specs[mlp.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[model.model.multi_modal_projector.weight] = ("model", "batch")
+            shard_specs[model.lm_head.weight] = ("model", "batch")
+
+        return shard_specs
