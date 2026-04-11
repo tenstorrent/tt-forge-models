@@ -47,10 +47,9 @@ from .utils import (
 from transformers.image_processing_utils import BatchFeature, get_patch_output_size
 from transformers.image_processing_utils_fast import (
     BaseImageProcessorFast,
-    DefaultFastImageProcessorKwargs,
-    group_images_by_shape,
-    reorder_images,
 )
+from transformers.image_transforms import group_images_by_shape, reorder_images
+from transformers.processing_utils import ImagesKwargs
 from transformers.image_utils import IMAGENET_STANDARD_MEAN  # 0.5, 0.5, 0.5
 from transformers.image_utils import IMAGENET_STANDARD_STD  # 0.5, 0.5, 0.5
 from transformers.image_utils import (
@@ -287,6 +286,15 @@ class GR00T_N1_5(PreTrainedModel):
         self.action_horizon = config.action_horizon
         self.action_dim = config.action_dim
         self.compute_dtype = config.compute_dtype
+
+        # post_init() sets metadata needed by from_pretrained (all_tied_weights_keys,
+        # parallelism plans, etc.), but also calls init_weights() which would
+        # reinitialize sub-module weights that are loaded separately (EagleBackbone,
+        # FlowmatchingActionHead) and not in the GR00T checkpoint. Skip init_weights.
+        _orig_init_weights = self.init_weights
+        self.init_weights = lambda: None
+        self.post_init()
+        self.init_weights = _orig_init_weights
 
     def validate_inputs(self, inputs):
         # NOTE -- this should be handled internally by the model
@@ -833,7 +841,7 @@ def crop(
     return img[:, top:bottom, left:right]
 
 
-class Eagle2_5_VLFastImageProcessorKwargs(DefaultFastImageProcessorKwargs):
+class Eagle2_5_VLFastImageProcessorKwargs(ImagesKwargs):
     max_dynamic_tiles: Optional[int]
     min_dynamic_tiles: Optional[int]
     use_thumbnail: Optional[bool]
@@ -1250,6 +1258,7 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
         # Pop kwargs that are not needed in _preprocess
         pad_size = kwargs.pop("pad_size")
         data_format = kwargs.pop("data_format")
+        kwargs.pop("image_seq_length", None)
 
         if images is not None:
             return self._preprocess(images, **kwargs)

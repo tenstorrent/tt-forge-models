@@ -102,6 +102,26 @@ from transformers.utils import add_start_docstrings, logging
 import torch
 import torch.nn as nn
 
+# Transformers 5.x attention uses .view(*, -1, head_dim) which is ambiguous for
+# 0-length sequences (the model produces these during normal operation via concat/split).
+# Older transformers used explicit num_heads which handled 0-length fine. Patch both
+# Qwen2 and Qwen3 attention to short-circuit for 0-length sequences — the result is
+# identical since all ops on 0-element tensors produce 0-element tensors.
+from transformers.models.qwen2.modeling_qwen2 import Qwen2Attention
+from transformers.models.qwen3.modeling_qwen3 import Qwen3Attention
+
+
+def _make_0len_safe_attn_forward(orig_forward):
+    def _safe_forward(self, hidden_states, *args, **kwargs):
+        if hidden_states.shape[-2] == 0:
+            out = hidden_states.new_zeros(*hidden_states.shape[:-1], self.config.hidden_size)
+            return out, None
+        return orig_forward(self, hidden_states, *args, **kwargs)
+    return _safe_forward
+
+
+Qwen2Attention.forward = _make_0len_safe_attn_forward(Qwen2Attention.forward)
+Qwen3Attention.forward = _make_0len_safe_attn_forward(Qwen3Attention.forward)
 
 from typing import Optional
 
@@ -3919,7 +3939,7 @@ class FlowmatchingActionHead(nn.Module):
             )
             nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
 
-        self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
+        self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta, validate_args=False)
         self.num_timestep_buckets = config.num_timestep_buckets
         self.config = config
         self.set_trainable_parameters(
