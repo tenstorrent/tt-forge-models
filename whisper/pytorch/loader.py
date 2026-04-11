@@ -118,7 +118,10 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         # Common model kwargs
-        model_kwargs = {}
+        # Force float32 to avoid Transformers 5.x respecting the HuggingFace config's
+        # torch_dtype (float16 for large-v3/turbo), which causes PCC drops on TT hardware
+        # due to float16 accumulation across 64 transformer blocks.
+        model_kwargs = {"torch_dtype": torch.float32}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
