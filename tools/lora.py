@@ -1,19 +1,6 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""
-LoRA (Low-Rank Adaptation) utilities for applying parameter-efficient fine-tuning
-to large language models via the peft library.
-
-Usage::
-
-    from third_party.tt_forge_models.tools.lora import apply_lora_adapters
-
-    model = AutoModelForCausalLM.from_pretrained(...)
-    model = apply_lora_adapters(model, r=8, lora_alpha=16)
-    # Only LoRA parameters require gradients; base weights are frozen.
-"""
-
 from typing import List
 
 import torch.nn as nn
