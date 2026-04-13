@@ -144,7 +144,7 @@ class ModelLoader(ForgeModel):
             4: (2, 2),
             8: (2, 4),
             16: (4, 4),
-            32: (4, 8),  # Galaxy
+            32: (8, 4),  # Galaxy
         }
         mesh_shape = mesh_shapes.get(num_devices, (1, num_devices))
         return mesh_shape, ("batch", "model")
@@ -172,11 +172,15 @@ class ModelLoader(ForgeModel):
 
             elif hasattr(layer, "linear_attn"):
                 la = layer.linear_attn
+                shard_specs[la.in_proj_qkv.weight] = ("model", "batch")
+                if hasattr(la, "conv1d"):
+                    shard_specs[la.conv1d.weight] = ("model", None, None)
                 shard_specs[la.in_proj_z.weight] = ("model", "batch")
                 shard_specs[la.in_proj_a.weight] = ("model", "batch")
                 shard_specs[la.in_proj_b.weight] = ("model", "batch")
                 shard_specs[la.out_proj.weight] = ("batch", "model")
 
+        shard_specs[model.model.embed_tokens.weight] = ("model", None)
         if hasattr(model, "lm_head"):
             shard_specs[model.lm_head.weight] = ("model", None)
 
