@@ -1434,11 +1434,11 @@ class DeepseekV3Model(DeepseekV3PreTrainedModel):
         if use_cache:
             use_legacy_cache = not isinstance(past_key_values, Cache)
             if use_legacy_cache:
-                new_cache = DynamicCache()                                 
+                new_cache = DynamicCache()
                 if past_key_values is not None:
-                    for layer_idx, (k, v) in enumerate(past_key_values):        
-                        new_cache.update(k, v, layer_idx)                   
-                past_key_values = new_cache                                   
+                    for layer_idx, (k, v) in enumerate(past_key_values):
+                        new_cache.update(k, v, layer_idx)
+                past_key_values = new_cache
             # Only call get_seq_length() when cache_position is absent; when
             # cache_position is provided we derive position_ids and the mask
             # directly from it, avoiding "failed to legalize operation 
