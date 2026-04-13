@@ -42,7 +42,7 @@ class AlexNet(nn.Module):
     num_classes: int = _NUM_CLASSES
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x, *, train: bool = False):
         x = nn.Conv(features=96, kernel_size=(11, 11), strides=(4, 4), padding=0)(x)
         x = nn.relu(x)
         x = nn.max_pool(x, window_shape=(3, 3), strides=(2, 2))
@@ -79,6 +79,9 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """AlexNet custom Flax Linen loader with tensor parallelism support.
 
+    All variants are multi-chip; parameters are initialized on the CPU mesh
+    using initialize_flax_linen_parameters_on_cpu and then sharded to devices.
+
     AlexNet is a non-EasyDeL Flax Linen model. Partitioning uses the
     infra.utilities Flax Linen helpers:
       - initialize_flax_linen_parameters_on_cpu  — initialise params on CPU mesh
@@ -89,6 +92,8 @@ class ModelLoader(ForgeModel):
     Activations are replicated for TENSOR_PARALLEL and batch-sharded for
     DATA_PARALLEL.
     """
+
+    DEFAULT_PARAMS_INIT_SEED = 42
 
     _VARIANTS = {
         ModelVariant.CUSTOM_1X2: ModelConfig(pretrained_model_name=""),
@@ -128,7 +133,46 @@ class ModelLoader(ForgeModel):
 
         dtype = dtype_override if dtype_override is not None else jnp.float32
         images = jnp.zeros((batch_size, _IMAGE_H, _IMAGE_W, _IMAGE_C), dtype=dtype)
-        return (images,)
+        return images
+
+    def load_parameters(
+        self,
+        dtype_override=None,
+        train=False,
+        seed=None,
+        inputs=None,
+        model_for_multichip=None,
+        cpu_mesh=None,
+        input_activations_partition_specs=None,
+        input_parameters_partition_specs=None,
+    ):
+        if seed is None:
+            seed = self.DEFAULT_PARAMS_INIT_SEED
+
+        if (
+            model_for_multichip is None
+            or cpu_mesh is None
+            or input_activations_partition_specs is None
+            or input_parameters_partition_specs is None
+        ):
+            raise ValueError(
+                "load_parameters requires model_for_multichip, cpu_mesh, "
+                "input_activations_partition_specs, and input_parameters_partition_specs"
+            )
+
+        from infra.utilities import initialize_flax_linen_parameters_on_cpu
+
+        if inputs is None:
+            inputs = self.load_inputs(dtype_override, mesh=cpu_mesh)
+
+        return initialize_flax_linen_parameters_on_cpu(
+            model_for_multichip,
+            input_activations_partition_specs,
+            inputs,
+            input_parameters_partition_specs,
+            cpu_mesh,
+            seed,
+        )
 
     # ------------------------------------------------------------------
     # Multi-chip partition methods
@@ -164,14 +208,14 @@ class ModelLoader(ForgeModel):
         The Flax Linen infra utilities handle parameter initialisation on the
         CPU mesh and annotate every leaf with a replicated PartitionSpec.
         """
-        from infra.utilities import (
-            initialize_flax_linen_parameters_on_cpu,
-            make_flax_linen_parameters_partition_specs_on_cpu,
-        )
+        from infra.utilities import make_flax_linen_parameters_partition_specs_on_cpu
 
-        init_params = initialize_flax_linen_parameters_on_cpu(
-            model=model_for_multichip, cpu_mesh=cpu_mesh, inputs=inputs
-        )
+        if inputs is None:
+            inputs = self.load_inputs(dtype_override, mesh=cpu_mesh)
+
         return make_flax_linen_parameters_partition_specs_on_cpu(
-            params=init_params, partition_rules=((r".*", PartitionSpec()),)
+            model_for_multichip,
+            cpu_mesh,
+            input_activations_partition_specs,
+            inputs,
         )
