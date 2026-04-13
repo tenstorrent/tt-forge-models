@@ -282,4 +282,11 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
+            # MoE expert weights (3D tensors)
+            if hasattr(layer, "experts"):
+                # gate_up_proj: [num_experts, intermediate, hidden]
+                shard_specs[layer.experts.gate_up_proj] = ("model", "batch", None)
+                # down_proj: [num_experts, hidden, intermediate]
+                shard_specs[layer.experts.down_proj] = ("model", None, "batch")
+
         return shard_specs
