@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available GPT-2 model variants."""
 
     GPT2_BASE = "Default"
+    GPT2_MEDIUM = "Medium"
     GPT2_SEQUENCE_CLASSIFICATION = "Sequence_Classification"
 
 
@@ -38,6 +39,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GPT2_BASE: LLMModelConfig(
             pretrained_model_name="gpt2",
+            max_length=256,
+        ),
+        ModelVariant.GPT2_MEDIUM: LLMModelConfig(
+            pretrained_model_name="gpt2-medium",
             max_length=256,
         ),
         ModelVariant.GPT2_SEQUENCE_CLASSIFICATION: LLMModelConfig(
@@ -91,7 +96,7 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         model_name = self._variant_config.pretrained_model_name
 
-        if self._variant == ModelVariant.GPT2_BASE:
+        if self._variant in (ModelVariant.GPT2_BASE, ModelVariant.GPT2_MEDIUM):
             config = GPT2Config.from_pretrained(model_name)
             config_dict = config.to_dict()
             config_dict["use_cache"] = True
@@ -119,7 +124,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        if self._variant == ModelVariant.GPT2_BASE:
+        if self._variant in (ModelVariant.GPT2_BASE, ModelVariant.GPT2_MEDIUM):
             # Use random input for text generation
             vocab_size = GPT2Config.from_pretrained(
                 self._variant_config.pretrained_model_name
