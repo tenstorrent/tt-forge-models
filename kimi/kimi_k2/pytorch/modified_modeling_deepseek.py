@@ -20,7 +20,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""PyTorch DeepSeek model."""
+"""PyTorch DeepSeek model. Modified for tt-xla with modifications marked with # Modified: <description>."""
 
 import math
 import warnings
