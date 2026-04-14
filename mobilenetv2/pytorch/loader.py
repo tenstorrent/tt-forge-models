@@ -44,6 +44,7 @@ class MobileNetV2Config(ModelConfig):
     high_res_size: tuple = (
         None  # None means use default size, otherwise (width, height)
     )
+    smp_encoder_name: Optional[str] = None
 
 
 class ModelVariant(StrEnum):
@@ -59,10 +60,14 @@ class ModelVariant(StrEnum):
     DEEPLABV3_MOBILENET_V2_HF = "Deeplabv3_Mobilenet_v2_1.0_513"
 
     # TIMM variants
+    MOBILENET_V2_050_LAMB_IN1K_TIMM = "050_Lamb_IN1K"
     MOBILENET_V2_100_TIMM = "100"
 
     # TORCHVISION variants
     MOBILENET_V2_TORCHVISION = "Mobilenet_v2_Torchvision"
+
+    # SMP (Segmentation Models PyTorch) variants
+    MOBILENET_V2_SMP = "Mobilenet_v2_SMP"
 
 
 class ModelLoader(ForgeModel):
@@ -93,6 +98,10 @@ class ModelLoader(ForgeModel):
             source=ModelSource.HUGGING_FACE,
         ),
         # TIMM variants
+        ModelVariant.MOBILENET_V2_050_LAMB_IN1K_TIMM: MobileNetV2Config(
+            pretrained_model_name="mobilenetv2_050.lamb_in1k",
+            source=ModelSource.TIMM,
+        ),
         ModelVariant.MOBILENET_V2_100_TIMM: MobileNetV2Config(
             pretrained_model_name="mobilenetv2_100",
             source=ModelSource.TIMM,
@@ -101,6 +110,12 @@ class ModelLoader(ForgeModel):
         ModelVariant.MOBILENET_V2_TORCHVISION: MobileNetV2Config(
             pretrained_model_name="mobilenet_v2",
             source=ModelSource.TORCHVISION,
+        ),
+        # SMP (Segmentation Models PyTorch) variants
+        ModelVariant.MOBILENET_V2_SMP: MobileNetV2Config(
+            pretrained_model_name="smp-hub/mobilenet_v2.imagenet",
+            source=ModelSource.CUSTOM,
+            smp_encoder_name="mobilenet_v2",
         ),
     }
 
@@ -138,6 +153,8 @@ class ModelLoader(ForgeModel):
 
         if variant in [ModelVariant.MOBILENET_V2_TORCH_HUB]:
             group = ModelGroup.RED
+        elif variant in [ModelVariant.MOBILENET_V2_050_LAMB_IN1K_TIMM]:
+            group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
 
@@ -191,6 +208,17 @@ class ModelLoader(ForgeModel):
             # Load model using torchvision
             model = models.mobilenet_v2(weights=MobileNet_V2_Weights.DEFAULT)
 
+        elif (
+            source == ModelSource.CUSTOM
+            and self._variant_config.smp_encoder_name is not None
+        ):
+            import segmentation_models_pytorch as smp
+
+            model = smp.encoders.get_encoder(
+                self._variant_config.smp_encoder_name,
+                weights="imagenet",
+            )
+
         model.eval()
 
         # Store model for potential use in input preprocessing and postprocessing
@@ -235,8 +263,39 @@ class ModelLoader(ForgeModel):
                     name.replace("mobilenet", "MobileNet").replace("_", "") + "_Weights"
                 )
 
+            # For SMP encoder, use standard ImageNet preprocessing via SMP params
+            if (
+                source == ModelSource.CUSTOM
+                and self._variant_config.smp_encoder_name is not None
+            ):
+                import segmentation_models_pytorch as smp
+
+                params = smp.encoders.get_preprocessing_params(
+                    self._variant_config.smp_encoder_name
+                )
+                smp_std = torch.tensor(params["std"]).view(1, 3, 1, 1)
+                smp_mean = torch.tensor(params["mean"]).view(1, 3, 1, 1)
+
+                def custom_preprocess_fn(img: Image.Image) -> torch.Tensor:
+                    preprocess = transforms.Compose(
+                        [
+                            transforms.Resize(256),
+                            transforms.CenterCrop(224),
+                            transforms.ToTensor(),
+                        ]
+                    )
+                    img_tensor = preprocess(img).unsqueeze(0)
+                    return (img_tensor - smp_mean) / smp_std
+
+                self._preprocessor = VisionPreprocessor(
+                    model_source=ModelSource.CUSTOM,
+                    model_name=model_name,
+                    high_res_size=high_res_size,
+                    custom_preprocess_fn=custom_preprocess_fn,
+                )
+
             # For TORCH_HUB, use CUSTOM with standard ImageNet preprocessing
-            if source == ModelSource.TORCH_HUB:
+            elif source == ModelSource.TORCH_HUB:
 
                 def custom_preprocess_fn(img: Image.Image) -> torch.Tensor:
                     preprocess = transforms.Compose(
@@ -328,6 +387,17 @@ class ModelLoader(ForgeModel):
         Returns:
             dict or None: Prediction dict if output provided, else None (prints results).
         """
+        # New usage: return dict from output tensor
+        if output is not None:
+            # SMP encoder returns a list of feature maps, not classification logits
+            if self._variant_config.smp_encoder_name is not None:
+                if isinstance(output, (list, tuple)):
+                    return {
+                        "features": [f.shape for f in output],
+                        "num_stages": len(output),
+                    }
+                return {"features": [output.shape], "num_stages": 1}
+
         if self._postprocessor is None:
             model_name = self._variant_config.pretrained_model_name
             source = self._variant_config.source
@@ -343,7 +413,6 @@ class ModelLoader(ForgeModel):
                 model_instance=self.model,
             )
 
-        # New usage: return dict from output tensor
         if output is not None:
             return self._postprocessor.postprocess(
                 output, top_k=top_k, return_dict=True

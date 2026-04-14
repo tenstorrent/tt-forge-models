@@ -52,6 +52,14 @@ class ModelLoader(ForgeModel):
         ),
     ]
 
+    _RELEVANCE_PROMPT = (
+        "You are a search relevance expert who evaluates how well documents "
+        "match search queries. For each query-document pair, carefully analyze "
+        "the semantic relationship between them, then provide your binary "
+        "relevance judgment (0 for not relevant, 1 for relevant).\n"
+        "Relevance:"
+    )
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
@@ -78,14 +86,16 @@ class ModelLoader(ForgeModel):
 
     def _format_input(self, query, document):
         """Format a query-document pair using the reranker's chat template."""
+        user_content = (
+            f"query: {query}\n" f"document: {document}\n" f"{self._RELEVANCE_PROMPT}"
+        )
         messages = [
-            {"role": "query", "content": query},
-            {"role": "document", "content": document},
+            {"role": "user", "content": user_content},
         ]
         text = self.tokenizer.apply_chat_template(
             messages,
             tokenize=False,
-            add_generation_prompt=False,
+            add_generation_prompt=True,
         )
         return text
 
