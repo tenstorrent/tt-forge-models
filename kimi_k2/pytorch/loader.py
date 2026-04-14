@@ -15,8 +15,8 @@ import torch
 import torch_xla.runtime as xr
 from transformers import AutoTokenizer
 
-from ....base import ForgeModel
-from ....config import (
+from ...base import ForgeModel
+from ...config import (
     Framework,
     LLMModelConfig,
     ModelGroup,
