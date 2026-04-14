@@ -81,11 +81,11 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
