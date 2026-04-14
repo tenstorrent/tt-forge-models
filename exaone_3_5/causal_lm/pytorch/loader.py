@@ -116,7 +116,11 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        # Pin revision to avoid incompatible remote code that imports
+        # check_model_inputs (not available in transformers 5.2.0).
+        revision = "c38726a7ab4f"
+
+        model_kwargs = {"trust_remote_code": True, "revision": revision}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
@@ -124,7 +128,9 @@ class ModelLoader(ForgeModel):
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
+                pretrained_model_name,
+                trust_remote_code=True,
+                revision=revision,
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -186,7 +192,9 @@ class ModelLoader(ForgeModel):
             The configuration object for the EXAONE 3.5 model.
         """
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+            revision="c38726a7ab4f",
         )
 
         return self.config
