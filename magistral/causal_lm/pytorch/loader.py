@@ -4,7 +4,7 @@
 """
 Magistral model loader implementation for causal language modeling.
 """
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer, Mistral3ForConditionalGeneration
 from typing import Optional
 
 from ....base import ForgeModel
@@ -115,10 +115,10 @@ class ModelLoader(ForgeModel):
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
+            config.text_config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
 
