@@ -53,7 +53,11 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+        from transformers import (
+            AutoConfig,
+            AutoModelForSequenceClassification,
+            AutoTokenizer,
+        )
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -64,12 +68,29 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForSequenceClassification.from_pretrained(
-            pretrained_model_name,
-            trust_remote_code=True,
-            use_memory_efficient_attention=False,
-            **model_kwargs,
-        )
+        # The HuggingFace config has use_memory_efficient_attention=True which
+        # requires xformers. The test infra's random_weights patch re-downloads
+        # the config internally and ignores our kwarg, so we temporarily patch
+        # AutoConfig.from_pretrained to force the attribute to False.
+        _orig_from_pretrained = AutoConfig.from_pretrained
+
+        def _patched_from_pretrained(*args, **kw):
+            config = _orig_from_pretrained(*args, **kw)
+            if hasattr(config, "use_memory_efficient_attention"):
+                config.use_memory_efficient_attention = False
+            return config
+
+        try:
+            AutoConfig.from_pretrained = staticmethod(_patched_from_pretrained)
+            model = AutoModelForSequenceClassification.from_pretrained(
+                pretrained_model_name,
+                trust_remote_code=True,
+                use_memory_efficient_attention=False,
+                **model_kwargs,
+            )
+        finally:
+            AutoConfig.from_pretrained = _orig_from_pretrained
+
         model.eval()
         return model
 
