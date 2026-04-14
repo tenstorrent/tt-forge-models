@@ -18,7 +18,6 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from diffusers import StableDiffusionPipeline
 
 
 class ModelVariant(StrEnum):
@@ -40,6 +39,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self._pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
@@ -52,35 +52,76 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_pipeline(self, dtype=None):
+        from diffusers import StableDiffusionPipeline
+
+        dtype = dtype or torch.bfloat16
+        self._pipeline = StableDiffusionPipeline.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            torch_dtype=dtype,
+            safety_checker=None,
+        )
+        self._pipeline.to("cpu")
+        return self._pipeline
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Realistic Vision v5.1 pipeline.
+        """Load and return the UNet from the Realistic Vision v5.1 pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained Realistic Vision v5.1 pipeline.
+            UNet2DConditionModel: The UNet component of the pipeline.
         """
-        dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            safety_checker=None,
-            **kwargs,
-        )
-        return pipe
+        if self._pipeline is None:
+            self._load_pipeline(dtype=dtype_override)
+
+        unet = self._pipeline.unet
+        unet.eval()
+
+        if dtype_override is not None:
+            unet = unet.to(dtype_override)
+
+        return unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for Realistic Vision v5.1.
+        """Load and return sample inputs for the Realistic Vision v5.1 UNet.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+            dtype_override: Optional dtype for the inputs.
+            batch_size: Optional batch size for the inputs.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Dictionary of UNet input tensors.
         """
-        prompt = [
-            "RAW photo, a portrait of a woman in a rustic setting, 8k uhd, high quality, film grain",
-        ] * batch_size
-        return prompt
+        if self._pipeline is None:
+            self._load_pipeline()
+
+        dtype = dtype_override or torch.bfloat16
+        pipe = self._pipeline
+        unet = pipe.unet
+
+        prompt = "RAW photo, a portrait of a woman in a rustic setting, 8k uhd, high quality, film grain"
+        text_inputs = pipe.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=pipe.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        encoder_hidden_states = pipe.text_encoder(text_inputs.input_ids)[0]
+
+        in_channels = unet.config.in_channels
+        sample_size = unet.config.sample_size
+        sample = torch.randn(
+            (batch_size, in_channels, sample_size, sample_size),
+            dtype=dtype,
+        )
+
+        timestep = torch.tensor([1], dtype=torch.long)
+
+        return {
+            "sample": sample.to(dtype),
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states.to(dtype),
+        }
