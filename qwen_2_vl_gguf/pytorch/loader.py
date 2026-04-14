@@ -5,7 +5,7 @@
 Qwen 2 VL GGUF model loader implementation for vision-language tasks.
 """
 import torch
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2VLForConditionalGeneration, AutoConfig, AutoProcessor
 from typing import Optional
 
 
@@ -120,7 +120,12 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        # Load config from the canonical (non-GGUF) repo because the
+        # transformers GGUF config parser does not support qwen2vl yet.
+        config = AutoConfig.from_pretrained("Qwen/Qwen2-VL-2B-Instruct")
+
         model_kwargs = {
+            "config": config,
             "low_cpu_mem_usage": True,
             "gguf_file": self.GGUF_FILE,
         }
