@@ -71,7 +71,25 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from depth_anything_3.api import DepthAnything3
+        import importlib
+        import site
+        import sys
+
+        # The local "evo" model directory shadows the pip-installed "evo" package
+        # (odometry evaluation library) that depth_anything_3 depends on.
+        # Temporarily remove the cached local evo and prioritize site-packages.
+        saved_evo_modules = {
+            k: sys.modules.pop(k)
+            for k in list(sys.modules)
+            if k == "evo" or k.startswith("evo.")
+        }
+        site_packages = site.getsitepackages()[0]
+        sys.path.insert(0, site_packages)
+        try:
+            from depth_anything_3.api import DepthAnything3
+        finally:
+            sys.path.remove(site_packages)
+            sys.modules.update(saved_evo_modules)
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
