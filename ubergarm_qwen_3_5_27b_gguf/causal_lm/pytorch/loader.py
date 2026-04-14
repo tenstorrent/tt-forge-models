@@ -8,6 +8,18 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+# Patch GGUF mappings to support the qwen35 architecture (Qwen 3.5),
+# which reuses the same config/tensor layout as qwen3.
+from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+
+if "qwen35" not in GGUF_CONFIG_MAPPING:
+    GGUF_CONFIG_MAPPING["qwen35"] = GGUF_CONFIG_MAPPING["qwen3"]
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+if "qwen35" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+    _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
