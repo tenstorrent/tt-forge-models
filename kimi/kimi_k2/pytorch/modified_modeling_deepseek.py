@@ -251,7 +251,6 @@ def yarn_linear_ramp_mask(min, max, dim):
 
 
 class DeepseekV3YarnRotaryEmbedding(DeepseekV3RotaryEmbedding):
-
     def __init__(
         self,
         dim,
@@ -562,15 +561,21 @@ class DeepseekV3MoE(nn.Module):
             tokens_per_expert_post_gather = tokens_per_expert_group.view(
                 self.ep_size, self.experts_per_rank
             ).sum(dim=0)
-            gatherd_idxs = torch.zeros(gathered_tokens.shape[0], dtype=torch.int64) # Modified: avoid using numpy
+            gatherd_idxs = torch.zeros(
+                gathered_tokens.shape[0], dtype=torch.int64
+            )  # Modified: avoid using numpy
             s = 0
-            for i, k in enumerate(tokens_per_expert_group.cpu().tolist()): # Modified: avoid using numpy
+            for i, k in enumerate(
+                tokens_per_expert_group.cpu().tolist()
+            ):  # Modified: avoid using numpy
                 gatherd_idxs[s : s + k] = i % self.experts_per_rank
                 s += k
             gatherd_idxs = gatherd_idxs.argsort()
             sorted_tokens = gathered_tokens[gatherd_idxs]
             tokens_per_expert = tokens_per_expert_post_gather
-        tokens_per_expert = tokens_per_expert.cpu().tolist() # Modified: avoid using numpy
+        tokens_per_expert = (
+            tokens_per_expert.cpu().tolist()
+        )  # Modified: avoid using numpy
 
         outputs = []
         start_idx = 0
@@ -758,7 +763,9 @@ class DeepseekV3Attention(nn.Module):
         past_key_value: Optional[Cache] = None,
         output_attentions: bool = False,
         use_cache: bool = False,
-        cache_position: Optional[torch.LongTensor] = None, # Modified: add cache_position
+        cache_position: Optional[
+            torch.LongTensor
+        ] = None,  # Modified: add cache_position
         **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         if "padding_mask" in kwargs:
@@ -1181,7 +1188,9 @@ class DeepseekV3DecoderLayer(nn.Module):
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: Optional[bool] = False,
         use_cache: Optional[bool] = False,
-        cache_position: Optional[torch.LongTensor] = None, # Modified: add cache_position
+        cache_position: Optional[
+            torch.LongTensor
+        ] = None,  # Modified: add cache_position
         **kwargs,
     ) -> Tuple[
         torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]
@@ -1216,7 +1225,7 @@ class DeepseekV3DecoderLayer(nn.Module):
             past_key_value=past_key_value,
             output_attentions=output_attentions,
             use_cache=use_cache,
-            cache_position=cache_position, # Modified: pass cache_position to self.self_attn
+            cache_position=cache_position,  # Modified: pass cache_position to self.self_attn
             **kwargs,
         )
         hidden_states = residual + hidden_states
@@ -1397,7 +1406,9 @@ class DeepseekV3Model(DeepseekV3PreTrainedModel):
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
-        cache_position: Optional[torch.LongTensor] = None, # Modified: add cache_position
+        cache_position: Optional[
+            torch.LongTensor
+        ] = None,  # Modified: add cache_position
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
@@ -1442,7 +1453,7 @@ class DeepseekV3Model(DeepseekV3PreTrainedModel):
                 past_key_values = new_cache
             # Modified: Only call get_seq_length() when cache_position is absent; when
             # cache_position is provided we derive position_ids and the mask
-            # directly from it, avoiding "failed to legalize operation 
+            # directly from it, avoiding "failed to legalize operation
             # 'stablehlo.reduce'" error.
             elif cache_position is None:
                 past_key_values_length = past_key_values.get_seq_length()
@@ -1452,7 +1463,9 @@ class DeepseekV3Model(DeepseekV3PreTrainedModel):
                 # Modified: use MLACache to get position_ids
                 position_ids = cache_position.unsqueeze(0)
             else:
-                device = input_ids.device if input_ids is not None else inputs_embeds.device
+                device = (
+                    input_ids.device if input_ids is not None else inputs_embeds.device
+                )
                 position_ids = torch.arange(
                     past_key_values_length,
                     seq_length + past_key_values_length,
@@ -1526,7 +1539,7 @@ class DeepseekV3Model(DeepseekV3PreTrainedModel):
                 past_key_value=past_key_values,
                 output_attentions=output_attentions,
                 use_cache=use_cache,
-                cache_position=cache_position, # Modified: pass cache_position to decoder_layer
+                cache_position=cache_position,  # Modified: pass cache_position to decoder_layer
             )
 
             hidden_states = layer_outputs[0]
@@ -1611,7 +1624,9 @@ class DeepseekV3ForCausalLM(DeepseekV3PreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        cache_position: Optional[torch.LongTensor] = None, # Modified: add cache_position
+        cache_position: Optional[
+            torch.LongTensor
+        ] = None,  # Modified: add cache_position
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         r"""
         Args:
@@ -1663,7 +1678,7 @@ class DeepseekV3ForCausalLM(DeepseekV3PreTrainedModel):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
-            cache_position=cache_position, # Modified: pass cache_position to self.model
+            cache_position=cache_position,  # Modified: pass cache_position to self.model
         )
 
         hidden_states = outputs[0]

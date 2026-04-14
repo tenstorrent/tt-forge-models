@@ -155,7 +155,9 @@ class ModelLoader(ForgeModel):
         if has_dense_moe:
             num_devices = xr.global_runtime_device_count()
             mesh_shape, _ = self.get_mesh_config(num_devices)
-            enable_sparse_mlp(model, mesh=mesh_shape, cluster_axis=0, config=model.config)
+            enable_sparse_mlp(
+                model, mesh=mesh_shape, cluster_axis=0, config=model.config
+            )
 
         self.model = model
 
@@ -171,17 +173,19 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Integer token tensor of shape (batch_size, seq_len).
         """
-        if self.tokenizer is None:                                                                                                                                                                                                                                 
-            self._load_tokenizer()                                                                                                                                                                                                                                   
-        sample_prompt = "Here is an exhaustive list of the best practices for writing clean code:"                                                                                                                                                                   
-        inputs = self.tokenizer(                                                                                                                                                                                                                                     
-            [sample_prompt] * batch_size,                                                                                                                                                                                                                            
-            return_tensors="pt",                                                                                                                                                                                                                                     
-            max_length=seq_len,                                                                                                                                                                                                                               
-            truncation=True,                                                                                                                                                                                                                                  
-            padding="max_length",                                                                                                                                                                                                                             
-        )                                                                                                                                                                                                                                                     
-        return inputs["input_ids"]   
+        if self.tokenizer is None:
+            self._load_tokenizer()
+        sample_prompt = (
+            "Here is an exhaustive list of the best practices for writing clean code:"
+        )
+        inputs = self.tokenizer(
+            [sample_prompt] * batch_size,
+            return_tensors="pt",
+            max_length=seq_len,
+            truncation=True,
+            padding="max_length",
+        )
+        return inputs["input_ids"]
 
     def get_mesh_config(self, num_devices: int):
         """Get mesh configuration for tensor parallelism.
@@ -285,4 +289,3 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
 
         return shard_specs
-
