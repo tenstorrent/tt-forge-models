@@ -16,8 +16,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import DiffusionPipeline  # type: ignore[import]
-from PIL import Image  # type: ignore[import]
+from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -29,6 +28,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from .src.model_utils import load_pipe, qwen_image_edit_preprocessing
 
 BASE_MODEL = "Qwen/Qwen-Image-Edit-2511"
 LORA_REPO = "systms/SYSTMS-INFL8-LoRA-Qwen-Image-Edit-2511"
@@ -75,42 +75,44 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Qwen-Image-Edit pipeline with INFL8 LoRA weights applied.
+        """Load the Qwen-Image-Edit pipeline and return the transformer component.
 
         Returns:
-            DiffusionPipeline with LoRA weights loaded.
+            torch.nn.Module: The QwenImageTransformer2DModel with LoRA weights applied.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
+        self.pipeline = load_pipe(
+            base_model_name=self._variant_config.pretrained_model_name,
+            lora_repo=LORA_REPO,
+            lora_weights=LORA_WEIGHTS,
+            dtype=dtype,
         )
 
-        self.pipeline.load_lora_weights(
-            LORA_REPO,
-            weight_name=LORA_WEIGHTS,
-        )
+        return self.pipeline.transformer
 
-        return self.pipeline
-
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for INFL8 image editing.
+    def load_inputs(self, dtype_override=None, **kwargs) -> Any:
+        """Prepare inputs for a single transformer forward pass.
 
         Returns:
-            dict with prompt and image keys.
+            dict: Keyword arguments for the transformer's forward method.
         """
-        if prompt is None:
-            prompt = (
-                "inflate the balloon, making it grow larger and rounder "
-                "with exaggerated proportions and vibrant colors"
-            )
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        prompt = (
+            "inflate the balloon, making it grow larger and rounder "
+            "with exaggerated proportions and vibrant colors"
+        )
 
         # Create a small test image (RGB)
         image = Image.new("RGB", (256, 256), color=(200, 100, 100))
 
-        return {
-            "prompt": prompt,
-            "image": image,
-        }
+        inputs = qwen_image_edit_preprocessing(self.pipeline, prompt, image)
+
+        if dtype_override:
+            for key in ["hidden_states", "timestep", "encoder_hidden_states"]:
+                if key in inputs and isinstance(inputs[key], torch.Tensor):
+                    inputs[key] = inputs[key].to(dtype_override)
+
+        return inputs
