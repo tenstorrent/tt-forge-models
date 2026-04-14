@@ -27,7 +27,9 @@ from transformers.dynamic_module_utils import get_imports
 class ModelVariant(StrEnum):
     """Available DeepSeek Coder model variants."""
 
+    DEEPSEEK_1_3B_BASE = "1_3B_Base"
     DEEPSEEK_1_3B_INSTRUCT = "1_3B_Instruct"
+    DEEPSEEK_6_7B_INSTRUCT = "6_7B_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +37,16 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
+        ModelVariant.DEEPSEEK_1_3B_BASE: LLMModelConfig(
+            pretrained_model_name="deepseek-ai/deepseek-coder-1.3b-base",
+            max_length=2048,
+        ),
         ModelVariant.DEEPSEEK_1_3B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="deepseek-ai/deepseek-coder-1.3b-instruct",
+            max_length=2048,
+        ),
+        ModelVariant.DEEPSEEK_6_7B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="deepseek-ai/deepseek-coder-6.7b-instruct",
             max_length=2048,
         ),
     }
@@ -68,20 +78,36 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant.
         """
+        variant_groups = {
+            ModelVariant.DEEPSEEK_6_7B_INSTRUCT: ModelGroup.VULCAN,
+        }
+
         return ModelInfo(
             model="DeepSeek",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=variant_groups.get(variant, ModelGroup.GENERALITY),
             task=ModelTask.NLP_QA,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
+
+    def _is_gguf_variant(self):
+        """Check if the current variant uses GGUF quantization."""
+        return self._variant in self._GGUF_FILES
+
+    @property
+    def _gguf_file(self):
+        """Get the GGUF filename for the current variant."""
+        return self._GGUF_FILES.get(self._variant)
 
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant."""
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+
+        if self._is_gguf_variant():
+            tokenizer_kwargs["gguf_file"] = self._gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -99,6 +125,10 @@ class ModelLoader(ForgeModel):
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        if self._is_gguf_variant():
+            model_kwargs["gguf_file"] = self._gguf_file
+
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
@@ -115,12 +145,19 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        messages = [{"role": "user", "content": self.sample_text}]
-        inputs = self.tokenizer.apply_chat_template(
-            messages,
-            add_generation_prompt=True,
-            return_tensors="pt",
-        )
+        # Base models use plain text; instruct models use chat template
+        if self._variant == ModelVariant.DEEPSEEK_1_3B_BASE:
+            inputs = self.tokenizer(
+                self.sample_text,
+                return_tensors="pt",
+            ).input_ids
+        else:
+            messages = [{"role": "user", "content": self.sample_text}]
+            inputs = self.tokenizer.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                return_tensors="pt",
+            )
         padded_inputs, seq_len = pad_inputs(inputs)
         self.seq_len = seq_len
 
