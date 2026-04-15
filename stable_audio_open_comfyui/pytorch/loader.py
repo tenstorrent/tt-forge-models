@@ -3,20 +3,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Stable Audio Open 1.0 ComfyUI Repackaged model loader implementation.
+Stable Audio Open 1.0 model loader implementation.
 
-Loads single-file safetensors from Comfy-Org/stable-audio-open-1.0_repackaged.
-Supports loading the StableAudioDiTModel transformer component for testing.
+Loads the StableAudioDiTModel transformer component for testing.
+In compile-only mode (TT_RANDOM_WEIGHTS=1), creates the model with random weights.
+Otherwise, loads from the stabilityai/stable-audio-open-1.0 pretrained pipeline.
 
 Available variants:
 - STABLE_AUDIO_OPEN_1_0: Stable Audio Open 1.0 DiT transformer
 """
 
+import os
 from typing import Any, Optional
 
 import torch
-from diffusers import StableAudioPipeline  # type: ignore[import]
-from huggingface_hub import hf_hub_download  # type: ignore[import]
+from diffusers import StableAudioDiTModel  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -29,21 +30,20 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "Comfy-Org/stable-audio-open-1.0_repackaged"
-ORIGINAL_CONFIG_REPO = "stabilityai/stable-audio-open-1.0"
+REPO_ID = "stabilityai/stable-audio-open-1.0"
 
 # DiT model hidden size (from Stable Audio Open 1.0 config)
 HIDDEN_SIZE = 1024
 
 
 class ModelVariant(StrEnum):
-    """Available Stable Audio Open ComfyUI Repackaged model variants."""
+    """Available Stable Audio Open model variants."""
 
     STABLE_AUDIO_OPEN_1_0 = "1.0"
 
 
 class ModelLoader(ForgeModel):
-    """Stable Audio Open 1.0 ComfyUI Repackaged model loader using single-file safetensors."""
+    """Stable Audio Open 1.0 model loader for the DiT transformer component."""
 
     _VARIANTS = {
         ModelVariant.STABLE_AUDIO_OPEN_1_0: ModelConfig(
@@ -54,7 +54,6 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._pipeline = None
         self._transformer = None
 
     @classmethod
@@ -70,20 +69,6 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype: torch.dtype = torch.float32) -> StableAudioPipeline:
-        """Load pipeline from single-file safetensors."""
-        model_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename="stable-audio-open-1.0.safetensors",
-        )
-
-        self._pipeline = StableAudioPipeline.from_single_file(
-            model_path,
-            config=ORIGINAL_CONFIG_REPO,
-            torch_dtype=dtype,
-        )
-        return self._pipeline
-
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Load and return the Stable Audio DiT transformer model.
 
@@ -91,12 +76,20 @@ class ModelLoader(ForgeModel):
             StableAudioDiTModel instance.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
-        if self._pipeline is None:
-            self._load_pipeline(dtype)
-        elif dtype_override is not None:
-            self._pipeline = self._pipeline.to(dtype=dtype_override)
 
-        self._transformer = self._pipeline.transformer
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self._transformer = StableAudioDiTModel()
+            if dtype_override is not None:
+                self._transformer = self._transformer.to(dtype=dtype_override)
+        else:
+            from diffusers import StableAudioPipeline  # type: ignore[import]
+
+            pipeline = StableAudioPipeline.from_pretrained(
+                REPO_ID,
+                torch_dtype=dtype,
+            )
+            self._transformer = pipeline.transformer
+
         self._transformer.eval()
         return self._transformer
 
