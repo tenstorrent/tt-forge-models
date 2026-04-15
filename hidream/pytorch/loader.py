@@ -18,6 +18,7 @@ from typing import Optional
 
 import torch
 from diffusers import HiDreamImagePipeline
+from transformers import LlamaForCausalLM, PreTrainedTokenizerFast
 
 from ...base import ForgeModel
 from ...config import (
@@ -41,6 +42,11 @@ class ModelVariant(StrEnum):
 
 class ModelLoader(ForgeModel):
     """HiDream-I1 model loader implementation."""
+
+    # text_encoder_4 and tokenizer_4 use Meta-Llama-3.1-8B-Instruct which is
+    # stored in a separate gated HuggingFace repo and not bundled in the HiDream
+    # repo. Use the ungated unsloth mirror with identical architecture.
+    LLAMA_MODEL_ID = "unsloth/Llama-3.1-8B-Instruct"
 
     _VARIANTS = {
         ModelVariant.FULL: ModelConfig(
@@ -73,18 +79,30 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the HiDream-I1 pipeline.
+        """Load and return the HiDream-I1 transformer.
 
         Returns:
-            HiDreamImagePipeline: The HiDream-I1 pipeline instance.
+            torch.nn.Module: The HiDream-I1 transformer instance.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
+
+        text_encoder_4 = LlamaForCausalLM.from_pretrained(
+            self.LLAMA_MODEL_ID, torch_dtype=dtype
+        )
+        tokenizer_4 = PreTrainedTokenizerFast.from_pretrained(self.LLAMA_MODEL_ID)
+
         self.pipeline = HiDreamImagePipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
+            text_encoder_4=text_encoder_4,
+            tokenizer_4=tokenizer_4,
             **kwargs,
         )
-        return self.pipeline
+
+        if dtype_override is not None:
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
+
+        return self.pipeline.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample text prompts for the HiDream-I1 model.
