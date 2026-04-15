@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.NOMIC_EMBED_TEXT_V2_MOE_GGUF
 
     _GGUF_FILES = {
-        ModelVariant.NOMIC_EMBED_TEXT_V2_MOE_GGUF: "nomic-embed-text-v2-moe-Q4_K_M.gguf",
+        ModelVariant.NOMIC_EMBED_TEXT_V2_MOE_GGUF: "nomic-embed-text-v2-moe.Q4_K_M.gguf",
     }
 
     @property
