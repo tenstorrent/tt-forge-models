@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = pipe.tokenizer
         self.text_encoder = pipe.text_encoder
         self.scheduler = pipe.scheduler
-        self.in_channels = pipe.unet.in_channels
+        self.in_channels = pipe.unet.config.in_channels
         return pipe.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
