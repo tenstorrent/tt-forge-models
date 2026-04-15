@@ -40,6 +40,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
@@ -52,32 +53,74 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_pipeline(self):
+        self.pipeline = StableDiffusionPipeline.from_pretrained(
+            self._variant_config.pretrained_model_name, torch_dtype=torch.float32
+        )
+        self.pipeline.to("cpu")
+        return self.pipeline
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the DreamShaper pipeline.
+        """Load and return the UNet from the DreamShaper pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained DreamShaper pipeline.
+            torch.nn.Module: The UNet model used for denoising.
         """
-        dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
-        )
-        return pipe
+        if self.pipeline is None:
+            self._load_pipeline()
+
+        unet = self.pipeline.unet
+        unet.eval()
+
+        if dtype_override is not None:
+            unet = unet.to(dtype_override)
+
+        return unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for DreamShaper.
+        """Load and return sample inputs for the DreamShaper UNet model.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+            dtype_override: Optional torch.dtype for the inputs.
+            batch_size: Optional batch size for the inputs.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments for the UNet forward method.
         """
+        if self.pipeline is None:
+            self._load_pipeline()
+
+        dtype = dtype_override or torch.float32
+        pipe = self.pipeline
+        unet = pipe.unet
+
         prompt = [
             "A cinematic shot of a baby racoon wearing an intricate italian priest robe.",
         ] * batch_size
-        return prompt
+
+        text_inputs = pipe.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=pipe.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        encoder_hidden_states = pipe.text_encoder(text_inputs.input_ids)[0]
+
+        in_channels = unet.config.in_channels
+        sample_size = unet.config.sample_size
+        sample = torch.randn(
+            (batch_size, in_channels, sample_size, sample_size),
+            dtype=dtype,
+        )
+
+        timestep = torch.tensor([1], dtype=torch.long)
+
+        return {
+            "sample": sample.to(dtype),
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states.to(dtype),
+        }
