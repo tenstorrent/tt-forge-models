@@ -4,9 +4,14 @@
 """
 TeleChat2 model loader implementation for causal language modeling.
 """
+import os
+from contextlib import contextmanager
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.dynamic_module_utils import get_imports
 from typing import Optional
+from unittest.mock import patch
 
 from ....base import ForgeModel
 from ....config import (
@@ -18,6 +23,28 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
+    imports = get_imports(filename)
+    if not torch.cuda.is_available() and "flash_attn" in imports:
+        imports.remove("flash_attn")
+    return imports
+
+
+@contextmanager
+def patch_cuda_to_cpu():
+    """Temporarily monkey-patch torch.Tensor.cuda to be a no-op (return self).
+
+    The remote TeleChat2 modeling code calls .cuda() in RotaryEmbedding.__init__,
+    which fails when CUDA is not available.
+    """
+    original_cuda = torch.Tensor.cuda
+    torch.Tensor.cuda = lambda self, *args, **kwargs: self
+    try:
+        yield
+    finally:
+        torch.Tensor.cuda = original_cuda
 
 
 class ModelVariant(StrEnum):
@@ -84,16 +111,24 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        with (
+            patch(
+                "transformers.dynamic_module_utils.get_imports",
+                fixed_get_imports,
+            ),
+            patch_cuda_to_cpu(),
+        ):
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, trust_remote_code=True
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+
         model.eval()
         self.config = model.config
 
