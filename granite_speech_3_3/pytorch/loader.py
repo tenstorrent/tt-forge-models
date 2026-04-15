@@ -40,14 +40,12 @@ class GraniteSpeechWrapper(torch.nn.Module):
         super().__init__()
         self.model = model
 
-    def forward(
-        self, input_ids, attention_mask, input_features, feature_attention_mask
-    ):
+    def forward(self, input_ids, attention_mask, input_features, input_features_mask):
         return self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             input_features=input_features,
-            feature_attention_mask=feature_attention_mask,
+            input_features_mask=input_features_mask,
         )
 
 
@@ -126,5 +124,5 @@ class ModelLoader(ForgeModel):
             inputs["input_ids"],
             inputs["attention_mask"],
             inputs["input_features"],
-            inputs["feature_attention_mask"],
+            inputs["input_features_mask"],
         ]
