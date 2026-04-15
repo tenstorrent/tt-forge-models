@@ -42,6 +42,7 @@ from .utils import (
     FlowmatchingActionHeadConfig,
     InvertibleModalityTransform,
     ModalityConfig,
+    _patch_0len_attention,
 )
 
 from transformers.image_processing_utils import BatchFeature, get_patch_output_size
@@ -150,6 +151,7 @@ class EagleBackbone(nn.Module):
             self.eagle_model.language_model.model.layers.pop(-1)
 
         self.select_layer = select_layer
+        _patch_0len_attention(self.eagle_model)
         self.set_trainable_parameters(tune_llm, tune_visual)
 
     def set_trainable_parameters(self, tune_llm: bool, tune_visual: bool):
