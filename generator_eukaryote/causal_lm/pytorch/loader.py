@@ -56,11 +56,37 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            padding_side="left",
-        )
+        # Patch transformers v5 __setattr__ to handle custom tokenizers that
+        # set special tokens (bos_token, eos_token) before calling super().__init__().
+        # The remote DNAKmerTokenizer sets self.bos_token/eos_token/bos_token_id/
+        # eos_token_id before super().__init__(), but transformers v5's __setattr__
+        # requires _special_tokens_map and _added_tokens_decoder to exist.
+        # We bypass __setattr__ for all assignments before super().__init__() runs,
+        # then re-register the special tokens through the proper path afterward.
+        from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+
+        _orig_setattr = PreTrainedTokenizerBase.__setattr__
+
+        def _safe_setattr(self_tok, key, value):
+            if not hasattr(self_tok, "_special_tokens_map"):
+                object.__setattr__(self_tok, key, value)
+                return
+            _orig_setattr(self_tok, key, value)
+
+        PreTrainedTokenizerBase.__setattr__ = _safe_setattr
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                trust_remote_code=True,
+                padding_side="left",
+            )
+        finally:
+            PreTrainedTokenizerBase.__setattr__ = _orig_setattr
+
+        # Re-register special tokens through the proper transformers v5 path
+        # since they were stored as plain attributes before super().__init__()
+        self.tokenizer.bos_token = "<s>"
+        self.tokenizer.eos_token = "</s>"
 
         return self.tokenizer
 
