@@ -4,6 +4,8 @@
 """
 JAIS model loader implementation for causal language modeling.
 """
+
+from .src import model_utils  # noqa: F401 - patches transformers for JAIS compat
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
@@ -30,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.JAIS_13B_CHAT: LLMModelConfig(
-            pretrained_model_name="inceptionai/jais-13b-chat",
+            pretrained_model_name="inceptionai/jais-family-13b-chat",
             max_length=512,
         ),
     }
