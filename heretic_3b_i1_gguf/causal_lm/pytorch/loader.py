@@ -4,9 +4,31 @@
 """
 Heretic 3B GGUF model loader implementation for causal language modeling.
 """
+import importlib
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _ensure_gguf_metadata():
+    """Ensure gguf package metadata is discoverable by transformers.
+
+    When the gguf package is installed/uninstalled across test runs by the
+    RequirementsManager, Python's importlib.metadata cache can become stale.
+    Transformers falls back to checking gguf.__version__ which doesn't exist,
+    resulting in version 'N/A' and a packaging.version.InvalidVersion error.
+    """
+    importlib.invalidate_caches()
+    try:
+        import gguf
+
+        if not hasattr(gguf, "__version__"):
+            gguf.__version__ = importlib.metadata.version("gguf")
+    except Exception:
+        pass
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -65,6 +87,7 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant."""
+        _ensure_gguf_metadata()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -80,6 +103,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the model instance."""
+        _ensure_gguf_metadata()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -142,6 +166,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         """Load and return the configuration for the model variant."""
+        _ensure_gguf_metadata()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
