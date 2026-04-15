@@ -66,24 +66,29 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Hassaku XL Illustrious pipeline.
+        """Load and return the UNet from the Hassaku XL Illustrious pipeline.
 
         Returns:
-            DiffusionPipeline: The Hassaku XL Illustrious pipeline instance.
+            torch.nn.Module: The UNet model used for denoising.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.pipeline = load_pipe(pretrained_model_name)
 
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+        # Hassaku model ships with float16 weights; ensure all components are
+        # float32 so that preprocessing (encode_prompt) does not hit dtype
+        # mismatches on CPU.
+        self.pipeline.to(torch.float32)
 
-        return self.pipeline
+        if dtype_override is not None:
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
+
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the Hassaku XL Illustrious model.
+        """Load and return sample inputs for the Hassaku XL Illustrious UNet model.
 
         Returns:
-            List: Input tensors for the UNet model.
+            dict: Keyword arguments for the UNet forward method.
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -97,9 +102,16 @@ class ModelLoader(ForgeModel):
             add_time_ids,
         ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
 
+        timestep = timesteps[0]
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
