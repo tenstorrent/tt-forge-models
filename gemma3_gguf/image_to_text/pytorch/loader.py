@@ -6,7 +6,12 @@ Gemma 3 GGUF model loader implementation for image to text.
 """
 import importlib.metadata
 
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+from transformers import (
+    AutoModelForImageTextToText,
+    AutoProcessor,
+    AutoConfig,
+    Gemma3Config,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -54,7 +59,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.GEMMA_3_27B_IT_VL_POLARIS_GGUF: "Gemma3-27B-it-vl-Polaris-HI16-Heretic-Uncensored-INSTRUCT.Q4_K_M.gguf",
     }
 
-    _BASE_PROCESSOR_MODEL = "google/gemma-3-27b-it"
+    _BASE_PROCESSOR_MODEL = "unsloth/gemma-3-4b-it"
 
     sample_image = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
 
@@ -83,6 +88,19 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _build_full_config(self):
+        """Build a full Gemma3Config by wrapping the GGUF text config with a vision config."""
+        _refresh_gguf_detection()
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        text_config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self._gguf_file
+        )
+        base_config = AutoConfig.from_pretrained(self._BASE_PROCESSOR_MODEL)
+        return Gemma3Config(
+            text_config=text_config.to_dict(),
+            vision_config=base_config.vision_config.to_dict(),
+        )
+
     def load_model(self, *, dtype_override=None, **kwargs):
         _refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -93,12 +111,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self._gguf_file
 
+        config = self._build_full_config()
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self._gguf_file
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            config.text_config.num_hidden_layers = self.num_layers
+        model_kwargs["config"] = config
 
         self.processor = AutoProcessor.from_pretrained(self._BASE_PROCESSOR_MODEL)
 
@@ -133,8 +149,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        _refresh_gguf_detection()
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
-        )
+        self.config = self._build_full_config()
         return self.config
