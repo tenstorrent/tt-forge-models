@@ -7,9 +7,16 @@ Z-Image Base GGUF model loader implementation for text-to-image generation.
 Loads the GGUF-quantized DiT transformer from babakarto/z-image-base-gguf.
 """
 
+import math
+
 import torch
 from diffusers import GGUFQuantizationConfig, ZImagePipeline
 from diffusers.models import ZImageTransformer2DModel
+from diffusers.quantizers.gguf.gguf_quantizer import GGUFQuantizer
+from diffusers.quantizers.gguf.utils import (
+    _quant_shape_from_byte_shape,
+    GGML_QUANT_SIZES,
+)
 from typing import Optional
 
 from ...base import ForgeModel
@@ -25,6 +32,27 @@ from ...config import (
 
 REPO_ID = "babakarto/z-image-base-gguf"
 PIPELINE_REPO_ID = "Tongyi-MAI/Z-Image"
+
+
+def _lenient_check_quantized_param_shape(self, param_name, current_param, loaded_param):
+    """Allow shape mismatches when total element counts match (e.g. (3840,) vs (1, 3840))."""
+    loaded_param_shape = loaded_param.shape
+    current_param_shape = current_param.shape
+    quant_type = loaded_param.quant_type
+    block_size, type_size = GGML_QUANT_SIZES[quant_type]
+    inferred_shape = _quant_shape_from_byte_shape(
+        loaded_param_shape, type_size, block_size
+    )
+    if inferred_shape != current_param_shape:
+        if math.prod(inferred_shape) != math.prod(current_param_shape):
+            raise ValueError(
+                f"{param_name} has an expected quantized shape of: {inferred_shape}, "
+                f"but received shape: {loaded_param_shape}"
+            )
+    return True
+
+
+GGUFQuantizer.check_quantized_param_shape = _lenient_check_quantized_param_shape
 
 
 class ModelVariant(StrEnum):
