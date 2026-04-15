@@ -35,7 +35,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.CHAMELEON_7B: ModelConfig(
-            pretrained_model_name="facebook/chameleon-7b",
+            pretrained_model_name="nopperl/chameleon-7b-hf",
         ),
     }
 
@@ -87,7 +87,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
+        dataset = load_dataset("huggingface/cats-image", split="test")
         image = dataset[0]["image"]
 
         inputs = self.processor(
