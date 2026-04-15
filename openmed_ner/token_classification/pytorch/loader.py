@@ -7,6 +7,38 @@ OpenMed NER model loader implementation for token classification.
 
 import torch
 from transformers import AutoModelForTokenClassification, AutoTokenizer
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
+# EuroBert's custom modeling code references the 'default' rope type, which was
+# removed in transformers v5.  Register a basic implementation so the lookup
+# succeeds.
+if "default" not in ROPE_INIT_FUNCTIONS:
+
+    def _compute_default_rope_parameters(
+        config=None, device=None, seq_len=None, **kwargs
+    ):
+        if hasattr(config, "rope_scaling") and config.rope_scaling:
+            base = config.rope_scaling.get("rope_theta", 10000.0)
+        else:
+            base = getattr(config, "rope_theta", 10000.0)
+        partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+        head_dim = (
+            getattr(config, "head_dim", None)
+            or config.hidden_size // config.num_attention_heads
+        )
+        dim = int(head_dim * partial_rotary_factor)
+        inv_freq = 1.0 / (
+            base
+            ** (
+                torch.arange(0, dim, 2, dtype=torch.int64).to(
+                    device=device, dtype=torch.float
+                )
+                / dim
+            )
+        )
+        return inv_freq, 1.0
+
+    ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
