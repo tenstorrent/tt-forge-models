@@ -4,9 +4,29 @@
 """
 ChemLLM model loader implementation for causal language modeling.
 """
+import contextlib
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.modeling_rope_utils import RotaryEmbeddingConfigMixin
 from typing import Optional
+
+
+@contextlib.contextmanager
+def _suppress_rope_validation():
+    """Temporarily disable rope_scaling validation in transformers 5.x.
+
+    The ChemLLM custom InternLM config sets rope_scaling = {"base": ..., "type": "dynamic"}
+    which is missing the required "factor" key for transformers 5.x validation.
+    The model uses its own rotary attribute for RoPE, so validation is unnecessary.
+    """
+    orig = RotaryEmbeddingConfigMixin.validate_rope
+    RotaryEmbeddingConfigMixin.validate_rope = lambda self, **kwargs: None
+    try:
+        yield
+    finally:
+        RotaryEmbeddingConfigMixin.validate_rope = orig
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -125,15 +145,17 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
+            with _suppress_rope_validation():
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, trust_remote_code=True
+                )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
-        )
+        with _suppress_rope_validation():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, trust_remote_code=True, **model_kwargs
+            )
 
         model._supports_cache_class = False
         model.eval()
