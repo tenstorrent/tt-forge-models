@@ -78,10 +78,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, self.base_model
         )
 
+        unet = self.pipeline.unet
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            unet = unet.to(dtype_override)
 
-        return self.pipeline.unet
+        return unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the ControlNet SD1.5 Inpaint model.
