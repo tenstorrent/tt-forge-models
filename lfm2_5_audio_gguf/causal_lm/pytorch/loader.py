@@ -8,12 +8,7 @@ Supports LiquidAI's LFM2.5 Audio multimodal model in GGUF format.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
 from typing import Optional
-
-# Register lfm2 tokenizer converter (uses GPT2-style BPE tokenizer)
-if "lfm2" not in GGUF_TO_FAST_CONVERTERS:
-    GGUF_TO_FAST_CONVERTERS["lfm2"] = GGUFGPTConverter
 
 from ....base import ForgeModel
 from ....config import (
@@ -68,7 +63,20 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _register_lfm2_gguf_converter():
+        """Register lfm2 tokenizer converter for GGUF loading (GPT2-style BPE)."""
+        from transformers.integrations.ggml import (
+            GGUF_TO_FAST_CONVERTERS,
+            GGUFGPTConverter,
+        )
+
+        if "lfm2" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["lfm2"] = GGUFGPTConverter
+
     def _load_tokenizer(self, dtype_override=None):
+        self._register_lfm2_gguf_converter()
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -83,6 +91,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._register_lfm2_gguf_converter()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -143,6 +152,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        self._register_lfm2_gguf_converter()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
