@@ -51,16 +51,12 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Kyutai TTS LM backbone."""
         from moshi.models.loaders import CheckpointInfo
-        from moshi.models.tts import TTSModel
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         checkpoint_info = CheckpointInfo.from_hf_repo(pretrained_model_name)
         dtype = dtype_override if dtype_override is not None else torch.float32
-        tts_model = TTSModel.from_checkpoint_info(
-            checkpoint_info, n_q=32, temp=0.6, device=torch.device("cpu"), dtype=dtype
-        )
-        model = tts_model.lm_gen.model
+        model = checkpoint_info.get_moshi(device=torch.device("cpu"), dtype=dtype)
         model.eval()
 
         self._num_codebooks = model.num_codebooks
