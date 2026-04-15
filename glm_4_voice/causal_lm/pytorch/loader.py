@@ -129,12 +129,16 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        # The remote modeling_chatglm.py expects config.max_length but
+        # ChatGLMConfig only provides seq_length.
+        if not hasattr(config, "max_length") and hasattr(config, "seq_length"):
+            config.max_length = config.seq_length
+        model_kwargs["config"] = config
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
