@@ -5,8 +5,41 @@
 Poe 8B TOP10 Distill Heretic Full GGUF model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.configuration_utils as _config_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_CONFIG_MAPPING,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
+
+# Register qwen3vl as equivalent to qwen3 for GGUF loading.
+# The GGUF file reports architecture "qwen3vl" but transformers doesn't support it yet.
+if "qwen3vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+if "qwen3vl" not in GGUF_CONFIG_MAPPING and "qwen3" in GGUF_CONFIG_MAPPING:
+    GGUF_CONFIG_MAPPING["qwen3vl"] = GGUF_CONFIG_MAPPING["qwen3"]
+if "qwen3vl" not in GGUF_TO_FAST_CONVERTERS and "qwen3" in GGUF_TO_FAST_CONVERTERS:
+    GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Wrap load_gguf_checkpoint to remap qwen3vl model_type to qwen3."""
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "qwen3vl":
+        result["config"]["model_type"] = "qwen3"
+    return result
+
+
+# Patch all modules that import load_gguf_checkpoint directly
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
