@@ -68,14 +68,14 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from tada.modules.tada import TadaForCausalLM
+        from transformers import AutoModelForCausalLM
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = TadaForCausalLM.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
         model.eval()
