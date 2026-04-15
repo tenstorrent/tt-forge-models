@@ -19,8 +19,8 @@ from third_party.tt_forge_models.config import (
     ModelConfig,
 )
 from third_party.tt_forge_models.base import ForgeModel
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
+from torchvision import transforms
+from datasets import load_dataset
 
 
 class MNISTCNNDropoutModel(torch.nn.Module):
@@ -190,11 +190,8 @@ class ModelLoader(ForgeModel):
             torch.Tensor: Input tensor that can be fed to the model.
         """
         transform = transforms.Compose([transforms.ToTensor()])
-        test_dataset = datasets.MNIST(
-            root="./data", train=False, transform=transform, download=True
-        )
-        dataloader = DataLoader(test_dataset, batch_size=2)
-        test_input, _ = next(iter(dataloader))
+        ds = load_dataset("ylecun/mnist", split="test")
+        test_input = torch.stack([transform(ds[i]["image"]) for i in range(2)])
 
         if dtype_override is not None:
             test_input = test_input.to(dtype=dtype_override)

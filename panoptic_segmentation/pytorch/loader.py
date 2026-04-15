@@ -360,33 +360,29 @@ class ModelLoader(ForgeModel):
         """Run inference on an image using the loaded predictor.
 
         Args:
-            image_path: Optional path to image file. If None, uses sample image URL.
+            image_path: Optional path to image file. If None, uses HuggingFace dataset image.
 
         Returns:
             Dict containing panoptic segmentation results
         """
-        # Lazy imports - only import when actually running prediction
         import cv2
-        import urllib.request
+        from datasets import load_dataset
 
         if self.predictor is None:
             raise RuntimeError("Model not loaded. Call load_model() first.")
 
         # Load image
         if image_path is None:
-            # Use sample image from config
-            config = self._variant_config
-            if config.sample_image_url:
-                image_path = config.sample_image_url
+            ds = load_dataset("huggingface/cats-image", split="test")
+            pil_image = ds[0]["image"].convert("RGB")
+            im = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+        elif image_path.startswith("http"):
+            import urllib.request
 
-        if image_path.startswith("http"):
-            # Download image from URL
-            print(f"Downloading image from: {image_path}")
             with urllib.request.urlopen(image_path) as response:
                 image_data = np.asarray(bytearray(response.read()), dtype="uint8")
                 im = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
         else:
-            # Load from local file
             im = cv2.imread(image_path)
 
         if im is None:

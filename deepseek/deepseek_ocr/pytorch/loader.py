@@ -18,7 +18,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....tools.utils import get_file
+from datasets import load_dataset
 from .src.modeling_deepseekocr import DeepseekOCRForCausalLM
 from .src.model_utils import preprocess
 from huggingface_hub import snapshot_download
@@ -159,8 +159,13 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # Load the sample image
-        image_file = get_file("test_images/doc.png")
+        # Load image from HuggingFace dataset
+        import tempfile
+        ds = load_dataset("huggingface/cats-image", split="test")
+        image = ds[0]["image"].convert("RGB")
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        image.save(tmp.name)
+        image_file = tmp.name
 
         # Process the image and prompt using the preprocess function
         inputs = preprocess(
