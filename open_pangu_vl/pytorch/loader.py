@@ -4,9 +4,93 @@
 """
 openPangu-VL model loader implementation for vision-language tasks.
 """
+import sys
+import types
+
 import torch
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 from typing import Optional
+
+
+def _install_compat_stubs():
+    """Install compatibility stubs for the openPangu-VL HuggingFace model code.
+
+    The model code has two compatibility issues:
+    1. Unconditionally imports torch_npu (Huawei Ascend NPU) - we stub it so the
+       model loads without NPU hardware.
+    2. Imports LossKwargs from transformers.utils which was removed in transformers 5.x -
+       we provide a TypedDict shim.
+    """
+    # Stub torch_npu as a package with submodules
+    if "torch_npu" not in sys.modules:
+        torch_npu = types.ModuleType("torch_npu")
+        torch_npu.__path__ = []
+        torch_npu.npu_fusion_attention = None
+        torch_npu.npu_fused_infer_attention_score = None
+        sys.modules["torch_npu"] = torch_npu
+
+        # torch_npu.contrib with transfer_to_npu
+        contrib = types.ModuleType("torch_npu.contrib")
+        contrib.transfer_to_npu = None
+        sys.modules["torch_npu.contrib"] = contrib
+        torch_npu.contrib = contrib
+
+        # The model code checks torch.npu.get_device_name() for "910"
+        npu_stub = types.ModuleType("torch.npu")
+        npu_stub.get_device_name = lambda *args, **kwargs: "stub"
+        torch.npu = npu_stub
+
+    # Shim 'default' rope type removed in transformers 5.x
+    from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
+    if "default" not in ROPE_INIT_FUNCTIONS:
+
+        def _compute_default_rope_parameters(
+            config, device=None, seq_len=None, layer_type=None
+        ):
+            partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+            head_dim = getattr(
+                config, "head_dim", config.hidden_size // config.num_attention_heads
+            )
+            dim = int(head_dim * partial_rotary_factor)
+            inv_freq = 1.0 / (
+                config.rope_theta
+                ** (torch.arange(0, dim, 2, dtype=torch.int64).float().to(device) / dim)
+            )
+            return inv_freq, 1.0
+
+        ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
+
+    # Shim LossKwargs for transformers 5.x compatibility
+    import transformers.utils
+
+    if not hasattr(transformers.utils, "LossKwargs"):
+        from typing import TypedDict
+
+        class LossKwargs(TypedDict, total=False):
+            labels: torch.Tensor
+            num_items_in_batch: int
+
+        transformers.utils.LossKwargs = LossKwargs
+
+
+_install_compat_stubs()
+
+
+def _patch_config_defaults(config):
+    """Patch config attributes that were default in transformers 4.x but removed in 5.x."""
+    defaults = {
+        "pad_token_id": 0,
+        "initializer_range": 0.02,
+    }
+    for sub_config in [config] + [
+        getattr(config, name)
+        for name in ("text_config", "vision_config")
+        if hasattr(config, name)
+    ]:
+        for attr, default in defaults.items():
+            if not hasattr(sub_config, attr) or getattr(sub_config, attr) is None:
+                setattr(sub_config, attr, default)
 
 
 from ...base import ForgeModel
@@ -108,6 +192,10 @@ class ModelLoader(ForgeModel):
             **processor_kwargs,
         )
 
+        # Set pad_token if missing (required for padding=True in __call__)
+        if self.processor.tokenizer.pad_token is None:
+            self.processor.tokenizer.pad_token = self.processor.tokenizer.eos_token
+
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -134,6 +222,17 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
+
+        # Pre-load config and patch missing attributes removed in transformers 5.x
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        _patch_config_defaults(config)
+        model_kwargs["config"] = config
+
+        # Pre-download processor files so the model's _parse_preprocess_params
+        # can find them when loading with local_files_only=True
+        self._load_processor()
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
