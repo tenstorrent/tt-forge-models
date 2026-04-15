@@ -3,12 +3,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 GeoChat model loader implementation for multimodal visual question answering.
+
+GeoChat is a fine-tuned LLaVA-1.5-7B model for geospatial tasks. The original
+HuggingFace repo (MBZUAI/geochat-7B) uses a custom ``model_type: "geochat"``
+that is not registered in the transformers Auto mappings and ships no custom
+modeling code.  We therefore load via the architecturally-identical
+``llava-hf/llava-1.5-7b-hf`` checkpoint, which uses the native HF LLaVA
+implementation and works seamlessly with the random-weights compile-only flow.
 """
 
 from typing import Optional
 
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import LlavaForConditionalGeneration, AutoProcessor
 
 from ...base import ForgeModel
 from ...config import (
@@ -34,7 +41,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GEOCHAT_7B: ModelConfig(
-            pretrained_model_name="MBZUAI/geochat-7B",
+            pretrained_model_name="llava-hf/llava-1.5-7b-hf",
         ),
     }
 
@@ -62,7 +69,7 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+            self._variant_config.pretrained_model_name
         )
         return self.processor
 
@@ -70,12 +77,14 @@ class ModelLoader(ForgeModel):
         """Load and return the GeoChat model instance."""
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": True}
+        model_kwargs = {"low_cpu_mem_usage": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(str(model_name), **model_kwargs)
+        model = LlavaForConditionalGeneration.from_pretrained(
+            str(model_name), **model_kwargs
+        )
         model.eval()
 
         if self.processor is None:
@@ -102,7 +111,7 @@ class ModelLoader(ForgeModel):
             conversation, padding=True, add_generation_prompt=True
         )
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
+        dataset = load_dataset("huggingface/cats-image", split="test")
         image = dataset[0]["image"]
 
         inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
