@@ -31,14 +31,14 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.TESTING_GGUF: LLMModelConfig(
-            pretrained_model_name="tmadge/testing",
+            pretrained_model_name="Qwen/Qwen2.5-0.5B-Instruct-GGUF",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.TESTING_GGUF
 
-    GGUF_FILE = "model.gguf"
+    GGUF_FILE = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
 
     sample_text = "What is the meaning of life?"
 
