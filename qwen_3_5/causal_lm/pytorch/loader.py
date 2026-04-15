@@ -4,6 +4,8 @@
 """
 Qwen 3.5 model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -19,6 +21,29 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import get_static_cache_decode_inputs
+
+
+def _refresh_gguf_availability():
+    """Refresh transformers' gguf availability detection.
+
+    When gguf is installed after transformers was imported (e.g. by the
+    RequirementsManager), the cached PACKAGE_DISTRIBUTION_MAPPING is stale
+    and is_gguf_available() fails with InvalidVersion because it falls back
+    to a missing __version__ attribute.  Refresh the mapping and clear the
+    lru_cache so the next check picks up the installed package.
+    """
+    try:
+        importlib.metadata.version("gguf")
+    except importlib.metadata.PackageNotFoundError:
+        return
+
+    import transformers.utils.import_utils as import_utils
+
+    if "gguf" not in import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
+        import_utils.is_gguf_available.cache_clear()
 
 
 class ModelVariant(StrEnum):
@@ -209,6 +234,7 @@ class ModelLoader(ForgeModel):
 
         # Pass gguf_file for GGUF variants
         if self._is_gguf_variant():
+            _refresh_gguf_availability()
             tokenizer_kwargs["gguf_file"] = self._gguf_file
 
         # Custom architecture variants require trust_remote_code
@@ -248,6 +274,7 @@ class ModelLoader(ForgeModel):
 
         # Pass gguf_file for GGUF variants
         if self._is_gguf_variant():
+            _refresh_gguf_availability()
             model_kwargs["gguf_file"] = self._gguf_file
 
         # Custom architecture variants require trust_remote_code
@@ -417,6 +444,7 @@ class ModelLoader(ForgeModel):
         """
         config_kwargs = {}
         if self._is_gguf_variant():
+            _refresh_gguf_availability()
             config_kwargs["gguf_file"] = self._gguf_file
         if self._needs_remote_code():
             config_kwargs["trust_remote_code"] = True
