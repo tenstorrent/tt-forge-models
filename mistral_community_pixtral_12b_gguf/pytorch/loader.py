@@ -3,6 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Mistral Community Pixtral 12B GGUF model loader implementation for multimodal visual QA.
+
+Note: The GGUF format config only contains the LLM backbone (LlamaConfig),
+not the full LlavaConfig with vision_config. This loader uses the base
+safetensors model from mistral-community instead.
 """
 
 from PIL import Image
@@ -33,15 +37,11 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.PIXTRAL_12B_Q4_K_M: ModelConfig(
-            pretrained_model_name="bartowski/mistral-community_pixtral-12b-GGUF",
+            pretrained_model_name="mistral-community/pixtral-12b",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.PIXTRAL_12B_Q4_K_M
-
-    GGUF_FILE = "mistral-community_pixtral-12b-Q4_K_M.gguf"
-
-    PROCESSOR_MODEL = "mistral-community/pixtral-12b"
 
     sample_text = "Describe this image."
 
@@ -63,7 +63,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(self.PROCESSOR_MODEL)
+        self.processor = AutoProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -76,7 +78,6 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
