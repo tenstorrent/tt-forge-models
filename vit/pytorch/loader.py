@@ -5,7 +5,7 @@
 ViT model loader implementation
 """
 
-from transformers import ViTForImageClassification
+from transformers import AutoModelForImageClassification, ViTForImageClassification
 from torchvision import models
 from typing import Optional
 from dataclasses import dataclass
@@ -212,7 +212,9 @@ class ModelLoader(ForgeModel):
 
         elif source == ModelSource.HUGGING_FACE:
             # Load model from HuggingFace
-            model = ViTForImageClassification.from_pretrained(model_name, **kwargs)
+            model = AutoModelForImageClassification.from_pretrained(
+                model_name, **kwargs
+            )
 
         elif source == ModelSource.TORCHVISION:
             # Load model from torchvision
