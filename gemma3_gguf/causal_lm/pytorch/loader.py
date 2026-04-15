@@ -4,6 +4,8 @@
 """
 Gemma 3 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -26,6 +28,17 @@ class ModelVariant(StrEnum):
     GEMMA_3_1B_IT_GGUF = "1B_IT_GGUF"
     GEMMA_3_4B_IT_GGUF = "4B_IT_GGUF"
     UNSLOTH_GEMMA_3_4B_IT_GGUF = "UNSLOTH_4B_IT_GGUF"
+
+
+def _refresh_gguf_detection():
+    """Refresh transformers' gguf package detection if the package was installed after import."""
+    from transformers.utils import import_utils
+
+    if "gguf" not in import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
+        import_utils.is_gguf_available.cache_clear()
 
 
 class ModelLoader(ForgeModel):
@@ -80,6 +93,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _refresh_gguf_detection()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -171,6 +185,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _refresh_gguf_detection()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
