@@ -137,7 +137,7 @@ class ModelLoader(ForgeModel):
         )
         self.pipeline.transformer_low_noise = transformer_low_noise
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
         """Prepare inputs for text-to-video generation."""
