@@ -20,6 +20,79 @@ from ....config import (
 )
 
 
+def _patch_transformers_gpt_oss_gguf():
+    """Monkey-patch transformers to add gpt-oss GGUF architecture support.
+
+    Transformers 5.x has GptOssForCausalLM but lacks GGUF loading support
+    for the gpt-oss architecture. We register the architecture, config mapping,
+    tokenizer converter, and fix the model_type hyphen/underscore mismatch.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "gpt-oss" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register gpt-oss as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("gpt-oss")
+
+    # 2. Add config mapping for gpt-oss (MoE model similar to qwen2_moe)
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["gpt-oss"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+        "vocab_size": "vocab_size",
+        "expert_count": "num_local_experts",
+        "expert_used_count": "num_experts_per_tok",
+    }
+
+    # 3. Register gpt-oss tokenizer converter (BPE-based, use GPT-2 converter)
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFGPTConverter,
+    )
+
+    if "gpt-oss" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["gpt-oss"] = GGUFGPTConverter
+
+    # 4. Patch load_gguf_checkpoint to fix model_type hyphen -> underscore
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "gpt-oss":
+            config["model_type"] = "gpt_oss"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Also patch modules that imported load_gguf_checkpoint directly
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_gpt_oss_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available GPT-OSS 120B Uncensored BF16 GGUF model variants for causal language modeling."""
 
