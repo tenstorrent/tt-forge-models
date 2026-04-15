@@ -8,7 +8,9 @@ RegNet model loader implementation
 from typing import Optional
 from dataclasses import dataclass
 from torchvision import models
+import timm
 import torch
+import timm
 
 from transformers import RegNetForImageClassification
 from ...tools.utils import VisionPreprocessor, VisionPostprocessor
@@ -39,6 +41,9 @@ class RegNetConfig(ModelConfig):
 class ModelVariant(StrEnum):
     """Available RegNet model variants."""
 
+    # TIMM variants
+    Y_002_PYCLS_IN1K = "Y_002_pycls_in1k"
+
     # HuggingFace variants
     Y_040 = "Y_040"
     Y_064 = "Y_064"
@@ -46,6 +51,9 @@ class ModelVariant(StrEnum):
     Y_120 = "Y_120"
     Y_160 = "Y_160"
     Y_320 = "Y_320"
+
+    # TIMM variants
+    Y_160_SWAG_LC = "Y_160_SWAG_LC"
 
     # Torchvision variants
     Y_400MF = "Y_400mf"
@@ -64,12 +72,20 @@ class ModelVariant(StrEnum):
     X_16GF = "X_16gf"
     X_32GF = "X_32gf"
 
+    # TIMM variants
+    HF_TIMM_REGNETX_002_PYCLS_IN1K = "Timm_Regnetx_002_Pycls_In1k"
+
 
 class ModelLoader(ForgeModel):
     """RegNet model loader implementation."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
+        # TIMM variants
+        ModelVariant.Y_002_PYCLS_IN1K: RegNetConfig(
+            pretrained_model_name="hf_hub:timm/regnety_002.pycls_in1k",
+            source=ModelSource.TIMM,
+        ),
         # HuggingFace variants
         ModelVariant.Y_040: RegNetConfig(
             pretrained_model_name="facebook/regnet-y-040",
@@ -94,6 +110,11 @@ class ModelLoader(ForgeModel):
         ModelVariant.Y_320: RegNetConfig(
             pretrained_model_name="facebook/regnet-y-320",
             source=ModelSource.HUGGING_FACE,
+        ),
+        # TIMM variants
+        ModelVariant.Y_160_SWAG_LC: RegNetConfig(
+            pretrained_model_name="regnety_160.swag_lc_in1k",
+            source=ModelSource.TIMM,
         ),
         # Torchvision variants
         ModelVariant.Y_400MF: RegNetConfig(
@@ -156,6 +177,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="regnet_x_32gf",
             source=ModelSource.TORCHVISION,
         ),
+        # TIMM variants
+        ModelVariant.HF_TIMM_REGNETX_002_PYCLS_IN1K: RegNetConfig(
+            pretrained_model_name="hf_hub:timm/regnetx_002.pycls_in1k",
+            source=ModelSource.TIMM,
+        ),
     }
 
     # Default variant to use
@@ -190,10 +216,15 @@ class ModelLoader(ForgeModel):
         # Get source from variant config
         source = cls._VARIANTS[variant].source
 
+        # TIMM variants use VULCAN group
+        group = (
+            ModelGroup.VULCAN if source == ModelSource.TIMM else ModelGroup.GENERALITY
+        )
+
         return ModelInfo(
             model="RegNet",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_CLS,
             source=source,
             framework=Framework.TORCH,
@@ -213,9 +244,17 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
         source = self._variant_config.source
 
-        if source == ModelSource.HUGGING_FACE:
+        if source == ModelSource.TIMM:
+            # Load model from TIMM
+            model = timm.create_model(model_name, pretrained=True)
+
+        elif source == ModelSource.HUGGING_FACE:
             # Load model from HuggingFace
             model = RegNetForImageClassification.from_pretrained(model_name, **kwargs)
+
+        elif source == ModelSource.TIMM:
+            # Load model from TIMM
+            model = timm.create_model(model_name, pretrained=True)
 
         elif source == ModelSource.TORCHVISION:
             # Load model from torchvision

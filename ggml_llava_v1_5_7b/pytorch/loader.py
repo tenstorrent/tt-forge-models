@@ -6,7 +6,7 @@ GGML LLaVA v1.5 7B GGUF model loader implementation for multimodal conditional g
 """
 
 from PIL import Image
-from transformers import LlavaForConditionalGeneration, AutoConfig, AutoProcessor
+from transformers import LlavaForConditionalGeneration, AutoProcessor
 from typing import Optional
 
 from ...base import ForgeModel
@@ -78,12 +78,6 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
-
-        # Provide the full LlavaConfig from the reference HF model so that
-        # random-weights mode (which skips weight download) gets the correct
-        # multimodal config instead of just a LlamaConfig from the GGUF file.
-        if "config" not in model_kwargs:
-            model_kwargs["config"] = AutoConfig.from_pretrained(self.PROCESSOR_MODEL)
 
         model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs

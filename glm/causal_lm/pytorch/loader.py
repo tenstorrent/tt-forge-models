@@ -29,11 +29,17 @@ from ....tools.utils import (
 class ModelVariant(StrEnum):
     """Available model variants for causal LM."""
 
+    GLM_4_9B_CHAT_HF = "4_9B_Chat_HF"
     GLM_4_7 = "4.7"
+    GLM_4_7_FP8 = "4.7_FP8"
+    GLM_4_7_FLASH = "4.7_Flash"
+    GLM_4_7_FLASH_HERETIC = "4.7_Flash_heretic"
     GLM_4_5 = "4.5"
     GLM_4_5_AIR = "4.5_Air"
     GLM_5 = "5"
     GLM_5_1 = "5.1"
+    GLM_5_MXFP4_Q8 = "5_MXFP4_Q8"
+    GLM_Z1_32B_0414 = "Z1_32B_0414"
 
 
 class ModelLoader(ForgeModel):
@@ -41,8 +47,24 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
+        ModelVariant.GLM_4_9B_CHAT_HF: LLMModelConfig(
+            pretrained_model_name="zai-org/glm-4-9b-chat-hf",
+            max_length=128,
+        ),
         ModelVariant.GLM_4_7: LLMModelConfig(
             pretrained_model_name="zai-org/GLM-4.7",
+            max_length=128,
+        ),
+        ModelVariant.GLM_4_7_FP8: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-4.7-FP8",
+            max_length=128,
+        ),
+        ModelVariant.GLM_4_7_FLASH: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-4.7-Flash",
+            max_length=128,
+        ),
+        ModelVariant.GLM_4_7_FLASH_HERETIC: LLMModelConfig(
+            pretrained_model_name="Olafangensan/GLM-4.7-Flash-heretic",
             max_length=128,
         ),
         ModelVariant.GLM_4_5: LLMModelConfig(
@@ -59,6 +81,14 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GLM_5_1: LLMModelConfig(
             pretrained_model_name="zai-org/GLM-5.1",
+            max_length=128,
+        ),
+        ModelVariant.GLM_5_MXFP4_Q8: LLMModelConfig(
+            pretrained_model_name="mlx-community/GLM-5-MXFP4-Q8",
+            max_length=128,
+        ),
+        ModelVariant.GLM_Z1_32B_0414: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-Z1-32B-0414",
             max_length=128,
         ),
     }
@@ -99,7 +129,14 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        group = ModelGroup.RED
+        if variant in (
+            ModelVariant.GLM_4_7_FLASH,
+            ModelVariant.GLM_5_MXFP4_Q8,
+            ModelVariant.GLM_Z1_32B_0414,
+        ):
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.RED
         return ModelInfo(
             model="GLM",
             variant=variant,

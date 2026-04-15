@@ -29,7 +29,9 @@ class ModelVariant(StrEnum):
     LARGE = "Large"
     FLAN_T5_SMALL = "Flan_T5_Small"
     FLAN_T5_BASE = "Flan_T5_Base"
+    T5_3B = "T5_3B"
     FLAN_T5_LARGE = "Flan_T5_Large"
+    FLAN_T5_XXL = "Flan_T5_XXL"
 
 
 class ModelLoader(ForgeModel):
@@ -49,6 +51,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="t5-large",
             max_length=512,
         ),
+        ModelVariant.T5_3B: LLMModelConfig(
+            pretrained_model_name="google-t5/t5-3b",
+            max_length=512,
+        ),
         ModelVariant.FLAN_T5_SMALL: LLMModelConfig(
             pretrained_model_name="google/flan-t5-small",
             max_length=512,
@@ -61,16 +67,25 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="google/flan-t5-large",
             max_length=512,
         ),
+        ModelVariant.FLAN_T5_XXL: LLMModelConfig(
+            pretrained_model_name="google/flan-t5-xxl",
+            max_length=512,
+        ),
     }
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.SMALL
 
-    # Shared configuration parameters
-    sample_text = """summarize: Researchers have extensively studied the benefits of having pets,
+    # Default sample text for summarization variants
+    _DEFAULT_SAMPLE_TEXT = """summarize: Researchers have extensively studied the benefits of having pets,
                     particularly dogs, on human health and well-being. Findings suggest that pet ownership
                     can lead to improved mental health, reduced stress levels, and even physical health benefits
                     such as lower blood pressure and increased physical activity levels due to regular walks."""
+
+    # Variant-specific sample texts
+    _VARIANT_SAMPLE_TEXTS = {
+        ModelVariant.SYSSEC_UTD_PY313_PYLINGUAL_V1_1_STATEMENT: "LOAD_CONST 0 LOAD_CONST 1 MAKE_FUNCTION 0 STORE_NAME 0 LOAD_CONST 2 RETURN_VALUE",
+    }
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -86,6 +101,9 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self._cached_model = None
         self.num_layers = num_layers
+        self.sample_text = self._VARIANT_SAMPLE_TEXTS.get(
+            self._variant, self._DEFAULT_SAMPLE_TEXT
+        )
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -98,10 +116,15 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        group = (
+            ModelGroup.VULCAN
+            if variant in (ModelVariant.T5_3B, ModelVariant.FLAN_T5_XXL)
+            else ModelGroup.GENERALITY
+        )
         return ModelInfo(
             model="T5",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,

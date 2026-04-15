@@ -2,10 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-GLIGEN 1.4 UNet model loader implementation
+GLIGEN 1.4 model loader implementation
 
-Extracts the UNet from the GLIGEN Stable Diffusion pipeline for grounded
-text-to-image generation with bounding box control.
+GLIGEN extends Stable Diffusion with grounded text-to-image generation,
+allowing placement of objects at specified bounding box locations.
 
 Reference: https://huggingface.co/masterful/gligen-1-4-generation-text-box
 """
@@ -14,8 +14,6 @@ from typing import Optional
 
 import torch
 from diffusers import StableDiffusionGLIGENPipeline
-from diffusers.models.attention import GatedSelfAttentionDense
-from transformers import CLIPTextModel, CLIPTokenizer
 
 from ...base import ForgeModel
 from ...config import (
@@ -36,7 +34,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """GLIGEN 1.4 UNet model loader implementation."""
+    """GLIGEN 1.4 model loader implementation."""
 
     _VARIANTS = {
         ModelVariant.GENERATION_TEXT_BOX: ModelConfig(
@@ -64,10 +62,10 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the GLIGEN pipeline and return its UNet.
+        """Load and return the GLIGEN pipeline from Hugging Face.
 
         Returns:
-            UNet2DConditionModel: The UNet from the GLIGEN pipeline.
+            StableDiffusionGLIGENPipeline: The pre-trained GLIGEN pipeline object.
         """
         dtype = dtype_override or torch.bfloat16
         pipe = StableDiffusionGLIGENPipeline.from_pretrained(
@@ -75,93 +73,27 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
             **kwargs,
         )
-
-        # Enable the GLIGEN fuser modules in the UNet
-        for module in pipe.unet.modules():
-            if isinstance(module, GatedSelfAttentionDense):
-                module.enabled = True
-
-        # Store components needed for input generation
-        self.tokenizer = pipe.tokenizer
-        self.text_encoder = pipe.text_encoder
-        self.scheduler = pipe.scheduler
-        self.cross_attention_dim = pipe.unet.config.cross_attention_dim
-        self.in_channels = pipe.unet.config.in_channels
-
-        return pipe.unet
+        return pipe
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample tensor inputs for the GLIGEN UNet.
+        """Load and return sample inputs for the GLIGEN model.
 
         Returns:
-            dict: Dictionary with sample, timestep, encoder_hidden_states,
-                  and cross_attention_kwargs containing GLIGEN grounding data.
+            dict: A dictionary with prompt, gligen_phrases, gligen_boxes,
+                  and gligen_scheduled_sampling_beta.
         """
-        dtype = dtype_override or torch.bfloat16
-
-        # Encode prompt text
         prompt = [
-            "a waterfall and a modern high speed train in a beautiful forest with fall foliage"
+            "a waterfall and a modern high speed train in a beautiful forest with fall foliage",
         ] * batch_size
-        text_input = self.tokenizer(
-            prompt,
-            padding="max_length",
-            max_length=self.tokenizer.model_max_length,
-            return_tensors="pt",
-        )
-        prompt_embeds = self.text_encoder(text_input.input_ids)[0].to(dtype)
-
-        # Generate latent noise input
-        height, width = 512, 512
-        latents = torch.randn(
-            (batch_size, self.in_channels, height // 8, width // 8), dtype=dtype
-        )
-
-        self.scheduler.set_timesteps(1)
-        latent_model_input = self.scheduler.scale_model_input(
-            latents, self.scheduler.timesteps[0]
-        )
-
-        # Prepare GLIGEN grounding inputs (boxes, phrase embeddings, masks)
-        max_objs = 30
-        gligen_phrases = ["a waterfall", "a modern high speed train"]
+        gligen_phrases = [
+            ["a waterfall", "a modern high speed train"],
+        ] * batch_size
         gligen_boxes = [
-            [0.1387, 0.2051, 0.4277, 0.7090],
-            [0.4980, 0.4355, 0.8516, 0.7266],
-        ]
-        n_objs = len(gligen_boxes)
-
-        tokenizer_inputs = self.tokenizer(
-            gligen_phrases, padding=True, return_tensors="pt"
-        )
-        text_embeddings_raw = self.text_encoder(**tokenizer_inputs).pooler_output
-
-        boxes = torch.zeros(max_objs, 4, dtype=dtype)
-        boxes[:n_objs] = torch.tensor(gligen_boxes, dtype=dtype)
-
-        text_embeddings = torch.zeros(max_objs, self.cross_attention_dim, dtype=dtype)
-        text_embeddings[:n_objs] = text_embeddings_raw.to(dtype)
-
-        masks = torch.zeros(max_objs, dtype=dtype)
-        masks[:n_objs] = 1
-
-        boxes = boxes.unsqueeze(0).expand(batch_size, -1, -1).clone()
-        text_embeddings = (
-            text_embeddings.unsqueeze(0).expand(batch_size, -1, -1).clone()
-        )
-        masks = masks.unsqueeze(0).expand(batch_size, -1).clone()
-
-        cross_attention_kwargs = {
-            "gligen": {
-                "boxes": boxes,
-                "positive_embeddings": text_embeddings,
-                "masks": masks,
-            }
-        }
-
+            [[0.1387, 0.2051, 0.4277, 0.7090], [0.4980, 0.4355, 0.8516, 0.7266]],
+        ] * batch_size
         return {
-            "sample": latent_model_input,
-            "timestep": self.scheduler.timesteps[0],
-            "encoder_hidden_states": prompt_embeds,
-            "cross_attention_kwargs": cross_attention_kwargs,
+            "prompt": prompt,
+            "gligen_phrases": gligen_phrases,
+            "gligen_boxes": gligen_boxes,
+            "gligen_scheduled_sampling_beta": 1,
         }
