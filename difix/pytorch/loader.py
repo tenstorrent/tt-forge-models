@@ -12,9 +12,13 @@ Available variants:
 - BASE: nvidia/difix (576x1024 image-to-image enhancement)
 """
 
-import torch
-from diffusers import DiffusionPipeline
+from types import SimpleNamespace
 from typing import Optional
+
+import torch
+from diffusers import DDPMScheduler, UNet2DConditionModel
+from diffusers.models.autoencoders.vae import Decoder, Encoder
+from transformers import CLIPTextConfig, CLIPTextModel, CLIPTokenizer
 
 from ...base import ForgeModel
 from ...config import (
@@ -67,13 +71,38 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_pipeline(self, dtype_override=None):
-        """Load and cache the Difix pipeline."""
-        pipe_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            pipe_kwargs["torch_dtype"] = dtype_override
+        """Load and cache the Difix pipeline components.
 
-        self.pipe = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, **pipe_kwargs
+        The nvidia/difix repo declares a custom ``DifixPipeline`` class in its
+        ``model_index.json`` but does not ship the implementation.  We therefore
+        load each component individually and expose them through a namespace so
+        that the rest of the loader can access ``self.pipe.unet``, etc.
+        """
+        model_name = self._variant_config.pretrained_model_name
+        dtype_kwarg = {"torch_dtype": dtype_override} if dtype_override else {}
+
+        unet = UNet2DConditionModel.from_pretrained(
+            model_name, subfolder="unet", **dtype_kwarg
+        )
+        tokenizer = CLIPTokenizer.from_pretrained(model_name, subfolder="tokenizer")
+        text_config = CLIPTextConfig.from_pretrained(
+            model_name, subfolder="text_encoder"
+        )
+        text_encoder = CLIPTextModel.from_pretrained(
+            model_name, subfolder="text_encoder", config=text_config, **dtype_kwarg
+        )
+
+        # Load VAE config only – we need ``block_out_channels`` for the
+        # spatial compression factor but do not run the VAE itself.
+        from diffusers import AutoencoderKL as _StdAE
+
+        vae = _StdAE.from_pretrained(model_name, subfolder="vae", **dtype_kwarg)
+
+        self.pipe = SimpleNamespace(
+            unet=unet,
+            tokenizer=tokenizer,
+            text_encoder=text_encoder,
+            vae=vae,
         )
         return self.pipe
 
