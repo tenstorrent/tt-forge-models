@@ -5,7 +5,21 @@
 LUKE model loader implementation for sequence classification.
 """
 
+import transformers.models.mluke.tokenization_mluke as _mluke_mod
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+# Fix MLukeTokenizer compatibility with tokenizers>=0.22 where Unigram()
+# no longer accepts a dict for vocab, requiring a list of (token, score) tuples.
+_orig_Unigram = _mluke_mod.Unigram
+
+
+def _patched_Unigram(vocab, unk_id=None):
+    if isinstance(vocab, dict):
+        vocab = list(vocab.items())
+    return _orig_Unigram(vocab, unk_id=unk_id)
+
+
+_mluke_mod.Unigram = _patched_Unigram
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
