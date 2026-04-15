@@ -28,6 +28,8 @@ def load_wan_ti2v_gguf_pipe(repo_id: str, gguf_filename: str, base_model: str):
 
     transformer = WanTransformer3DModel.from_single_file(
         model_path,
+        config=base_model,
+        subfolder="transformer",
         quantization_config=quantization_config,
         torch_dtype=torch.bfloat16,
     )
