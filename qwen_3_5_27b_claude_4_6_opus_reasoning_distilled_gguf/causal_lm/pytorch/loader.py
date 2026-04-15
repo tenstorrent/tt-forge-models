@@ -35,13 +35,23 @@ def _patch_transformers_qwen35_gguf():
         TENSOR_PROCESSORS,
         GGUFTensor,
         TensorProcessor,
-        load_gguf_checkpoint as _orig_load_gguf_checkpoint,
-        get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
+    # Always ensure the qwen3_5_text tokenizer converter is registered,
+    # even if another model already patched the qwen35 architecture.
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "qwen3_5_text" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3_5_text"] = GGUFQwen2Converter
+    if "qwen35" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen35"] = GGUFQwen2Converter
+
     if "qwen35" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
+        return  # Rest already patched
 
     # 1. Register qwen35 as a supported architecture
     GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
@@ -85,17 +95,6 @@ def _patch_transformers_qwen35_gguf():
             return GGUFTensor(weights, name, {})
 
     TENSOR_PROCESSORS["qwen35"] = Qwen35TensorProcessor
-
-    # 3b. Register qwen35 tokenizer converter (same as qwen3/qwen2)
-    from transformers.integrations.ggml import (
-        GGUF_TO_FAST_CONVERTERS,
-        GGUFQwen2Converter,
-    )
-
-    if "qwen35" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["qwen35"] = GGUFQwen2Converter
-    if "qwen3_5_text" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["qwen3_5_text"] = GGUFQwen2Converter
 
     # 4. Patch load_gguf_checkpoint to handle qwen35 -> qwen3_5_text
     orig_load = gguf_utils.load_gguf_checkpoint
