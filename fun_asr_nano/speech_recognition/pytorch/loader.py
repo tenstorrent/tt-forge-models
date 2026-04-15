@@ -75,12 +75,28 @@ class ModelLoader(ForgeModel):
 
     def _load_funasr_model(self, dtype_override=None):
         """Load the Fun-ASR model using the funasr package."""
+        import os
+        import sys
+
+        import funasr.models.fun_asr_nano as _funasr_nano_pkg
         from funasr import AutoModel
+
+        # Add the funasr fun_asr_nano package directory to sys.path so that the
+        # non-relative imports in model.py (e.g. `from ctc import CTC`,
+        # `from tools.utils import forced_align`) can be resolved, and then import
+        # model.py to trigger FunASRNano class registration via the @tables.register
+        # decorator.
+        fun_asr_nano_dir = os.path.dirname(_funasr_nano_pkg.__file__)
+        if fun_asr_nano_dir not in sys.path:
+            sys.path.insert(0, fun_asr_nano_dir)
+        import funasr.models.fun_asr_nano.model  # noqa: F401
 
         model_kwargs = {
             "model": self._variant_config.pretrained_model_name,
             "trust_remote_code": True,
             "device": "cpu",
+            # Override init_param_path to use the full HuggingFace model identifier
+            "llm_conf": {"init_param_path": "Qwen/Qwen3-0.6B"},
         }
 
         self._funasr_model = AutoModel(**model_kwargs)
