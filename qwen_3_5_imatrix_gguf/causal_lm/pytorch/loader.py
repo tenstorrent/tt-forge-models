@@ -24,18 +24,21 @@ def _patch_qwen35_support():
 
     Qwen 3.5 uses the same model architecture as Qwen 3 but the GGUF file
     declares architecture as 'qwen35' which transformers 5.x does not yet
-    recognise.
+    recognise. The tokenizer class may also appear as 'qwen3_5_text'.
     """
-    if "qwen35" in GGUF_SUPPORTED_ARCHITECTURES:
-        return
-    GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
         if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section][
-                "qwen35"
-            ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"]
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["qwen35"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
