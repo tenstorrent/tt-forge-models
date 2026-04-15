@@ -55,6 +55,16 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_hf_tokenizer(hf_tokenizer):
+        """Patch HF tokenizer for compatibility with transformers 5.x.
+
+        transformers 5.x removed batch_encode_plus, but open_clip's HFTokenizer
+        still calls it. Redirect to __call__ which provides the same functionality.
+        """
+        if not hasattr(hf_tokenizer, "batch_encode_plus"):
+            hf_tokenizer.batch_encode_plus = hf_tokenizer.__call__
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the BiomedCLIP model instance.
 
@@ -70,6 +80,7 @@ class ModelLoader(ForgeModel):
 
         model, self.preprocess = create_model_from_pretrained(pretrained_model_name)
         self.tokenizer = get_tokenizer(pretrained_model_name)
+        self._patch_hf_tokenizer(self.tokenizer.tokenizer)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -94,6 +105,7 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
             self.tokenizer = get_tokenizer(self._variant_config.pretrained_model_name)
+            self._patch_hf_tokenizer(self.tokenizer.tokenizer)
 
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
