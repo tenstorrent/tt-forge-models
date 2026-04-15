@@ -107,10 +107,22 @@ def _patch_transformers_qwen3next_gguf():
                 tensor_key_mapping = kwargs.get("tensor_key_mapping")
                 parsed_parameters = kwargs.get("parsed_parameters")
                 if tensor_key_mapping:
+                    # The GGUF file stores separate gate/up expert tensors but
+                    # the gguf name_map creates a merged key (ffn_gate_up_exps).
+                    # Map separate GGUF names to the merged mapping key.
+                    gguf_key = m["name"]
+                    if gguf_key not in tensor_key_mapping and m["w"] in (
+                        "gate",
+                        "up",
+                    ):
+                        bid = re.search(r"blk\.(\d+)\.", name).group(1)
+                        gguf_key = f"blk.{bid}.ffn_gate_up_exps"
+                    if gguf_key not in tensor_key_mapping:
+                        return GGUFTensor(weights, None, {})
                     self._set_moe_expert_tensor(
                         weights,
                         parsed_parameters,
-                        tensor_key_mapping[m["name"]],
+                        tensor_key_mapping[gguf_key],
                         m["w"],
                     )
                     return GGUFTensor(weights, None, {})
