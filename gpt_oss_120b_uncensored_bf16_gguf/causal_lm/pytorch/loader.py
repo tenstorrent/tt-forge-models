@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.GPT_OSS_120B_UNCENSORED_BF16_Q4_K_M_GGUF
 
-    GGUF_FILE = "huizimao_gpt-oss-120b-uncensored-bf16-Q4_K_M.gguf"
+    GGUF_FILE = "huizimao_gpt-oss-120b-uncensored-bf16-Q4_K_M/huizimao_gpt-oss-120b-uncensored-bf16-Q4_K_M-00001-of-00002.gguf"
 
     sample_text = "What is your favorite city?"
 
