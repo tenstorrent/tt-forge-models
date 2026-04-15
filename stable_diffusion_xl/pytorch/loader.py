@@ -8,6 +8,8 @@ Stable Diffusion XL model loader implementation
 import torch
 from typing import Optional
 
+from huggingface_hub import hf_hub_download
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -25,6 +27,11 @@ class ModelVariant(StrEnum):
     """Available Stable Diffusion XL model variants."""
 
     STABLE_DIFFUSION_XL_BASE_1_0 = "Base_1.0"
+    TINY_RANDOM_STABLE_DIFFUSION_XL = "tiny-random-stable-diffusion-xl"
+    ECHARLAIX_TINY_RANDOM_STABLE_DIFFUSION_XL = (
+        "echarlaix-tiny-random-stable-diffusion-xl"
+    )
+    SEAART_FURRY_XL_1_0 = "SeaArt-Furry-XL-1.0"
 
 
 class ModelLoader(ForgeModel):
@@ -33,7 +40,16 @@ class ModelLoader(ForgeModel):
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.STABLE_DIFFUSION_XL_BASE_1_0: ModelConfig(
-            pretrained_model_name="stable-diffusion-xl-base-1.0",
+            pretrained_model_name="stabilityai/stable-diffusion-xl-base-1.0",
+        ),
+        ModelVariant.TINY_RANDOM_STABLE_DIFFUSION_XL: ModelConfig(
+            pretrained_model_name="optimum-intel-internal-testing/tiny-random-stable-diffusion-xl",
+        ),
+        ModelVariant.ECHARLAIX_TINY_RANDOM_STABLE_DIFFUSION_XL: ModelConfig(
+            pretrained_model_name="echarlaix/tiny-random-stable-diffusion-xl",
+        ),
+        ModelVariant.SEAART_FURRY_XL_1_0: ModelConfig(
+            pretrained_model_name="SeaArtLab/SeaArt-Furry-XL-1.0",
         ),
     }
 
@@ -66,36 +82,70 @@ class ModelLoader(ForgeModel):
         """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
+        group = ModelGroup.RED
+        if variant in (
+            ModelVariant.TINY_RANDOM_STABLE_DIFFUSION_XL,
+            ModelVariant.ECHARLAIX_TINY_RANDOM_STABLE_DIFFUSION_XL,
+            ModelVariant.SEAART_FURRY_XL_1_0,
+        ):
+            group = ModelGroup.VULCAN
         return ModelInfo(
             model="Stable Diffusion XL",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
+    # Variants that must be loaded from a single-file checkpoint because their
+    # diffusers-format repo is incomplete (e.g. missing unet/config.json).
+    _SINGLE_FILE_VARIANTS = {
+        ModelVariant.SEAART_FURRY_XL_1_0: "furry-xl-4.0.safetensors",
+    }
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Diffusion XL pipeline for this instance's variant.
+        """Load and return the Stable Diffusion XL UNet model for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            DiffusionPipeline: The Stable Diffusion XL pipeline instance.
+            torch.nn.Module: The UNet component of the Stable Diffusion XL pipeline.
         """
-        # Get the pretrained model name from the instance's variant config
+        from diffusers import StableDiffusionXLPipeline
+
         pretrained_model_name = self._variant_config.pretrained_model_name
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
-        # Load the pipeline
-        self.pipeline = load_pipe(pretrained_model_name)
+        single_file = self._SINGLE_FILE_VARIANTS.get(self._variant)
+        if single_file is not None:
+            ckpt_path = hf_hub_download(
+                repo_id=pretrained_model_name, filename=single_file
+            )
+            self.pipeline = StableDiffusionXLPipeline.from_single_file(
+                ckpt_path, torch_dtype=dtype
+            )
+        else:
+            self.pipeline = load_pipe(pretrained_model_name)
+            if dtype_override is not None:
+                self.pipeline = self.pipeline.to(dtype_override)
 
-        # Apply dtype conversion if specified
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+        self.pipeline.to("cpu")
+        modules = [
+            self.pipeline.text_encoder,
+            self.pipeline.unet,
+            self.pipeline.text_encoder_2,
+            self.pipeline.vae,
+        ]
+        for module in modules:
+            module.eval()
+            for param in module.parameters():
+                if param.requires_grad:
+                    param.requires_grad = False
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the Stable Diffusion XL model with this instance's variant settings.
