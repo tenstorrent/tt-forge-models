@@ -29,7 +29,6 @@ from ...config import (
 )
 
 COMFY_REPO_ID = "Comfy-Org/Flux1-Redux-Dev"
-BFL_REPO_ID = "black-forest-labs/FLUX.1-Redux-dev"
 
 
 class ModelVariant(StrEnum):
@@ -66,9 +65,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_pipeline(self, dtype: torch.dtype = torch.float32):
-        """Load the FluxPriorReduxPipeline from the upstream BFL repo."""
+        """Load the FluxPriorReduxPipeline from the configured repo."""
         self._pipe = FluxPriorReduxPipeline.from_pretrained(
-            BFL_REPO_ID,
+            self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
         )
         return self._pipe
