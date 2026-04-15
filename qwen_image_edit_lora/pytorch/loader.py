@@ -86,7 +86,7 @@ class ModelLoader(ForgeModel):
             filename=LORA_FILENAME,
         )
         lora_state_dict = load_file(lora_path)
-        self._transformer.load_attn_procs(lora_state_dict)
+        self._transformer.load_lora_adapter(lora_state_dict, prefix="transformer")
 
         self._transformer.eval()
         return self._transformer
