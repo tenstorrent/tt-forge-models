@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 GPT-OSS 20B Heretic Ara GGUF model loader implementation for causal language modeling.
+
+Note: The gpt-oss architecture is not yet supported by the transformers GGUF
+loader, so we load from the HF-native checkpoint instead.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -19,6 +22,9 @@ from ....config import (
     StrEnum,
 )
 
+# The HF-native checkpoint (gpt-oss GGUF arch is not supported by transformers).
+HF_MODEL_NAME = "p-e-w/gpt-oss-20b-heretic-ara"
+
 
 class ModelVariant(StrEnum):
     """Available GPT-OSS 20B Heretic Ara GGUF model variants for causal language modeling."""
@@ -31,14 +37,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GPT_OSS_20B_HERETIC_ARA_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/gpt-oss-20b-heretic-ara-GGUF",
+            pretrained_model_name=HF_MODEL_NAME,
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GPT_OSS_20B_HERETIC_ARA_GGUF
-
-    GGUF_FILE = "gpt-oss-20b-heretic-ara.Q4_K_M.gguf"
 
     sample_text = "What is your favorite city?"
 
@@ -62,13 +66,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name,
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -85,12 +84,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -154,6 +150,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name,
         )
         return self.config
