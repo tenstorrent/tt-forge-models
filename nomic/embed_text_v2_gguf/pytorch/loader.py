@@ -68,12 +68,10 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
+        # Load tokenizer from the non-GGUF base model; the GGUF hub repo does
+        # not include the sentencepiece files required by the fast tokenizer.
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            "nomic-ai/nomic-embed-text-v2-moe-unsupervised", trust_remote_code=True
         )
 
         return self.tokenizer
