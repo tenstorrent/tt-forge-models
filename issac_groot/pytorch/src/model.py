@@ -47,9 +47,11 @@ from .utils import (
 from transformers.image_processing_utils import BatchFeature, get_patch_output_size
 from transformers.image_processing_utils_fast import (
     BaseImageProcessorFast,
-    DefaultFastImageProcessorKwargs,
     group_images_by_shape,
     reorder_images,
+)
+from transformers.processing_utils import (
+    ImagesKwargs as DefaultFastImageProcessorKwargs,
 )
 from transformers.image_utils import IMAGENET_STANDARD_MEAN  # 0.5, 0.5, 0.5
 from transformers.image_utils import IMAGENET_STANDARD_STD  # 0.5, 0.5, 0.5
@@ -128,12 +130,14 @@ class EagleBackbone(nn.Module):
 
         # Load config from JSON directly (no AutoConfig)
         # Path to local eagle model config files (relative to this file)
-        config_path = get_file("test_files/pytorch/Issac_groot/config.json")
-        with open(config_path, "r") as f:
-            config_dict = json.load(f)
-
-        # Create config object explicitly
-        config = Eagle2_5_VLConfig(**config_dict)
+        try:
+            config_path = get_file("test_files/pytorch/Issac_groot/config.json")
+            with open(config_path, "r") as f:
+                config_dict = json.load(f)
+            config = Eagle2_5_VLConfig(**config_dict)
+        except (ValueError, FileNotFoundError):
+            # In compile-only environments, fall back to default Eagle config
+            config = Eagle2_5_VLConfig()
 
         # Disable flash attention if not available or not requested
         config._attn_implementation = "eager"
@@ -469,6 +473,75 @@ AutoConfig.register("gr00t_n1_5", GR00T_N1_5_Config)
 AutoModel.register(GR00T_N1_5_Config, GR00T_N1_5)
 
 
+class GR00T_N1_6_Config(PretrainedConfig):
+    model_type = "Gr00tN1d6"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+class GR00T_N1_6(GR00T_N1_5):
+    config_class = GR00T_N1_6_Config
+
+    def __init__(self, config: GR00T_N1_6_Config, local_model_path: str = None):
+        # Skip GR00T_N1_5.__init__ - N1.6 has a different config structure
+        PreTrainedModel.__init__(self, config)
+        self.local_model_path = local_model_path
+
+        # Build backbone with N1.6 config fields
+        backbone_kwargs = {
+            "select_layer": getattr(config, "select_layer", 16),
+            "reproject_vision": getattr(config, "reproject_vision", False),
+            "use_flash_attention": False,
+            "load_bf16": getattr(config, "load_bf16", False),
+        }
+        self.backbone = EagleBackbone(**backbone_kwargs)
+
+        # Build action head from N1.6 flat config
+        # N1.6 doesn't include vl_self_attention_cfg in HF config; provide defaults
+        default_vl_self_attn = {
+            "attention_head_dim": 64,
+            "dropout": 0.2,
+            "final_dropout": True,
+            "num_attention_heads": 32,
+            "num_layers": 4,
+            "positional_embeddings": None,
+        }
+        action_head_cfg = FlowmatchingActionHeadConfig(
+            action_horizon=getattr(config, "action_horizon", 50),
+            action_dim=getattr(config, "max_action_dim", 128),
+            hidden_size=getattr(config, "hidden_size", 1024),
+            backbone_embedding_dim=getattr(config, "backbone_embedding_dim", 2048),
+            input_embedding_dim=getattr(config, "input_embedding_dim", 1536),
+            diffusion_model_cfg=getattr(config, "diffusion_model_cfg", None),
+            max_seq_len=getattr(config, "max_seq_len", 1024),
+            max_state_dim=getattr(config, "max_state_dim", 128),
+            max_action_dim=getattr(config, "max_action_dim", 128),
+            noise_beta_alpha=getattr(config, "noise_beta_alpha", 1.5),
+            noise_beta_beta=getattr(config, "noise_beta_beta", 1.0),
+            noise_s=getattr(config, "noise_s", 0.999),
+            num_timestep_buckets=getattr(config, "num_timestep_buckets", 1000),
+            num_inference_timesteps=getattr(config, "num_inference_timesteps", 4),
+            max_num_embodiments=getattr(config, "max_num_embodiments", 32),
+            tune_projector=getattr(config, "tune_projector", True),
+            tune_diffusion_model=getattr(config, "tune_diffusion_model", True),
+            use_vlln=getattr(config, "use_vlln", True),
+            add_pos_embed=getattr(config, "add_pos_embed", True),
+            vl_self_attention_cfg=default_vl_self_attn,
+        )
+        self.action_head = FlowmatchingActionHead(action_head_cfg)
+
+        self.action_horizon = config.action_horizon
+        self.action_dim = getattr(config, "max_action_dim", 128)
+        self.compute_dtype = getattr(config, "compute_dtype", "bfloat16")
+
+
+AutoConfig.register("Gr00tN1d6", GR00T_N1_6_Config)
+AutoModel.register(GR00T_N1_6_Config, GR00T_N1_6)
+
+
 COMPUTE_DTYPE = torch.bfloat16
 
 
@@ -543,8 +616,10 @@ class Gr00tPolicy(BasePolicy):
 
         # Load model
         self._load_model(model_path)
-        # Load transforms
-        self._load_metadata(self.model_path / "experiment_cfg")
+        # Load transforms (may not exist for N1.6 or compile-only environments)
+        metadata_dir = self.model_path / "experiment_cfg"
+        if metadata_dir.exists():
+            self._load_metadata(metadata_dir)
         # Load horizons
         self._load_horizons()
 
@@ -679,7 +754,12 @@ class Gr00tPolicy(BasePolicy):
         return True
 
     def _load_model(self, model_path):
-        model = GR00T_N1_5.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
+        # Use GR00T_N1_6 for N1.6 models, GR00T_N1_5 for older variants
+        if "N1.6" in str(model_path):
+            model_cls = GR00T_N1_6
+        else:
+            model_cls = GR00T_N1_5
+        model = model_cls.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
         model.eval()  # Set model to eval mode
 
         # Update action_horizon to match modality config
@@ -709,7 +789,11 @@ class Gr00tPolicy(BasePolicy):
             # Update model config AND the action_head_cfg dictionary that gets saved
             model.config.action_horizon = expected_action_horizon
             model.action_horizon = expected_action_horizon
-            model.config.action_head_cfg["action_horizon"] = expected_action_horizon
+            if (
+                hasattr(model.config, "action_head_cfg")
+                and model.config.action_head_cfg is not None
+            ):
+                model.config.action_head_cfg["action_horizon"] = expected_action_horizon
 
         self.model = model
 
@@ -2196,7 +2280,12 @@ class GR00TTransform(InvertibleModalityTransform):
     def build_processor(self):
         """Build the eagle processor if not already set."""
         if self.eagle_processor is None:
-            self.eagle_processor = build_eagle_processor()
+            try:
+                self.eagle_processor = build_eagle_processor()
+            except (ValueError, FileNotFoundError):
+                # In compile-only environments, IRD_LF_CACHE may not be set.
+                # The processor is only needed for data preprocessing, not model compilation.
+                pass
         return self
 
     def set_metadata(self, dataset_metadata: DatasetMetadata):

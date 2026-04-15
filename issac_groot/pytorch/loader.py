@@ -156,8 +156,6 @@ class ModelLoader(ForgeModel):
         Returns:
             Dictionary containing preprocessed observation tensors ready for model inference
         """
-        from .src.utils import LeRobotSingleDataset
-
         # Ensure model is loaded
         if not hasattr(self, "_model") or self._model is None:
             raise RuntimeError(
@@ -165,28 +163,69 @@ class ModelLoader(ForgeModel):
                 "Call load_model() first."
             )
 
-        self._load_data_config()
+        try:
+            from .src.utils import LeRobotSingleDataset
 
-        # Load dataset (no dataset_path needed - all files loaded via get_file)
-        dataset = LeRobotSingleDataset(
-            modality_configs=self._modality_config,
-            embodiment_tag=self.embodiment_tag,
-            video_backend="ffmpeg",
-            video_backend_kwargs=None,
-            transforms=None,
-        )
+            self._load_data_config()
 
-        # Get first sample (index 0)
-        observations = dataset[0]
-        if dtype_override:
-            print(
-                f"Warning: dtype_override may not work well with mixed-type observations (videos, states, etc.)."
+            # Load dataset (no dataset_path needed - all files loaded via get_file)
+            dataset = LeRobotSingleDataset(
+                modality_configs=self._modality_config,
+                embodiment_tag=self.embodiment_tag,
+                video_backend="ffmpeg",
+                video_backend_kwargs=None,
+                transforms=None,
             )
 
-        # Apply preprocessing
-        observations = self._model.preprocess(observations)
+            # Get first sample (index 0)
+            observations = dataset[0]
+            if dtype_override:
+                print(
+                    f"Warning: dtype_override may not work well with mixed-type observations (videos, states, etc.)."
+                )
 
-        return observations
+            # Apply preprocessing
+            observations = self._model.preprocess(observations)
+
+            return observations
+        except (ValueError, FileNotFoundError):
+            # In compile-only environments without IRD_LF_CACHE,
+            # generate synthetic inputs matching the model's expected format
+            return self._generate_synthetic_inputs(dtype_override)
+
+    def _generate_synthetic_inputs(self, dtype_override=None):
+        """Generate synthetic inputs for compile-only testing."""
+        batch_size = 1
+        seq_len = 128
+        model = self._model.policy.model
+        action_horizon = model.action_horizon
+        action_dim = model.action_dim
+        max_state_dim = getattr(model.action_head.config, "max_state_dim", 64)
+
+        compute_dtype = torch.bfloat16
+
+        # Eagle backbone inputs
+        inputs = {
+            "eagle_input_ids": torch.ones(batch_size, seq_len, dtype=torch.long),
+            "eagle_attention_mask": torch.ones(batch_size, seq_len, dtype=torch.long),
+            "eagle_pixel_values": torch.randn(
+                batch_size, 3, 256, 256, dtype=compute_dtype
+            ),
+            "eagle_image_grid_thw": torch.tensor([[1, 256, 256]], dtype=torch.long),
+            "eagle_image_sizes": torch.tensor([[256, 256]], dtype=torch.long),
+            # Action head inputs
+            "state": torch.randn(batch_size, 1, max_state_dim, dtype=compute_dtype),
+            "state_mask": torch.ones(batch_size, 1, max_state_dim, dtype=compute_dtype),
+            "embodiment_id": torch.zeros(batch_size, dtype=torch.long),
+            "action": torch.randn(
+                batch_size, action_horizon, action_dim, dtype=compute_dtype
+            ),
+            "action_mask": torch.ones(
+                batch_size, action_horizon, action_dim, dtype=compute_dtype
+            ),
+        }
+
+        return inputs
 
     def postprocess(self, raw_action_tensor: torch.Tensor) -> Dict[str, np.ndarray]:
         """
