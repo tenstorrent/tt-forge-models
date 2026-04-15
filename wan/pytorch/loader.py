@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Wan-AI/Wan2.2-TI2V-5B-Diffusers",
         ),
         ModelVariant.WAN22_T2V_A14B: ModelConfig(
-            pretrained_model_name="Wan-AI/Wan2.2-T2V-A14B",
+            pretrained_model_name="Wan-AI/Wan2.2-T2V-A14B-Diffusers",
         ),
         ModelVariant.WAN21_T2V_14B: ModelConfig(
             pretrained_model_name="Wan-AI/Wan2.1-T2V-14B-Diffusers",
