@@ -5,8 +5,8 @@
 Boreal-Qwen-Image model loader implementation for text-to-image generation.
 
 Loads LoRA adapter weights from kudzueye/boreal-qwen-image on top of the
-Qwen/Qwen-Image base diffusion model. Four style-specific LoRA variants
-are available.
+Qwen/Qwen-Image base diffusion model. The transformer (QwenImageTransformer2DModel)
+is extracted from the pipeline and returned as the model for compilation.
 
 Available variants:
 - BLEND_LOW_RANK: Boreal blend style (low rank)
@@ -33,6 +33,13 @@ from ....config import (
 
 LORA_REPO_ID = "kudzueye/boreal-qwen-image"
 BASE_MODEL_ID = "Qwen/Qwen-Image"
+
+# Transformer input dimensions for QwenImageTransformer2DModel
+_IN_CHANNELS = 64  # in_channels after packing (16 channels * 4 from 2x2 patches)
+_JOINT_ATTENTION_DIM = 3584
+_LATENT_H = 4  # Small latent height for testing
+_LATENT_W = 4  # Small latent width for testing
+_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -71,8 +78,6 @@ class ModelLoader(ForgeModel):
     }
 
     DEFAULT_VARIANT = ModelVariant.GENERAL_DISCRETE_LOW_RANK
-
-    DEFAULT_PROMPT = "photo of a serene boreal forest landscape at golden hour"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -116,16 +121,42 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load and return the Boreal-Qwen-Image pipeline with LoRA weights."""
+        """Load and return the Boreal-Qwen-Image transformer with LoRA weights."""
         if self.pipeline is None:
-            return self._load_pipeline(dtype_override=dtype_override)
+            self._load_pipeline(dtype_override=dtype_override)
+
+        transformer = self.pipeline.transformer
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
+            transformer = transformer.to(dtype_override)
 
-        return self.pipeline
+        return transformer
 
-    def load_inputs(self, prompt: Optional[str] = None) -> Dict[str, Any]:
-        """Prepare text-to-image generation inputs."""
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {"prompt": prompt_value}
+    def load_inputs(self, **kwargs) -> Dict[str, Any]:
+        """Prepare synthetic inputs for the QwenImageTransformer2DModel forward pass."""
+        dtype = kwargs.get("dtype_override", torch.float32)
+        batch_size = 1
+        # After packing, seq_len = (latent_h // 2) * (latent_w // 2)
+        seq_len = (_LATENT_H // 2) * (_LATENT_W // 2)
+
+        hidden_states = torch.randn(batch_size, seq_len, _IN_CHANNELS, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, _TEXT_SEQ_LEN, _JOINT_ATTENTION_DIM, dtype=dtype
+        )
+        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+        img_shapes = [[(_LATENT_H // 2, _LATENT_W // 2)]] * batch_size
+
+        return {
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
+            "return_dict": False,
+        }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if isinstance(output, tuple):
+            return output[0]
+        if hasattr(output, "sample"):
+            return output.sample
+        return output
