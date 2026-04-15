@@ -30,7 +30,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.H_OPTIMUS_0: ModelConfig(
-            pretrained_model_name="hf-hub:bioptimus/H-optimus-0",
+            pretrained_model_name="vit_giant_patch14_dinov2",
         ),
     }
 
