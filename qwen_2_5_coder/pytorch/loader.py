@@ -5,7 +5,6 @@
 Qwen 2.5 Coder model loader implementation
 """
 
-
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import Optional
@@ -28,11 +27,20 @@ class ModelVariant(StrEnum):
     QWEN_2_5_CODER_0_5B = "0.5B"
     QWEN_2_5_CODER_1_5B = "1.5B"
     QWEN_2_5_CODER_1_5B_INSTRUCT = "1.5B_Instruct"
+    QWEN_2_5_CODER_1_5B_INSTRUCT_UNSLOTH = "1.5B_Instruct_Unsloth"
     QWEN_2_5_CODER_3B = "3B"
     QWEN_2_5_CODER_3B_INSTRUCT = "3B_Instruct"
     QWEN_2_5_CODER_7B = "7B"
     QWEN_2_5_CODER_7B_INSTRUCT = "7B_Instruct"
+    QWEN_2_5_CODER_0_5B_INSTRUCT_BNB_4BIT = "0.5B_Instruct_bnb_4bit"
+    QWEN_2_5_CODER_7B_BNB_4BIT = "7B_bnb_4bit"
+    QWEN_2_5_CODER_14B_BNB_4BIT = "14B_bnb_4bit"
+    QWEN_2_5_CODER_7B_INSTRUCT_GPTQ_INT4 = "7B_Instruct_GPTQ_Int4"
+    QWEN_2_5_CODER_7B_INSTRUCT_MLX_4BIT = "7B_Instruct_MLX_4bit"
     QWEN_2_5_CODER_32B_INSTRUCT = "32B_Instruct"
+    QWEN_2_5_CODER_3B_INSTRUCT_4BIT = "3B_Instruct_4bit"
+    QWEN_2_5_CODER_32B_INSTRUCT_AWQ = "32B_Instruct_Awq"
+    QWEN_2_5_CODER_32B_INSTRUCT_MLX_8BIT = "32B_Instruct_MLX_8bit"
 
 
 class ModelLoader(ForgeModel):
@@ -52,6 +60,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen2.5-Coder-1.5B-Instruct",
             max_length=128,
         ),
+        ModelVariant.QWEN_2_5_CODER_1_5B_INSTRUCT_UNSLOTH: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen2.5-Coder-1.5B-Instruct",
+            max_length=128,
+        ),
         ModelVariant.QWEN_2_5_CODER_3B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-Coder-3B",
             max_length=128,
@@ -68,8 +80,24 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen2.5-Coder-7B-Instruct",
             max_length=128,
         ),
+        ModelVariant.QWEN_2_5_CODER_7B_INSTRUCT_GPTQ_INT4: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-Coder-7B-Instruct-GPTQ-Int4",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_CODER_7B_INSTRUCT_MLX_4BIT: LLMModelConfig(
+            pretrained_model_name="lmstudio-community/Qwen2.5-Coder-7B-Instruct-MLX-4bit",
+            max_length=128,
+        ),
         ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-Coder-32B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-Coder-32B-Instruct-AWQ",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_MLX_8BIT: LLMModelConfig(
+            pretrained_model_name="lmstudio-community/Qwen2.5-Coder-32B-Instruct-MLX-8bit",
             max_length=128,
         ),
     }
@@ -101,14 +129,25 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        group = ModelGroup.GENERALITY
+        if variant == ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT:
+            group = ModelGroup.RED
+        if variant in [
+            ModelVariant.QWEN_2_5_CODER_0_5B_INSTRUCT_BNB_4BIT,
+            ModelVariant.QWEN_2_5_CODER_1_5B_INSTRUCT_UNSLOTH,
+            ModelVariant.QWEN_2_5_CODER_7B_BNB_4BIT,
+            ModelVariant.QWEN_2_5_CODER_14B_BNB_4BIT,
+            ModelVariant.QWEN_2_5_CODER_7B_INSTRUCT_GPTQ_INT4,
+            ModelVariant.QWEN_2_5_CODER_7B_INSTRUCT_MLX_4BIT,
+            ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_AWQ,
+            ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_MLX_8BIT,
+        ]:
+            group = ModelGroup.VULCAN
+
         return ModelInfo(
             model="Qwen 2.5 Coder",
             variant=variant,
-            group=(
-                ModelGroup.RED
-                if variant == ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT
-                else ModelGroup.GENERALITY
-            ),
+            group=group,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -156,6 +195,21 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # Quantized variants need device_map="cpu" for CPU-based loading
+        if pretrained_model_name in (
+            "unsloth/Qwen2.5-Coder-0.5B-Instruct-bnb-4bit",
+            "unsloth/Qwen2.5-Coder-7B-bnb-4bit",
+            "unsloth/Qwen2.5-Coder-14B-bnb-4bit",
+            "Qwen/Qwen2.5-Coder-7B-Instruct-GPTQ-Int4",
+            "unsloth/Qwen2.5-Coder-7B-Instruct-bnb-4bit",
+            "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ",
+            "lmstudio-community/Qwen2.5-Coder-32B-Instruct-MLX-8bit",
+        ):
+            model_kwargs["device_map"] = "cpu"
+        if "mlx-community" in pretrained_model_name:
+            model_kwargs["ignore_mismatched_sizes"] = True
+
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(

@@ -5,7 +5,12 @@
 Qwen 1.5 model loader implementation for causal language modeling.
 """
 import torch
-from transformers import Qwen2ForCausalLM, Qwen2Tokenizer, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    Qwen2ForCausalLM,
+    Qwen2Tokenizer,
+    AutoConfig,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -25,6 +30,9 @@ class ModelVariant(StrEnum):
 
     QWEN_1_5_0_5B = "0.5B"
     QWEN_1_5_0_5B_CHAT = "0_5B_Chat"
+    QWEN_1_5_1_8B_CHAT_GPTQ_4BIT = "1_8B_Chat_GPTQ_4bit"
+    QWEN_1_5_7B = "7B"
+    QWEN_1_5_14B = "14B"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +47,18 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_1_5_0_5B_CHAT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen1.5-0.5B-Chat",
             max_length=512,
+        ),
+        ModelVariant.QWEN_1_5_1_8B_CHAT_GPTQ_4BIT: LLMModelConfig(
+            pretrained_model_name="ModelCloud/Qwen1.5-1.8B-Chat-GPTQ-4bits-dynamic-cfg-with-lm_head-symFalse",
+            max_length=512,
+        ),
+        ModelVariant.QWEN_1_5_7B: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen1.5-7B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_1_5_14B: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen1.5-14B",
+            max_length=128,
         ),
     }
 
@@ -77,10 +97,16 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        variant_groups = {
+            ModelVariant.QWEN_1_5_1_8B_CHAT_GPTQ_4BIT: ModelGroup.VULCAN,
+            ModelVariant.QWEN_1_5_7B: ModelGroup.VULCAN,
+            ModelVariant.QWEN_1_5_14B: ModelGroup.VULCAN,
+        }
+
         return ModelInfo(
             model="Qwen 1.5",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=variant_groups.get(variant, ModelGroup.GENERALITY),
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -133,14 +159,30 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # GPTQ variants need device_map="cpu" for CPU-based loading
+        if self._variant == ModelVariant.QWEN_1_5_1_8B_CHAT_GPTQ_4BIT:
+            model_kwargs["device_map"] = "cpu"
+
         model_kwargs |= kwargs
+
+        is_gptq = self._variant == ModelVariant.QWEN_1_5_1_8B_CHAT_GPTQ_4BIT
+        if is_gptq:
+            model_kwargs["device_map"] = "cpu"
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = Qwen2ForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
+        if is_gptq:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        else:
+            model = Qwen2ForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
 
         # Disable DynamicCache
         model._supports_cache_class = False
