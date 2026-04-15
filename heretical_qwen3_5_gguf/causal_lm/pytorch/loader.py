@@ -21,6 +21,25 @@ from ....config import (
 )
 
 
+def _patch_qwen35_gguf_tokenizer():
+    """Register qwen3_5_text in GGUF tokenizer converters.
+
+    The qwen35 GGUF architecture gets its model_type remapped to qwen3_5_text,
+    but the tokenizer converter lookup also needs this key registered.
+    """
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    for key in ("qwen35", "qwen3_5_text"):
+        if key not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS[key] = GGUFQwen2Converter
+
+
+_patch_qwen35_gguf_tokenizer()
+
+
 class ModelVariant(StrEnum):
     """Available Heretical Qwen 3.5 GGUF model variants for causal language modeling."""
 
