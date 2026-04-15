@@ -3,6 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Ministral 8B GGUF model loader implementation for causal language modeling.
+
+Note: The mistral3 GGUF architecture is not yet natively supported by the
+transformers GGUF loader, so we monkey-patch the necessary mappings at import
+time to reuse the existing mistral config mapping.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -18,6 +22,65 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_transformers_mistral3_gguf():
+    """Monkey-patch transformers to add mistral3 GGUF architecture support.
+
+    The mistral3 architecture (used by Ministral 8B GGUF) shares the same
+    config layout as mistral but is not yet registered in transformers'
+    GGUF loader.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "mistral3" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register mistral3 as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+
+    # 2. Reuse the mistral config mapping for mistral3
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral3"] = dict(
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral"]
+    )
+
+    # 3. Register mistral3 tokenizer converter (same as llama / SentencePiece)
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUFLlamaConverter
+
+    # 4. Patch load_gguf_checkpoint to set model_type to ministral3
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "mistral3":
+            config["model_type"] = "ministral3"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Also patch modules that imported load_gguf_checkpoint directly
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_mistral3_gguf()
 
 
 class ModelVariant(StrEnum):
