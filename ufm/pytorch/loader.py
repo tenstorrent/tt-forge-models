@@ -6,6 +6,7 @@ UFM (UniFlowMatch) model loader implementation for dense correspondence estimati
 """
 
 import torch
+import torch.nn as nn
 from typing import Optional
 
 from ...base import ForgeModel
@@ -18,6 +19,33 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+class UFMWrapper(nn.Module):
+    """Wrapper around UFM model that accepts simple tensor inputs.
+
+    The original UFM forward() takes two view dicts with non-tensor metadata.
+    This wrapper accepts BCHW image tensors directly and constructs the
+    required view dicts internally.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.data_norm_type = model.encoder.data_norm_type
+
+    def forward(self, img1, img2):
+        view1 = {
+            "img": img1,
+            "symmetrized": False,
+            "data_norm_type": self.data_norm_type,
+        }
+        view2 = {
+            "img": img2,
+            "symmetrized": False,
+            "data_norm_type": self.data_norm_type,
+        }
+        return self.model(view1, view2)
 
 
 class ModelVariant(StrEnum):
@@ -56,29 +84,22 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        from transformers import AutoModel
+        from uniflowmatch import UniFlowMatchClassificationRefinement
 
-        model = AutoModel.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **kwargs
+        model = UniFlowMatchClassificationRefinement.from_pretrained(
+            pretrained_model_name, **kwargs
         )
 
         if dtype_override is not None:
             model = model.to(dtype_override)
 
-        return model
+        return UFMWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        # UFM expects two images: source and target, as (H, W, 3) tensors
-        # The model's inference resolution is 560x420
+        # UFM forward expects two BCHW image tensors normalized for DINOv2
         height, width = 420, 560
-        source_image = torch.randint(0, 256, (height, width, 3), dtype=torch.float32)
-        target_image = torch.randint(0, 256, (height, width, 3), dtype=torch.float32)
+        dtype = dtype_override or torch.float32
+        img1 = torch.randn(batch_size, 3, height, width, dtype=dtype)
+        img2 = torch.randn(batch_size, 3, height, width, dtype=dtype)
 
-        if dtype_override is not None:
-            source_image = source_image.to(dtype_override)
-            target_image = target_image.to(dtype_override)
-
-        return {
-            "source_image": source_image,
-            "target_image": target_image,
-        }
+        return {"img1": img1, "img2": img2}
