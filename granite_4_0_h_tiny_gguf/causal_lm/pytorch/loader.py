@@ -8,6 +8,17 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.configuration_utils as _config_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.modeling_utils as _modeling_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -18,6 +29,111 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_granitehybrid_gguf_support():
+    """Register granitehybrid architecture for GGUF loading.
+
+    Granite 4.0 Hybrid models use a mix of Mamba and attention layers with MoE.
+    The GGUF architecture is 'granitehybrid' but the transformers model type is
+    'granitemoehybrid'.
+    """
+    if "granitehybrid" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("granitehybrid")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["granitehybrid"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "rope.freq_base": "rope_theta",
+        "rope.dimension_count": None,
+        "rope.scaling.finetuned": None,
+        "expert_count": "num_local_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "vocab_size": "vocab_size",
+        "attention.scale": "attention_multiplier",
+        "embedding_scale": "embedding_multiplier",
+        "residual_scale": "residual_multiplier",
+        "logit_scale": "logits_scaling",
+        "expert_shared_feed_forward_length": "shared_intermediate_size",
+        "ssm.conv_kernel": "mamba_d_conv",
+        "ssm.state_size": "mamba_d_state",
+        "ssm.group_count": "mamba_n_groups",
+        "ssm.inner_size": None,
+        "ssm.time_step_rank": None,
+    }
+
+    # Use the same tokenizer converter as llama (BPE-based).
+    # Register both the GGUF architecture name and the HF model_type since
+    # different code paths look up by different keys.
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["granitehybrid"] = GGUF_TO_FAST_CONVERTERS["llama"]
+        GGUF_TO_FAST_CONVERTERS["granitemoehybrid"] = GGUF_TO_FAST_CONVERTERS["llama"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Wrap load_gguf_checkpoint to add granitehybrid support and post-process config."""
+    _patch_granitehybrid_gguf_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    config = result.get("config", {})
+
+    if config.get("model_type") == "granitehybrid":
+        config["model_type"] = "granitemoehybrid"
+        config["architectures"] = ["GraniteMoeHybridForCausalLM"]
+
+        # num_key_value_heads is a per-layer list in GGUF:
+        # 0 = mamba layer, >0 = attention layer
+        kv_heads = config.get("num_key_value_heads", [])
+        if isinstance(kv_heads, list):
+            config["layer_types"] = [
+                "attention" if h > 0 else "mamba" for h in kv_heads
+            ]
+            config["num_key_value_heads"] = max(kv_heads) if kv_heads else 4
+
+        # Compute mamba parameters from raw GGUF metadata
+        hidden_size = config.get("hidden_size", 1536)
+        try:
+            from gguf import GGUFReader
+            from transformers.modeling_gguf_pytorch_utils import _gguf_parse_value
+
+            reader = GGUFReader(
+                gguf_path if isinstance(gguf_path, str) else str(gguf_path)
+            )
+            ssm_inner = None
+            ssm_time_step_rank = None
+            for key, field in reader.fields.items():
+                if "ssm.inner_size" in key:
+                    ssm_inner = _gguf_parse_value(
+                        field.parts[field.data[0]], field.types
+                    )
+                elif "ssm.time_step_rank" in key:
+                    ssm_time_step_rank = _gguf_parse_value(
+                        field.parts[field.data[0]], field.types
+                    )
+            if ssm_inner is not None:
+                config["mamba_expand"] = ssm_inner // hidden_size
+            if ssm_time_step_rank is not None:
+                config["mamba_n_heads"] = ssm_time_step_rank
+            if ssm_inner is not None and ssm_time_step_rank is not None:
+                config["mamba_d_head"] = ssm_inner // ssm_time_step_rank
+        except Exception:
+            pass
+
+    return result
+
+
+_patch_granitehybrid_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+if hasattr(_modeling_utils, "load_gguf_checkpoint"):
+    _modeling_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
