@@ -5,8 +5,39 @@
 InternLM2 model loader implementation for causal language modeling (PyTorch).
 """
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
+
+
+def _normalize_rope_scaling(config):
+    """Normalize rope_scaling to include 'type' key for older custom model code.
+
+    Newer transformers versions use 'rope_type' instead of 'type' in rope_scaling,
+    but custom model code from HuggingFace often expects the 'type' key.
+    """
+    if hasattr(config, "rope_scaling") and isinstance(config.rope_scaling, dict):
+        rs = config.rope_scaling
+        if "type" not in rs and "rope_type" in rs:
+            if rs["rope_type"] == "default":
+                config.rope_scaling = None
+            else:
+                rs["type"] = rs["rope_type"]
+    return config
+
+
+# Wrap AutoConfig.from_pretrained to normalize rope_scaling on returned configs.
+# This is needed because the random_weights test plugin re-loads configs from
+# scratch, bypassing any config fixes applied before model loading.
+_orig_auto_config_from_pretrained = AutoConfig.from_pretrained.__func__
+
+
+@classmethod
+def _patched_auto_config_from_pretrained(cls, *args, **kwargs):
+    config = _orig_auto_config_from_pretrained(cls, *args, **kwargs)
+    return _normalize_rope_scaling(config)
+
+
+AutoConfig.from_pretrained = _patched_auto_config_from_pretrained
 
 from ....config import (
     LLMModelConfig,
