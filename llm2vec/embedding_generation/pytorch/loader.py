@@ -77,12 +77,34 @@ class ModelLoader(ForgeModel):
             trust_remote_code=True,
         )
 
-        model_kwargs = {"trust_remote_code": True, "config": config}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        # The remote LlamaEncoderModel requires flash_attention_2 in its
+        # constructor, but flash_attn needs CUDA. We bypass the check by
+        # temporarily setting flash_attention_2 on the config and patching
+        # _check_and_adjust_attn_implementation so PreTrainedModel.__init__
+        # doesn't reset it. After construction, we switch to eager attention.
+        config._attn_implementation = "flash_attention_2"
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        from transformers.modeling_utils import PreTrainedModel
+
+        orig_check = PreTrainedModel._check_and_adjust_attn_implementation
+
+        def _passthrough_flash(self_model, attn_impl, **kw):
+            if attn_impl == "flash_attention_2":
+                return "flash_attention_2"
+            return orig_check(self_model, attn_impl, **kw)
+
+        PreTrainedModel._check_and_adjust_attn_implementation = _passthrough_flash
+        try:
+            model_kwargs = {"trust_remote_code": True, "config": config}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            PreTrainedModel._check_and_adjust_attn_implementation = orig_check
+
+        model.config._attn_implementation = "eager"
         model.eval()
 
         return model
