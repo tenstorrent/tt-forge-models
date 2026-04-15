@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.TESTING_GGUF
 
-    GGUF_FILE = "model-v1.gguf"
+    GGUF_FILE = "model.gguf"
 
     sample_text = "What is the meaning of life?"
 
