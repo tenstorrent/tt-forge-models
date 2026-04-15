@@ -50,19 +50,6 @@ def _patch_transformers_qwen35_gguf():
     if "qwen35" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen35"] = GGUFQwen2Converter
 
-    # Also patch convert_gguf_tokenizer to handle qwen3_5_text at call time
-    import transformers.tokenization_utils_tokenizers as _fast_tok_mod
-
-    _prev_convert = getattr(_fast_tok_mod, "convert_gguf_tokenizer", None)
-    if _prev_convert is not None:
-
-        def _patched_convert_gguf_tokenizer_qwen35(architecture, tokenizer_dict):
-            if architecture == "qwen3_5_text":
-                GGUF_TO_FAST_CONVERTERS.setdefault("qwen3_5_text", GGUFQwen2Converter)
-            return _prev_convert(architecture, tokenizer_dict)
-
-        _fast_tok_mod.convert_gguf_tokenizer = _patched_convert_gguf_tokenizer_qwen35
-
     if "qwen35" in GGUF_SUPPORTED_ARCHITECTURES:
         return  # Rest already patched
 
@@ -200,7 +187,19 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _ensure_qwen35_tokenizer_converter():
+        """Ensure the qwen3_5_text tokenizer converter is registered just before use."""
+        from transformers.integrations.ggml import (
+            GGUF_TO_FAST_CONVERTERS,
+            GGUFQwen2Converter,
+        )
+
+        if "qwen3_5_text" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["qwen3_5_text"] = GGUFQwen2Converter
+
     def _load_tokenizer(self, dtype_override=None):
+        self._ensure_qwen35_tokenizer_converter()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -290,6 +289,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._ensure_qwen35_tokenizer_converter()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
