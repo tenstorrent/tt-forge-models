@@ -5,7 +5,12 @@
 GLM-Edge-V model loader implementation for multimodal conditional generation.
 """
 import torch
-from transformers import AutoImageProcessor, AutoModelForCausalLM, AutoTokenizer
+from transformers import (
+    AutoConfig,
+    AutoImageProcessor,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -81,8 +86,15 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Load config and disable tie_word_embeddings to work around
+        # _tied_weights_keys list/dict incompatibility with transformers v5+
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        config.tie_word_embeddings = False
+
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+            pretrained_model_name, trust_remote_code=True, config=config, **model_kwargs
         )
         model.eval()
         self.model = model
