@@ -5,13 +5,14 @@
 TeleChat2 model loader implementation for causal language modeling.
 """
 import os
+import sys
 from contextlib import contextmanager
+from unittest.mock import MagicMock, patch
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from transformers.dynamic_module_utils import get_imports
 from typing import Optional
-from unittest.mock import patch
 
 from ....base import ForgeModel
 from ....config import (
@@ -33,24 +34,56 @@ def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
 
 
 @contextmanager
-def patch_cuda_to_cpu():
-    """Temporarily disable TorchFunctionOverride and patch .cuda() to be a no-op.
+def patch_cuda_and_flash_attn():
+    """Temporarily disable TorchFunctionOverride, patch .cuda(), and mock flash_attn.
 
-    The remote TeleChat2 modeling code calls .cuda() in RotaryEmbedding.__init__,
-    which fails when CUDA is not available. The active TorchFunctionOverride
-    dispatches .cuda() through the C-level implementation, bypassing Python-level
-    patches. We must exit the mode, patch, load, then restore.
+    The remote TeleChat2 modeling code has two issues on CPU-only systems:
+    1. RotaryEmbedding.__init__ calls .cuda() which fails without CUDA.
+       The active TorchFunctionOverride dispatches .cuda() through the C-level
+       implementation, bypassing Python-level patches, so we must exit the mode.
+    2. FlashSelfAttention.__init__ asserts flash_attn is installed.
+       We mock the flash_attn module so the assertion passes, and set
+       config.flash_attn=False to avoid actually using it in forward().
     """
     from tt_torch.torch_overrides import torch_function_override
 
+    # Exit TorchFunctionOverride so .cuda() patch takes effect
     torch_function_override.__exit__(None, None, None)
     original_cuda = torch.Tensor.cuda
     torch.Tensor.cuda = lambda self, *args, **kwargs: self
+
+    # Mock flash_attn module to prevent assertion in FlashSelfAttention.__init__
+    had_flash_attn = "flash_attn" in sys.modules
+    had_flash_attn_interface = "flash_attn.flash_attn_interface" in sys.modules
+    orig_flash_attn = sys.modules.get("flash_attn")
+    orig_flash_attn_interface = sys.modules.get("flash_attn.flash_attn_interface")
+    if not had_flash_attn:
+        mock_interface = MagicMock()
+        mock_interface.flash_attn_unpadded_func = MagicMock()
+        mock_interface.flash_attn_varlen_func = MagicMock()
+        sys.modules["flash_attn"] = MagicMock()
+        sys.modules["flash_attn.flash_attn_interface"] = mock_interface
+
+    # Clear cached transformers module so it re-imports with mock flash_attn
+    stale_keys = [
+        k for k in sys.modules if "telechat2" in k.lower() and "modeling" in k.lower()
+    ]
+    stale_modules = {k: sys.modules.pop(k) for k in stale_keys}
     try:
         yield
     finally:
         torch.Tensor.cuda = original_cuda
         torch_function_override.__enter__()
+        sys.modules.update(stale_modules)
+        if not had_flash_attn:
+            del sys.modules["flash_attn"]
+        else:
+            sys.modules["flash_attn"] = orig_flash_attn
+        if not had_flash_attn_interface:
+            if "flash_attn.flash_attn_interface" in sys.modules:
+                del sys.modules["flash_attn.flash_attn_interface"]
+        else:
+            sys.modules["flash_attn.flash_attn_interface"] = orig_flash_attn_interface
 
 
 class ModelVariant(StrEnum):
@@ -122,14 +155,15 @@ class ModelLoader(ForgeModel):
                 "transformers.dynamic_module_utils.get_imports",
                 fixed_get_imports,
             ),
-            patch_cuda_to_cpu(),
+            patch_cuda_and_flash_attn(),
         ):
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            config.flash_attn = False
             if self.num_layers is not None:
-                config = AutoConfig.from_pretrained(
-                    pretrained_model_name, trust_remote_code=True
-                )
                 config.num_hidden_layers = self.num_layers
-                model_kwargs["config"] = config
+            model_kwargs["config"] = config
 
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
