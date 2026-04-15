@@ -18,7 +18,6 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from diffusers import StableDiffusionPipeline, EulerDiscreteScheduler
 
 
 class ModelVariant(StrEnum):
@@ -40,6 +39,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self._pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
@@ -52,38 +52,77 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_pipeline(self):
+        from diffusers import StableDiffusionPipeline, EulerDiscreteScheduler
+
+        scheduler = EulerDiscreteScheduler.from_pretrained(
+            self._variant_config.pretrained_model_name, subfolder="scheduler"
+        )
+        self._pipeline = StableDiffusionPipeline.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            scheduler=scheduler,
+            torch_dtype=torch.float32,
+        )
+        self._pipeline.to("cpu")
+        return self._pipeline
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Diffusion 2 pipeline.
+        """Load and return the UNet from the Stable Diffusion 2 pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained Stable Diffusion 2 pipeline.
+            torch.nn.Module: The UNet model used for denoising.
         """
-        dtype = dtype_override or torch.bfloat16
-        scheduler = EulerDiscreteScheduler.from_pretrained(
-            self._variant_config.pretrained_model_name, subfolder="scheduler"
-        )
-        pipe = StableDiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            scheduler=scheduler,
-            torch_dtype=dtype,
-            **kwargs,
-        )
-        return pipe
+        if self._pipeline is None:
+            self._load_pipeline()
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for Stable Diffusion 2.
+        unet = self._pipeline.unet
+        unet.eval()
+
+        if dtype_override is not None:
+            unet = unet.to(dtype_override)
+
+        return unet
+
+    def load_inputs(self, dtype_override=None):
+        """Load and return sample inputs for the Stable Diffusion 2 UNet model.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments for the UNet forward method.
         """
-        prompt = [
-            "a photo of an astronaut riding a horse on mars",
-        ] * batch_size
-        return prompt
+        if self._pipeline is None:
+            self._load_pipeline()
+
+        dtype = dtype_override or torch.float32
+        pipe = self._pipeline
+        unet = pipe.unet
+
+        prompt = "a photo of an astronaut riding a horse on mars"
+        text_inputs = pipe.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=pipe.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        encoder_hidden_states = pipe.text_encoder(text_inputs.input_ids)[0]
+
+        in_channels = unet.config.in_channels
+        sample_size = unet.config.sample_size
+        sample = torch.randn(
+            (1, in_channels, sample_size, sample_size),
+            dtype=dtype,
+        )
+
+        timestep = torch.tensor([1], dtype=torch.long)
+
+        return {
+            "sample": sample.to(dtype),
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states.to(dtype),
+        }
