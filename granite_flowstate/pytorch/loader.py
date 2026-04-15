@@ -66,6 +66,25 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_transformers_compat():
+        """Patch transformers.utils for granite-tsfm compatibility with transformers 5.x."""
+        import os
+
+        import transformers.utils
+
+        if not hasattr(transformers.utils, "download_url"):
+            transformers.utils.download_url = lambda url, proxies=None: url
+        if not hasattr(transformers.utils, "is_remote_url"):
+            transformers.utils.is_remote_url = lambda url_or_filename: isinstance(
+                url_or_filename, str
+            ) and url_or_filename.startswith(("http://", "https://"))
+        if not hasattr(transformers.utils, "is_offline_mode"):
+            transformers.utils.is_offline_mode = (
+                lambda: os.environ.get("TRANSFORMERS_OFFLINE", "0") == "1"
+                or os.environ.get("HF_HUB_OFFLINE", "0") == "1"
+            )
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load the Granite FlowState model for time series forecasting.
 
@@ -74,7 +93,14 @@ class ModelLoader(ForgeModel):
         """
         cfg = self._variant_config
 
-        from tsfm_public import FlowStateForPrediction
+        self._patch_transformers_compat()
+        from tsfm_public import FlowStateConfig, FlowStateForPrediction
+        from transformers import AutoConfig
+
+        try:
+            AutoConfig.register("flowstate", FlowStateConfig)
+        except ValueError:
+            pass
 
         model = FlowStateForPrediction.from_pretrained(cfg.pretrained_model_name)
 
