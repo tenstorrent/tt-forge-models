@@ -6,7 +6,7 @@ GLuCoSE-base-ja-v2 model loader implementation for sentence embedding generation
 """
 
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, XLMRobertaTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        self.tokenizer = XLMRobertaTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
 
