@@ -9,6 +9,7 @@ recognition, trained on mozilla-foundation/common_voice_17_0 and
 DavronSherbaev/uzbekvoice datasets.
 """
 
+import numpy as np
 import torch
 from transformers import (
     WhisperProcessor,
@@ -24,7 +25,6 @@ from ...config import (
     StrEnum,
     ModelConfig,
 )
-from ...tools.utils import get_file
 from ...base import ForgeModel
 from typing import Optional
 
@@ -94,17 +94,19 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
 
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
-        model_param = next(self.model.parameters())
-        device, dtype = model_param.device, dtype_override or model_param.dtype
-
-        # Preprocess audio
+        # Generate synthetic 30-second audio at 16kHz to match Whisper's receptive field
         sampling_rate = 16000
+        duration_seconds = 30
+        audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
+            np.float32
+        )
+
+        model_param = next(self.model.parameters())
+        device = model_param.device
+        dtype = dtype_override or model_param.dtype
+
         processed = self.processor(
-            sample_audio, return_tensors="pt", sampling_rate=sampling_rate
+            audio_array, return_tensors="pt", sampling_rate=sampling_rate
         )
         input_features = processed.input_features.to(device=device, dtype=dtype)
 
