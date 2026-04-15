@@ -1,5 +1,6 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 numpy
 sentencepiece
 hydra-core
 omegaconf
-torchaudio
+torchaudio==2.9.1
