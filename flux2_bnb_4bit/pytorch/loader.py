@@ -57,15 +57,19 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"use_safetensors": True}
+        load_kwargs = {}
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
-        self.transformer = Flux2Transformer2DModel.from_pretrained(
+        # Load config from the pretrained model, then create from config
+        # to avoid BNB quantization which requires a GPU.
+        config = Flux2Transformer2DModel.load_config(
             self._variant_config.pretrained_model_name,
             subfolder="transformer",
-            **load_kwargs,
         )
+        config.pop("quantization_config", None)
+
+        self.transformer = Flux2Transformer2DModel.from_config(config, **load_kwargs)
 
         if dtype_override is not None:
             self.transformer = self.transformer.to(dtype_override)
