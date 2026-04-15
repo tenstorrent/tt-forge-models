@@ -5,7 +5,13 @@
 GPT-BERT model loader implementation for masked language modeling.
 """
 
-from transformers import AutoTokenizer, AutoModelForMaskedLM, AutoConfig
+import sys
+
+import torch.nn as nn
+from transformers import AutoTokenizer, AutoConfig
+from transformers.configuration_utils import PretrainedConfig
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
+from transformers.modeling_utils import PreTrainedModel
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -72,6 +78,55 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_custom_classes():
+        """Patch custom GPT-BERT classes for transformers 5.x compatibility.
+
+        The remote model code has three issues:
+        1. Config overrides to_dict()/to_json_string() without handling
+           torch.dtype serialization (crashes on f-string config logging).
+        2. Model classes don't call post_init(), so all_tied_weights_keys
+           is never set.
+        3. _init_weights assumes LayerNorm always has bias/weight, but some
+           are created with elementwise_affine=False.
+        """
+        for module_name, module in sys.modules.items():
+            if "transformers_modules" not in module_name:
+                continue
+            if "gpt_bert" not in module_name:
+                continue
+            for attr_name in dir(module):
+                cls = getattr(module, attr_name)
+                if not isinstance(cls, type):
+                    continue
+                # Fix config: use parent to_dict/to_json_string which handle
+                # torch.dtype serialization
+                if issubclass(cls, PretrainedConfig) and cls is not PretrainedConfig:
+                    cls.to_dict = PretrainedConfig.to_dict
+                    cls.to_json_string = PretrainedConfig.to_json_string
+                    cls.__repr__ = PretrainedConfig.__repr__
+                if not issubclass(cls, PreTrainedModel) or cls is PreTrainedModel:
+                    continue
+                # Fix _init_weights: guard against LayerNorm without bias/weight
+                if hasattr(cls, "_init_weights"):
+                    orig_init_weights = cls._init_weights
+
+                    def _safe_init_weights(self, module, _orig=orig_init_weights):
+                        if isinstance(module, nn.LayerNorm) and module.bias is None:
+                            return
+                        return _orig(self, module)
+
+                    cls._init_weights = _safe_init_weights
+                # Fix post_init: set all_tied_weights_keys if missing
+                original_init = cls.__init__
+
+                def _patched_init(self, *args, _orig=original_init, **kwargs):
+                    _orig(self, *args, **kwargs)
+                    if not hasattr(self, "all_tied_weights_keys"):
+                        self.all_tied_weights_keys = {}
+
+                cls.__init__ = _patched_init
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load GPT-BERT model for masked language modeling from Hugging Face.
 
@@ -85,14 +140,22 @@ class ModelLoader(ForgeModel):
             self.model_name, trust_remote_code=True
         )
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = AutoModelForMaskedLM.from_pretrained(
-            self.model_name, trust_remote_code=True, **model_kwargs
+        # Load config to trigger download of remote code, then pre-load the
+        # model class so we can patch it for transformers 5.x compatibility
+        # before from_pretrained runs.
+        config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
+        model_class = get_class_from_dynamic_module(
+            config.auto_map["AutoModelForMaskedLM"],
+            self.model_name,
+            trust_remote_code=True,
         )
+        self._patch_custom_classes()
+
+        model = model_class.from_pretrained(
+            self.model_name, config=config, trust_remote_code=True, **kwargs
+        )
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
         model.eval()
         return model
 
