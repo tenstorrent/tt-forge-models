@@ -9,6 +9,7 @@ onnx-community for optimized inference. It produces word-level timestamps
 alongside transcriptions.
 """
 
+import numpy as np
 import torch
 from transformers import (
     WhisperProcessor,
@@ -27,7 +28,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -88,26 +88,28 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         if self.model is None or self.processor is None:
-            self.load_model()
+            self.load_model(dtype_override=dtype_override)
 
         model_config = WhisperConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
 
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
-        model_param = next(self.model.parameters())
-        device, dtype = model_param.device, dtype_override or model_param.dtype
-
-        # Preprocess audio
+        # Generate synthetic 30-second audio at 16kHz to match Whisper's receptive field
         sampling_rate = 16000
-        processor = self.processor(
-            sample_audio, return_tensors="pt", sampling_rate=sampling_rate
+        duration_seconds = 30
+        audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
+            np.float32
         )
 
-        input_features = processor.input_features.to(device=device, dtype=dtype)
+        model_param = next(self.model.parameters())
+        device = model_param.device
+        dtype = dtype_override or model_param.dtype
+
+        inputs = self.processor(
+            audio_array, return_tensors="pt", sampling_rate=sampling_rate
+        )
+
+        input_features = inputs.input_features.to(device=device, dtype=dtype)
 
         decoder_input_ids = torch.full(
             (1, 2),
