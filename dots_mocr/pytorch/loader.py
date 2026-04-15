@@ -5,6 +5,17 @@
 dots.mocr model loader implementation for multimodal document OCR tasks.
 """
 import os
+import sys
+import types
+
+# The dots.mocr custom model code unconditionally imports flash_attn at the
+# module level even though it is only used by the flash_attention_2 backend.
+# flash_attn requires CUDA and cannot be installed in our CPU-only environment,
+# so we inject a lightweight stub into sys.modules before loading the model.
+if "flash_attn" not in sys.modules:
+    _flash_attn_stub = types.ModuleType("flash_attn")
+    _flash_attn_stub.flash_attn_varlen_func = None
+    sys.modules["flash_attn"] = _flash_attn_stub
 
 import torch
 from huggingface_hub import snapshot_download
@@ -154,7 +165,17 @@ class ModelLoader(ForgeModel):
         """
         model_path = self._get_local_model_path()
 
+        # Load config first so we can override vision attn_implementation
+        # before model construction. The saved config defaults to
+        # flash_attention_2 which requires CUDA.
+        from transformers import AutoConfig
+
+        config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+        if hasattr(config, "vision_config"):
+            config.vision_config.attn_implementation = "eager"
+
         model_kwargs = {
+            "config": config,
             "low_cpu_mem_usage": True,
             "use_cache": False,
             "trust_remote_code": True,
