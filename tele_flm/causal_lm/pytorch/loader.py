@@ -85,12 +85,24 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+
+        # The custom modeling code treats rope_scaling=None as default RoPE,
+        # but newer transformers always populates it with
+        # {'rope_type': 'default', ...}.  Reset to None so the vendored
+        # _init_rope takes the correct branch.
+        if (
+            getattr(config, "rope_scaling", None)
+            and config.rope_scaling.get("rope_type") == "default"
+        ):
+            config.rope_scaling = None
+
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
