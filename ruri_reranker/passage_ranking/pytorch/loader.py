@@ -5,7 +5,7 @@
 Ruri Reranker model loader implementation for passage ranking.
 """
 import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoModelForSequenceClassification, BertJapaneseTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -61,7 +61,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        self.tokenizer = BertJapaneseTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
         )
         return self.tokenizer
