@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
         # Create a sample document page image
         image = Image.new("RGB", (512, 512), color=(255, 255, 255))
 
-        prompt = "Convert this page to docling."
+        prompt = "<image>Convert this page to docling."
         inputs = self.processor(text=prompt, images=image, return_tensors="pt")
 
         if dtype_override is not None:
