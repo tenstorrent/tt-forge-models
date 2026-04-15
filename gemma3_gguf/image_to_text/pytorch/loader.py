@@ -4,6 +4,8 @@
 """
 Gemma 3 GGUF model loader implementation for image to text.
 """
+import importlib.metadata
+
 from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
 from typing import Optional
 
@@ -17,6 +19,17 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _refresh_gguf_detection():
+    """Refresh transformers' gguf package detection if the package was installed after import."""
+    from transformers.utils import import_utils
+
+    if "gguf" not in import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
+        import_utils.is_gguf_available.cache_clear()
 
 
 class ModelVariant(StrEnum):
@@ -40,6 +53,8 @@ class ModelLoader(ForgeModel):
     _GGUF_FILES = {
         ModelVariant.GEMMA_3_27B_IT_VL_POLARIS_GGUF: "Gemma3-27B-it-vl-Polaris-HI16-Heretic-Uncensored-INSTRUCT.Q4_K_M.gguf",
     }
+
+    _BASE_PROCESSOR_MODEL = "google/gemma-3-27b-it"
 
     sample_image = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
 
@@ -69,6 +84,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
@@ -84,7 +100,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        self.processor = AutoProcessor.from_pretrained(self._BASE_PROCESSOR_MODEL)
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -117,6 +133,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        _refresh_gguf_detection()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
         )
