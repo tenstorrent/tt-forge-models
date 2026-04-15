@@ -4,6 +4,7 @@
 """
 GPT-2 LoRA model loader implementation for causal language modeling.
 """
+
 from transformers import GPT2LMHeadModel, AutoTokenizer
 from peft import PeftModel
 from typing import Optional
@@ -64,6 +65,8 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.BASE_MODEL_NAME, **tokenizer_kwargs
         )
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
