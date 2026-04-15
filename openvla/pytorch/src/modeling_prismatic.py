@@ -188,6 +188,8 @@ class PrismaticPreTrainedModel(PreTrainedModel):
 
     @property
     def _supports_sdpa(self) -> bool:
+        if not hasattr(self, "language_model"):
+            return False
         return self.language_model._supports_sdpa
 
 
