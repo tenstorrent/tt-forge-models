@@ -126,7 +126,7 @@ class ModelLoader(ForgeModel):
             source=ModelSource.TIMM,
         ),
         ModelVariant.VIT_BASE_PATCH32_CLIP_224_LAION2B_E16: ViTConfig(
-            pretrained_model_name="vit_base_patch32_clip_224.laion2b_e16",
+            pretrained_model_name="vit_base_patch32_clip_224.laion2b",
             source=ModelSource.TIMM,
         ),
     }
