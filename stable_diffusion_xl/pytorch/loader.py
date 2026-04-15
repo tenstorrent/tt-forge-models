@@ -97,26 +97,31 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Diffusion XL pipeline for this instance's variant.
+        """Load and return the UNet module from the Stable Diffusion XL pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            DiffusionPipeline: The Stable Diffusion XL pipeline instance.
+            torch.nn.Module: The UNet module from the pipeline.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        # SeaArt-Furry-XL-1.0 is missing unet/config.json, load from single file
+        single_file = None
+        if self._variant == ModelVariant.SEAART_FURRY_XL_1_0:
+            single_file = "furry-xl-4.0.safetensors"
+
         # Load the pipeline
-        self.pipeline = load_pipe(pretrained_model_name)
+        self.pipeline = load_pipe(pretrained_model_name, single_file=single_file)
 
         # Apply dtype conversion if specified
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the Stable Diffusion XL model with this instance's variant settings.

@@ -13,16 +13,27 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
 )
 
 
-def load_pipe(variant):
+def load_pipe(variant, single_file=None):
     """Load Stable Diffusion XL pipeline.
 
     Args:
         variant: Model variant name
+        single_file: Optional single checkpoint filename to load via
+            from_single_file, for models with incomplete diffusers structure
 
     Returns:
         DiffusionPipeline: Loaded pipeline with components set to eval mode
     """
-    pipe = DiffusionPipeline.from_pretrained(variant, torch_dtype=torch.float32)
+    if single_file:
+        from diffusers import StableDiffusionXLPipeline
+        from huggingface_hub import hf_hub_download
+
+        ckpt_path = hf_hub_download(variant, single_file)
+        pipe = StableDiffusionXLPipeline.from_single_file(
+            ckpt_path, torch_dtype=torch.float32
+        )
+    else:
+        pipe = DiffusionPipeline.from_pretrained(variant, torch_dtype=torch.float32)
     modules = [pipe.text_encoder, pipe.unet, pipe.text_encoder_2, pipe.vae]
 
     # Move the pipeline to CPU
