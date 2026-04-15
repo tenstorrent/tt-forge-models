@@ -29,6 +29,9 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """LLM2Vec-Mistral-7B-Instruct-v2 model loader implementation for embedding generation."""
 
+    # The adapter repo does not contain tokenizer files; load the tokenizer from the base model.
+    BASE_MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
+
     _VARIANTS = {
         ModelVariant.LLM2VEC_MISTRAL_7B_INSTRUCT_V2: ModelConfig(
             pretrained_model_name="McGill-NLP/LLM2Vec-Mistral-7B-Instruct-v2-mntp-unsup-simcse",
@@ -65,8 +68,11 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self.BASE_MODEL_NAME, **tokenizer_kwargs
         )
+
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
