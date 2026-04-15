@@ -5,6 +5,8 @@
 Gemma 3 BNB 4-bit model loader implementation for causal language modeling.
 """
 
+import os
+
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
@@ -98,6 +100,9 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"device_map": "cpu", "use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+            pretrained_model_name = "unsloth/gemma-3-1b-it"
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
