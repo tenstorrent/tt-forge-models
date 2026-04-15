@@ -2,11 +2,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-ControlNet Depth SD3.5 model loader implementation
+ControlNet Depth SD3.5 model loader implementation.
+
+Loads the SD3.5 ControlNet Depth model directly from the diffusers repo,
+avoiding the gated base pipeline (stabilityai/stable-diffusion-3.5-large).
 """
 
+from typing import Any, Optional
+
 import torch
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
@@ -18,11 +22,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import (
-    load_controlnet_depth_sd3_pipe,
-    create_depth_conditioning_image,
-    controlnet_depth_sd3_preprocessing,
-)
+from .src.model_utils import load_controlnet, create_controlnet_inputs
 
 
 class ModelVariant(StrEnum):
@@ -42,12 +42,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.CONTROLNET_DEPTH_SD3_LARGE
 
-    prompt = "a photo of a man"
-    base_model = "stabilityai/stable-diffusion-3.5-large"
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._controlnet = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -63,64 +60,25 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the ControlNet Depth SD3.5 pipeline.
+        """Load and return the ControlNet Depth SD3.5 model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusion3ControlNetPipeline: The pipeline instance.
+            SD3ControlNetModel: The ControlNet model instance.
         """
+        dtype = dtype_override if dtype_override is not None else torch.float32
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        self.pipeline = load_controlnet_depth_sd3_pipe(
-            pretrained_model_name, self.base_model
-        )
+        self._controlnet = load_controlnet(pretrained_model_name, dtype=dtype)
+        return self._controlnet
 
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
-
-        return self.pipeline
-
-    def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the ControlNet Depth SD3.5 model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
+    def load_inputs(self, **kwargs) -> Any:
+        """Create sample inputs for the ControlNet Depth SD3.5 model.
 
         Returns:
-            List: Input tensors for the transformer with ControlNet block samples:
-                - latent_model_input (torch.Tensor)
-                - timestep (torch.Tensor)
-                - prompt_embeds (torch.Tensor)
-                - pooled_prompt_embeds (torch.Tensor)
-                - controlnet_block_samples (tuple of torch.Tensor)
+            dict: Input tensors matching SD3ControlNetModel.forward() signature.
         """
-        if self.pipeline is None:
-            self.load_model(dtype_override=dtype_override)
-
-        control_image = create_depth_conditioning_image()
-
-        (
-            latent_model_input,
-            timestep,
-            prompt_embeds,
-            pooled_prompt_embeds,
-            controlnet_block_samples,
-        ) = controlnet_depth_sd3_preprocessing(
-            self.pipeline, self.prompt, control_image
-        )
-
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timestep = timestep.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
-            pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
-
-        return [
-            latent_model_input,
-            timestep,
-            prompt_embeds,
-            pooled_prompt_embeds,
-            controlnet_block_samples,
-        ]
+        dtype = kwargs.get("dtype_override", torch.float32)
+        return create_controlnet_inputs(dtype=dtype)
