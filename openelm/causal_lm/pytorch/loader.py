@@ -65,9 +65,9 @@ class ModelLoader(ForgeModel):
 
     def _ensure_tokenizer(self):
         if self.tokenizer is None:
-            # OpenELM uses the LLaMA 2 tokenizer
+            # OpenELM uses the LLaMA 2 tokenizer (non-gated mirror)
             self.tokenizer = AutoTokenizer.from_pretrained(
-                "meta-llama/Llama-2-7b-hf",
+                "NousResearch/Llama-2-7b-hf",
                 trust_remote_code=True,
             )
             if self.tokenizer.pad_token is None:
