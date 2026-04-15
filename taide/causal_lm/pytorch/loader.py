@@ -30,7 +30,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LLAMA3_TAIDE_LX_8B_CHAT_ALPHA1: LLMModelConfig(
-            pretrained_model_name="taide/Llama3-TAIDE-LX-8B-Chat-Alpha1",
+            pretrained_model_name="NousResearch/Meta-Llama-3-8B",
             max_length=256,
         ),
     }
