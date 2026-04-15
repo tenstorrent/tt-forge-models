@@ -59,10 +59,11 @@ def stable_cascade_preprocessing(
         negative_prompt_embeds,
         negative_prompt_embeds_pooled,
     ) = prior_pipe.encode_prompt(
-        prompt=prompt,
         device=device,
+        batch_size=batch_size,
         num_images_per_prompt=1,
         do_classifier_free_guidance=True,
+        prompt=prompt,
     )
 
     # Prepare timesteps
