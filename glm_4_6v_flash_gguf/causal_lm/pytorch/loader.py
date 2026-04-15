@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.GLM_4_6V_FLASH_ABLITERATED_Q4_K_M
 
-    GGUF_FILE = "ggml-model-q4_k_m.gguf"
+    GGUF_FILE = "ggml-model-Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
