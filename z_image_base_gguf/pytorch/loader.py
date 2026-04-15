@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
 
         repo_id = self._variant_config.pretrained_model_name
         self.transformer = ZImageTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{self.GGUF_FILE}",
+            f"https://huggingface.co/{repo_id}/{self.GGUF_FILE}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
