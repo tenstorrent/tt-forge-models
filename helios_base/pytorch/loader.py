@@ -79,30 +79,74 @@ class ModelLoader(ForgeModel):
         return self.pipeline
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the Helios-Base pipeline.
+        """Load and return the transformer from the Helios-Base pipeline.
 
         Args:
             dtype_override: Optional torch dtype to instantiate the pipeline with.
 
         Returns:
-            DiffusionPipeline: The Helios-Base text-to-video pipeline.
+            torch.nn.Module: The HeliosTransformer3DModel used for denoising.
         """
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         if self.pipeline is None:
-            self._load_pipeline(dtype_override=dtype_override)
+            self._load_pipeline(dtype_override=dtype)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for the Helios-Base pipeline.
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare synthetic inputs for the Helios-Base transformer model.
 
         Args:
-            prompt: Optional text prompt for video generation.
+            dtype_override: Optional torch dtype for the input tensors.
 
         Returns:
-            dict: Input dictionary with prompt for the pipeline.
+            dict: Keyword arguments for the transformer forward method.
         """
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {"prompt": prompt_value}
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype)
+
+        config = self.pipeline.transformer.config
+
+        batch_size = 1
+        # Use small spatial dimensions for testing (64x64 pixels -> 8x8 latents)
+        latent_h = 8
+        latent_w = 8
+        num_latent_frames = 1
+
+        hidden_states = torch.randn(
+            batch_size,
+            config.in_channels,
+            num_latent_frames,
+            latent_h,
+            latent_w,
+            dtype=dtype,
+        )
+
+        # max_sequence_length used by the Helios pipeline text encoder
+        seq_len = 226
+        encoder_hidden_states = torch.randn(
+            batch_size, seq_len, config.text_dim, dtype=dtype
+        )
+
+        timestep = torch.tensor([500], dtype=torch.int64)
+
+        return {
+            "hidden_states": hidden_states,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+            "return_dict": False,
+        }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if isinstance(output, tuple):
+            return output[0]
+        if hasattr(output, "sample"):
+            return output.sample
+        return output
