@@ -15,7 +15,10 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import FluxPriorReduxPipeline
+from diffusers.pipelines.flux.modeling_flux import ReduxImageEncoder
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
+from transformers import SiglipVisionConfig
 
 from ...base import ForgeModel
 from ...config import (
@@ -29,6 +32,7 @@ from ...config import (
 )
 
 COMFY_REPO_ID = "Comfy-Org/Flux1-Redux-Dev"
+SIGLIP_REPO_ID = "google/siglip-so400m-patch14-384"
 
 
 class ModelVariant(StrEnum):
@@ -49,7 +53,8 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._pipe = None
+        self._image_embedder = None
+        self._siglip_config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -64,13 +69,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype: torch.dtype = torch.float32):
-        """Load the FluxPriorReduxPipeline from the configured repo."""
-        self._pipe = FluxPriorReduxPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-        )
-        return self._pipe
+    def _load_components(self, dtype: torch.dtype = torch.float32):
+        """Load ReduxImageEncoder from Comfy-Org and SigLIP config separately."""
+        repo_id = self._variant_config.pretrained_model_name
+        path = hf_hub_download(repo_id, "flux1-redux-dev.safetensors")
+        self._image_embedder = ReduxImageEncoder()
+        state_dict = load_file(path)
+        self._image_embedder.load_state_dict(state_dict)
+        self._image_embedder = self._image_embedder.to(dtype)
+        self._siglip_config = SiglipVisionConfig.from_pretrained(SIGLIP_REPO_ID)
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Load and return the Redux image embedder.
@@ -79,11 +86,11 @@ class ModelLoader(ForgeModel):
         into FLUX-compatible prompt embeddings.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
-        if self._pipe is None:
-            self._load_pipeline(dtype)
+        if self._image_embedder is None:
+            self._load_components(dtype)
         if dtype_override is not None:
-            self._pipe.image_embedder = self._pipe.image_embedder.to(dtype_override)
-        return self._pipe.image_embedder
+            self._image_embedder = self._image_embedder.to(dtype_override)
+        return self._image_embedder
 
     def load_inputs(self, **kwargs) -> Any:
         """Prepare inputs for the Redux image embedder.
@@ -94,14 +101,12 @@ class ModelLoader(ForgeModel):
         """
         dtype = kwargs.get("dtype_override", torch.float32)
 
-        if self._pipe is None:
-            self._load_pipeline(dtype)
+        if self._image_embedder is None:
+            self._load_components(dtype)
 
-        # Get dimensions from the loaded image encoder config
-        image_encoder_config = self._pipe.image_encoder.config
-        hidden_size = image_encoder_config.hidden_size
-        image_size = image_encoder_config.image_size
-        patch_size = image_encoder_config.patch_size
+        hidden_size = self._siglip_config.hidden_size
+        image_size = self._siglip_config.image_size
+        patch_size = self._siglip_config.patch_size
         seq_len = (image_size // patch_size) ** 2
 
         hidden_states = torch.randn(1, seq_len, hidden_size, dtype=dtype)
