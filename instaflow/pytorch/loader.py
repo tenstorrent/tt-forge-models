@@ -49,7 +49,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -64,26 +64,64 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_pipeline(self):
+        self._pipeline = StableDiffusionPipeline.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            torch_dtype=torch.float32,
+        )
+        return self._pipeline
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the InstaFlow pipeline.
+        """Load and return the InstaFlow UNet model.
 
         Returns:
-            StableDiffusionPipeline: The InstaFlow pipeline instance.
+            torch.nn.Module: The UNet model from the InstaFlow pipeline.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
-        self.pipeline = StableDiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
-        )
-        return self.pipeline
+        if self._pipeline is None:
+            self._load_pipeline()
+
+        unet = self._pipeline.unet
+        if dtype_override is not None:
+            unet = unet.to(dtype_override)
+
+        return unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the InstaFlow model.
+        """Load and return sample inputs for the InstaFlow UNet model.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Dictionary containing sample, timestep, and encoder_hidden_states.
         """
-        return [
-            "a photo of an astronaut riding a horse on mars",
-        ] * batch_size
+        if self._pipeline is None:
+            self._load_pipeline()
+
+        dtype = dtype_override or torch.float32
+        pipe = self._pipeline
+        unet = pipe.unet
+
+        # Encode a text prompt using the pipeline's text encoder
+        prompt = "a photo of an astronaut riding a horse on mars"
+        text_inputs = pipe.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=pipe.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        encoder_hidden_states = pipe.text_encoder(text_inputs.input_ids)[0]
+
+        # Create latent noise matching the model's expected input shape
+        in_channels = unet.config.in_channels
+        sample_size = unet.config.sample_size
+        sample = torch.randn(
+            (batch_size, in_channels, sample_size, sample_size),
+            dtype=dtype,
+        )
+
+        timestep = torch.tensor([1], dtype=torch.long)
+
+        return {
+            "sample": sample.to(dtype),
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states.to(dtype),
+        }
