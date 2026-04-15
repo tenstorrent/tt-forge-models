@@ -8,7 +8,12 @@ Supports LiquidAI's LFM2.5 Audio multimodal model in GGUF format.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
 from typing import Optional
+
+# Register lfm2 tokenizer converter (uses GPT2-style BPE tokenizer)
+if "lfm2" not in GGUF_TO_FAST_CONVERTERS:
+    GGUF_TO_FAST_CONVERTERS["lfm2"] = GGUFGPTConverter
 
 from ....base import ForgeModel
 from ....config import (
