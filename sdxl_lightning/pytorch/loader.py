@@ -12,14 +12,11 @@ Available variants:
 - SDXL_LIGHTNING_4STEP: ByteDance/SDXL-Lightning 4-step UNet variant
 """
 
+import os
 from typing import Optional
 
 import torch
-from diffusers import (
-    StableDiffusionXLPipeline,
-    UNet2DConditionModel,
-    EulerDiscreteScheduler,
-)
+from diffusers import UNet2DConditionModel
 from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
 
@@ -57,7 +54,6 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -73,36 +69,59 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SDXL-Lightning pipeline.
+        """Load and return the SDXL-Lightning UNet model.
 
-        Loads the base SDXL pipeline and replaces its UNet with the
-        SDXL-Lightning 4-step distilled UNet checkpoint.
+        Loads the base SDXL UNet and replaces weights with the
+        SDXL-Lightning 4-step distilled checkpoint.
 
         Returns:
-            StableDiffusionXLPipeline: The SDXL-Lightning pipeline instance.
+            UNet2DConditionModel: The SDXL-Lightning UNet model.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
         ckpt = "sdxl_lightning_4step_unet.safetensors"
 
         unet = UNet2DConditionModel.from_config(BASE_MODEL, subfolder="unet").to(dtype)
-        unet.load_state_dict(load_file(hf_hub_download(REPO_ID, ckpt)))
+        if not os.environ.get("TT_RANDOM_WEIGHTS", "") == "1":
+            unet.load_state_dict(load_file(hf_hub_download(REPO_ID, ckpt)))
 
-        self.pipeline = StableDiffusionXLPipeline.from_pretrained(
-            BASE_MODEL,
-            unet=unet,
-            torch_dtype=dtype,
-            **kwargs,
-        )
-        self.pipeline.scheduler = EulerDiscreteScheduler.from_config(
-            self.pipeline.scheduler.config, timestep_spacing="trailing"
-        )
-
-        return self.pipeline
+        self.in_channels = unet.config.in_channels
+        self.cross_attention_dim = unet.config.cross_attention_dim
+        return unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the SDXL-Lightning model.
+        """Load and return sample tensor inputs for the SDXL-Lightning UNet.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Dictionary containing sample, timestep, and encoder hidden states.
         """
-        return ["A girl smiling"] * batch_size
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
+        height, width = 1024, 1024
+        seq_len = 77
+        # SDXL cross_attention_dim=2048 (CLIP ViT-L 768 + CLIP ViT-bigG 1280)
+        encoder_hidden_dim = self.cross_attention_dim
+        # CLIP ViT-bigG projection dim for pooled embeddings
+        pooled_dim = 1280
+
+        latents = torch.randn(
+            (batch_size, self.in_channels, height // 8, width // 8), dtype=dtype
+        )
+
+        encoder_hidden_states = torch.randn(
+            (batch_size, seq_len, encoder_hidden_dim), dtype=dtype
+        )
+
+        text_embeds = torch.randn((batch_size, pooled_dim), dtype=dtype)
+        add_time_ids = torch.tensor(
+            [[height, width, 0, 0, height, width]], dtype=dtype
+        ).repeat(batch_size, 1)
+
+        return {
+            "sample": latents,
+            "timestep": torch.tensor(999),
+            "encoder_hidden_states": encoder_hidden_states,
+            "added_cond_kwargs": {
+                "text_embeds": text_embeds,
+                "time_ids": add_time_ids,
+            },
+        }
