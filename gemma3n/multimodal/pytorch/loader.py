@@ -37,7 +37,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GEMMA_3N_E2B: LLMModelConfig(
-            pretrained_model_name=str(ModelVariant.GEMMA_3N_E2B),
+            pretrained_model_name="unsloth/gemma-3n-E2B-it",
         ),
     }
 
