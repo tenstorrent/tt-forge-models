@@ -5,7 +5,7 @@
 Gemma model loader implementation for text extraction and translation task.
 """
 import torch
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoConfig, AutoModelForImageTextToText, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -123,13 +123,15 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
-        if getattr(model.config, "use_cache", True):
-            model.config.text_config.layer_types = [
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if getattr(config, "use_cache", True):
+            config.text_config.layer_types = [
                 "full_attention"
-            ] * model.config.text_config.num_hidden_layers
+            ] * config.text_config.num_hidden_layers
+
+        model = AutoModelForImageTextToText.from_pretrained(
+            pretrained_model_name, config=config, **model_kwargs
+        )
         self.model = model
         return model
 
