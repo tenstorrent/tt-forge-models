@@ -77,11 +77,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, self.base_model
         )
 
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
-
-        # Return the UNet component (a torch.nn.Module), not the full pipeline.
-        # The pipeline is kept in self.pipeline for use by load_inputs() preprocessing.
+        # Don't convert the entire pipeline here — keep it in float32 so that
+        # load_inputs() preprocessing (which runs the ControlNet) stays
+        # dtype-consistent. The test infrastructure converts the returned UNet
+        # to bfloat16 separately.
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
@@ -117,6 +116,12 @@ class ModelLoader(ForgeModel):
             latent_model_input = latent_model_input.to(dtype_override)
             timesteps = timesteps.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
+            down_block_additional_residuals = tuple(
+                r.to(dtype_override) for r in down_block_additional_residuals
+            )
+            mid_block_additional_residual = mid_block_additional_residual.to(
+                dtype_override
+            )
 
         return [
             latent_model_input,
