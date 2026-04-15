@@ -16,7 +16,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -28,7 +27,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_pipe, qwen_image_edit_preprocessing
+from .src.model_utils import load_pipe, qwen_image_edit_fake_inputs
 
 BASE_MODEL = "Qwen/Qwen-Image-Edit-2511"
 LORA_REPO = "systms/SYSTMS-INFL8-LoRA-Qwen-Image-Edit-2511"
@@ -92,7 +91,10 @@ class ModelLoader(ForgeModel):
         return self.pipeline.transformer
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
-        """Prepare inputs for a single transformer forward pass.
+        """Prepare synthetic inputs for a single transformer forward pass.
+
+        Returns random tensors of the correct shapes to avoid running the
+        expensive 7B text encoder during input preparation.
 
         Returns:
             dict: Keyword arguments for the transformer's forward method.
@@ -100,19 +102,5 @@ class ModelLoader(ForgeModel):
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
 
-        prompt = (
-            "inflate the balloon, making it grow larger and rounder "
-            "with exaggerated proportions and vibrant colors"
-        )
-
-        # Create a small test image (RGB)
-        image = Image.new("RGB", (256, 256), color=(200, 100, 100))
-
-        inputs = qwen_image_edit_preprocessing(self.pipeline, prompt, image)
-
-        if dtype_override:
-            for key in ["hidden_states", "timestep", "encoder_hidden_states"]:
-                if key in inputs and isinstance(inputs[key], torch.Tensor):
-                    inputs[key] = inputs[key].to(dtype_override)
-
-        return inputs
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        return qwen_image_edit_fake_inputs(self.pipeline, dtype=dtype)

@@ -6,26 +6,17 @@
 Helper functions for SYSTMS INFL8 LoRA Qwen Image Edit model loading and preprocessing.
 """
 
-import math
-
-import numpy as np
 import torch
 from diffusers import DiffusionPipeline
-from PIL import Image
 
-# Constants matching the pipeline implementation
-CONDITION_IMAGE_SIZE = 384 * 384
-VAE_IMAGE_SIZE = 1024 * 1024
-TARGET_PIXELS = 1024 * 1024
-
-
-def calculate_dimensions(target_area, ratio):
-    """Calculate target dimensions given a target area and aspect ratio."""
-    width = math.sqrt(target_area * ratio)
-    height = width / ratio
-    width = round(width / 32) * 32
-    height = round(height / 32) * 32
-    return width, height
+# Transformer config constants from Qwen/Qwen-Image-Edit-2511
+# in_channels=64, joint_attention_dim=3584, patch_size=2
+# VAE: z_dim=16, dim_mult=[1,2,4,4] -> vae_scale_factor=8
+_TRANSFORMER_IN_CHANNELS = 64  # packed latent channels
+_TEXT_ENCODER_HIDDEN_SIZE = 3584  # joint_attention_dim
+_VAE_SCALE_FACTOR = 8
+_TARGET_IMAGE_SIZE = 1024  # default target for 1:1 aspect ratio images
+_NUM_LATENT_CHANNELS = 16  # in_channels // 4
 
 
 def load_pipe(base_model_name, lora_repo, lora_weights, dtype=torch.bfloat16):
@@ -55,106 +46,69 @@ def load_pipe(base_model_name, lora_repo, lora_weights, dtype=torch.bfloat16):
     return pipe
 
 
-def qwen_image_edit_preprocessing(pipe, prompt, image, device="cpu"):
-    """Preprocess inputs for the QwenImageTransformer2DModel forward pass.
+def qwen_image_edit_fake_inputs(pipe, dtype=torch.bfloat16):
+    """Create random inputs for the QwenImageTransformer2DModel forward pass.
 
-    Mirrors the pipeline's __call__ logic to produce a single denoising step's
-    inputs for the transformer component.
+    Uses synthetic random tensors of the correct shapes to avoid the expensive
+    CPU inference of the 7B text encoder during input preparation. This is
+    appropriate for compile-only testing where only tensor shapes matter.
+
+    The input shapes are derived from the transformer and VAE configs:
+    - Target image: 1024x1024 (standard for 1:1 aspect ratio)
+    - VAE scale factor: 8, z_dim: 16
+    - Packed latent size: (1, 4096, 64) per image stream
+    - Combined (noise + condition): (1, 8192, 64)
+    - Text encoder hidden size: 3584 (Qwen2.5-VL)
 
     Args:
-        pipe: Loaded QwenImageEditPlusPipeline.
-        prompt: Text prompt for image editing.
-        image: PIL Image to edit.
-        device: Device for tensors.
+        pipe: Loaded QwenImageEditPlusPipeline (used for transformer config).
+        dtype: Torch dtype for input tensors.
 
     Returns:
         dict: Keyword arguments for transformer.forward().
     """
-    dtype = pipe.transformer.dtype
-    image_size = image.size  # (width, height)
-    aspect_ratio = image_size[0] / image_size[1]
+    # With 1024x1024 target:
+    # latent height/width after VAE (with prepare_latents logic):
+    # height = 2 * (1024 // (vae_scale_factor * 2)) = 2 * 64 = 128
+    # After packing (2x2 blocks): seq_len = (128//2) * (128//2) = 4096 patches
+    latent_seq_len = (_TARGET_IMAGE_SIZE // _VAE_SCALE_FACTOR // 2) ** 2  # 4096
 
-    # Calculate target dimensions
-    calculated_width, calculated_height = calculate_dimensions(
-        TARGET_PIXELS, aspect_ratio
-    )
-    multiple_of = pipe.vae_scale_factor * 2
-    width = calculated_width // multiple_of * multiple_of
-    height = calculated_height // multiple_of * multiple_of
+    # Combined noise + condition image latents
+    combined_seq_len = latent_seq_len * 2  # 8192
 
-    # Process images for conditioning and VAE encoding
-    condition_width, condition_height = calculate_dimensions(
-        CONDITION_IMAGE_SIZE, aspect_ratio
-    )
-    vae_width, vae_height = calculate_dimensions(VAE_IMAGE_SIZE, aspect_ratio)
+    # Spatial dims of each image stream for RoPE
+    spatial_size = _TARGET_IMAGE_SIZE // _VAE_SCALE_FACTOR // 2  # 64
 
-    condition_images = [
-        pipe.image_processor.resize(image, condition_height, condition_width)
-    ]
-    vae_images = [
-        pipe.image_processor.preprocess(image, vae_height, vae_width).unsqueeze(2)
-    ]
-
-    # Encode prompt (includes image conditioning through the text encoder)
-    prompt_embeds, prompt_embeds_mask = pipe.encode_prompt(
-        image=condition_images,
-        prompt=prompt,
-        device=device,
-        num_images_per_prompt=1,
-        max_sequence_length=512,
-    )
-
-    # Prepare latents
-    num_channels_latents = pipe.transformer.config.in_channels // 4
-    latents, image_latents = pipe.prepare_latents(
-        vae_images,
-        1,  # batch_size
-        num_channels_latents,
-        height,
-        width,
-        dtype,
-        device,
-        None,  # generator
-        None,  # latents
-    )
-
-    # Combine noise latents with image latents
-    hidden_states = torch.cat([latents, image_latents], dim=1)
-
-    # Build img_shapes metadata
-    vae_image_sizes = [(vae_width, vae_height)]
+    # img_shapes: list of lists of (temporal, height, width) tuples
+    # One tuple per image stream (noise latent + condition image latent)
     img_shapes = [
         [
-            (
-                1,
-                height // pipe.vae_scale_factor // 2,
-                width // pipe.vae_scale_factor // 2,
-            ),
-            *[
-                (
-                    1,
-                    vh // pipe.vae_scale_factor // 2,
-                    vw // pipe.vae_scale_factor // 2,
-                )
-                for vw, vh in vae_image_sizes
-            ],
+            (1, spatial_size, spatial_size),  # noise latent
+            (1, spatial_size, spatial_size),  # condition image latent
         ]
     ]
 
-    # Use a single timestep (first step of the schedule, normalized by 1000)
-    timestep = torch.tensor([1.0], dtype=dtype)
+    # Random latent hidden states: (batch, combined_seq_len, in_channels)
+    hidden_states = torch.randn(
+        1, combined_seq_len, _TRANSFORMER_IN_CHANNELS, dtype=dtype
+    )
 
-    # Guidance embedding
-    guidance = None
-    if pipe.transformer.config.guidance_embeds:
-        guidance = torch.full([1], 3.5, dtype=torch.float32)
+    # Random text encoder embeddings: (batch, text_seq_len, hidden_size)
+    # Use 128 as representative sequence length
+    text_seq_len = 128
+    encoder_hidden_states = torch.randn(
+        1, text_seq_len, _TEXT_ENCODER_HIDDEN_SIZE, dtype=dtype
+    )
+
+    # Normalized timestep in [0, 1]
+    timestep = torch.tensor([0.9], dtype=dtype)
 
     return {
         "hidden_states": hidden_states,
         "timestep": timestep,
-        "encoder_hidden_states": prompt_embeds,
-        "encoder_hidden_states_mask": prompt_embeds_mask,
+        "encoder_hidden_states": encoder_hidden_states,
+        "encoder_hidden_states_mask": None,
         "img_shapes": img_shapes,
-        "guidance": guidance,
+        "guidance": None,
         "return_dict": False,
     }
