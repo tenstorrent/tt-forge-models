@@ -143,6 +143,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        if self.config is not None:
+            return self.config
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
