@@ -169,6 +169,8 @@ def _patch_transformers_qwen3next_gguf():
 
     if "qwen3next" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen3next"] = GGUFQwen2Converter
+    if "qwen3_next" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3_next"] = GGUFQwen2Converter
 
     # 4. Patch load_gguf_checkpoint to handle qwen3next -> qwen3_next
     orig_load = gguf_utils.load_gguf_checkpoint
