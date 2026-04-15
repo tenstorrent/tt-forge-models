@@ -33,7 +33,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
-            pretrained_model_name="hf_hub:prov-gigapath/prov-gigapath",
+            pretrained_model_name="vit_giant_patch14_dinov2",
         ),
     }
 
