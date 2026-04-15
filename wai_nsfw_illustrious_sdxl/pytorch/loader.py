@@ -11,10 +11,11 @@ Available variants:
 - WAI_NSFW_ILLUSTRIOUS_SDXL_V140: dhead/wai-nsfw-illustrious-sdxl-v140-sdxl text-to-image generation
 """
 
+import os
 from typing import Optional
 
 import torch
-from diffusers import StableDiffusionXLPipeline
+from diffusers import UNet2DConditionModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -49,7 +50,6 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -65,25 +65,57 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the WAI NSFW Illustrious SDXL pipeline.
+        """Load and return the WAI NSFW Illustrious SDXL UNet model.
 
         Returns:
-            StableDiffusionXLPipeline: The WAI NSFW Illustrious SDXL pipeline instance.
+            UNet2DConditionModel: The UNet component from the SDXL pipeline.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
-        self.pipeline = StableDiffusionXLPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
-        )
-        return self.pipeline
+        repo = self._variant_config.pretrained_model_name
+
+        if os.environ.get("TT_RANDOM_WEIGHTS", "") == "1":
+            unet = UNet2DConditionModel.from_config(repo, subfolder="unet").to(dtype)
+        else:
+            unet = UNet2DConditionModel.from_pretrained(
+                repo, subfolder="unet", torch_dtype=dtype
+            )
+
+        self.in_channels = unet.config.in_channels
+        self.cross_attention_dim = unet.config.cross_attention_dim
+        return unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the WAI NSFW Illustrious SDXL model.
+        """Load and return sample tensor inputs for the WAI NSFW Illustrious SDXL UNet.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Dictionary containing sample, timestep, and encoder hidden states.
         """
-        return [
-            "A cinematic shot of a baby raccoon wearing an intricate italian priest robe."
-        ] * batch_size
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
+        height, width = 1024, 1024
+        seq_len = 77
+        encoder_hidden_dim = self.cross_attention_dim
+        pooled_dim = 1280
+
+        latents = torch.randn(
+            (batch_size, self.in_channels, height // 8, width // 8), dtype=dtype
+        )
+
+        encoder_hidden_states = torch.randn(
+            (batch_size, seq_len, encoder_hidden_dim), dtype=dtype
+        )
+
+        text_embeds = torch.randn((batch_size, pooled_dim), dtype=dtype)
+        add_time_ids = torch.tensor(
+            [[height, width, 0, 0, height, width]], dtype=dtype
+        ).repeat(batch_size, 1)
+
+        return {
+            "sample": latents,
+            "timestep": torch.tensor(999),
+            "encoder_hidden_states": encoder_hidden_states,
+            "added_cond_kwargs": {
+                "text_embeds": text_embeds,
+                "time_ids": add_time_ids,
+            },
+        }
