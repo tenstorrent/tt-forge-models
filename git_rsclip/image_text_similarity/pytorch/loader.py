@@ -124,7 +124,7 @@ class ModelLoader(ForgeModel):
             self._load_processor()
 
         # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
+        dataset = load_dataset("huggingface/cats-image", split="test")
         image = dataset[0]["image"]
 
         # Define text prompts for image-text similarity
