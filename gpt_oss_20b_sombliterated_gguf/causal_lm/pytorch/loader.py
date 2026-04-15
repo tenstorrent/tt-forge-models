@@ -3,6 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 GPT-OSS 20B SOMbliterated GGUF model loader implementation for causal language modeling.
+
+Note: The gpt-oss GGUF architecture is not yet supported by transformers'
+GGUF loader. This loader uses the base safetensors model from kabachuha
+instead.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -31,14 +35,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GPT_OSS_20B_SOMBLITERATED_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/gpt-oss-20b-SOMbliterated-GGUF",
+            pretrained_model_name="kabachuha/gpt-oss-20b-SOMbliterated",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GPT_OSS_20B_SOMBLITERATED_GGUF
-
-    GGUF_FILE = "gpt-oss-20b-SOMbliterated.Q4_K_M.gguf"
 
     sample_text = "What is your favorite city?"
 
@@ -65,7 +67,6 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,12 +86,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -154,6 +151,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name
         )
         return self.config
