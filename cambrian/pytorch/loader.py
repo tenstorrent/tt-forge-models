@@ -6,9 +6,12 @@ Cambrian model loader implementation for multimodal visual question answering.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from PIL import Image
 from typing import Optional
+
+# Register cambrian_qwen architecture and patch transformers compat issues
+from .src.model_utils import CambrianQwenForCausalLM  # noqa: F401
 
 from ...tools.utils import get_file, cast_input_to_type
 from ...base import ForgeModel
@@ -43,7 +46,6 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
-        self.processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -65,19 +67,11 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
-    def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
-        )
-        return self.processor
-
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer()
-        if self.processor is None:
-            self._load_processor()
 
         model_kwargs = {"trust_remote_code": True, "attn_implementation": "eager"}
         if dtype_override is not None:
@@ -94,8 +88,6 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
             self._load_tokenizer()
-        if self.processor is None:
-            self._load_processor()
 
         image_file = get_file(
             "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
@@ -103,13 +95,12 @@ class ModelLoader(ForgeModel):
         image = Image.open(image_file)
 
         question = "What is shown in this image?"
+        # Use string content with <image> placeholder (Qwen2 tokenizer does
+        # not support multimodal content dicts in apply_chat_template).
         messages = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": question},
-                ],
+                "content": f"<image>\n{question}",
             }
         ]
 
@@ -117,13 +108,24 @@ class ModelLoader(ForgeModel):
             messages, tokenize=False, add_generation_prompt=True
         )
 
-        inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
+        inputs = self.tokenizer(text_prompt, return_tensors="pt")
+
+        # Preprocess image through the vision tower's image processor.
+        # The vision tower uses SigLIP which expects 384x384 images.
+        from torchvision import transforms
+
+        image_transform = transforms.Compose(
+            [
+                transforms.Resize((384, 384)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+            ]
+        )
+        pixel_values = image_transform(image.convert("RGB")).unsqueeze(0)
+        inputs["images"] = pixel_values
 
         if dtype_override is not None:
-            if "pixel_values" in inputs:
-                inputs["pixel_values"] = cast_input_to_type(
-                    inputs["pixel_values"], dtype_override
-                )
+            inputs["images"] = cast_input_to_type(inputs["images"], dtype_override)
 
         if batch_size > 1:
             for key in inputs:
