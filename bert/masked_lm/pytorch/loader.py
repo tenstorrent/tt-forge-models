@@ -5,7 +5,13 @@
 BERT model loader implementation for masked language modeling.
 """
 
-from transformers import BertForMaskedLM, BertTokenizer, AutoConfig, AutoTokenizer
+from transformers import (
+    BertForMaskedLM,
+    BertTokenizer,
+    BertConfig,
+    AutoConfig,
+    AutoTokenizer,
+)
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -162,6 +168,11 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Use BertConfig directly to handle models whose config.json
+        # lacks the "model_type" key (e.g. dmis-lab/biobert-base-cased-v1.1).
+        if "config" not in model_kwargs:
+            model_kwargs["config"] = BertConfig.from_pretrained(self.model_name)
+
         model = BertForMaskedLM.from_pretrained(self.model_name, **model_kwargs)
         model.eval()
         return model
@@ -208,7 +219,7 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Bert model.
         """
-        self.config = AutoConfig.from_pretrained(
+        self.config = BertConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
 
