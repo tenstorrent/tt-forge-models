@@ -203,17 +203,18 @@ class ModelLoader(ForgeModel):
             return self.pipeline
 
         if self.pipeline is None:
-            return self._load_pipeline(
+            self._load_pipeline(
                 dtype_override=dtype_override,
                 device_map=device_map,
                 low_cpu_mem_usage=low_cpu_mem_usage,
                 extra_pipe_kwargs=extra_pipe_kwargs,
             )
-
-        if dtype_override is not None:
+        elif dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype=dtype_override)
 
-        return self.pipeline
+        transformer = self.pipeline.transformer
+        transformer.eval()
+        return transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
         """
@@ -252,5 +253,24 @@ class ModelLoader(ForgeModel):
                 prompt=prompt if prompt is not None else self.DEFAULT_PROMPT
             )
 
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {"prompt": prompt_value}
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        batch_size = 1
+        # Transformer input dimensions for Wan T2V models
+        in_channels = 16
+        latent_depth, latent_height, latent_width = 2, 4, 4
+        text_hidden_dim = 4096
+        text_seq_len = 8
+        seq_len = latent_depth * latent_height * latent_width
+
+        hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, text_seq_len, text_hidden_dim, dtype=dtype
+        )
+        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+
+        return {
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "timestep": timestep,
+            "return_dict": False,
+        }
