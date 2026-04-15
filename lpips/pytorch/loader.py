@@ -11,7 +11,7 @@ as input and returns a scalar perceptual distance score.
 Reference: https://huggingface.co/zeahub/lpips
 """
 
-import lpips as lpips_lib
+import importlib
 from typing import Optional
 from PIL import Image
 from torchvision import transforms
@@ -78,6 +78,9 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # Import the pip-installed lpips package explicitly by name to avoid
+        # shadowing by the local 'lpips/' model directory on sys.path.
+        lpips_lib = importlib.import_module("lpips")
         net = self._NET_MAP[self._variant]
         model = lpips_lib.LPIPS(net=net)
         model.eval()
