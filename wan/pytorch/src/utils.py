@@ -177,22 +177,33 @@ def load_i2v_inputs(prompt: str, height: int = 480, width: int = 832) -> dict:
     }
 
 
-def load_vace_inputs(prompt: str) -> dict:
+def load_vace_transformer_inputs(dtype: torch.dtype = torch.float32) -> dict:
     """
-    Prepare inputs for the VACE pipeline (reference-to-video generation).
+    Prepare synthetic inputs for the VACE transformer forward pass.
 
-    Returns a dict suitable for passing to WanVACEPipeline.__call__.
-    Uses a small synthetic reference image for testing.
+    Returns a dict suitable for passing to WanVACETransformer3DModel.forward.
+
+    VACE 1.3B config: in_channels=16, text_dim=4096, patch_size=[1,2,2],
+    num_attention_heads=12, attention_head_dim=128.
     """
-    # Create a small synthetic reference image for R2V (reference-to-video)
-    ref_image = Image.new("RGB", (832, 480), color=(128, 128, 200))
+    in_channels = 16
+    text_dim = 4096
+
+    # Small latent dimensions for testing
+    # hidden_states: [batch, channels, frames, height, width]
+    hidden_states = torch.randn(
+        1, in_channels, LATENT_DEPTH, LATENT_HEIGHT, LATENT_WIDTH, dtype=dtype
+    )
+
+    # timestep: scalar or [batch]
+    timestep = torch.tensor([0], dtype=torch.long)
+
+    # encoder_hidden_states: text embeddings [batch, seq_len, text_dim]
+    encoder_hidden_states = torch.randn(1, 8, text_dim, dtype=dtype)
 
     return {
-        "prompt": prompt,
-        "reference_images": [ref_image],
-        "height": 480,
-        "width": 832,
-        "num_frames": 9,
-        "num_inference_steps": 2,
-        "guidance_scale": 5.0,
+        "hidden_states": hidden_states,
+        "timestep": timestep,
+        "encoder_hidden_states": encoder_hidden_states,
+        "return_dict": False,
     }
