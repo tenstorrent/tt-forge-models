@@ -56,6 +56,9 @@ def _patch_transformers_mistral3_gguf():
 
     if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUFLlamaConverter
+    # Also register under the remapped model_type name
+    if "ministral3" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["ministral3"] = GGUFLlamaConverter
 
     # 4. Patch load_gguf_checkpoint to set model_type to ministral3
     orig_load = gguf_utils.load_gguf_checkpoint
