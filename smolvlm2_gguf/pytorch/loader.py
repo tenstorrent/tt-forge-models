@@ -15,7 +15,7 @@ from typing import Optional
 
 import torch
 from PIL import Image
-from transformers import AutoConfig, AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoConfig, AutoProcessor, SmolVLMForConditionalGeneration
 
 from ...base import ForgeModel
 from ...config import (
@@ -96,7 +96,7 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(BASE_MODEL)
         model_kwargs["config"] = config
 
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = SmolVLMForConditionalGeneration.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
         model.eval()
