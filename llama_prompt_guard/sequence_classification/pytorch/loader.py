@@ -29,7 +29,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LLAMA_PROMPT_GUARD_2_86M: ModelConfig(
-            pretrained_model_name="meta-llama/Llama-Prompt-Guard-2-86M",
+            pretrained_model_name="Niansuh/Prompt-Guard-86M",
         ),
     }
 
