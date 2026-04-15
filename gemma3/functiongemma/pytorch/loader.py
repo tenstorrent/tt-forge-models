@@ -5,6 +5,8 @@
 FunctionGemma model loader implementation for causal language modeling.
 """
 
+import os
+
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
@@ -73,7 +75,10 @@ class ModelLoader(ForgeModel):
             The loaded tokenizer instance
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
+        token = os.environ.get("HF_TOKEN")
         tokenizer_kwargs = {}
+        if token:
+            tokenizer_kwargs["token"] = token
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -94,14 +99,19 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The FunctionGemma model instance for causal language modeling.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
+        token = os.environ.get("HF_TOKEN")
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
         model_kwargs = {"use_cache": False}
+        if token:
+            model_kwargs["token"] = token
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, token=token if token else None
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
