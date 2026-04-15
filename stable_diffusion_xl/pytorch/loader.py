@@ -18,7 +18,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_pipe, stable_diffusion_preprocessing_xl
+from .src.model_utils import load_pipe
 
 
 class ModelVariant(StrEnum):
@@ -96,60 +96,70 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_pipeline(self):
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        self.pipeline = load_pipe(pretrained_model_name)
+        return self.pipeline
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Diffusion XL pipeline for this instance's variant.
+        """Load and return the UNet from the Stable Diffusion XL pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            DiffusionPipeline: The Stable Diffusion XL pipeline instance.
+            torch.nn.Module: The UNet model used for denoising.
         """
-        # Get the pretrained model name from the instance's variant config
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        if self.pipeline is None:
+            self._load_pipeline()
 
-        # Load the pipeline
-        self.pipeline = load_pipe(pretrained_model_name)
+        unet = self.pipeline.unet
+        unet.eval()
 
-        # Apply dtype conversion if specified
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            unet = unet.to(dtype_override)
 
-        return self.pipeline
+        return unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the Stable Diffusion XL model with this instance's variant settings.
+        """Load and return sample inputs for the Stable Diffusion XL UNet.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            List : Input tensors that can be fed to the model:
-                - latent_model_input (torch.Tensor): Latent input for the UNet
-                - timestep (torch.Tensor): Timestep tensor
-                - prompt_embeds (torch.Tensor): Encoded prompt embeddings
-                - added_cond_kwargs (dict): Additional conditioning inputs (e.g., text/image embeddings,
-                  time IDs, or other auxiliary information required by the pipeline).
+            dict: Keyword arguments for the UNet forward method.
         """
-        # Ensure pipeline is initialized
         if self.pipeline is None:
-            self.load_model(dtype_override=dtype_override)
+            self._load_pipeline()
 
-        # Generate preprocessed inputs
-        (
-            latent_model_input,
-            timesteps,
-            prompt_embeds,
-            timestep_cond,
-            added_cond_kwargs,
-            add_time_ids,
-        ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
+        dtype = dtype_override or torch.float32
+        unet = self.pipeline.unet
+        pipe = self.pipeline
 
-        # Apply dtype conversion if specified
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
+        in_channels = unet.config.in_channels
+        sample_size = unet.config.sample_size
+        cross_attention_dim = unet.config.cross_attention_dim
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        sample = torch.randn((2, in_channels, sample_size, sample_size), dtype=dtype)
+        timestep = torch.tensor([1], dtype=torch.long)
+        encoder_hidden_states = torch.randn((2, 77, cross_attention_dim), dtype=dtype)
+
+        # SDXL UNet requires added_cond_kwargs with text_embeds and time_ids
+        if pipe.text_encoder_2 is not None:
+            text_encoder_projection_dim = pipe.text_encoder_2.config.projection_dim
+        else:
+            text_encoder_projection_dim = cross_attention_dim
+        text_embeds = torch.randn((2, text_encoder_projection_dim), dtype=dtype)
+        # time_ids has 6 elements: original_height, original_width, crop_top, crop_left, target_height, target_width
+        time_ids = torch.zeros((2, 6), dtype=dtype)
+
+        return {
+            "sample": sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+            "added_cond_kwargs": {
+                "text_embeds": text_embeds,
+                "time_ids": time_ids,
+            },
+        }
