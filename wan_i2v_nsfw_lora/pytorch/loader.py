@@ -17,7 +17,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import WanImageToVideoPipeline  # type: ignore[import]
-from PIL import Image  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -90,7 +89,7 @@ class ModelLoader(ForgeModel):
         """Load the Wan 2.2 I2V pipeline with NSFW LoRA weights applied.
 
         Returns:
-            WanImageToVideoPipeline with LoRA weights loaded.
+            torch.nn.Module: The Wan transformer model with LoRA weights fused.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -105,24 +104,38 @@ class ModelLoader(ForgeModel):
             weight_name=lora_file,
         )
 
-        return self.pipeline
+        if dtype_override is not None:
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for image-to-video generation.
+        return self.pipeline.transformer
+
+    def load_inputs(self, dtype_override=None, batch_size=1, **kwargs) -> Any:
+        """Prepare synthetic tensor inputs for the Wan transformer.
 
         Returns:
-            dict with prompt and image keys.
+            dict with hidden_states, timestep, and encoder_hidden_states.
         """
-        if prompt is None:
-            prompt = (
-                "A cat walking gracefully across a sunlit garden, "
-                "detailed fur texture, cinematic lighting"
-            )
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
 
-        # Create a small test image (RGB)
-        image = Image.new("RGB", (256, 256), color=(128, 128, 200))
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        config = self.pipeline.transformer.config
+
+        num_frames = 1
+        height = 32
+        width = 32
+        in_channels = config.in_channels
+
+        hidden_states = torch.randn(
+            batch_size, in_channels, num_frames, height, width, dtype=dtype
+        )
+        timestep = torch.tensor([1], dtype=torch.long).expand(batch_size)
+        encoder_hidden_states = torch.randn(
+            batch_size, 64, config.text_dim, dtype=dtype
+        )
 
         return {
-            "prompt": prompt,
-            "image": image,
+            "hidden_states": hidden_states,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
         }
