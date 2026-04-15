@@ -11,10 +11,32 @@ as input and returns a scalar perceptual distance score.
 Reference: https://huggingface.co/zeahub/lpips
 """
 
-import lpips as lpips_lib
+import importlib
+import sys
 from typing import Optional
 from PIL import Image
 from torchvision import transforms
+
+
+def _import_pip_lpips():
+    """Import the pip-installed lpips package, bypassing the local namespace package."""
+    saved = {
+        k: sys.modules.pop(k)
+        for k in list(sys.modules)
+        if k == "lpips" or k.startswith("lpips.")
+    }
+    try:
+        mod = importlib.import_module("lpips")
+        if hasattr(mod, "LPIPS"):
+            return mod
+    finally:
+        # Restore namespace entries so relative imports in the model dir keep working
+        for k, v in saved.items():
+            sys.modules.setdefault(k, v)
+    raise ImportError("pip-installed lpips package not found or missing LPIPS class")
+
+
+lpips_lib = _import_pip_lpips()
 
 from ...config import (
     ModelConfig,
