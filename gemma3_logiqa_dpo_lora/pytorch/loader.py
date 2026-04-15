@@ -37,7 +37,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_4B_IT_LOGIQA_DPO
 
-    BASE_MODEL_NAME = "google/gemma-3-4b-it"
+    BASE_MODEL_NAME = "unsloth/gemma-3-4b-it"
 
     sample_text = "What is your favorite city?"
 
