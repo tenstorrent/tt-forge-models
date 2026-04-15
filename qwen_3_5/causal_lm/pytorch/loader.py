@@ -4,9 +4,35 @@
 """
 Qwen 3.5 model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _ensure_gguf_in_package_mapping():
+    """Ensure gguf is in transformers' PACKAGE_DISTRIBUTION_MAPPING.
+
+    When gguf is installed after transformers is imported (e.g. by the test
+    infrastructure's RequirementsManager), the mapping built at import time
+    via ``importlib.metadata.packages_distributions()`` won't contain gguf.
+    This causes ``is_gguf_available()`` to fall back to ``gguf.__version__``
+    which doesn't exist, producing an ``InvalidVersion: 'N/A'`` error.
+    """
+    from transformers.utils.import_utils import (
+        PACKAGE_DISTRIBUTION_MAPPING,
+        is_gguf_available,
+    )
+
+    if "gguf" not in PACKAGE_DISTRIBUTION_MAPPING:
+        try:
+            importlib.metadata.version("gguf")
+            PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+            is_gguf_available.cache_clear()
+        except importlib.metadata.PackageNotFoundError:
+            pass
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -209,6 +235,7 @@ class ModelLoader(ForgeModel):
 
         # Pass gguf_file for GGUF variants
         if self._is_gguf_variant():
+            _ensure_gguf_in_package_mapping()
             tokenizer_kwargs["gguf_file"] = self._gguf_file
 
         # Custom architecture variants require trust_remote_code
@@ -252,6 +279,7 @@ class ModelLoader(ForgeModel):
 
         # Pass gguf_file for GGUF variants
         if self._is_gguf_variant():
+            _ensure_gguf_in_package_mapping()
             model_kwargs["gguf_file"] = self._gguf_file
 
         # Custom architecture variants require trust_remote_code
@@ -411,6 +439,7 @@ class ModelLoader(ForgeModel):
         """
         config_kwargs = {}
         if self._is_gguf_variant():
+            _ensure_gguf_in_package_mapping()
             config_kwargs["gguf_file"] = self._gguf_file
         if self._needs_remote_code():
             config_kwargs["trust_remote_code"] = True
