@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
         self.pipeline = load_prior_pipe(pretrained_model_name)
 
         if dtype_override is not None:
-            self.pipeline.prior = self.pipeline.prior.to(dtype_override)
+            self.pipeline = self.pipeline.to(dtype_override)
 
         return self.pipeline.prior
 
