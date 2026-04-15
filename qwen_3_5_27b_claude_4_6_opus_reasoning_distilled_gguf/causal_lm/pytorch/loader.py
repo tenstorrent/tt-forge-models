@@ -50,6 +50,19 @@ def _patch_transformers_qwen35_gguf():
     if "qwen35" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen35"] = GGUFQwen2Converter
 
+    # Also patch convert_gguf_tokenizer to handle qwen3_5_text at call time
+    import transformers.tokenization_utils_tokenizers as _fast_tok_mod
+
+    _prev_convert = getattr(_fast_tok_mod, "convert_gguf_tokenizer", None)
+    if _prev_convert is not None:
+
+        def _patched_convert_gguf_tokenizer_qwen35(architecture, tokenizer_dict):
+            if architecture == "qwen3_5_text":
+                GGUF_TO_FAST_CONVERTERS.setdefault("qwen3_5_text", GGUFQwen2Converter)
+            return _prev_convert(architecture, tokenizer_dict)
+
+        _fast_tok_mod.convert_gguf_tokenizer = _patched_convert_gguf_tokenizer_qwen35
+
     if "qwen35" in GGUF_SUPPORTED_ARCHITECTURES:
         return  # Rest already patched
 
