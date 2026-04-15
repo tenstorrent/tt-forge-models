@@ -87,7 +87,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
+        dataset = load_dataset("huggingface/cats-image", split="test")
         image = dataset[0]["image"]
 
         inputs = self.processor(images=image, return_tensors="pt")
