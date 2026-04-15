@@ -73,6 +73,24 @@ class ModelLoader(ForgeModel):
         then constructs the StableDiffusionPipeline with the base model's
         other components (CLIP text encoder, VAE, scheduler).
         """
+        import importlib
+
+        import gguf  # noqa: F401 — ensure gguf is importable before diffusers checks
+
+        # diffusers caches _gguf_available at first import; refresh it and
+        # reload modules that gate imports behind the availability check.
+        import diffusers.utils.import_utils as _diu
+
+        if not _diu._gguf_available:
+            _diu._gguf_available, _diu._gguf_version = _diu._is_package_available(
+                "gguf"
+            )
+            import diffusers.quantizers.gguf.utils
+            import diffusers.quantizers.gguf.gguf_quantizer
+
+            importlib.reload(diffusers.quantizers.gguf.utils)
+            importlib.reload(diffusers.quantizers.gguf.gguf_quantizer)
+
         from diffusers import (
             GGUFQuantizationConfig,
             StableDiffusionPipeline,
