@@ -181,6 +181,8 @@ def controlnet_sd15_inpaint_preprocessing(
         num_images_per_prompt=num_images_per_prompt,
         device=device,
         dtype=pipe.controlnet.dtype,
+        crops_coords=(0, 0, height, width),
+        resize_mode="default",
         do_classifier_free_guidance=do_classifier_free_guidance,
     )
 
