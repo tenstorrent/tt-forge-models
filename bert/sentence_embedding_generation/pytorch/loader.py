@@ -5,7 +5,7 @@
 BERT model loader implementation for sentence embedding generation.
 """
 import torch
-from transformers import BertModel, BertTokenizer, AutoConfig
+from transformers import AutoTokenizer, BertModel, AutoConfig
 from typing import Optional
 
 from third_party.tt_forge_models.config import (
@@ -26,6 +26,15 @@ class ModelVariant(StrEnum):
     EMRECAN_BERT_BASE_TURKISH_CASED_MEAN_NLI_STSB_TR = (
         "emrecan/bert-base-turkish-cased-mean-nli-stsb-tr"
     )
+    PARAPHRASE_MULTILINGUAL_MINILM_L12_V2 = (
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
+    BIOBERT_V1_1 = "dmis-lab/biobert-v1.1"
+    TINYBERT_L4_H312_V2 = "nreimers/TinyBERT_L-4_H-312_v2"
+    TINYBERT_GENERAL_4L_312D = "huawei-noah/TinyBERT_General_4L_312D"
+    PRAJJWAL1_BERT_SMALL = "prajjwal1/bert-small"
+    EPWALSH_BERT_XSMALL_DUMMY = "epwalsh/bert-xsmall-dummy"
+    MICROSOFT_XTREMEDISTIL_L6_H256_UNCASED = "microsoft/xtremedistil-l6-h256-uncased"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +45,34 @@ class ModelLoader(ForgeModel):
         ModelVariant.EMRECAN_BERT_BASE_TURKISH_CASED_MEAN_NLI_STSB_TR: LLMModelConfig(
             pretrained_model_name="emrecan/bert-base-turkish-cased-mean-nli-stsb-tr",
             max_length=16,
+        ),
+        ModelVariant.PARAPHRASE_MULTILINGUAL_MINILM_L12_V2: LLMModelConfig(
+            pretrained_model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            max_length=128,
+        ),
+        ModelVariant.BIOBERT_V1_1: LLMModelConfig(
+            pretrained_model_name="dmis-lab/biobert-v1.1",
+            max_length=128,
+        ),
+        ModelVariant.TINYBERT_L4_H312_V2: LLMModelConfig(
+            pretrained_model_name="nreimers/TinyBERT_L-4_H-312_v2",
+            max_length=128,
+        ),
+        ModelVariant.TINYBERT_GENERAL_4L_312D: LLMModelConfig(
+            pretrained_model_name="huawei-noah/TinyBERT_General_4L_312D",
+            max_length=128,
+        ),
+        ModelVariant.PRAJJWAL1_BERT_SMALL: LLMModelConfig(
+            pretrained_model_name="prajjwal1/bert-small",
+            max_length=128,
+        ),
+        ModelVariant.EPWALSH_BERT_XSMALL_DUMMY: LLMModelConfig(
+            pretrained_model_name="epwalsh/bert-xsmall-dummy",
+            max_length=128,
+        ),
+        ModelVariant.MICROSOFT_XTREMEDISTIL_L6_H256_UNCASED: LLMModelConfig(
+            pretrained_model_name="microsoft/xtremedistil-l6-h256-uncased",
+            max_length=128,
         ),
     }
 
@@ -71,14 +108,33 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
+        variant_groups = {
+            ModelVariant.EMRECAN_BERT_BASE_TURKISH_CASED_MEAN_NLI_STSB_TR: ModelGroup.RED,
+            ModelVariant.PARAPHRASE_MULTILINGUAL_MINILM_L12_V2: ModelGroup.VULCAN,
+            ModelVariant.BIOBERT_V1_1: ModelGroup.VULCAN,
+            ModelVariant.TINYBERT_L4_H312_V2: ModelGroup.VULCAN,
+            ModelVariant.TINYBERT_GENERAL_4L_312D: ModelGroup.VULCAN,
+            ModelVariant.PRAJJWAL1_BERT_SMALL: ModelGroup.VULCAN,
+            ModelVariant.EPWALSH_BERT_XSMALL_DUMMY: ModelGroup.VULCAN,
+            ModelVariant.MICROSOFT_XTREMEDISTIL_L6_H256_UNCASED: ModelGroup.VULCAN,
+        }
+
         return ModelInfo(
             model="BERT",
             variant=variant,
-            group=ModelGroup.RED,
+            group=variant_groups.get(variant, ModelGroup.RED),
             task=ModelTask.NLP_EMBED_GEN,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
+
+    # Variants that require trust_remote_code for tokenizer loading
+    _TRUST_REMOTE_CODE_VARIANTS = {ModelVariant.KOBERT}
+
+    # Variant-specific sample texts
+    _SAMPLE_TEXTS = {
+        ModelVariant.KOBERT: "한국어 모델을 테스트하는 예제 문장입니다",
+    }
 
     def _load_tokenizer(self):
         """Load tokenizer for the current variant.
@@ -88,7 +144,12 @@ class ModelLoader(ForgeModel):
         """
         if self.tokenizer is None:
             model_name = self._variant_config.pretrained_model_name
-            self.tokenizer = BertTokenizer.from_pretrained(model_name)
+            tokenizer_kwargs = {}
+            if self._variant in self._TRUST_REMOTE_CODE_VARIANTS:
+                tokenizer_kwargs["trust_remote_code"] = True
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_name, **tokenizer_kwargs
+            )
 
         return self.tokenizer
 
@@ -143,9 +204,9 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # Use provided sentence or default
+        # Use provided sentence or variant-specific/default
         if sentence is None:
-            sentence = "Bu örnek bir cümle"
+            sentence = self._SAMPLE_TEXTS.get(self._variant, "Bu örnek bir cümle")
 
         # Get max_length from parameter, config, or default
         if max_length is None:

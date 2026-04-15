@@ -24,6 +24,12 @@ class ModelVariant(StrEnum):
     """Available Qwen 2 model variants for causal language modeling."""
 
     QWQ_32B = "Qwq_32B"
+    QWEN2_7B = "Qwen2_7B"
+    QWEN2_7B_INSTRUCT = "Qwen2_7B_Instruct"
+    QWEN2_AB_ZSX = "Qwen2_ab_zsx"
+    SEA_QWEN2_1_5B = "SeaQwen2_1.5B"
+    TINY_QWEN2_2_5 = "tiny_Qwen2ForCausalLM_2.5"
+    JANE_STREET_DORMANT_MODEL_WARMUP = "Jane_Street_Dormant_Model_Warmup"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +39,30 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWQ_32B: LLMModelConfig(
             pretrained_model_name="Qwen/QwQ-32B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN2_7B: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2-7B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN2_7B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2-7B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN2_AB_ZSX: LLMModelConfig(
+            pretrained_model_name="NorseDrunkenSailor/Qwen2_ab_zsx",
+            max_length=128,
+        ),
+        ModelVariant.SEA_QWEN2_1_5B: LLMModelConfig(
+            pretrained_model_name="SeacomSrl/SeaQwen2-1.5B",
+            max_length=128,
+        ),
+        ModelVariant.TINY_QWEN2_2_5: LLMModelConfig(
+            pretrained_model_name="trl-internal-testing/tiny-Qwen2ForCausalLM-2.5",
+            max_length=128,
+        ),
+        ModelVariant.JANE_STREET_DORMANT_MODEL_WARMUP: LLMModelConfig(
+            pretrained_model_name="jane-street/dormant-model-warmup",
             max_length=128,
         ),
     }
@@ -68,10 +98,19 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        group = ModelGroup.RED
+        if variant in (
+            ModelVariant.SEA_QWEN2_1_5B,
+            ModelVariant.TINY_QWEN2_2_5,
+            ModelVariant.QWEN2_7B_INSTRUCT,
+            ModelVariant.QWEN2_AB_ZSX,
+        ):
+            group = ModelGroup.VULCAN
+
         return ModelInfo(
             model="Qwen 2",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -119,7 +158,16 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # FP8 quantized variants need device_map="cpu" for CPU-based loading
+        if pretrained_model_name == "RedHatAI/Qwen2-1.5B-Instruct-FP8":
+            model_kwargs["device_map"] = "cpu"
+
         model_kwargs |= kwargs
+
+        # Check if this is an AWQ variant and configure accordingly
+        if pretrained_model_name == "Qwen/Qwen2-1.5B-Instruct-AWQ":
+            model_kwargs["device_map"] = "cpu"
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
@@ -151,12 +199,15 @@ class ModelLoader(ForgeModel):
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
-        # Use chat template for QwQ-32B
-        messages = [{"role": "user", "content": self.sample_text}]
-        text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True, enable_thinking=True
-        )
-        prompts = [text]
+        if self._variant == ModelVariant.QWEN2_AB_ZSX:
+            prompts = [self.sample_text]
+        else:
+            messages = [{"role": "user", "content": self.sample_text}]
+            chat_kwargs = {"tokenize": False, "add_generation_prompt": True}
+            if self._variant == ModelVariant.QWQ_32B:
+                chat_kwargs["enable_thinking"] = True
+            text = self.tokenizer.apply_chat_template(messages, **chat_kwargs)
+            prompts = [text]
 
         inputs = self.tokenizer(
             prompts,

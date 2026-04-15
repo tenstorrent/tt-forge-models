@@ -44,7 +44,8 @@ class ModelVariant(StrEnum):
     # TorchHub variant
     VGG19_BN = "19_Bn"
 
-    # TIMM variant
+    # TIMM variants
+    TIMM_VGG19 = "Timm_Vgg19"
     TIMM_VGG19_BN = "Timm_Vgg19_Bn"
 
     # Torchvision variants
@@ -90,6 +91,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="vgg19_bn", source=ModelSource.TORCH_HUB
         ),
         # TIMM
+        ModelVariant.TIMM_VGG19: VGGConfig(
+            pretrained_model_name="vgg19.tv_in1k", source=ModelSource.TIMM
+        ),
         ModelVariant.TIMM_VGG19_BN: VGGConfig(
             pretrained_model_name="vgg19_bn", source=ModelSource.TIMM
         ),
@@ -177,10 +181,13 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         source = cls._VARIANTS[variant].source
+        variant_groups = {
+            ModelVariant.TIMM_VGG19: ModelGroup.VULCAN,
+        }
         return ModelInfo(
             model="VGG",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=variant_groups.get(variant, ModelGroup.GENERALITY),
             task=ModelTask.CV_IMAGE_CLS,
             source=source,
             framework=Framework.TORCH,

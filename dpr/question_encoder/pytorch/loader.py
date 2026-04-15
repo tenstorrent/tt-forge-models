@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
 
     DPR_SINGLE_NQ_BASE = "Question_Encoder_Single_Nq_Base"
     DPR_MULTISET_BASE = "Question_Encoder_Multiset_Base"
+    BERT_SMALL_MM_RETRIEVAL = "deepset/bert-small-mm_retrieval-question_encoder"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DPR_MULTISET_BASE: LLMModelConfig(
             pretrained_model_name="facebook/dpr-question_encoder-multiset-base",
+            max_length=128,
+        ),
+        ModelVariant.BERT_SMALL_MM_RETRIEVAL: LLMModelConfig(
+            pretrained_model_name="deepset/bert-small-mm_retrieval-question_encoder",
             max_length=128,
         ),
     }
@@ -72,10 +77,17 @@ class ModelLoader(ForgeModel):
         """
         if variant_name is None:
             variant_name = "base"
+
+        variant_groups = {
+            ModelVariant.DPR_SINGLE_NQ_BASE: ModelGroup.GENERALITY,
+            ModelVariant.DPR_MULTISET_BASE: ModelGroup.GENERALITY,
+            ModelVariant.BERT_SMALL_MM_RETRIEVAL: ModelGroup.VULCAN,
+        }
+
         return ModelInfo(
             model="DPR",
             variant=variant_name,
-            group=ModelGroup.GENERALITY,
+            group=variant_groups.get(variant_name, ModelGroup.GENERALITY),
             task=ModelTask.NLP_QA,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
