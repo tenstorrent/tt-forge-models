@@ -45,9 +45,6 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_4_E4B_IT
 
-    # Default to 2 layers for faster test turnaround
-    DEFAULT_NUM_LAYERS = 2
-
     sample_text = "What is your favorite city?"
 
     def __init__(
@@ -56,7 +53,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.seq_len = None
-        self.num_layers = num_layers if num_layers is not None else self.DEFAULT_NUM_LAYERS
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
