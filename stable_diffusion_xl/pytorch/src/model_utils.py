@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -13,18 +13,16 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
 )
 
 
-def load_pipe(variant):
+def load_pipe(model_id):
     """Load Stable Diffusion XL pipeline.
 
     Args:
-        variant: Model variant name
+        model_id: Full HuggingFace model ID (e.g. "stabilityai/stable-diffusion-xl-base-1.0")
 
     Returns:
         DiffusionPipeline: Loaded pipeline with components set to eval mode
     """
-    pipe = DiffusionPipeline.from_pretrained(
-        f"stabilityai/{variant}", torch_dtype=torch.float32
-    )
+    pipe = DiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float32)
     modules = [pipe.text_encoder, pipe.unet, pipe.text_encoder_2, pipe.vae]
 
     # Move the pipeline to CPU

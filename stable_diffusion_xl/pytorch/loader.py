@@ -25,6 +25,11 @@ class ModelVariant(StrEnum):
     """Available Stable Diffusion XL model variants."""
 
     STABLE_DIFFUSION_XL_BASE_1_0 = "Base_1.0"
+    TINY_RANDOM_STABLE_DIFFUSION_XL = "tiny-random-stable-diffusion-xl"
+    ECHARLAIX_TINY_RANDOM_STABLE_DIFFUSION_XL = (
+        "echarlaix-tiny-random-stable-diffusion-xl"
+    )
+    SEAART_FURRY_XL_1_0 = "SeaArt-Furry-XL-1.0"
 
 
 class ModelLoader(ForgeModel):
@@ -33,7 +38,16 @@ class ModelLoader(ForgeModel):
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.STABLE_DIFFUSION_XL_BASE_1_0: ModelConfig(
-            pretrained_model_name="stable-diffusion-xl-base-1.0",
+            pretrained_model_name="stabilityai/stable-diffusion-xl-base-1.0",
+        ),
+        ModelVariant.TINY_RANDOM_STABLE_DIFFUSION_XL: ModelConfig(
+            pretrained_model_name="optimum-intel-internal-testing/tiny-random-stable-diffusion-xl",
+        ),
+        ModelVariant.ECHARLAIX_TINY_RANDOM_STABLE_DIFFUSION_XL: ModelConfig(
+            pretrained_model_name="echarlaix/tiny-random-stable-diffusion-xl",
+        ),
+        ModelVariant.SEAART_FURRY_XL_1_0: ModelConfig(
+            pretrained_model_name="SeaArtLab/SeaArt-Furry-XL-1.0",
         ),
     }
 
@@ -66,56 +80,60 @@ class ModelLoader(ForgeModel):
         """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
+        group = ModelGroup.RED
+        if variant in (
+            ModelVariant.TINY_RANDOM_STABLE_DIFFUSION_XL,
+            ModelVariant.ECHARLAIX_TINY_RANDOM_STABLE_DIFFUSION_XL,
+            ModelVariant.SEAART_FURRY_XL_1_0,
+        ):
+            group = ModelGroup.VULCAN
         return ModelInfo(
             model="Stable Diffusion XL",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
+    def _load_pipeline(self):
+        """Load the diffusion pipeline and store it."""
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        self.pipeline = load_pipe(pretrained_model_name)
+        return self.pipeline
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Diffusion XL pipeline for this instance's variant.
+        """Load and return the UNet from the Stable Diffusion XL pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            DiffusionPipeline: The Stable Diffusion XL pipeline instance.
+            torch.nn.Module: The UNet model used for denoising.
         """
-        # Get the pretrained model name from the instance's variant config
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        if self.pipeline is None:
+            self._load_pipeline()
 
-        # Load the pipeline
-        self.pipeline = load_pipe(pretrained_model_name)
+        unet = self.pipeline.unet
+        unet.eval()
 
-        # Apply dtype conversion if specified
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            unet = unet.to(dtype_override)
 
-        return self.pipeline
+        return unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the Stable Diffusion XL model with this instance's variant settings.
+        """Load and return sample inputs for the Stable Diffusion XL UNet model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            List : Input tensors that can be fed to the model:
-                - latent_model_input (torch.Tensor): Latent input for the UNet
-                - timestep (torch.Tensor): Timestep tensor
-                - prompt_embeds (torch.Tensor): Encoded prompt embeddings
-                - added_cond_kwargs (dict): Additional conditioning inputs (e.g., text/image embeddings,
-                  time IDs, or other auxiliary information required by the pipeline).
+            dict: Keyword arguments for the UNet forward method.
         """
-        # Ensure pipeline is initialized
         if self.pipeline is None:
-            self.load_model(dtype_override=dtype_override)
+            self._load_pipeline()
 
-        # Generate preprocessed inputs
         (
             latent_model_input,
             timesteps,
@@ -125,10 +143,10 @@ class ModelLoader(ForgeModel):
             add_time_ids,
         ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
 
-        # Apply dtype conversion if specified
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
-
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        dtype = dtype_override or torch.float32
+        return {
+            "sample": latent_model_input.to(dtype),
+            "timestep": timesteps[0],
+            "encoder_hidden_states": prompt_embeds.to(dtype),
+            "added_cond_kwargs": added_cond_kwargs,
+        }
