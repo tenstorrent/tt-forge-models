@@ -5,9 +5,9 @@
 TeleChat2 model loader implementation for causal language modeling.
 """
 import os
+from contextlib import contextmanager
 
 import torch
-from torch.overrides import TorchFunctionMode
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from transformers.dynamic_module_utils import get_imports
 from typing import Optional
@@ -32,18 +32,25 @@ def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
     return imports
 
 
-class NoCudaMode(TorchFunctionMode):
-    """Intercept .cuda() calls at the TorchFunctionMode dispatch level.
+@contextmanager
+def patch_cuda_to_cpu():
+    """Temporarily disable TorchFunctionOverride and patch .cuda() to be a no-op.
 
     The remote TeleChat2 modeling code calls .cuda() in RotaryEmbedding.__init__,
-    which fails when CUDA is not available. This mode intercepts .cuda() before
-    the existing TorchFunctionOverride can dispatch it to the C-level implementation.
+    which fails when CUDA is not available. The active TorchFunctionOverride
+    dispatches .cuda() through the C-level implementation, bypassing Python-level
+    patches. We must exit the mode, patch, load, then restore.
     """
+    from tt_torch.torch_overrides import torch_function_override
 
-    def __torch_function__(self, func, types, args, kwargs=None):
-        if hasattr(func, "__name__") and func.__name__ == "cuda":
-            return args[0]
-        return func(*args, **(kwargs or {}))
+    torch_function_override.__exit__(None, None, None)
+    original_cuda = torch.Tensor.cuda
+    torch.Tensor.cuda = lambda self, *args, **kwargs: self
+    try:
+        yield
+    finally:
+        torch.Tensor.cuda = original_cuda
+        torch_function_override.__enter__()
 
 
 class ModelVariant(StrEnum):
@@ -115,7 +122,7 @@ class ModelLoader(ForgeModel):
                 "transformers.dynamic_module_utils.get_imports",
                 fixed_get_imports,
             ),
-            NoCudaMode(),
+            patch_cuda_to_cpu(),
         ):
             if self.num_layers is not None:
                 config = AutoConfig.from_pretrained(
