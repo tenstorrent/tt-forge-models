@@ -8,6 +8,32 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.integrations.ggml as _ggml_mod
+
+_orig_GGUFLlamaConverter_tokenizer = _ggml_mod.GGUFLlamaConverter.tokenizer
+
+
+def _patched_GGUFLlamaConverter_tokenizer(self, proto):
+    """Fix transformers 5.x bug where GGUFLlamaConverter.tokenizer() uses
+    bos_token_id instead of eos_token_id for the eos_token lookup (crashes
+    when bos_token_id is absent from the GGUF), and swaps bos/eos in
+    additional_kwargs."""
+    if not hasattr(proto, "bos_token_id"):
+        proto.bos_token_id = getattr(proto, "eos_token_id", None)
+    result = _orig_GGUFLlamaConverter_tokenizer(self, proto)
+    # The original method swaps bos/eos in additional_kwargs — swap them back
+    bos = self.additional_kwargs.get("bos_token")
+    eos = self.additional_kwargs.get("eos_token")
+    self.additional_kwargs["bos_token"] = eos
+    self.additional_kwargs["eos_token"] = bos
+    for key in list(self.additional_kwargs):
+        if self.additional_kwargs[key] is None:
+            del self.additional_kwargs[key]
+    return result
+
+
+_ggml_mod.GGUFLlamaConverter.tokenizer = _patched_GGUFLlamaConverter_tokenizer
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
