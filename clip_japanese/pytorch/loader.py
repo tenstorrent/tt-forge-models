@@ -138,8 +138,10 @@ class ModelLoader(ForgeModel):
         # Process image
         image_inputs = self.processor(image, return_tensors="pt")
 
-        # Tokenize text
-        text_inputs = self.tokenizer(self.text_prompts, return_tensors="pt")
+        # Tokenize text (CLYPTokenizer handles tensor conversion internally,
+        # passing return_tensors="pt" causes the inner tokenizer to return
+        # tensors before CLS token prepending which expects lists)
+        text_inputs = self.tokenizer(self.text_prompts)
 
         # Replicate pixel_values to match the number of text prompts
         num_texts = len(self.text_prompts)
