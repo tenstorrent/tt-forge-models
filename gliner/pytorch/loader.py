@@ -20,19 +20,31 @@ from ...base import ForgeModel
 
 
 class ModelVariant(StrEnum):
+    GLINER_BASE = "Base"
     GLINER_LARGEV2 = "Large_v2"
+    GLINER_LARGE_V21 = "Large_v2.1"
     GLINER_MULTI_V21 = "Multi_v2.1"
+    GLINER_MULTI_PII_V1 = "Multi_PII_v1"
 
 
 class ModelLoader(ForgeModel):
     """GLiNER model loader implementation."""
 
     _VARIANTS = {
+        ModelVariant.GLINER_BASE: ModelConfig(
+            pretrained_model_name="urchade/gliner_base"
+        ),
         ModelVariant.GLINER_LARGEV2: ModelConfig(
             pretrained_model_name="urchade/gliner_largev2"
         ),
+        ModelVariant.GLINER_LARGE_V21: ModelConfig(
+            pretrained_model_name="urchade/gliner_large-v2.1"
+        ),
         ModelVariant.GLINER_MULTI_V21: ModelConfig(
             pretrained_model_name="urchade/gliner_multi-v2.1"
+        ),
+        ModelVariant.GLINER_MULTI_PII_V1: ModelConfig(
+            pretrained_model_name="urchade/gliner_multi_pii-v1"
         ),
     }
 
@@ -47,6 +59,8 @@ class ModelLoader(ForgeModel):
 
         if variant in [ModelVariant.GLINER_MULTI_V21]:
             group = ModelGroup.RED
+        elif variant in [ModelVariant.GLINER_MULTI_PII_V1]:
+            group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
 
@@ -63,7 +77,26 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, **kwargs):
         """Load and return the GLiNER model callable (batch_predict_entities)."""
-        from gliner import GLiNER
+        import sys
+
+        # The local llm2vec/ model directory is picked up as a Python namespace
+        # package, causing gliner's is_module_available("llm2vec") check to
+        # incorrectly succeed. Temporarily remove it from sys.path and clear
+        # any cached namespace package entries so gliner sees llm2vec as absent.
+        project_root = str(__import__("pathlib").Path(__file__).resolve().parents[2])
+        original_path = sys.path.copy()
+        sys.path = [p for p in sys.path if p != project_root]
+        cached_llm2vec = {
+            k: sys.modules.pop(k)
+            for k in list(sys.modules)
+            if k == "llm2vec" or k.startswith("llm2vec.")
+        }
+        try:
+            from gliner import GLiNER
+        finally:
+            sys.path = original_path
+            # Restore any llm2vec entries that were cached before
+            sys.modules.update(cached_llm2vec)
 
         model_name = self._variant_config.pretrained_model_name
         model = GLiNER.from_pretrained(model_name, **kwargs)

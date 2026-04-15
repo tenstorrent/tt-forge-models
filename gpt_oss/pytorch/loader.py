@@ -25,7 +25,9 @@ class ModelVariant(StrEnum):
     """Available gpt-oss model variants."""
 
     GPT_OSS_20B = "20B"
+    GPT_OSS_20B_UNCENSORED = "20B_uncensored"
     GPT_OSS_120B = "120B"
+    GPT_OSS_120B_AWQ_W4A16 = "120B_Awq_W4a16"
 
 
 class ModelLoader(ForgeModel):
@@ -37,8 +39,16 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="openai/gpt-oss-20b",
             max_length=256,
         ),
+        ModelVariant.GPT_OSS_20B_UNCENSORED: LLMModelConfig(
+            pretrained_model_name="aoxo/gpt-oss-20b-uncensored",
+            max_length=256,
+        ),
         ModelVariant.GPT_OSS_120B: LLMModelConfig(
             pretrained_model_name="openai/gpt-oss-120b",
+            max_length=256,
+        ),
+        ModelVariant.GPT_OSS_120B_AWQ_W4A16: LLMModelConfig(
+            pretrained_model_name="twhitworth/gpt-oss-120b-awq-w4a16",
             max_length=256,
         ),
     }
@@ -77,10 +87,15 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant in (ModelVariant.GPT_OSS_120B_AWQ_W4A16,):
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.RED
+
         return ModelInfo(
             model="GPT-OSS",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -122,18 +137,28 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        is_awq = self._variant == ModelVariant.GPT_OSS_120B_AWQ_W4A16
+
         # Load config with modifications
-        quantization_config = Mxfp4Config(dequantize=True)
         self.load_config()
 
         # Prepare model kwargs
         model_kwargs = {
             "config": self.config,
-            "quantization_config": quantization_config,
             "low_cpu_mem_usage": True,
             "trust_remote_code": True,
             "attn_implementation": "eager",
         }
+
+        if is_awq:
+            # AWQ variants: load on CPU with quantization_config removed
+            # so that weights are loaded as plain tensors.
+            model_kwargs["device_map"] = "cpu"
+            if hasattr(self.config, "quantization_config"):
+                delattr(self.config, "quantization_config")
+        else:
+            model_kwargs["quantization_config"] = Mxfp4Config(dequantize=True)
 
         # Set dtype - default to bfloat16 if not specified
         if dtype_override is not None:
@@ -144,7 +169,7 @@ class ModelLoader(ForgeModel):
 
         # Load model
         model = AutoModelForCausalLM.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
         model.eval()
 
@@ -223,7 +248,10 @@ class ModelLoader(ForgeModel):
         shard_specs[model.model.norm.weight] = ("batch",)
 
         # lm_head sharding causes 20B hang: https://github.com/tenstorrent/tt-xla/issues/3484
-        if self._variant and self._variant == ModelVariant.GPT_OSS_120B:
+        if self._variant and self._variant in (
+            ModelVariant.GPT_OSS_120B,
+            ModelVariant.GPT_OSS_120B_AWQ_W4A16,
+        ):
             shard_specs[model.lm_head.weight] = ("model", "batch")
         else:
             shard_specs[model.lm_head.weight] = (None, None)

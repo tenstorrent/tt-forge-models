@@ -41,7 +41,18 @@ class ModelVariant(StrEnum):
     QWEN_2_5_32B_INSTRUCT = "32B_Instruct"
     QWEN_2_5_72B_INSTRUCT = "72B_Instruct"
     QWEN_2_5_72B = "72B"
+    QWEN_2_5_MATH_1_5B = "Math_1.5B"
+    QWEN_2_5_MATH_1_5B_INSTRUCT = "Math_1.5B_Instruct"
     QWEN_2_5_MATH_7B = "Math_7B"
+    QWEN_2_5_MATH_7B_INSTRUCT = "Math_7B_Instruct"
+    QWEN_2_5_14B_INSTRUCT_AWQ = "14B_Instruct_Awq"
+    QWEN_2_5_32B_INSTRUCT_AWQ = "32B_Instruct_Awq"
+    QWEN_2_5_14B_INSTRUCT_1M_AWQ = "14B_Instruct_1M_Awq"
+    QWEN_2_5_1_5B_QUANTIZED_W8A8 = "1.5B_Quantized_W8A8"
+    UNSLOTH_QWEN_2_5_3B_INSTRUCT = "Unsloth_3B_Instruct"
+    QIAW99_QWEN_2_5_7B_INSTRUCT_OPENBOOKQA_DPO_C_NEW = (
+        "qiaw99_7B_Instruct_OpenbookQA_DPO_C_new"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -109,8 +120,47 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen2.5-72B",
             max_length=128,
         ),
+        ModelVariant.QWEN_2_5_MATH_1_5B: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-Math-1.5B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_MATH_1_5B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-Math-1.5B-Instruct",
+            max_length=128,
+        ),
         ModelVariant.QWEN_2_5_MATH_7B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-Math-7B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_MATH_7B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-Math-7B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_14B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-14B-Instruct-AWQ",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_32B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-32B-Instruct-AWQ",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_14B_INSTRUCT_1M_AWQ: LLMModelConfig(
+            pretrained_model_name="graelo/Qwen2.5-14B-Instruct-1M-AWQ",
+            max_length=128,
+        ),
+        # RedHatAI INT8 quantized variant
+        ModelVariant.QWEN_2_5_1_5B_QUANTIZED_W8A8: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Qwen2.5-1.5B-quantized.w8a8",
+            max_length=128,
+        ),
+        # Unsloth optimized variant
+        ModelVariant.UNSLOTH_QWEN_2_5_3B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen2.5-3B-Instruct",
+            max_length=128,
+        ),
+        # qiaw99 DPO fine-tuned variant
+        ModelVariant.QIAW99_QWEN_2_5_7B_INSTRUCT_OPENBOOKQA_DPO_C_NEW: LLMModelConfig(
+            pretrained_model_name="qiaw99/Qwen2.5-7B-Instruct-OpenbookQA-DPO-C-new",
             max_length=128,
         ),
     }
@@ -160,6 +210,17 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_2_5_72B,
         ]:
             group = ModelGroup.RED
+        if variant in [
+            ModelVariant.QWEN_2_5_MATH_1_5B,
+            ModelVariant.QWEN_2_5_MATH_1_5B_INSTRUCT,
+            ModelVariant.QWEN_2_5_14B_INSTRUCT_AWQ,
+            ModelVariant.QWEN_2_5_32B_INSTRUCT_AWQ,
+            ModelVariant.QWEN_2_5_14B_INSTRUCT_1M_AWQ,
+            ModelVariant.QWEN_2_5_1_5B_QUANTIZED_W8A8,
+            ModelVariant.UNSLOTH_QWEN_2_5_3B_INSTRUCT,
+            ModelVariant.QIAW99_QWEN_2_5_7B_INSTRUCT_OPENBOOKQA_DPO_C_NEW,
+        ]:
+            group = ModelGroup.VULCAN
 
         return ModelInfo(
             model="Qwen 2.5",
@@ -212,6 +273,22 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # Check if this is an AWQ or BNB variant and configure accordingly
+        if pretrained_model_name in (
+            "Qwen/Qwen2.5-14B-Instruct-AWQ",
+            "Qwen/Qwen2.5-32B-Instruct-AWQ",
+            "Qwen/Qwen2.5-72B-Instruct-AWQ",
+            "graelo/Qwen2.5-14B-Instruct-1M-AWQ",
+        ):
+            model_kwargs["device_map"] = "cpu"
+        if "mlx-community" in pretrained_model_name:
+            model_kwargs["ignore_mismatched_sizes"] = True
+
+        # BnB variants need device_map="cpu" for CPU-based loading
+        if self._variant == ModelVariant.UNSLOTH_QWEN_2_5_7B_BNB_4BIT:
+            model_kwargs["device_map"] = "cpu"
+
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
