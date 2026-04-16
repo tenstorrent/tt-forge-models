@@ -5,7 +5,12 @@
 Ministral-3-3B-Instruct-2512 model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoModelForImageTextToText,
+    AutoTokenizer,
+    AutoConfig,
+    Ministral3ForCausalLM,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -83,14 +88,20 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
+        # The unsloth checkpoint is stored as Mistral3ForConditionalGeneration
+        # (multimodal), so we load it and extract the text-only causal LM.
+        full_model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        )
+        lm_config = full_model.model.language_model.config
+        if self.num_layers is not None:
+            lm_config.num_hidden_layers = self.num_layers
+        causal_model = Ministral3ForCausalLM(lm_config)
+        causal_model.model.load_state_dict(full_model.model.language_model.state_dict())
+        causal_model.lm_head.load_state_dict(full_model.lm_head.state_dict())
+        if dtype_override is not None:
+            causal_model = causal_model.to(dtype_override)
+        model = causal_model.eval()
 
         self.config = model.config
         self.model = model
