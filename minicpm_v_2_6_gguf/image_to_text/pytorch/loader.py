@@ -4,7 +4,10 @@
 """
 MiniCPM-V-2_6 GGUF model loader implementation for image to text.
 """
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoConfig, PreTrainedTokenizerFast
+from transformers.modeling_gguf_pytorch_utils import load_gguf_checkpoint
+from transformers.integrations.ggml import convert_gguf_tokenizer
+from huggingface_hub import hf_hub_download
 from typing import Optional
 from PIL import Image
 
@@ -43,10 +46,6 @@ class ModelLoader(ForgeModel):
         ModelVariant.MINICPM_V_2_6_GGUF: "ggml-model-Q4_K_M.gguf",
     }
 
-    _BASE_MODELS = {
-        ModelVariant.MINICPM_V_2_6_GGUF: "openbmb/MiniCPM-V-2_6",
-    }
-
     sample_image = "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
@@ -72,21 +71,27 @@ class ModelLoader(ForgeModel):
         """Get the GGUF filename for the current variant."""
         return self._GGUF_FILES[self._variant]
 
-    @property
-    def _base_model(self):
-        """Get the base model name for tokenizer loading."""
-        return self._BASE_MODELS[self._variant]
+    def _load_tokenizer_from_gguf(self):
+        """Load tokenizer directly from the GGUF file to avoid accessing the gated base model."""
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        gguf_path = hf_hub_download(
+            repo_id=pretrained_model_name, filename=self._gguf_file
+        )
+        checkpoint = load_gguf_checkpoint(gguf_path, return_tensors=False)
+        arch = checkpoint["config"].get("model_type", "llama")
+        tokenizer_obj, tokenizer_config = convert_gguf_tokenizer(
+            arch, checkpoint["tokenizer"]
+        )
+        return PreTrainedTokenizerFast(
+            tokenizer_object=tokenizer_obj, **tokenizer_config
+        )
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name,
-            gguf_file=self._gguf_file,
-            trust_remote_code=True,
-        )
+        self.tokenizer = self._load_tokenizer_from_gguf()
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -99,11 +104,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self._variant_config.pretrained_model_name,
-                gguf_file=self._gguf_file,
-                trust_remote_code=True,
-            )
+            self.tokenizer = self._load_tokenizer_from_gguf()
 
         image_file = get_file(self.sample_image)
         image = Image.open(image_file).convert("RGB")
@@ -124,6 +125,5 @@ class ModelLoader(ForgeModel):
         self.config = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name,
             gguf_file=self._gguf_file,
-            trust_remote_code=True,
         ).config
         return self.config
