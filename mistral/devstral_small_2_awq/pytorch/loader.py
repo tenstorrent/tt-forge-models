@@ -7,7 +7,7 @@ Devstral Small 2 AWQ 4-bit model loader implementation for causal language model
 
 from typing import Optional
 
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer, Mistral3ForConditionalGeneration
 
 from ....base import ForgeModel
 from ....config import (
@@ -55,7 +55,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
+        model = Mistral3ForConditionalGeneration.from_pretrained(
             self.model_name, config=config, **model_kwargs
         )
         model.eval()
