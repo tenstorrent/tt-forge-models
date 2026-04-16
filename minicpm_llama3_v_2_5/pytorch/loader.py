@@ -5,6 +5,8 @@
 MiniCPM-Llama3-V-2.5 model loader implementation for multimodal visual question answering.
 """
 
+from pathlib import Path
+
 import torch
 from PIL import Image
 from transformers import AutoModel, AutoTokenizer
@@ -67,9 +69,31 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
+    @staticmethod
+    def _patch_resampler(model_name: str) -> None:
+        """Ensure resampler.py has List imported from typing (missing in all published revisions)."""
+        try:
+            from transformers.dynamic_module_utils import get_cached_module_file
+
+            resampler_path = Path(get_cached_module_file(model_name, "resampler.py"))
+            content = resampler_path.read_text()
+            if (
+                "from typing import Optional, Tuple" in content
+                and "from typing import List" not in content
+            ):
+                resampler_path.write_text(
+                    content.replace(
+                        "from typing import Optional, Tuple",
+                        "from typing import List, Optional, Tuple",
+                    )
+                )
+        except Exception:
+            pass
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MiniCPM-Llama3-V-2.5 model instance."""
         model_name = self._variant_config.pretrained_model_name
+        self._patch_resampler(model_name)
         model = AutoModel.from_pretrained(
             str(model_name),
             trust_remote_code=True,
