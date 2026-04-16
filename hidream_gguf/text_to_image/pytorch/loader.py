@@ -110,7 +110,7 @@ class ModelLoader(ForgeModel):
         **kwargs,
     ):
         if self.pipeline is None:
-            return self._load_pipeline(
+            self._load_pipeline(
                 dtype_override=dtype_override,
                 device_map=device_map,
                 low_cpu_mem_usage=low_cpu_mem_usage,
@@ -118,9 +118,9 @@ class ModelLoader(ForgeModel):
             )
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, prompt: Optional[str] = None) -> Dict[str, Any]:
         prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
