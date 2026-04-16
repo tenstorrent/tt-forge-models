@@ -2,10 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Ministral 3B Base model loader implementation for multimodal vision-language modeling.
+Ministral 3B Base model loader implementation for causal language modeling.
 """
 
 from typing import Optional
+
+import torch
 
 from ....config import (
     ModelConfig,
@@ -26,7 +28,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Ministral 3B Base model loader implementation for multimodal vision-language tasks."""
+    """Ministral 3B Base model loader implementation for causal language modeling."""
 
     _VARIANTS = {
         ModelVariant.MINISTRAL_3_3B_BASE_2512: ModelConfig(
@@ -36,12 +38,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.MINISTRAL_3_3B_BASE_2512
 
-    sample_text = "What do you see in this image?"
-    sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
+    sample_text = "How often does the letter r occur in Mistral?"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
+        self.tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -51,24 +52,21 @@ class ModelLoader(ForgeModel):
             model="ministral_3b_base",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.MM_VISUAL_QA,
+            task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self, dtype_override=None):
-        """Load processor for the current variant."""
-        from transformers import AutoProcessor
+    def _load_tokenizer(self, dtype_override=None):
+        """Load tokenizer for the current variant."""
+        from transformers import AutoTokenizer
 
-        kwargs = {}
-        if dtype_override is not None:
-            kwargs["torch_dtype"] = dtype_override
-
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **kwargs
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            padding_side="right",
         )
 
-        return self.processor
+        return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Ministral 3B Base model instance.
@@ -79,17 +77,17 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Ministral 3B Base model instance.
         """
-        from transformers import Mistral3ForConditionalGeneration
+        from transformers import AutoModelForCausalLM
 
         pretrained_model_name = self._variant_config.pretrained_model_name
-        if self.processor is None:
-            self._load_processor(dtype_override)
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override)
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model = Mistral3ForConditionalGeneration.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
 
@@ -98,50 +96,31 @@ class ModelLoader(ForgeModel):
         self.config = model.config
         return model
 
-    def load_inputs(
-        self,
-        dtype_override=None,
-        prompt: Optional[str] = None,
-        image_url: Optional[str] = None,
-    ):
+    def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Ministral 3B Base model.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
+            batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        from PIL import Image
-        from ....tools.utils import cast_input_to_type, get_file
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override)
 
-        if self.processor is None:
-            self._load_processor(dtype_override)
+        inputs = self.tokenizer(self.sample_text, return_tensors="pt")
 
-        image_file = get_file(image_url or self.sample_image_url)
-        image = Image.open(image_file).convert("RGB")
+        if self.model is not None:
+            if (
+                hasattr(self.model.config, "sliding_window")
+                and self.model.config.sliding_window is not None
+            ):
+                self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
-        text_prompt = self.processor.apply_chat_template(
-            [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image"},
-                        {"type": "text", "text": prompt or self.sample_text},
-                    ],
-                }
-            ],
-            add_generation_prompt=True,
-        )
-
-        inputs = self.processor(
-            text=text_prompt,
-            images=[image],
-            return_tensors="pt",
-        )
-
-        if dtype_override is not None:
-            if "pixel_values" in inputs:
-                inputs["pixel_values"] = cast_input_to_type(
-                    inputs["pixel_values"], dtype_override
-                )
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
 
@@ -154,7 +133,7 @@ class ModelLoader(ForgeModel):
         """Load the sharding specification for tensor parallel execution."""
         shard_specs = {}
 
-        for layer in model.language_model.layers:
+        for layer in model.model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
@@ -163,15 +142,5 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-
-        for layer in model.vision_tower.transformer.layers:
-            shard_specs[layer.feed_forward.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.feed_forward.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.feed_forward.down_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.attention.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.attention.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.attention.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.attention.o_proj.weight] = ("batch", "model")
 
         return shard_specs
