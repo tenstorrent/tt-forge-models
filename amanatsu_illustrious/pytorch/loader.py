@@ -11,6 +11,7 @@ Available variants:
 - AMANATSU_ILLUSTRIOUS_V11: John6666/amanatsu-illustrious-v11-sdxl text-to-image generation
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -29,6 +30,15 @@ from .src.model_utils import load_pipe, stable_diffusion_preprocessing_xl
 
 
 REPO_ID = "John6666/amanatsu-illustrious-v11-sdxl"
+
+# SDXL UNet input shapes (with classifier-free guidance, batch doubles)
+_SDXL_LATENT_CHANNELS = 4
+_SDXL_LATENT_HEIGHT = 64  # 512 / vae_scale_factor(8)
+_SDXL_LATENT_WIDTH = 64
+_SDXL_SEQ_LEN = 77
+_SDXL_ENCODER_HIDDEN_SIZE = 2048  # SDXL dual text encoder concat output
+_SDXL_POOLED_SIZE = 1280  # SDXL pooled text embed size
+_SDXL_TIME_IDS = 6  # SDXL added_cond_kwargs time_ids length
 
 
 class ModelVariant(StrEnum):
@@ -71,10 +81,25 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the UNet from the Amanatsu Illustrious SDXL pipeline.
 
+        When TT_RANDOM_WEIGHTS=1, loads only the UNet config and uses random
+        weights to avoid downloading the full 6.5GB model on compile-only systems.
+
         Returns:
             torch.nn.Module: The UNet model used for denoising.
         """
+        from diffusers import UNet2DConditionModel
+
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        if os.environ.get("TT_RANDOM_WEIGHTS", "") == "1":
+            # Download only the tiny UNet config JSON, then random-init
+            unet_config = UNet2DConditionModel.load_config(
+                self._variant_config.pretrained_model_name, subfolder="unet"
+            )
+            unet = UNet2DConditionModel.from_config(unet_config)
+            unet = unet.to(dtype).eval()
+            return unet
+
         self.pipeline = load_pipe(
             self._variant_config.pretrained_model_name, dtype=dtype
         )
@@ -84,7 +109,8 @@ class ModelLoader(ForgeModel):
         """Load and return sample inputs for the Amanatsu Illustrious UNet model.
 
         Uses 512x512 resolution to keep the latent size (64x64) tractable for
-        CPU reference runs.
+        CPU reference runs. When TT_RANDOM_WEIGHTS=1, uses random tensors with
+        the correct SDXL input shapes.
 
         Returns:
             dict: Keyword arguments for the UNet forward method:
@@ -94,6 +120,31 @@ class ModelLoader(ForgeModel):
                 - added_cond_kwargs (dict): Additional conditioning inputs
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        if os.environ.get("TT_RANDOM_WEIGHTS", "") == "1":
+            # CFG doubles the batch dimension
+            cfg_batch = batch_size * 2
+            torch.manual_seed(42)
+            return {
+                "sample": torch.randn(
+                    cfg_batch,
+                    _SDXL_LATENT_CHANNELS,
+                    _SDXL_LATENT_HEIGHT,
+                    _SDXL_LATENT_WIDTH,
+                    dtype=dtype,
+                ),
+                "timestep": torch.tensor(999, dtype=dtype),
+                "encoder_hidden_states": torch.randn(
+                    cfg_batch, _SDXL_SEQ_LEN, _SDXL_ENCODER_HIDDEN_SIZE, dtype=dtype
+                ),
+                "added_cond_kwargs": {
+                    "text_embeds": torch.randn(
+                        cfg_batch, _SDXL_POOLED_SIZE, dtype=dtype
+                    ),
+                    "time_ids": torch.zeros(cfg_batch, _SDXL_TIME_IDS, dtype=dtype),
+                },
+            }
+
         if self.pipeline is None:
             self.load_model(dtype_override=dtype)
 
