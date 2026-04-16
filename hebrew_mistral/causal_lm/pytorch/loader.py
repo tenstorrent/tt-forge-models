@@ -4,7 +4,12 @@
 """
 Hebrew-Mistral model loader implementation for causal language modeling.
 """
+import os
+import shutil
+import tempfile
+
 import torch
+from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
@@ -76,6 +81,10 @@ class ModelLoader(ForgeModel):
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
 
+        The upstream tokenizer.json for Hebrew-Mistral contains invalid BPE merges
+        (3+ token entries instead of 2). We work around this by loading only the
+        sentencepiece tokenizer.model file, excluding the corrupted tokenizer.json.
+
         Args:
             dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
 
@@ -86,11 +95,23 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            use_fast=False,
-            **tokenizer_kwargs,
-        )
+        model_id = self._variant_config.pretrained_model_name
+        tok_files = [
+            "tokenizer_config.json",
+            "tokenizer.model",
+            "special_tokens_map.json",
+            "added_tokens.json",
+        ]
+        tmpdir = tempfile.mkdtemp()
+        try:
+            for fname in tok_files:
+                src = hf_hub_download(model_id, fname)
+                shutil.copy2(src, os.path.join(tmpdir, fname))
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                tmpdir, use_fast=False, **tokenizer_kwargs
+            )
+        finally:
+            shutil.rmtree(tmpdir)
 
         return self.tokenizer
 
