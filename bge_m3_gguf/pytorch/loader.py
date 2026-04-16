@@ -20,6 +20,75 @@ from ...config import (
 )
 
 
+def _patch_transformers_bert_gguf():
+    """Monkey-patch transformers to add BERT GGUF architecture support.
+
+    The gguf library already knows about BERT tensor names, but
+    transformers lacks the config mapping and architecture registration
+    needed to load BERT GGUF checkpoints.  BGE-M3 is an XLM-RoBERTa
+    model stored in GGUF with architecture="bert".
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "bert" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register bert as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("bert")
+
+    # 2. Add config mapping for bert -> XLMRobertaConfig fields
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["bert"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "attention.head_count": "num_attention_heads",
+        "attention.layer_norm_epsilon": "layer_norm_eps",
+        "attention.causal": None,
+        "pooling_type": None,
+    }
+
+    # 3. Register SentencePiece tokenizer converter for bert (uses t5/SPM format)
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFT5Converter,
+    )
+
+    for name in ("bert", "xlm-roberta"):
+        if name not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS[name] = GGUFT5Converter
+
+    # 4. Patch load_gguf_checkpoint to set correct model_type and architectures
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "bert":
+            config["model_type"] = "xlm-roberta"
+            config["architectures"] = ["XLMRobertaModel"]
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Also patch modules that imported load_gguf_checkpoint directly
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_bert_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available BGE-M3 GGUF model variants."""
 
