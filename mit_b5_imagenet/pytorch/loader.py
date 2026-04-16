@@ -65,7 +65,7 @@ class ModelLoader(ForgeModel):
         """Load the MiT-B5 segmentation model from segmentation-models-pytorch."""
         import segmentation_models_pytorch as smp
 
-        model = smp.from_pretrained(self._variant_config.pretrained_model_name)
+        model = smp.Unet(encoder_name="mit_b5", encoder_weights="imagenet")
         model.eval()
 
         self.model = model
