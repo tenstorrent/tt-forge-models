@@ -167,14 +167,10 @@ class ModelLoader(ForgeModel):
             tuple: (mesh_shape, mesh_axis_names) where mesh_shape is (batch_dim, model_dim)
                    and mesh_axis_names are ("batch", "model").
         """
-        mesh_shape = (1, num_devices)
-        if self._variant not in [
-            ModelVariant.GEMMA_3_4B_IT,
-            ModelVariant.GEMMA_3_12B_IT,
-        ]:
-            assert (
-                self.config.text_config.num_attention_heads % mesh_shape[1] == 0
-            ), "Attention heads must be divisible by the model axis size"
+        if num_devices == 32:
+            mesh_shape = (4, 8)
+        else:
+            mesh_shape = (1, num_devices)
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
@@ -187,8 +183,6 @@ class ModelLoader(ForgeModel):
             dict: Dictionary mapping model parameters to their sharding specification,
                   or None if tensor parallelism is not needed for this variant.
         """
-        if self._variant != ModelVariant.GEMMA_3_27B_IT:
-            return None
 
         shard_specs = {}
 
