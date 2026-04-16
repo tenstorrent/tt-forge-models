@@ -2,5 +2,6 @@
 # Note: torchaudio is in requirements.nodeps.txt to prevent torch version conflicts
 
 # Model-specific dependencies
+minicpmo
 vector_quantize_pytorch>=1.18.5
 vocos>=0.1.0
