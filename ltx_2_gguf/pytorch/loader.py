@@ -113,6 +113,8 @@ class ModelLoader(ForgeModel):
 
         self._transformer = LTX2VideoTransformer3DModel.from_single_file(
             gguf_path,
+            config="Lightricks/LTX-2",
+            subfolder="transformer",
             quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
         )
