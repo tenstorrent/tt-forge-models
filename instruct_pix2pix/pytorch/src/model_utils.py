@@ -90,19 +90,14 @@ def instruct_pix2pix_preprocessing(
     do_classifier_free_guidance = guidance_scale > 1.0
 
     # 1. Encode the prompt
-    prompt_embeds, negative_prompt_embeds = pipe.encode_prompt(
+    # _encode_prompt handles CFG internally and returns prompt_embeds with
+    # ordering [prompt, negative, negative] already concatenated
+    prompt_embeds = pipe._encode_prompt(
         prompt=prompt,
         device=device,
         num_images_per_prompt=num_images_per_prompt,
         do_classifier_free_guidance=do_classifier_free_guidance,
     )
-
-    # For InstructPix2Pix, we need three copies for classifier-free guidance:
-    # [negative, image-only (no text), full (text+image)]
-    if do_classifier_free_guidance:
-        prompt_embeds = torch.cat(
-            [negative_prompt_embeds, negative_prompt_embeds, prompt_embeds]
-        )
 
     # 2. Prepare image latents
     image = pipe.image_processor.preprocess(image, height=height, width=width)
