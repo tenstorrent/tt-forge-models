@@ -83,22 +83,38 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"attn_implementation": "eager"}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["attn_implementation"] = "eager"
 
+        # Load config without gguf_file: GGUF metadata overrides model_type to "llama",
+        # but config.json says "mistral". Forcing MistralConfig keeps the working
+        # MistralForCausalLM attention code path.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.max_position_embeddings = 32768
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # GGUF dequantization produces float32 weights regardless of torch_dtype;
+        # cast explicitly so downstream compilation sees bfloat16 tensors.
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
+        # Force eager attention so torch.compile sees matmul+softmax (no native
+        # SDPA nodes) rather than torch.nn.functional.scaled_dot_product_attention.
+        # SDPA with a boolean causal mask fails the TT composite constraint check
+        # and triggers an unsupported CPU-fallback partition.
+        model.config._attn_implementation = "eager"
+        if hasattr(model.config, "_attn_implementation_internal"):
+            model.config._attn_implementation_internal = "eager"
 
         self.config = model.config
         self.model = model
@@ -126,6 +142,8 @@ class ModelLoader(ForgeModel):
             and self.config.sliding_window is not None
         ):
             self.config.sliding_window = inputs["input_ids"].shape[1]
+
+        inputs["use_cache"] = False
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
