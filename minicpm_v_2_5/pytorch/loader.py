@@ -138,7 +138,7 @@ class ModelLoader(ForgeModel):
         inputs = self.processor(prompt, [image], return_tensors="pt", max_length=2048)
         inputs["position_ids"] = torch.arange(inputs["input_ids"].shape[1]).unsqueeze(0)
 
-        return {"data": inputs}
+        return (dict(inputs),)
 
     def decode_output(self, outputs, **kwargs):
         """Decode model outputs into human-readable text.
