@@ -22,6 +22,67 @@ from ....config import (
 )
 
 
+def _patch_transformers_mistral4_gguf():
+    """Monkey-patch transformers to add mistral4 GGUF architecture support.
+
+    Transformers 5.x supports the mistral architecture but the GGUF files for
+    Mistral Small 4 report architecture as "mistral4" which is not recognized.
+    We register mistral4 using the same config mapping as mistral and remap
+    model_type back to "mistral" so MistralForCausalLM is used.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "mistral4" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register mistral4 as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("mistral4")
+
+    # 2. Copy config mapping from mistral
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral4"] = GGUF_TO_TRANSFORMERS_MAPPING[
+        "config"
+    ]["mistral"].copy()
+
+    # 3. Register mistral4 tokenizer converter (same as llama/mistral)
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "mistral4" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral4"] = GGUFLlamaConverter
+
+    # 4. Patch load_gguf_checkpoint to remap model_type from mistral4 to mistral
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "mistral4":
+            config["model_type"] = "mistral"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Also patch modules that imported load_gguf_checkpoint directly
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_mistral4_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Mistral Small 4 119B 2603 GGUF model variants for causal language modeling."""
 
