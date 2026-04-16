@@ -97,8 +97,14 @@ class ModelLoader(ForgeModel):
         importlib.invalidate_caches()
         try:
             ver = importlib.metadata.version("gguf")
-            _diu._gguf_available = True
-            _diu._gguf_version = ver
+            if not _diu._gguf_available or _diu._gguf_version == "N/A":
+                _diu._gguf_available = True
+                _diu._gguf_version = ver
+                # Reload modules that conditionally import gguf symbols at
+                # module level (guarded by is_gguf_available).
+                import diffusers.quantizers.gguf.gguf_quantizer as _gq
+
+                importlib.reload(_gq)
         except importlib.metadata.PackageNotFoundError:
             pass
 
