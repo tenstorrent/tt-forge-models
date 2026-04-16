@@ -7,7 +7,7 @@ MiniCPM-V-2 model loader implementation for multimodal visual question answering
 
 import torch
 import torch.nn as nn
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 from transformers.integrations.tensor_parallel import ALL_PARALLEL_STYLES
 from PIL import Image
 from typing import Optional
@@ -94,7 +94,14 @@ class ModelLoader(ForgeModel):
         """Load and return the MiniCPM-V-2 model instance."""
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        # Patch rope_scaling config for newer transformers compatibility.
+        # The remote model code expects 'type' but newer transformers uses 'rope_type'.
+        config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+        if hasattr(config, "rope_scaling") and config.rope_scaling is not None:
+            if "type" not in config.rope_scaling and "rope_type" in config.rope_scaling:
+                config.rope_scaling["type"] = config.rope_scaling["rope_type"]
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
