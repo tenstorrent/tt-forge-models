@@ -154,8 +154,9 @@ class ModelLoader(ForgeModel):
         seq_len = inputs["input_ids"].shape[1]
         inputs["position_ids"] = torch.arange(seq_len, dtype=torch.long).unsqueeze(0)
 
+        # Convert to plain dict so pytree/tree_map doesn't unpack keys as separate args.
         # Return as a list so model is called as model(inputs), matching forward(self, data, ...)
-        return [inputs]
+        return [dict(inputs)]
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
