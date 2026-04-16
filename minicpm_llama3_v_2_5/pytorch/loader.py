@@ -125,6 +125,11 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
+        # Disable batch vision input: the batch path uses torch.max(tgt_sizes)
+        # as a tensor dimension which is a data-dependent shape that TorchDynamo
+        # cannot trace. The per-tile path avoids patch_attention_mask entirely.
+        model.config.batch_vision_input = False
+
         # Wrap so the test framework can call model(**inputs_dict) and forward
         # receives the dict as the required `data` positional argument.
         return _MiniCPMVWrapper(model)
