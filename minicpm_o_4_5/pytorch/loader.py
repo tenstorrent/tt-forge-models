@@ -9,7 +9,7 @@ from typing import Optional, Dict, Any
 from dataclasses import dataclass
 import torch
 import torch.nn as nn
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 from transformers.integrations.tensor_parallel import ALL_PARALLEL_STYLES
 from PIL import Image
 import requests
@@ -112,11 +112,23 @@ class ModelLoader(ForgeModel):
         """
         config = self._variant_config
 
+        # Load config and patch missing TTS attributes that the modeling
+        # code expects but config.json/config class doesn't define.
+        model_config = AutoConfig.from_pretrained(
+            config.pretrained_model_name, trust_remote_code=True
+        )
+        if hasattr(model_config, "tts_config"):
+            tts_defaults = {"top_p": 0.9, "top_k": 50, "repetition_penalty": 1.0}
+            for attr, default in tts_defaults.items():
+                if not hasattr(model_config.tts_config, attr):
+                    setattr(model_config.tts_config, attr, default)
+
         # Load model and tokenizer
         self.model = AutoModel.from_pretrained(
             config.pretrained_model_name,
+            config=model_config,
             trust_remote_code=True,
-            torch_dtype=torch.float32,
+            dtype=torch.float32,
             **kwargs,
         )
         self.tokenizer = AutoTokenizer.from_pretrained(
