@@ -28,14 +28,26 @@ def _ensure_gguf_detected():
     gguf package is visible to ``is_gguf_available()``.
 
     RequirementsManager installs gguf *after* Python has already cached the
-    absence of the package.  Without this, ``is_gguf_available()`` returns a
-    stale ``'N/A'`` version string and ``load_gguf_checkpoint`` raises
-    ``InvalidVersion``.
+    absence of the package.  The gguf package also lacks ``__version__``, so
+    ``_is_package_available`` must resolve the version via
+    ``PACKAGE_DISTRIBUTION_MAPPING`` → ``importlib.metadata.version()``.
+    If the mapping was built before gguf was installed it will miss the entry,
+    fall back to ``getattr(gguf, '__version__', 'N/A')``, and
+    ``version.parse('N/A')`` raises ``InvalidVersion``.
+
+    Fix: refresh the mapping, invalidate importlib caches, and clear the
+    ``is_gguf_available`` lru_cache.
     """
     importlib.invalidate_caches()
-    from transformers.utils.import_utils import is_gguf_available
 
-    is_gguf_available.cache_clear()
+    # Rebuild the package-name → distribution-name mapping so that 'gguf'
+    # is present when _is_package_available looks it up.
+    from transformers.utils import import_utils
+
+    new_mapping = importlib.metadata.packages_distributions()
+    import_utils.PACKAGE_DISTRIBUTION_MAPPING.update(new_mapping)
+
+    import_utils.is_gguf_available.cache_clear()
 
 
 class ModelVariant(StrEnum):
