@@ -96,8 +96,9 @@ class ModelLoader(ForgeModel):
 
         importlib.invalidate_caches()
         try:
-            importlib.metadata.version("gguf")
+            ver = importlib.metadata.version("gguf")
             _diu._gguf_available = True
+            _diu._gguf_version = ver
         except importlib.metadata.PackageNotFoundError:
             pass
 
