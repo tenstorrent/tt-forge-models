@@ -4,12 +4,26 @@
 """
 Japanese CLOOB model loader implementation for image-text similarity.
 
-Uses the japanese_clip package to load the rinna/japanese-cloob-vit-b-16 model,
-which performs contrastive image-text matching with Japanese text.
+Loads the rinna/japanese-cloob-vit-b-16 model by constructing it from
+BERT (text encoder) + ViT (vision encoder) + projection layers and
+loading weights directly from HuggingFace, since the original
+japanese_clip package is not available on PyPI.
 """
+import json
+
 import torch
 import torch.nn as nn
 from typing import Optional
+from transformers import (
+    BertModel,
+    BertConfig,
+    ViTModel,
+    ViTConfig,
+    AutoTokenizer,
+    CLIPImageProcessor,
+)
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -22,6 +36,51 @@ from ...config import (
     StrEnum,
 )
 from datasets import load_dataset
+
+
+class CLOOBModel(nn.Module):
+    """CLOOB model combining a ViT vision encoder and BERT text encoder with projections."""
+
+    def __init__(self, vision_model, text_model, visual_projection, text_projection):
+        super().__init__()
+        self.vision_model = vision_model
+        self.text_model = text_model
+        self.visual_projection = visual_projection
+        self.text_projection = text_projection
+
+    def get_image_features(self, pixel_values):
+        outputs = self.vision_model(pixel_values=pixel_values)
+        pooled = outputs.last_hidden_state[:, 0]
+        return self.visual_projection(pooled)
+
+    def get_text_features(self, input_ids, attention_mask):
+        outputs = self.text_model(input_ids=input_ids, attention_mask=attention_mask)
+        pooled = outputs.last_hidden_state[:, 0]
+        return self.text_projection(pooled)
+
+
+def _load_cloob_model(model_name):
+    """Load a CLOOB model from HuggingFace by constructing from components."""
+    config_path = hf_hub_download(model_name, "config.json")
+    with open(config_path) as f:
+        config = json.load(f)
+
+    text_config = BertConfig(**config["text_config"])
+    vision_config = ViTConfig(**config["vision_config"])
+    projection_dim = config["projection_dim"]
+
+    text_model = BertModel(text_config, add_pooling_layer=False)
+    vision_model = ViTModel(vision_config, add_pooling_layer=False)
+    text_projection = nn.Linear(text_config.hidden_size, projection_dim, bias=False)
+    visual_projection = nn.Linear(vision_config.hidden_size, projection_dim, bias=False)
+
+    model = CLOOBModel(vision_model, text_model, visual_projection, text_projection)
+
+    weights_path = hf_hub_download(model_name, "model.safetensors")
+    state_dict = load_file(weights_path)
+    model.load_state_dict(state_dict, strict=False)
+
+    return model
 
 
 class JapaneseCLOOBWrapper(nn.Module):
@@ -56,9 +115,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.VIT_B_16
 
+    _TOKENIZER_NAME = "rinna/japanese-roberta-base"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.preprocess = None
+        self.image_processor = None
         self.tokenizer = None
         self.text_prompts = None
 
@@ -82,12 +143,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Japanese CLOOB model instance.
         """
-        import japanese_clip as ja_clip
-
-        model, self.preprocess = ja_clip.load(
-            self._variant_config.pretrained_model_name, device="cpu"
-        )
-        self.tokenizer = ja_clip.load_tokenizer()
+        model = _load_cloob_model(self._variant_config.pretrained_model_name)
 
         wrapper = JapaneseCLOOBWrapper(model)
 
@@ -107,39 +163,49 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        import japanese_clip as ja_clip
-
-        if self.preprocess is None or self.tokenizer is None:
-            self.load_model()
+        if self.image_processor is None:
+            self.image_processor = CLIPImageProcessor.from_pretrained(
+                "openai/clip-vit-base-patch16"
+            )
+        if self.tokenizer is None:
+            self.tokenizer = AutoTokenizer.from_pretrained(self._TOKENIZER_NAME)
 
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
         image = dataset[0]["image"]
 
         # Preprocess the image
-        pixel_values = self.preprocess(image).unsqueeze(0)
+        pixel_values = self.image_processor(
+            images=image, return_tensors="pt"
+        ).pixel_values
 
         # Define Japanese text prompts (cat, dog, elephant)
         self.text_prompts = ["猫", "犬", "象"]
 
         # Tokenize text
-        encodings = ja_clip.tokenize(
-            texts=self.text_prompts,
-            max_seq_len=77,
-            device="cpu",
-            tokenizer=self.tokenizer,
+        text_inputs = self.tokenizer(
+            self.text_prompts,
+            return_tensors="pt",
+            padding=True,
+            max_length=77,
+            truncation=True,
         )
 
+        inputs = {
+            "image": pixel_values,
+            "input_ids": text_inputs["input_ids"],
+            "attention_mask": text_inputs["attention_mask"],
+        }
+
         # Replicate tensors for batch size
-        pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
-        for key in encodings:
-            if torch.is_tensor(encodings[key]):
-                encodings[key] = encodings[key].repeat_interleave(batch_size, dim=0)
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         if dtype_override is not None:
-            pixel_values = pixel_values.to(dtype_override)
+            inputs["image"] = inputs["image"].to(dtype_override)
 
-        return {"image": pixel_values, **encodings}
+        return inputs
 
     def post_process(self, outputs):
         """Post-process model outputs to extract similarity scores.
