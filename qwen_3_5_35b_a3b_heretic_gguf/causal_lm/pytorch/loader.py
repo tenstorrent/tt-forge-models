@@ -4,6 +4,9 @@
 """
 Qwen 3.5 35B-A3B Heretic GGUF model loader implementation for causal language modeling.
 """
+import importlib
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -18,6 +21,21 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _ensure_gguf_detected():
+    """Clear stale importlib / transformers caches so a freshly pip-installed
+    gguf package is visible to ``is_gguf_available()``.
+
+    RequirementsManager installs gguf *after* Python has already cached the
+    absence of the package.  Without this, ``is_gguf_available()`` returns a
+    stale ``'N/A'`` version string and ``load_gguf_checkpoint`` raises
+    ``InvalidVersion``.
+    """
+    importlib.invalidate_caches()
+    from transformers.utils.import_utils import is_gguf_available
+
+    is_gguf_available.cache_clear()
 
 
 class ModelVariant(StrEnum):
@@ -62,6 +80,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _ensure_gguf_detected()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -167,6 +186,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _ensure_gguf_detected()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
