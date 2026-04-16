@@ -81,7 +81,9 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._base_model, trust_remote_code=True
+            pretrained_model_name,
+            gguf_file=self._gguf_file,
+            trust_remote_code=True,
         )
 
         model_kwargs = {"trust_remote_code": True}
@@ -98,7 +100,9 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self._base_model, trust_remote_code=True
+                self._variant_config.pretrained_model_name,
+                gguf_file=self._gguf_file,
+                trust_remote_code=True,
             )
 
         image_file = get_file(self.sample_image)
