@@ -70,6 +70,80 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
+    @staticmethod
+    def _patch_pixtral_attention(model):
+        """Patch PixtralAttention to avoid ambiguous reshape with zero-element tensors.
+
+        torch.compile with fake tensors fails on reshape(batch, 0, -1) because -1
+        is ambiguous when the tensor has 0 elements. Replace -1 with embed_dim.
+        """
+        from transformers.models.pixtral.modeling_pixtral import (
+            PixtralAttention,
+            apply_rotary_pos_emb,
+            eager_attention_forward,
+        )
+        from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
+
+        def _make_patched_forward(mod):
+            def _forward(
+                hidden_states,
+                attention_mask=None,
+                position_embeddings=None,
+                output_attentions=False,
+                **kwargs,
+            ):
+                batch_size, patches, _ = hidden_states.size()
+
+                query_states = mod.q_proj(hidden_states)
+                key_states = mod.k_proj(hidden_states)
+                value_states = mod.v_proj(hidden_states)
+
+                query_states = query_states.view(
+                    batch_size, patches, mod.num_heads, mod.head_dim
+                ).transpose(1, 2)
+                key_states = key_states.view(
+                    batch_size, patches, mod.num_heads, mod.head_dim
+                ).transpose(1, 2)
+                value_states = value_states.view(
+                    batch_size, patches, mod.num_heads, mod.head_dim
+                ).transpose(1, 2)
+
+                cos, sin = position_embeddings
+                query_states, key_states = apply_rotary_pos_emb(
+                    query_states, key_states, cos, sin, unsqueeze_dim=0
+                )
+
+                attention_interface = ALL_ATTENTION_FUNCTIONS.get_interface(
+                    mod.config._attn_implementation,
+                    eager_attention_forward,
+                )
+
+                attn_output, attn_weights = attention_interface(
+                    mod,
+                    query_states,
+                    key_states,
+                    value_states,
+                    attention_mask,
+                    dropout=0.0 if not mod.training else mod.dropout,
+                    scaling=mod.scaling,
+                    **kwargs,
+                )
+
+                attn_output = attn_output.reshape(
+                    batch_size, patches, mod.embed_dim
+                ).contiguous()
+                attn_output = mod.o_proj(attn_output)
+
+                if not output_attentions:
+                    attn_weights = None
+                return attn_output, attn_weights
+
+            return _forward
+
+        for module in model.modules():
+            if isinstance(module, PixtralAttention):
+                module.forward = _make_patched_forward(module)
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Mistral Small 3.2 model instance.
 
@@ -92,6 +166,8 @@ class ModelLoader(ForgeModel):
         model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        self._patch_pixtral_attention(model)
 
         model.eval()
         self.model = model
