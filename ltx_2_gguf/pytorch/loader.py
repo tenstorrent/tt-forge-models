@@ -11,6 +11,8 @@ levels (Q2_K through Q8_0) plus Unsloth Dynamic optimized variants.
 Repository: https://huggingface.co/unsloth/LTX-2-GGUF
 """
 
+import importlib
+
 from typing import Any, Optional
 
 import torch
@@ -80,7 +82,27 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _refresh_gguf_detection():
+        """Refresh diffusers' gguf package detection after RequirementsManager reinstall.
+
+        The diffusers module-level ``_gguf_available`` flag is evaluated once at
+        import time. If gguf was not installed then (e.g. removed during the
+        RequirementsManager golden-state restore) the flag stays False even after
+        gguf is reinstalled from requirements.txt. Patch it back to True so
+        ``load_gguf_checkpoint`` succeeds.
+        """
+        import diffusers.utils.import_utils as _diu
+
+        importlib.invalidate_caches()
+        try:
+            importlib.metadata.version("gguf")
+            _diu._gguf_available = True
+        except importlib.metadata.PackageNotFoundError:
+            pass
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._refresh_gguf_detection()
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_filename = _GGUF_FILES[self._variant]
