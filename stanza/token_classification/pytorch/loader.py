@@ -5,9 +5,38 @@
 Stanza model loader implementation for token classification.
 """
 
+import importlib
+import os
+import sys
+
 import torch
 import torch.nn as nn
-import stanza
+
+
+def _import_stanza_nlp():
+    """Import the pip-installed stanza NLP package, bypassing local directory shadow."""
+    # The local 'stanza/' model directory shadows the pip-installed stanza package.
+    # Temporarily remove the project root from sys.path to import the real one.
+    project_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
+    saved_path = sys.path[:]
+    sys.path = [
+        p
+        for p in sys.path
+        if os.path.realpath(p or ".") != os.path.realpath(project_root)
+    ]
+    sys.modules.pop("stanza", None)
+    importlib.invalidate_caches()
+    try:
+        import stanza as _stanza
+
+        return _stanza
+    finally:
+        sys.path[:] = saved_path
+
+
+stanza = _import_stanza_nlp()
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
