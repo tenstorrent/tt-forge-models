@@ -11,7 +11,39 @@ import torchvision.transforms as T
 from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
 from transformers import AutoModel, AutoTokenizer
+from transformers.configuration_utils import PretrainedConfig
 from typing import Optional
+
+
+def _patch_to_diff_dict():
+    """Patch PretrainedConfig.to_diff_dict for transformers 5.x compat.
+
+    The InternVLChatConfig remote code only sets self.llm_config when
+    llm_config dict has an 'architectures' key. When to_diff_dict()
+    creates a bare default instance via cls(), llm_config is missing
+    and to_dict() raises AttributeError. Fix by retrying with
+    has_no_defaults_at_init=True to skip default instance creation.
+    """
+    if getattr(PretrainedConfig, "_tt_to_diff_dict_patched", False):
+        return
+    orig = PretrainedConfig.to_diff_dict
+
+    def safe_to_diff_dict(self):
+        try:
+            return orig(self)
+        except AttributeError:
+            old_val = getattr(self.__class__, "has_no_defaults_at_init", False)
+            self.__class__.has_no_defaults_at_init = True
+            try:
+                return orig(self)
+            finally:
+                self.__class__.has_no_defaults_at_init = old_val
+
+    PretrainedConfig.to_diff_dict = safe_to_diff_dict
+    PretrainedConfig._tt_to_diff_dict_patched = True
+
+
+_patch_to_diff_dict()
 
 from ...base import ForgeModel
 from ...config import (
