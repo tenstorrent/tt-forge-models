@@ -5,7 +5,8 @@
 Midnight (kaiko-ai) pathology foundation model loader implementation for feature extraction.
 """
 import torch
-from transformers import AutoImageProcessor, AutoModel
+from torchvision.transforms import v2
+from transformers import AutoModel
 from datasets import load_dataset
 from typing import Optional
 
@@ -40,7 +41,14 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
+        self.transform = v2.Compose(
+            [
+                v2.Resize(224),
+                v2.CenterCrop(224),
+                v2.ToTensor(),
+                v2.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+            ]
+        )
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -56,11 +64,6 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
-        return self.processor
-
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -75,21 +78,13 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.processor is None:
-            self._load_processor()
-
         dataset = load_dataset("huggingface/cats-image", split="test")
         image = dataset[0]["image"]
 
-        inputs = self.processor(images=image, return_tensors="pt")
-
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        pixel_values = self.transform(image).unsqueeze(0)
+        pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
 
         if dtype_override is not None:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]) and inputs[key].dtype.is_floating_point:
-                    inputs[key] = inputs[key].to(dtype_override)
+            pixel_values = pixel_values.to(dtype_override)
 
-        return inputs
+        return {"pixel_values": pixel_values}
