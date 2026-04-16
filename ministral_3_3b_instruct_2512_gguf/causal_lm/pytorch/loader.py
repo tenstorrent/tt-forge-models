@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.MINISTRAL_3_3B_INSTRUCT_2512_GGUF
 
-    GGUF_FILE = "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf"
+    GGUF_FILE = "mistralai_Ministral-3-3B-Instruct-2512-Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
