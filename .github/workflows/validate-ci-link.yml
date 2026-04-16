@@ -36,7 +36,7 @@ jobs:
           while IFS= read -r line; do
             URL=$(echo "$line" | grep -oP 'https://github\.com/tenstorrent/tt-xla/actions/runs/\d+')
             RUN_ID=$(echo "$URL" | grep -oP '\d+$')
-            CLAIMED_SHA=$(echo "$line" | grep -oP '(?<=@\s)\S+' || true)
+            CLAIMED_SHA=$(echo "$line" | grep -oP '(?<=@)\s*\S+' | tr -d ' ' || true)
 
             echo "Checking run $RUN_ID ($URL)..."
 
