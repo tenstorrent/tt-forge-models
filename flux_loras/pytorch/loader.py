@@ -4,8 +4,8 @@
 """
 FLUX.1-dev LoRA model loader implementation.
 
-Loads the black-forest-labs/FLUX.1-dev base pipeline and applies style LoRA
-weights from alexrzem/flux-loras for stylized text-to-image generation.
+Loads the lzyvegetable/FLUX.1-schnell ungated mirror base pipeline and applies
+style LoRA weights from alexrzem/flux-loras for stylized text-to-image generation.
 
 Available variants:
 - FLUX_LORA_PIXAR_3D: Pixar-style 3D rendering LoRA
@@ -28,11 +28,11 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+BASE_MODEL = "lzyvegetable/FLUX.1-schnell"
 LORA_REPO = "alexrzem/flux-loras"
 
 # LoRA weight filenames (under dev/ subdirectory in the repo)
-LORA_PIXAR_3D = "dev/Pixar_3D_-_leimaxiu252537.safetensors"
+LORA_PIXAR_3D = "dev/Anime_-_Pixar_3D_Animation_-_Flux.1_D_-_leimaxiu252537.safetensors"
 LORA_COMIC_BOOK = "dev/Comic_Book_v4_-_Adel_AI.safetensors"
 
 
@@ -103,17 +103,93 @@ class ModelLoader(ForgeModel):
             weight_name=lora_file,
         )
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-image generation.
+    def load_inputs(self, dtype_override=None, batch_size=1, **kwargs) -> Any:
+        """Prepare inputs for the FLUX transformer model.
 
         Returns:
-            dict with prompt key.
+            dict with tensor inputs for the transformer.
         """
-        if prompt is None:
-            prompt = "An astronaut riding a green horse"
+        assert self.pipeline is not None, "load_model must be called before load_inputs"
+
+        prompt = "An astronaut riding a green horse"
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        max_sequence_length = 256
+        height = 128
+        width = 128
+        num_images_per_prompt = 1
+        num_channels_latents = self.pipeline.transformer.config.in_channels // 4
+
+        # CLIP text encoding
+        text_inputs_clip = self.pipeline.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        pooled_prompt_embeds = self.pipeline.text_encoder(
+            text_inputs_clip.input_ids, output_hidden_states=False
+        ).pooler_output.to(dtype=dtype)
+        pooled_prompt_embeds = pooled_prompt_embeds.repeat(
+            batch_size, num_images_per_prompt
+        ).view(batch_size * num_images_per_prompt, -1)
+
+        # T5 text encoding
+        text_inputs_t5 = self.pipeline.tokenizer_2(
+            prompt,
+            padding="max_length",
+            max_length=max_sequence_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        prompt_embeds = self.pipeline.text_encoder_2(
+            text_inputs_t5.input_ids, output_hidden_states=False
+        )[0].to(dtype=dtype)
+        _, seq_len_t5, _ = prompt_embeds.shape
+        prompt_embeds = prompt_embeds.repeat(batch_size, num_images_per_prompt, 1).view(
+            batch_size * num_images_per_prompt, seq_len_t5, -1
+        )
+
+        text_ids = torch.zeros(prompt_embeds.shape[1], 3).to(dtype=dtype)
+
+        # Latents
+        height_latent = 2 * (int(height) // (self.pipeline.vae_scale_factor * 2))
+        width_latent = 2 * (int(width) // (self.pipeline.vae_scale_factor * 2))
+        shape = (
+            batch_size * num_images_per_prompt,
+            num_channels_latents,
+            height_latent,
+            width_latent,
+        )
+        latents = torch.randn(shape, dtype=dtype)
+        latents = latents.view(
+            batch_size * num_images_per_prompt,
+            num_channels_latents,
+            height_latent // 2,
+            2,
+            width_latent // 2,
+            2,
+        )
+        latents = latents.permute(0, 2, 4, 1, 3, 5).reshape(
+            batch_size * num_images_per_prompt,
+            (height_latent // 2) * (width_latent // 2),
+            num_channels_latents * 4,
+        )
+
+        latent_image_ids = torch.zeros(height_latent // 2, width_latent // 2, 3)
+        latent_image_ids[..., 1] += torch.arange(height_latent // 2)[:, None]
+        latent_image_ids[..., 2] += torch.arange(width_latent // 2)[None, :]
+        latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
 
         return {
-            "prompt": prompt,
+            "hidden_states": latents,
+            "timestep": torch.tensor([1.0], dtype=dtype),
+            "guidance": None,
+            "pooled_projections": pooled_prompt_embeds,
+            "encoder_hidden_states": prompt_embeds,
+            "txt_ids": text_ids,
+            "img_ids": latent_image_ids,
+            "joint_attention_kwargs": {},
         }
