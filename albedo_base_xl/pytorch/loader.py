@@ -65,17 +65,17 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the AlbedoBase XL pipeline.
+        """Load and return the AlbedoBase XL UNet model.
 
         Returns:
-            DiffusionPipeline: The AlbedoBase XL pipeline instance.
+            torch.nn.Module: The UNet2DConditionModel from the pipeline.
         """
         self.pipeline = load_pipe(self._variant_config.pretrained_model_name)
 
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the AlbedoBase XL model.
