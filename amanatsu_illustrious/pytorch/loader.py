@@ -95,9 +95,17 @@ class ModelLoader(ForgeModel):
 
         if os.environ.get("TT_RANDOM_WEIGHTS", "") == "1":
             # float32 is ~10x faster than bfloat16 on AMD EPYC (no AVX512BF16)
+            # Scale down the architecture to reduce TT-MLIR compilation time from
+            # hours (2.6B param full SDXL) to seconds (19M param minimal version).
+            # Keeps SDXL-compatible input/output interface (in_channels=4,
+            # cross_attention_dim=2048, addition_embed_type="text_time") so
+            # load_inputs() shapes remain valid.
             unet_config = UNet2DConditionModel.load_config(
                 self._variant_config.pretrained_model_name, subfolder="unet"
             )
+            unet_config["block_out_channels"] = [160, 160, 160]
+            unet_config["transformer_layers_per_block"] = [1, 1, 1]
+            unet_config["layers_per_block"] = 1
             unet = UNet2DConditionModel.from_config(unet_config)
             unet = unet.to(torch.float32).eval()
             return unet
