@@ -45,7 +45,8 @@ class ModelLoader(ForgeModel):
             [
                 v2.Resize(224),
                 v2.CenterCrop(224),
-                v2.ToTensor(),
+                v2.ToImage(),
+                v2.ToDtype(torch.float32, scale=True),
                 v2.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
             ]
         )
