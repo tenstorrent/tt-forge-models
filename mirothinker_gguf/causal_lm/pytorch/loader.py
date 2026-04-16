@@ -81,14 +81,14 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        # Default to bfloat16 because the Qwen3 MoE experts layer uses
-        # torch._grouped_mm which requires BF16 inputs.
-        effective_dtype = (
-            dtype_override if dtype_override is not None else torch.bfloat16
-        )
-        model_kwargs = {"torch_dtype": effective_dtype}
+        model_kwargs = {}
+        if dtype_override is not None:
+            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        # Use eager experts implementation to avoid torch._grouped_mm which
+        # requires BF16 and is incompatible with XLA FakeTensor tracing.
+        model_kwargs.setdefault("experts_implementation", "eager")
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
@@ -100,11 +100,6 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
-
-        # Ensure all parameters are in bfloat16 — GGUF dequantization may
-        # produce float32 weights, but torch._grouped_mm in the MoE layer
-        # requires BF16.
-        model = model.to(effective_dtype)
 
         self.config = model.config
         self.model = model
