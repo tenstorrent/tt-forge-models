@@ -9,7 +9,6 @@ import torch
 import torch.nn as nn
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 from transformers.integrations.tensor_parallel import ALL_PARALLEL_STYLES
-from PIL import Image
 from typing import Optional
 
 from ...base import ForgeModel
@@ -22,7 +21,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import get_file
 
 # Fix parallel styles issue for torch 2.7.0+ compatibility
 if ALL_PARALLEL_STYLES is None:
@@ -46,6 +44,18 @@ def patched_getattr(self, name):
 
 
 nn.Module.__getattr__ = patched_getattr
+
+
+class Wrapper(nn.Module):
+    """Wraps MiniCPM-V-2 LLM backbone for compilation-friendly forward pass."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.llm = model.llm
+
+    def forward(self, input_ids, attention_mask=None):
+        outputs = self.llm(input_ids=input_ids, attention_mask=attention_mask)
+        return outputs.logits
 
 
 class ModelVariant(StrEnum):
@@ -91,7 +101,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the MiniCPM-V-2 model instance."""
+        """Load and return the MiniCPM-V-2 LLM backbone wrapped for compilation."""
         model_name = self._variant_config.pretrained_model_name
 
         # Patch rope_scaling config for newer transformers compatibility.
@@ -114,23 +124,22 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        return model
+        return Wrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for MiniCPM-V-2."""
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
-        image = Image.open(image_file).convert("RGB")
-
-        question = self.sample_text
-        msgs = [{"role": "user", "content": question}]
+        inputs = self.tokenizer(
+            self.sample_text,
+            return_tensors="pt",
+            padding=True,
+        )
 
         return {
-            "image": image,
-            "msgs": msgs,
-            "tokenizer": self.tokenizer,
+            "input_ids": inputs["input_ids"],
+            "attention_mask": inputs["attention_mask"],
         }
 
     def decode_output(self, outputs):
