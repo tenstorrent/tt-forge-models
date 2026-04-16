@@ -82,12 +82,20 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+
+        # Newer transformers uses "rope_type" instead of "type" in rope_scaling,
+        # but the custom MiniCPM modeling code expects "type".
+        if hasattr(config, "rope_scaling") and config.rope_scaling is not None:
+            if "rope_type" in config.rope_scaling and "type" not in config.rope_scaling:
+                config.rope_scaling["type"] = config.rope_scaling["rope_type"]
+
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
