@@ -81,9 +81,12 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        # Default to bfloat16 because the Qwen3 MoE experts layer uses
+        # torch._grouped_mm which requires BF16 inputs.
+        effective_dtype = (
+            dtype_override if dtype_override is not None else torch.bfloat16
+        )
+        model_kwargs = {"torch_dtype": effective_dtype}
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
