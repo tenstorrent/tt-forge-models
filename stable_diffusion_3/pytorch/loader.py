@@ -4,6 +4,7 @@
 """
 Stable Diffusion 3 model loader implementation
 """
+
 import torch
 from typing import Optional
 
@@ -17,7 +18,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_pipe, stable_diffusion_preprocessing_v3
+from .src.model_utils import create_sd3_inputs, load_transformer
 
 
 class ModelVariant(StrEnum):
@@ -50,7 +51,6 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
-        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -75,51 +75,44 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Diffusion 3 transformer for this instance's variant.
+        """Load and return the Stable Diffusion 3 transformer with random weights.
+
+        The stabilityai/stable-diffusion-3-medium-diffusers repo is gated, so
+        the transformer is created from config for compile-only testing.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The Stable Diffusion 3 transformer instance.
+            SD3Transformer2DModel: The SD3 transformer instance.
         """
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        self.pipeline = load_pipe(pretrained_model_name)
+        model = load_transformer()
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            model = model.to(dtype_override)
 
-        return self.pipeline
+        return model
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the Stable Diffusion 3 model.
+        """Load and return synthetic inputs for the SD3 transformer.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            list: Input tensors that can be fed to the model:
-                - latent_model_input (torch.Tensor): Latent input for the transformer
+            list: Input tensors for the transformer:
+                - hidden_states (torch.Tensor): Latent input
                 - timestep (torch.Tensor): Timestep tensor
-                - prompt_embeds (torch.Tensor): Encoded prompt embeddings
-                - pooled_prompt_embeds (torch.Tensor): Pooled prompt embeddings
+                - encoder_hidden_states (torch.Tensor): Text embeddings
+                - pooled_projections (torch.Tensor): Pooled text embeddings
         """
-        if self.pipeline is None:
-            self.load_model(dtype_override=dtype_override)
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         (
-            latent_model_input,
+            hidden_states,
             timestep,
-            prompt_embeds,
-            pooled_prompt_embeds,
-        ) = stable_diffusion_preprocessing_v3(self.pipeline, self.prompt)
+            encoder_hidden_states,
+            pooled_projections,
+        ) = create_sd3_inputs(dtype=dtype)
 
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timestep = timestep.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
-            pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
-
-        return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+        return [hidden_states, timestep, encoder_hidden_states, pooled_projections]

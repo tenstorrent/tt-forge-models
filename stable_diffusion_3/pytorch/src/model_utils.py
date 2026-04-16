@@ -4,145 +4,67 @@
 
 """
 Helper functions for Stable Diffusion 3 model loading and processing.
+
+The stabilityai/stable-diffusion-3-medium-diffusers repo is gated, so this
+module creates the SD3 transformer from config with random weights and
+generates synthetic inputs for compile-only testing.
 """
 
 import torch
-from diffusers import StableDiffusion3Pipeline
-from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
-    retrieve_timesteps,
-)
+from diffusers import SD3Transformer2DModel
+
+# SD3 Medium architecture config
+SD3_MEDIUM_CONFIG = {
+    "sample_size": 128,
+    "patch_size": 2,
+    "in_channels": 16,
+    "num_layers": 24,
+    "attention_head_dim": 64,
+    "num_attention_heads": 24,
+    "joint_attention_dim": 4096,
+    "caption_projection_dim": 1536,
+    "pooled_projection_dim": 2048,
+    "out_channels": 16,
+    "pos_embed_max_size": 192,
+}
 
 
-def load_pipe(variant):
-    """Load Stable Diffusion 3 pipeline.
-
-    Args:
-        variant: Pretrained model name or path
-
-    Returns:
-        StableDiffusion3Pipeline: Loaded pipeline with components set to eval mode
-    """
-    pipe = StableDiffusion3Pipeline.from_pretrained(variant, torch_dtype=torch.float32)
-    modules = [
-        pipe.text_encoder,
-        pipe.transformer,
-        pipe.text_encoder_2,
-        pipe.vae,
-    ]
-
-    # T5 text_encoder_3 may not be present in all variants
-    if pipe.text_encoder_3 is not None:
-        modules.append(pipe.text_encoder_3)
-
-    pipe.to("cpu")
-
-    for module in modules:
-        module.eval()
-        for param in module.parameters():
-            if param.requires_grad:
-                param.requires_grad = False
-
-    return pipe
-
-
-def stable_diffusion_preprocessing_v3(
-    pipe,
-    prompt,
-    device="cpu",
-    negative_prompt=None,
-    guidance_scale=7.0,
-    num_inference_steps=1,
-    num_images_per_prompt=1,
-    clip_skip=None,
-    max_sequence_length=256,
-    do_classifier_free_guidance=True,
-):
-    """Preprocess inputs for Stable Diffusion 3 model.
-
-    Args:
-        pipe: Stable Diffusion 3 pipeline
-        prompt: Text prompt for generation
-        device: Device to run on (default: "cpu")
-        negative_prompt: Negative prompt (optional)
-        guidance_scale: Guidance scale (default: 7.0)
-        num_inference_steps: Number of inference steps (default: 1)
-        num_images_per_prompt: Number of images per prompt (default: 1)
-        clip_skip: CLIP skip layers (optional)
-        max_sequence_length: Maximum sequence length (default: 256)
-        do_classifier_free_guidance: Whether to use classifier-free guidance (default: True)
+def load_transformer():
+    """Create SD3 Medium transformer with random weights.
 
     Returns:
-        tuple: (latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds)
+        SD3Transformer2DModel: Transformer model in eval mode with frozen params.
     """
-    height = pipe.default_sample_size * pipe.vae_scale_factor
-    width = pipe.default_sample_size * pipe.vae_scale_factor
+    model = SD3Transformer2DModel(**SD3_MEDIUM_CONFIG)
+    model.eval()
+    for param in model.parameters():
+        param.requires_grad = False
+    return model
 
-    pipe.check_inputs(
-        prompt,
-        None,  # prompt_2
-        None,  # prompt_3
-        height,
-        width,
-        negative_prompt=negative_prompt,
-        negative_prompt_2=None,
-        negative_prompt_3=None,
-        prompt_embeds=None,
-        negative_prompt_embeds=None,
-        pooled_prompt_embeds=None,
-        negative_pooled_prompt_embeds=None,
-        callback_on_step_end_tensor_inputs=["latents"],
-        max_sequence_length=max_sequence_length,
+
+def create_sd3_inputs(dtype=torch.float32):
+    """Create synthetic inputs for the SD3 transformer.
+
+    Args:
+        dtype: Torch dtype for the tensors.
+
+    Returns:
+        tuple: (hidden_states, timestep, encoder_hidden_states, pooled_projections)
+    """
+    batch_size = 2  # classifier-free guidance doubles batch
+    in_channels = SD3_MEDIUM_CONFIG["in_channels"]
+    latent_h = latent_w = 16
+    joint_attention_dim = SD3_MEDIUM_CONFIG["joint_attention_dim"]
+    pooled_projection_dim = SD3_MEDIUM_CONFIG["pooled_projection_dim"]
+    seq_len = 154  # 77 CLIP-L + 77 CLIP-G tokens
+
+    hidden_states = torch.randn(
+        batch_size, in_channels, latent_h, latent_w, dtype=dtype
     )
-
-    (
-        prompt_embeds,
-        negative_prompt_embeds,
-        pooled_prompt_embeds,
-        negative_pooled_prompt_embeds,
-    ) = pipe.encode_prompt(
-        prompt=prompt,
-        prompt_2=None,
-        prompt_3=None,
-        negative_prompt=negative_prompt,
-        negative_prompt_2=None,
-        negative_prompt_3=None,
-        do_classifier_free_guidance=do_classifier_free_guidance,
-        prompt_embeds=None,
-        negative_prompt_embeds=None,
-        pooled_prompt_embeds=None,
-        negative_pooled_prompt_embeds=None,
-        device=device,
-        clip_skip=clip_skip,
-        num_images_per_prompt=num_images_per_prompt,
-        max_sequence_length=max_sequence_length,
-        lora_scale=None,
+    timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+    encoder_hidden_states = torch.randn(
+        batch_size, seq_len, joint_attention_dim, dtype=dtype
     )
+    pooled_projections = torch.randn(batch_size, pooled_projection_dim, dtype=dtype)
 
-    if do_classifier_free_guidance:
-        prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
-        pooled_prompt_embeds = torch.cat(
-            [negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0
-        )
-
-    num_channels_latents = pipe.transformer.config.in_channels
-    shape = (
-        num_images_per_prompt,
-        num_channels_latents,
-        int(height) // pipe.vae_scale_factor,
-        int(width) // pipe.vae_scale_factor,
-    )
-    latents = torch.randn(shape, device=device, dtype=prompt_embeds.dtype)
-
-    timesteps, num_inference_steps = retrieve_timesteps(
-        pipe.scheduler,
-        num_inference_steps=1,
-        device=device,
-        sigmas=None,
-    )
-
-    latent_model_input = (
-        torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-    )
-    timestep = timesteps[0].expand(latent_model_input.shape[0])
-
-    return latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds
+    return hidden_states, timestep, encoder_hidden_states, pooled_projections
