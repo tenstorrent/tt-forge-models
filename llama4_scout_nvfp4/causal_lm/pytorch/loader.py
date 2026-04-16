@@ -88,18 +88,22 @@ class ModelLoader(ForgeModel):
 
         config = AutoConfig.from_pretrained(pretrained_model_name)
 
+        # Use the text_config directly since Llama4ForCausalLM expects
+        # Llama4TextConfig, not the composite Llama4Config.
+        text_config = config.text_config
+
         # Reduce model dimensions for testing since the full 17B-16E
         # MoE model is too large to load directly.
         if self.num_layers is not None:
-            config.text_config.num_hidden_layers = self.num_layers
+            text_config.num_hidden_layers = self.num_layers
         else:
-            config.text_config.num_hidden_layers = 6
-        config.text_config.num_attention_heads = 16
-        config.text_config.hidden_size = 1024
-        config.text_config.num_key_value_heads = 16
-        config.text_config.intermediate_size = 1024 * 4
-        config.text_config.num_local_experts = 16
-        config.text_config.num_experts_per_tok = 1
+            text_config.num_hidden_layers = 6
+        text_config.num_attention_heads = 16
+        text_config.hidden_size = 1024
+        text_config.num_key_value_heads = 16
+        text_config.intermediate_size = 1024 * 4
+        text_config.num_local_experts = 16
+        text_config.num_experts_per_tok = 1
 
         model_kwargs = {
             "attn_implementation": "eager",
@@ -108,7 +112,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
+        model = AutoModelForCausalLM.from_config(text_config, **model_kwargs)
 
         return model
 
