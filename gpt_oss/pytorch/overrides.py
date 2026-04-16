@@ -132,7 +132,10 @@ def _expert_router_forward(self, hidden_states):
 
     return router_scores.to(hidden_states.dtype), router_indices
 
+
 def _mlp_forward(self, hidden_states):
-        router_scores, router_indices = self.router(hidden_states)
-        routed_out = self.experts(hidden_states, router_indices=router_indices, routing_weights=router_scores)
-        return routed_out, router_scores
+    router_scores, router_indices = self.router(hidden_states)
+    routed_out = self.experts(
+        hidden_states, router_indices=router_indices, routing_weights=router_scores
+    )
+    return routed_out, router_scores
