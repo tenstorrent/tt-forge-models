@@ -3,5 +3,8 @@
 
 # Model-specific dependencies
 minicpmo
+onnx
+onnxruntime
+hyperpyyaml
 vector_quantize_pytorch>=1.18.5
 vocos>=0.1.0
