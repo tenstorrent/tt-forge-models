@@ -95,11 +95,13 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
 
         # Patch rope_scaling config for newer transformers compatibility.
-        # The remote model code expects 'type' but newer transformers uses 'rope_type'.
+        # Newer transformers standardize_rope_params() creates a non-null rope_parameters
+        # dict (with 'rope_type' key) even when the original config has rope_scaling=None.
+        # The remote model code checks `if rope_scaling is None` and falls through to a
+        # branch expecting 'type'/'factor' keys that don't exist.  Force it back to None
+        # so the model uses basic rotary embeddings (correct for this model).
         config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
-        if hasattr(config, "rope_scaling") and config.rope_scaling is not None:
-            if "type" not in config.rope_scaling and "rope_type" in config.rope_scaling:
-                config.rope_scaling["type"] = config.rope_scaling["rope_type"]
+        config.rope_scaling = None
 
         model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
