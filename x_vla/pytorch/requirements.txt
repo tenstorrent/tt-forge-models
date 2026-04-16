@@ -1,0 +1,3 @@
+fastapi
+json_numpy
+uvicorn
