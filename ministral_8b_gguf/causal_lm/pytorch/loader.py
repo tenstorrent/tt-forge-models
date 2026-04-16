@@ -19,6 +19,7 @@ from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 _tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
     importlib.metadata.packages_distributions()
@@ -30,7 +31,8 @@ def _patch_mistral3_support():
 
     Ministral uses the same model architecture as Mistral but the GGUF file
     declares architecture as 'mistral3' which transformers 5.x does not yet
-    recognise.
+    recognise. Also registers mistral/mistral3 tokenizer converters using
+    the llama converter since they share the same BPE tokenizer format.
     """
     if "mistral3" in GGUF_SUPPORTED_ARCHITECTURES:
         return
@@ -40,6 +42,11 @@ def _patch_mistral3_support():
             _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section][
                 "mistral3"
             ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"]
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        if "mistral" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["mistral"] = GGUF_TO_FAST_CONVERTERS["llama"]
+        if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUF_TO_FAST_CONVERTERS["llama"]
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
