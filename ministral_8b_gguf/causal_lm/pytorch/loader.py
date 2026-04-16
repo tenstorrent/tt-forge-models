@@ -71,21 +71,23 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _fix_gguf_version_detection():
-        """Fix gguf version detection when installed at runtime by RequirementsManager.
+        """Fix gguf version detection after RequirementsManager uninstall/reinstall cycle.
 
-        transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
-        is installed later, the mapping is stale and version detection falls back to
-        gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
+        RequirementsManager restores the golden env state (uninstalling gguf) then
+        reinstalls it from requirements.txt. During this cycle the transformers
+        is_gguf_available LRU cache can get poisoned with 'N/A'. Always refresh
+        the distribution mapping, invalidate importlib caches, and clear the
+        is_gguf_available LRU cache so it re-evaluates cleanly.
         """
         import transformers.utils.import_utils as _import_utils
 
-        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
-            try:
-                importlib.metadata.version("gguf")
-                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
-                _import_utils.is_gguf_available.cache_clear()
-            except importlib.metadata.PackageNotFoundError:
-                pass
+        importlib.invalidate_caches()
+        try:
+            importlib.metadata.version("gguf")
+            _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+        except importlib.metadata.PackageNotFoundError:
+            pass
+        _import_utils.is_gguf_available.cache_clear()
 
     def _load_tokenizer(self, dtype_override=None):
         self._fix_gguf_version_detection()
