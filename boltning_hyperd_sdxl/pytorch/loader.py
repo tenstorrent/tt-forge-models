@@ -15,7 +15,7 @@ Available variants:
 from typing import Optional
 
 import torch
-from diffusers import StableDiffusionXLPipeline
+from diffusers import DiffusionPipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -76,7 +76,7 @@ class ModelLoader(ForgeModel):
         Returns:
             UNet2DConditionModel: The UNet component from the SDXL pipeline.
         """
-        self.pipeline = StableDiffusionXLPipeline.from_pretrained(
+        self.pipeline = DiffusionPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=torch.float32,
             **kwargs,
@@ -90,6 +90,7 @@ class ModelLoader(ForgeModel):
             self.pipeline.vae,
         ]
         for module in modules:
+            module.to(torch.float32)
             module.eval()
             for param in module.parameters():
                 if param.requires_grad:
