@@ -59,10 +59,11 @@ def stable_cascade_preprocessing(
         negative_prompt_embeds,
         negative_prompt_embeds_pooled,
     ) = prior_pipe.encode_prompt(
-        prompt=prompt,
         device=device,
+        batch_size=batch_size,
         num_images_per_prompt=1,
         do_classifier_free_guidance=True,
+        prompt=prompt,
     )
 
     # Prepare timesteps
@@ -70,8 +71,8 @@ def stable_cascade_preprocessing(
     timesteps = prior_pipe.scheduler.timesteps
 
     # Prepare latent variables - the prior operates at a highly compressed resolution
-    latent_height = height // prior_pipe.config.resolution_multiple
-    latent_width = width // prior_pipe.config.resolution_multiple
+    latent_height = int(height // prior_pipe.config.resolution_multiple)
+    latent_width = int(width // prior_pipe.config.resolution_multiple)
     num_channels = prior_pipe.prior.config.in_channels
 
     torch.manual_seed(42)
