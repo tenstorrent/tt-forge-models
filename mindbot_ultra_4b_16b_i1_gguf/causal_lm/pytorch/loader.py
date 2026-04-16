@@ -4,6 +4,8 @@
 """
 Mindbot Ultra 4B 16b GGUF model loader implementation for causal language modeling.
 """
+import sys
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -76,6 +78,9 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # Increase recursion limit for TorchDynamo tracing
+        sys.setrecursionlimit(max(sys.getrecursionlimit(), 8000))
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
