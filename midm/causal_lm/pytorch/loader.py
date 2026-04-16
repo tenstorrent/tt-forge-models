@@ -92,8 +92,11 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        # Increase recursion limit for TorchDynamo tracing of deep models (48 layers)
-        sys.setrecursionlimit(max(sys.getrecursionlimit(), 8000))
+        # Increase recursion limit for TorchDynamo tracing of deep models (48 layers).
+        # TorchDynamo inlines each layer, and each adds ~15-20 stack frames.
+        # Other model loaders' patched __getattr__ methods (imported during
+        # test collection) amplify the stack usage.
+        sys.setrecursionlimit(max(sys.getrecursionlimit(), 50000))
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
