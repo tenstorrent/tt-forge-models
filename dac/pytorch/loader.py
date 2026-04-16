@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
         # Generate a synthetic 1-second audio waveform at 24kHz
         sampling_rate = processor.sampling_rate
         duration_seconds = 1
-        audio = np.random.randn(1, sampling_rate * duration_seconds).astype(np.float32)
+        audio = np.random.randn(sampling_rate * duration_seconds).astype(np.float32)
 
         inputs = processor(
             raw_audio=audio,
