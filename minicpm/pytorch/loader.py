@@ -91,6 +91,11 @@ class ModelLoader(ForgeModel):
         ):
             config.rope_scaling = None
 
+        # The custom MiniCPM model defines _tied_weights_keys as a list, but
+        # transformers >=5.x expects a dict. Disabling tie_word_embeddings
+        # avoids the incompatibility in post_init().
+        config.tie_word_embeddings = False
+
         model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
