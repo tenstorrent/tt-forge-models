@@ -45,11 +45,11 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.VIT_B_32_256: SigLIP2Config(
-            pretrained_model_name="hf_hub:timm/ViT-B-32-SigLIP2-256",
+            pretrained_model_name="vit_base_patch32_siglip_256.v2_webli",
             source=ModelSource.TIMM,
         ),
         ModelVariant.VIT_GOPT_16_384: SigLIP2Config(
-            pretrained_model_name="hf_hub:timm/ViT-gopt-16-SigLIP2-384",
+            pretrained_model_name="vit_giantopt_patch16_siglip_384.v2_webli",
             source=ModelSource.TIMM,
         ),
     }
