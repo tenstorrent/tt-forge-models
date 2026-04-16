@@ -6,7 +6,8 @@ Aesthetics Predictor V1 ViT model loader implementation for aesthetic score pred
 """
 
 import torch
-from transformers import AutoModel, CLIPProcessor
+from transformers import AutoConfig, CLIPProcessor
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from datasets import load_dataset
 from typing import Optional
 
@@ -66,8 +67,14 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model = AutoModel.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **kwargs
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        model_cls = get_class_from_dynamic_module(
+            config.auto_map["AutoModel"], pretrained_model_name
+        )
+        model = model_cls.from_pretrained(
+            pretrained_model_name, config=config, **kwargs
         )
 
         if dtype_override is not None:
