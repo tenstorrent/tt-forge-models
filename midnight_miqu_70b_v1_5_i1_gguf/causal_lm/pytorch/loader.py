@@ -4,9 +4,13 @@
 """
 Midnight Miqu 70B v1.5 i1 GGUF model loader implementation for causal language modeling.
 """
+import sys
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
+
+# Increase recursion limit to handle TorchDynamo's deep inlining of large models
+sys.setrecursionlimit(10000)
 
 from ....base import ForgeModel
 from ....config import (
