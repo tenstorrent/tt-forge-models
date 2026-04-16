@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"attn_implementation": "eager"}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -119,6 +119,13 @@ class ModelLoader(ForgeModel):
             truncation=True,
             max_length=max_length,
         )
+
+        if (
+            self.config is not None
+            and hasattr(self.config, "sliding_window")
+            and self.config.sliding_window is not None
+        ):
+            self.config.sliding_window = inputs["input_ids"].shape[1]
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
