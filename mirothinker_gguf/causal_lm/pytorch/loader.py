@@ -20,29 +20,6 @@ from ....config import (
 )
 
 
-def _patch_grouped_mm_for_float32():
-    """Patch transformers MoE _grouped_mm to handle float32 inputs.
-
-    torch._grouped_mm requires BF16 inputs, but during XLA FakeTensor
-    tracing the tensors may be float32. This patch casts inputs to
-    bfloat16 before calling the kernel.
-    """
-    import transformers.integrations.moe as moe_module
-
-    _orig_grouped_mm = moe_module._grouped_mm
-
-    def _patched_grouped_mm(input, weight, offs=None):
-        if input.dtype != torch.bfloat16 or weight.dtype != torch.bfloat16:
-            input = input.to(torch.bfloat16)
-            weight = weight.to(torch.bfloat16)
-        return _orig_grouped_mm(input, weight, offs=offs)
-
-    moe_module._grouped_mm = _patched_grouped_mm
-
-
-_patch_grouped_mm_for_float32()
-
-
 class ModelVariant(StrEnum):
     """Available MiroThinker GGUF model variants for causal language modeling."""
 
@@ -120,6 +97,10 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # Use eager MoE experts to avoid torch._grouped_mm which requires
+        # BF16 and is incompatible with XLA FakeTensor tracing in float32.
+        model.set_experts_implementation("eager")
 
         self.config = model.config
         self.model = model
