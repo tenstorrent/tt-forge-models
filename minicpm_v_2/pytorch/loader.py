@@ -54,7 +54,9 @@ class Wrapper(nn.Module):
         self.llm = model.llm
 
     def forward(self, input_ids, attention_mask=None):
-        outputs = self.llm(input_ids=input_ids, attention_mask=attention_mask)
+        outputs = self.llm(
+            input_ids=input_ids, attention_mask=attention_mask, use_cache=False
+        )
         return outputs.logits
 
 
