@@ -5,15 +5,13 @@
 MiniCPM-V-2_6-int4 model loader implementation for multimodal inference
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional
 from dataclasses import dataclass
 import torch
 import torch.nn as nn
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoProcessor, AutoTokenizer
 from transformers.integrations.tensor_parallel import ALL_PARALLEL_STYLES
 from PIL import Image
-import requests
-from io import BytesIO
 
 from ...config import (
     ModelConfig,
@@ -25,6 +23,7 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+from ...tools.utils import get_file
 
 
 # Fix parallel styles issue for torch 2.7.0+ compatibility - works fine in torch 2.3.1
@@ -56,9 +55,6 @@ class MiniCPMVInt4Config(ModelConfig):
     """Configuration specific to MiniCPM-V-2_6-int4 models"""
 
     pretrained_model_name: str = "openbmb/MiniCPM-V-2_6-int4"
-    max_new_tokens: int = 256
-    temperature: float = 0.5
-    sample_image_url: Optional[str] = "https://picsum.photos/512/512"
 
 
 class ModelVariant(StrEnum):
@@ -71,10 +67,35 @@ class ModelVariant(StrEnum):
 _VARIANTS = {
     ModelVariant.DEFAULT: MiniCPMVInt4Config(
         pretrained_model_name="openbmb/MiniCPM-V-2_6-int4",
-        max_new_tokens=256,
-        temperature=0.5,
     ),
 }
+
+
+class MiniCPMVForwardWrapper(nn.Module):
+    """Wrapper that translates keyword arguments into the data dict
+    expected by MiniCPMV.forward(self, data, **kwargs)."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, input_ids, pixel_values, tgt_sizes, image_bound, **kwargs):
+        seq_len = input_ids.shape[1]
+        position_ids = (
+            torch.arange(seq_len, device=input_ids.device)
+            .unsqueeze(0)
+            .expand(input_ids.shape[0], -1)
+        )
+
+        data = {
+            "input_ids": input_ids,
+            "pixel_values": pixel_values,
+            "tgt_sizes": tgt_sizes,
+            "image_bound": image_bound,
+            "position_ids": position_ids,
+        }
+
+        return self.model(data, **kwargs)
 
 
 class ModelLoader(ForgeModel):
@@ -86,8 +107,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant=None):
         """Initialize MiniCPM-V-2_6-int4 model loader."""
         super().__init__(variant)
-        self.model = None
-        self.tokenizer = None
+        self.processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[StrEnum] = None) -> ModelInfo:
@@ -101,154 +121,99 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_processor(self):
+        self.processor = AutoProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+        )
+        return self.processor
+
     def load_model(self, **kwargs):
-        """Load and return the MiniCPM-V-2_6-int4 model instance.
-
-        Args:
-            **kwargs: Additional model-specific arguments.
-
-        Returns:
-            torch.nn.Module: The loaded model instance
-        """
+        """Load and return the MiniCPM-V-2_6-int4 model wrapped for forward compatibility."""
         config = self._variant_config
 
-        # Load model and tokenizer
-        self.model = AutoModel.from_pretrained(
+        model = AutoModel.from_pretrained(
             config.pretrained_model_name,
             trust_remote_code=True,
             torch_dtype=torch.float32,
             **kwargs,
         )
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            config.pretrained_model_name, trust_remote_code=True
-        )
+        model.eval()
 
-        # Set model to eval mode
-        self.model.eval()
+        if self.processor is None:
+            self._load_processor()
 
-        return self.model
+        return MiniCPMVForwardWrapper(model)
 
-    def load_inputs(self, **kwargs) -> Dict[str, Any]:
-        """Load and return sample inputs for the model.
+    def load_inputs(self, **kwargs):
+        """Load and return preprocessed tensor inputs for the model."""
+        if self.processor is None:
+            self._load_processor()
 
-        Args:
-            **kwargs: Additional input-specific arguments.
+        image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
+        image = Image.open(image_file).convert("RGB")
 
-        Returns:
-            Dict: Sample inputs containing text and image
-        """
-        config = self._variant_config
-
-        # Load sample image
-        if config.sample_image_url:
-            try:
-                response = requests.get(config.sample_image_url)
-                image = Image.open(BytesIO(response.content)).convert("RGB")
-            except Exception:
-                image = Image.new("RGB", (512, 512), color="white")
-        else:
-            image = Image.new("RGB", (512, 512), color="white")
-
-        # Sample text input
         question = "Describe this image in detail."
 
-        # Return inputs in the format expected by predict method
-        return {"question": question, "image": image}
+        messages = [
+            {
+                "role": "user",
+                "content": [image, question],
+            }
+        ]
 
-    def predict(
-        self, inputs: Optional[Dict[str, Any]] = None, **kwargs
-    ) -> Dict[str, Any]:
-        """Run inference on the loaded model.
+        # Build prompt text from messages
+        copy_msgs = []
+        images = []
+        for msg in messages:
+            content = msg["content"]
+            cur_parts = []
+            for c in content:
+                if isinstance(c, Image.Image):
+                    images.append(c)
+                    cur_parts.append("(<image>./</image>)")
+                elif isinstance(c, str):
+                    cur_parts.append(c)
+            copy_msgs.append({"role": msg["role"], "content": "\n".join(cur_parts)})
 
-        Args:
-            inputs: Optional dictionary containing 'question' and 'image' keys.
-                   If None, uses sample inputs from load_inputs().
-            **kwargs: Additional inference arguments.
+        prompt = self.processor.tokenizer.apply_chat_template(
+            copy_msgs, tokenize=False, add_generation_prompt=True
+        )
 
-        Returns:
-            Dict containing inference results
-        """
-        if self.model is None:
-            raise RuntimeError("Model not loaded. Call load_model() first.")
+        inputs = self.processor(
+            [prompt],
+            [images],
+            return_tensors="pt",
+            max_length=8192,
+        )
 
-        if self.tokenizer is None:
-            raise RuntimeError("Tokenizer not loaded. Call load_model() first.")
+        # Remove image_sizes as the model doesn't use it in forward
+        inputs.pop("image_sizes", None)
+        inputs.pop("attention_mask", None)
 
-        # Get inputs
-        if inputs is None:
-            inputs = self.load_inputs()
+        return dict(inputs)
 
-        question = inputs.get("question", "Describe this image.")
-        image = inputs.get("image")
+    def unpack_forward_output(self, fwd_output):
+        if hasattr(fwd_output, "logits"):
+            return fwd_output.logits
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        return fwd_output
 
-        if image is None:
-            raise ValueError("Image input is required for MiniCPM-V inference")
+    def decode_output(self, **kwargs):
+        outputs = kwargs.get("outputs")
+        if outputs is None:
+            return None
 
-        # Prepare input messages
-        msgs = [{"role": "user", "content": [image, question]}]
+        if self.processor is None:
+            self._load_processor()
 
-        # Run inference
-        with torch.no_grad():
-            config = self._variant_config
-            result = self.model.chat(
-                image=None,
-                msgs=msgs,
-                tokenizer=self.tokenizer,
-                sampling=True,
-                temperature=config.temperature,
-                max_new_tokens=config.max_new_tokens,
-                **kwargs,
-            )
+        if isinstance(outputs, torch.Tensor):
+            if outputs.dtype in (torch.long, torch.int32, torch.int64):
+                token_ids = outputs
+            else:
+                token_ids = outputs.argmax(dim=-1)
+        else:
+            token_ids = outputs
 
-        return {
-            "question": question,
-            "response": result,
-            "model": "MiniCPM-V-2_6-int4",
-            "temperature": config.temperature,
-            "max_new_tokens": config.max_new_tokens,
-        }
-
-    @classmethod
-    def decode_output(cls, outputs: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-        """Decode model outputs into human-readable format.
-
-        Args:
-            outputs: Raw model outputs from predict()
-            **kwargs: Additional decoding arguments
-
-        Returns:
-            Dict: Decoded outputs with human-readable results
-        """
-        decoded = {
-            "question": outputs.get("question", ""),
-            "answer": outputs.get("response", ""),
-            "model_info": {
-                "name": outputs.get("model", "MiniCPM-V-2_6-int4"),
-                "temperature": outputs.get("temperature", 0.5),
-                "max_tokens": outputs.get("max_new_tokens", 256),
-            },
-            "confidence": None,
-            "processing_time": None,
-        }
-        return decoded
-
-    def post_processing(self, outputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Post-process model outputs.
-
-        Args:
-            outputs: Raw model outputs
-
-        Returns:
-            Dict: Post-processed outputs
-        """
-        if "response" in outputs:
-            outputs["response"] = outputs["response"].strip()
-
-        # Add metadata
-        outputs["post_processed"] = True
-        outputs["timestamp"] = torch.tensor([]).new_zeros(0).device
-
-        return outputs
-
-    def __call__(self, *args, **kwargs):
-        return self.predict(*args, **kwargs)
+        return self.processor.decode(token_ids[0], skip_special_tokens=True)
