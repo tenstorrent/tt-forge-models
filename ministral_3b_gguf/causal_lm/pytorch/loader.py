@@ -15,7 +15,7 @@ def _patch_transformers_mistral3_gguf():
     The Ministral 3B model uses the 'mistral3' architecture identifier in its
     GGUF metadata. Transformers 5.x supports 'mistral' but not 'mistral3'.
     We bridge the gap by registering the config mapping (reusing the mistral
-    mapping) and remapping model_type to mistral.
+    mapping), adding a tokenizer converter, and remapping model_type to mistral.
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
@@ -31,6 +31,17 @@ def _patch_transformers_mistral3_gguf():
     GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral3"] = GGUF_TO_TRANSFORMERS_MAPPING[
         "config"
     ]["mistral"].copy()
+
+    # Register tokenizer converters for mistral/mistral3 using the llama converter
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "mistral" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral"] = GGUFLlamaConverter
+    if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUFLlamaConverter
 
     # Patch load_gguf_checkpoint to remap model_type from mistral3 to mistral
     orig_load = gguf_utils.load_gguf_checkpoint
