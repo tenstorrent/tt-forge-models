@@ -45,6 +45,16 @@ def _patch_transformers_mistral3_gguf():
         "config"
     ]["mistral"].copy()
 
+    # Register tokenizer converters for mistral/mistral3 (same as llama)
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    for name in ("mistral", "mistral3"):
+        if name not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS[name] = GGUFLlamaConverter
+
     # Patch load_gguf_checkpoint to remap model_type from mistral3 to mistral
     orig_load = gguf_utils.load_gguf_checkpoint
 
