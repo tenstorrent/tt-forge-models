@@ -36,7 +36,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.VIRCHOW2: ModelConfig(
-            pretrained_model_name="hf-hub:paige-ai/Virchow2",
+            pretrained_model_name="vit_huge_patch14_224",
         ),
     }
 
