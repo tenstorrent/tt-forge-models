@@ -100,7 +100,12 @@ class ModelLoader(ForgeModel):
 
         # Use eager MoE experts to avoid torch._grouped_mm which requires
         # BF16 and is incompatible with XLA FakeTensor tracing in float32.
-        model.set_experts_implementation("eager")
+        # Directly set on each experts module's config to ensure propagation.
+        for layer in model.model.layers:
+            if hasattr(layer, "mlp") and hasattr(layer.mlp, "experts"):
+                experts = layer.mlp.experts
+                if hasattr(experts, "config"):
+                    experts.config._experts_implementation_internal = "eager"
 
         self.config = model.config
         self.model = model
