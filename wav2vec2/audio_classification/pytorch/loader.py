@@ -6,6 +6,23 @@
 Wav2Vec2 model loader implementation for audio classification.
 """
 
+import sys
+
+# Ensure this module is registered in sys.modules under its __name__.
+# The dynamic test loader registers it under a dashed key, but
+# transformers >= 5.x requires sys.modules[cls.__module__] for PreTrainedModel subclasses.
+if __name__ not in sys.modules:
+    _mod = next(
+        (
+            m
+            for m in sys.modules.values()
+            if m is not None and getattr(m, "__name__", None) == __name__
+        ),
+        None,
+    )
+    if _mod is not None:
+        sys.modules[__name__] = _mod
+
 from typing import Optional
 
 from ....base import ForgeModel
