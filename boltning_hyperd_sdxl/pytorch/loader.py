@@ -1,11 +1,12 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
 Boltning HyperD SDXL model loader implementation.
 
 Boltning HyperD SDXL is a speed-optimized Stable Diffusion XL checkpoint for
-fast text-to-image generation.
+fast text-to-image generation. This loader extracts the UNet component from
+the pipeline for compilation.
 
 Available variants:
 - BOLTNING_HYPERD_SDXL: GraydientPlatformAPI/boltning-hyperd-sdxl text-to-image generation
@@ -18,13 +19,16 @@ from diffusers import StableDiffusionXLPipeline
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
+)
+from ...stable_diffusion_xl.pytorch.src.model_utils import (
+    stable_diffusion_preprocessing_xl,
 )
 
 
@@ -44,6 +48,8 @@ class ModelLoader(ForgeModel):
     }
     DEFAULT_VARIANT = ModelVariant.BOLTNING_HYPERD_SDXL
 
+    prompt = "A cinematic photo of a lighthouse on a cliff during a storm, dramatic lighting, high detail"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipeline = None
@@ -62,10 +68,10 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Boltning HyperD SDXL pipeline.
+        """Load the Boltning HyperD SDXL pipeline and return the UNet component.
 
         Returns:
-            StableDiffusionXLPipeline: The Boltning HyperD SDXL pipeline instance.
+            UNet2DConditionModel: The UNet component from the SDXL pipeline.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
         self.pipeline = StableDiffusionXLPipeline.from_pretrained(
@@ -73,14 +79,43 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
             **kwargs,
         )
-        return self.pipeline
+        self.pipeline.to("cpu")
+
+        modules = [
+            self.pipeline.text_encoder,
+            self.pipeline.unet,
+            self.pipeline.text_encoder_2,
+            self.pipeline.vae,
+        ]
+        for module in modules:
+            module.eval()
+            for param in module.parameters():
+                if param.requires_grad:
+                    param.requires_grad = False
+
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the Boltning HyperD SDXL model.
+        """Load and return preprocessed inputs for the UNet model.
 
         Returns:
-            list: A list of sample text prompts.
+            list: Preprocessed input tensors for the UNet.
         """
-        return [
-            "A cinematic photo of a lighthouse on a cliff during a storm, dramatic lighting, high detail"
-        ] * batch_size
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        (
+            latent_model_input,
+            timesteps,
+            prompt_embeds,
+            timestep_cond,
+            added_cond_kwargs,
+            add_time_ids,
+        ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
+
+        if dtype_override:
+            latent_model_input = latent_model_input.to(dtype_override)
+            timesteps = timesteps.to(dtype_override)
+            prompt_embeds = prompt_embeds.to(dtype_override)
+
+        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
