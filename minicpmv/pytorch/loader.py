@@ -23,6 +23,17 @@ from ...config import (
 from ...tools.utils import cast_input_to_type, get_file
 
 
+class MiniCPMVWrapper(torch.nn.Module):
+    """Wrapper that adapts MiniCPMV's forward(data) signature to accept **kwargs."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, **kwargs):
+        return self.model(kwargs)
+
+
 class ModelVariant(StrEnum):
     """Available MiniCPM-V model variants."""
 
@@ -83,7 +94,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        return model
+        return MiniCPMVWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return input tensors for MiniCPM-V."""
@@ -103,11 +114,18 @@ class ModelLoader(ForgeModel):
             }
         ]
 
-        text_prompt = self.processor.apply_chat_template(
-            messages, add_generation_prompt=True
-        )
+        try:
+            text_prompt = self.processor.apply_chat_template(
+                messages, add_generation_prompt=True
+            )
+        except ValueError:
+            text_prompt = f"(<image>./</image>)\n{self.sample_text}"
 
         inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
+
+        if "position_ids" not in inputs and "input_ids" in inputs:
+            seq_len = inputs["input_ids"].shape[-1]
+            inputs["position_ids"] = torch.arange(seq_len).unsqueeze(0)
 
         if dtype_override:
             for key in inputs:
