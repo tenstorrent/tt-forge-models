@@ -226,59 +226,39 @@ class ModelLoader(ForgeModel):
         for layer in model.model.layers:
             # MLA attention sharding
             shard_specs[layer.self_attn.q_a_proj.weight] = (None, "batch")
-            shard_specs[layer.self_attn.q_b_proj.weight] = ("model", None)
-            shard_specs[layer.self_attn.q_a_layernorm.weight] = (None,)
+            shard_specs[layer.self_attn.q_b_proj.weight] = ("batch", None)
             shard_specs[layer.self_attn.kv_a_proj_with_mqa.weight] = (None, "batch")
-            shard_specs[layer.self_attn.kv_b_proj.weight] = ("model", None)
-            shard_specs[layer.self_attn.kv_a_layernorm.weight] = (None,)
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            shard_specs[layer.self_attn.kv_b_proj.weight] = ("batch", None)
+            shard_specs[layer.self_attn.o_proj.weight] = (None, "batch")
 
             # MLP sharding: MoE for layers >= first_k_dense_replace, dense otherwise
             if isinstance(layer.mlp, A2aSparseMLPWithSharedExperts):
-                # A2aSparseMLP: experts compound-sharded
-                a2a = layer.mlp.mlp
+                # A2aSparseMLP: experts compound-sharded (axis_0, axis_1)
+                mlp_wrapper = layer.mlp
+                mlp = mlp_wrapper.mlp if hasattr(mlp_wrapper, "mlp") else mlp_wrapper
+                shard_specs[mlp.router.gate.weight] = (None, "batch")
+                shard_specs[mlp.experts.gate_proj] = (
+                    ("batch", "model"),
+                    None,
+                    None,
+                )
+                shard_specs[mlp.experts.up_proj] = (
+                    ("batch", "model"),
+                    None,
+                    None,
+                )
+                shard_specs[mlp.experts.down_proj] = (
+                    ("batch", "model"),
+                    None,
+                    None,
+                )
 
-                shard_specs[a2a.router.gate.weight] = (None, "batch")
-                shard_specs[a2a.experts.gate_proj] = (("batch", "model"), None, None)
-                shard_specs[a2a.experts.up_proj] = (("batch", "model"), None, None)
-                shard_specs[a2a.experts.down_proj] = (("batch", "model"), None, None)
-
-                if layer.mlp.shared_experts is not None:
-                    shard_specs[layer.mlp.shared_experts.gate_proj.weight] = (
-                        "model",
-                        "batch",
-                    )
-                    shard_specs[layer.mlp.shared_experts.up_proj.weight] = (
-                        "model",
-                        "batch",
-                    )
-                    shard_specs[layer.mlp.shared_experts.down_proj.weight] = (
-                        "batch",
-                        "model",
-                    )
-            elif isinstance(layer.mlp, DeepseekV3MoE):
-                # Non-sparse MoE: tensor-parallel within each expert
-                shard_specs[layer.mlp.gate.weight] = (None, "batch")
-                for expert in layer.mlp.experts:
-                    shard_specs[expert.gate_proj.weight] = ("model", "batch")
-                    shard_specs[expert.up_proj.weight] = ("model", "batch")
-                    shard_specs[expert.down_proj.weight] = ("batch", "model")
-                if (
-                    hasattr(layer.mlp, "shared_experts")
-                    and layer.mlp.shared_experts is not None
-                ):
-                    shard_specs[layer.mlp.shared_experts.gate_proj.weight] = (
-                        "model",
-                        "batch",
-                    )
-                    shard_specs[layer.mlp.shared_experts.up_proj.weight] = (
-                        "model",
-                        "batch",
-                    )
-                    shard_specs[layer.mlp.shared_experts.down_proj.weight] = (
-                        "batch",
-                        "model",
-                    )
+                # Shared experts (if present, on wrapper not on inner A2aSparseMLP)
+                shared = getattr(mlp_wrapper, "shared_experts", None)
+                if shared is not None:
+                    shard_specs[shared.gate_proj.weight] = (None, "batch")
+                    shard_specs[shared.up_proj.weight] = (None, "batch")
+                    shard_specs[shared.down_proj.weight] = ("batch", None)
             else:
                 # Dense MLP (layer 0 only, given first_k_dense_replace=1)
                 shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
