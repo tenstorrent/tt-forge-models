@@ -88,7 +88,12 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def _build_full_config(self):
-        """Build a full LlavaConfig by wrapping the GGUF text config with vision config."""
+        """Build a full LlavaConfig by wrapping the GGUF text config with vision config.
+
+        The GGUF file only contains the text backbone config, so we load the
+        full multimodal config from the base model and override just the
+        text_config with the GGUF-derived one.
+        """
         _refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
         text_config = AutoConfig.from_pretrained(
@@ -98,6 +103,12 @@ class ModelLoader(ForgeModel):
         return LlavaConfig(
             text_config=text_config.to_dict(),
             vision_config=base_config.vision_config.to_dict(),
+            image_token_index=base_config.image_token_index,
+            projector_hidden_act=getattr(base_config, "projector_hidden_act", "gelu"),
+            vision_feature_select_strategy=getattr(
+                base_config, "vision_feature_select_strategy", "default"
+            ),
+            vision_feature_layer=getattr(base_config, "vision_feature_layer", -2),
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
