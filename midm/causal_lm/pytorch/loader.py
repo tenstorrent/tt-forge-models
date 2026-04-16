@@ -5,6 +5,7 @@
 Mi:dm 2.0 model loader implementation for causal language modeling.
 """
 
+import sys
 from typing import Optional
 
 import torch
@@ -90,6 +91,9 @@ class ModelLoader(ForgeModel):
             config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+
+        # Increase recursion limit for TorchDynamo tracing of deep models (48 layers)
+        sys.setrecursionlimit(max(sys.getrecursionlimit(), 8000))
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
