@@ -1,0 +1,5 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[mimo/causal_lm/pytorch-MiMo_7B_RL-single_device-inference]"
+  status: "PASS"
+  date: "20260416_222640"
+  branch: "arch-c-36-tt-xla-dev/nsmith/hf-bringup-range-2000-3000-7"
