@@ -6,7 +6,8 @@ T5 Base Korean Summarization model loader implementation
 """
 
 import torch
-from transformers import AutoTokenizer, T5ForConditionalGeneration
+from transformers import PreTrainedTokenizerFast, T5ForConditionalGeneration
+from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -58,8 +59,15 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, use_fast=False
+        # Load tokenizer directly from tokenizer.json to work around
+        # transformers 5.x bug in convert_to_native_format (KeyError on dict vocab)
+        model_name = self._variant_config.pretrained_model_name
+        tok_file = hf_hub_download(model_name, "tokenizer.json")
+        self.tokenizer = PreTrainedTokenizerFast(
+            tokenizer_file=tok_file,
+            eos_token="</s>",
+            unk_token="<unk>",
+            pad_token="<pad>",
         )
 
         return self.tokenizer
