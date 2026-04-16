@@ -115,7 +115,7 @@ class ModelLoader(ForgeModel):
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use bfloat16 as default.
-            patch_modules: If True, apply module overrides for correct sharding and training behavior.
+            patch_modules: If True, apply module overrides to de-interleave expert weights and do dense MoE execution.
 
         Returns:
             torch.nn.Module: The gpt-oss model instance for causal language modeling.
