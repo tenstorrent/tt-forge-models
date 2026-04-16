@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
@@ -25,6 +25,18 @@ class ModelVariant(StrEnum):
     DAVLAN_DISTILBERT_BASE_MULTILINGUAL_CASED_NER_HRL = (
         "Davlan/distilbert-base-multilingual-cased-ner-hrl"
     )
+    NLPIE_CLINICAL_DISTILBERT_I2B2_2010 = "nlpie/clinical-distilbert-i2b2-2010"
+
+
+_VARIANT_SAMPLE_TEXTS = {
+    ModelVariant.DAVLAN_DISTILBERT_BASE_MULTILINGUAL_CASED_NER_HRL: "HuggingFace is a company based in Paris and New York",
+    ModelVariant.NLPIE_CLINICAL_DISTILBERT_I2B2_2010: "The patient was diagnosed with diabetes and prescribed metformin",
+}
+
+_VARIANT_MODEL_GROUPS = {
+    ModelVariant.DAVLAN_DISTILBERT_BASE_MULTILINGUAL_CASED_NER_HRL: ModelGroup.GENERALITY,
+    ModelVariant.NLPIE_CLINICAL_DISTILBERT_I2B2_2010: ModelGroup.VULCAN,
+}
 
 
 class ModelLoader(ForgeModel):
@@ -36,10 +48,32 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Davlan/distilbert-base-multilingual-cased-ner-hrl",
             max_length=128,
         ),
+        ModelVariant.NLPIE_CLINICAL_DISTILBERT_I2B2_2010: LLMModelConfig(
+            pretrained_model_name="nlpie/clinical-distilbert-i2b2-2010",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.DAVLAN_DISTILBERT_BASE_MULTILINGUAL_CASED_NER_HRL
+
+    _SAMPLE_TEXTS = {
+        ModelVariant.DAVLAN_DISTILBERT_BASE_MULTILINGUAL_CASED_NER_HRL: (
+            "HuggingFace is a company based in Paris and New York"
+        ),
+        ModelVariant.OPENMED_NER_ONCOLOGY_DETECT: (
+            "Mutations in KRAS gene drive oncogenic transformation."
+        ),
+        ModelVariant.OPENMED_NER_GENOMIC_DETECT: (
+            "The BRCA2 gene is associated with hereditary breast cancer."
+        ),
+        ModelVariant.D4DATA_BIOMEDICAL_NER_ALL: (
+            "The patient reported no recurrence of palpitations at follow-up 6 months after the ablation."
+        ),
+        ModelVariant.NARGIZI_SCREEVE_POSTAGGER: (
+            "ქართული ენა ძალიან ლამაზი და საინტერესო ენაა"
+        ),
+    }
 
     def __init__(self, variant=None):
         """Initialize ModelLoader with specified variant.
@@ -53,9 +87,12 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.model_name = pretrained_model_name
-        self.max_length = 128
+        self.max_length = self._variant_config.max_length
         self.tokenizer = None
-        self.sample_text = "HuggingFace is a company based in Paris and New York"
+        self.sample_text = _VARIANT_SAMPLE_TEXTS.get(
+            self._variant_name,
+            "HuggingFace is a company based in Paris and New York",
+        )
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -69,10 +106,11 @@ class ModelLoader(ForgeModel):
         """
         if variant_name is None:
             variant_name = "base"
+        group = _VARIANT_MODEL_GROUPS.get(variant_name, ModelGroup.GENERALITY)
         return ModelInfo(
             model="DistilBERT",
             variant=variant_name,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.NLP_TOKEN_CLS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,

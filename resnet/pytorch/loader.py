@@ -11,7 +11,7 @@ from torchvision import models
 import torch
 import timm
 
-from transformers import ResNetForImageClassification
+from transformers import AutoModel, ResNetForImageClassification
 from datasets import load_dataset
 from ...tools.utils import VisionPreprocessor, VisionPostprocessor
 
@@ -36,6 +36,7 @@ class ResNetConfig(ModelConfig):
     high_res_size: tuple = (
         None  # None means use default size, otherwise (width, height)
     )
+    trust_remote_code: bool = False
 
 
 class ModelVariant(StrEnum):
@@ -44,10 +45,18 @@ class ModelVariant(StrEnum):
     # HuggingFace variants
     RESNET_50_HF = "ResNet50_HuggingFace"
     RESNET_50_HF_HIGH_RES = "ResNet50_HuggingFace_High_Resolution"
+    RESNET_10_HF = "ResNet10_HuggingFace"
 
     # TIMM variants
     RESNET_50_TIMM = "ResNet50_TIMM"
     RESNET_50_TIMM_HIGH_RES = "ResNet50_TIMM_High_Resolution"
+    RESNET_18_A3_IN1K_TIMM = "ResNet18_A3_IN1K_TIMM"
+    RESNET_34_A1_IN1K_TIMM = "ResNet34_A1_IN1K_TIMM"
+    RESNET_34_RA4_E3600_R224_IN1K_TIMM = "ResNet34_RA4_E3600_R224_IN1K_TIMM"
+    RESNET_50_A1_IN1K_TIMM = "ResNet50_A1_IN1K_TIMM"
+    RESNET_50_TV2_IN1K_TIMM = "ResNet50_TV2_IN1K_TIMM"
+    TEST_RESNET_R160_IN1K_TIMM = "TestResNet_R160_IN1K_TIMM"
+    RESNETV2_50X1_BIT_GOOG_IN21K_TIMM = "ResNetV2_50x1_BiT_Goog_In21k_TIMM"
 
     # Torchvision variants
     RESNET_18 = "ResNet18"
@@ -82,6 +91,34 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="resnet50",
             source=ModelSource.TIMM,
             high_res_size=(1280, 800),
+        ),
+        ModelVariant.RESNET_18_A3_IN1K_TIMM: ResNetConfig(
+            pretrained_model_name="resnet18.a3_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.RESNET_34_A1_IN1K_TIMM: ResNetConfig(
+            pretrained_model_name="resnet34.a1_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.RESNET_34_RA4_E3600_R224_IN1K_TIMM: ResNetConfig(
+            pretrained_model_name="resnet34.ra4_e3600_r224_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.RESNET_50_A1_IN1K_TIMM: ResNetConfig(
+            pretrained_model_name="resnet50.a1_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.RESNET_50_TV2_IN1K_TIMM: ResNetConfig(
+            pretrained_model_name="resnet50.tv2_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.TEST_RESNET_R160_IN1K_TIMM: ResNetConfig(
+            pretrained_model_name="test_resnet.r160_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.RESNETV2_50X1_BIT_GOOG_IN21K_TIMM: ResNetConfig(
+            pretrained_model_name="resnetv2_50x1_bit.goog_in21k",
+            source=ModelSource.TIMM,
         ),
         # Torchvision variants
         ModelVariant.RESNET_18: ResNetConfig(
@@ -147,6 +184,16 @@ class ModelLoader(ForgeModel):
             ModelVariant.RESNET_50_HF_HIGH_RES,
         ]:
             group = ModelGroup.RED
+        elif variant in [
+            ModelVariant.RESNET_18_A3_IN1K_TIMM,
+            ModelVariant.RESNET_34_A1_IN1K_TIMM,
+            ModelVariant.RESNET_34_RA4_E3600_R224_IN1K_TIMM,
+            ModelVariant.RESNET_50_A1_IN1K_TIMM,
+            ModelVariant.RESNET_50_TV2_IN1K_TIMM,
+            ModelVariant.TEST_RESNET_R160_IN1K_TIMM,
+            ModelVariant.RESNETV2_50X1_BIT_GOOG_IN21K_TIMM,
+        ]:
+            group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
 
@@ -175,7 +222,14 @@ class ModelLoader(ForgeModel):
 
         if source == ModelSource.HUGGING_FACE:
             # Load model from HuggingFace
-            model = ResNetForImageClassification.from_pretrained(model_name, **kwargs)
+            if self._variant_config.trust_remote_code:
+                model = AutoModel.from_pretrained(
+                    model_name, trust_remote_code=True, **kwargs
+                )
+            else:
+                model = ResNetForImageClassification.from_pretrained(
+                    model_name, **kwargs
+                )
 
         elif source == ModelSource.TIMM:
             # Load model using timm
