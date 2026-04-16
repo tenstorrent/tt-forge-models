@@ -44,14 +44,15 @@ def _patch_transformers_mistral3_gguf():
         GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral"]
     )
 
-    # 3. Register mistral3 tokenizer converter (same as llama)
+    # 3. Register tokenizer converters for both mistral3 and mistral (same as llama)
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
         GGUFLlamaConverter,
     )
 
-    if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUFLlamaConverter
+    for arch_name in ("mistral3", "mistral"):
+        if arch_name not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS[arch_name] = GGUFLlamaConverter
 
     # 4. Patch load_gguf_checkpoint to set model_type to mistral
     orig_load = gguf_utils.load_gguf_checkpoint
@@ -69,8 +70,9 @@ def _patch_transformers_mistral3_gguf():
     import transformers.models.auto.tokenization_auto as tok_auto
     import transformers.configuration_utils as config_utils
     import transformers.modeling_utils as modeling_utils
+    import transformers.tokenization_utils_tokenizers as tok_tokenizers
 
-    for mod in (tok_auto, config_utils, modeling_utils):
+    for mod in (tok_auto, config_utils, modeling_utils, tok_tokenizers):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
