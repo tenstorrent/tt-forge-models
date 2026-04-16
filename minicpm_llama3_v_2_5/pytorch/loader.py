@@ -25,6 +25,22 @@ from ...config import (
 from ...tools.utils import get_file
 
 
+class _MiniCPMVWrapper(torch.nn.Module):
+    """Wraps MiniCPMV to accept **kwargs instead of a single data dict.
+
+    MiniCPMV.forward(self, data, **kwargs) expects a dict as its first
+    positional argument. The test framework spreads inputs as keyword
+    arguments, so this wrapper repacks them into the expected dict form.
+    """
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self._wrapped = model
+
+    def forward(self, **data):
+        return self._wrapped(data)
+
+
 class ModelVariant(StrEnum):
     """Available MiniCPM-Llama3-V-2.5 model variants."""
 
@@ -109,7 +125,9 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        return model
+        # Wrap so the test framework can call model(**inputs_dict) and forward
+        # receives the dict as the required `data` positional argument.
+        return _MiniCPMVWrapper(model)
 
     def _load_processor(self):
         from transformers import AutoProcessor
@@ -154,9 +172,10 @@ class ModelLoader(ForgeModel):
         seq_len = inputs["input_ids"].shape[1]
         inputs["position_ids"] = torch.arange(seq_len, dtype=torch.long).unsqueeze(0)
 
-        # Convert to plain dict so pytree/tree_map doesn't unpack keys as separate args.
-        # Return as a list so model is called as model(inputs), matching forward(self, data, ...)
-        return [dict(inputs)]
+        # Return as a plain dict. The test framework spreads this as **kwargs to the
+        # wrapped model, which repacks it into the `data` dict that MiniCPMV.forward
+        # expects.
+        return dict(inputs)
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
