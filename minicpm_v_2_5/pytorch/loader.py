@@ -117,13 +117,17 @@ class ModelLoader(ForgeModel):
         )
         self.model.eval()
 
-        return self.model
+        # Return the LLM backbone directly.  The full multimodal forward
+        # method contains vision processing with data-dependent dynamic shapes
+        # that torch.compile / dynamo cannot trace.  We pre-compute vision
+        # embeddings in load_inputs and feed them to the LLM.
+        return self.model.llm
 
     def load_inputs(self, **kwargs):
         """Load and return sample inputs for the MiniCPM-Llama3-V-2_5 model.
 
-        Returns:
-            dict: ``data`` dict expected by :meth:`MiniCPMV.forward`.
+        Pre-computes vision embeddings and returns LLM-ready kwargs so that
+        the compilable LLM backbone is the only thing torch.compile traces.
         """
         image_file = get_file(
             "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
@@ -138,7 +142,20 @@ class ModelLoader(ForgeModel):
         inputs = self.processor(prompt, [image], return_tensors="pt", max_length=2048)
         inputs["position_ids"] = torch.arange(inputs["input_ids"].shape[1]).unsqueeze(0)
 
-        return (dict(inputs),)
+        # Run the vision encoder on CPU to produce merged embeddings, then
+        # feed only the resulting static tensors to the LLM backbone.
+        data = dict(inputs)
+        with torch.no_grad():
+            vllm_embedding, _ = self.model.get_vllm_embedding(data)
+
+        position_ids = data["position_ids"]
+        if position_ids.dtype != torch.int64:
+            position_ids = position_ids.long()
+
+        return {
+            "inputs_embeds": vllm_embedding,
+            "position_ids": position_ids,
+        }
 
     def decode_output(self, outputs, **kwargs):
         """Decode model outputs into human-readable text.
