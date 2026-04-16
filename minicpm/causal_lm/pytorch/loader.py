@@ -97,6 +97,11 @@ class ModelLoader(ForgeModel):
         if hasattr(config, "rope_parameters"):
             config.rope_parameters = None
 
+        # Newer transformers expects _tied_weights_keys as dict[str, str] but the
+        # custom MiniCPM modeling code defines it as a list (old format). Disabling
+        # tie_word_embeddings skips the tied-weights check in post_init.
+        config.tie_word_embeddings = False
+
         model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
