@@ -39,7 +39,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mistral-experimental/pixtral-12b",
         ),
         ModelVariant.PIXTRAL_12B_2409: ModelConfig(
-            pretrained_model_name="mistralai/Pixtral-12B-2409",
+            pretrained_model_name="mistral-community/pixtral-12b",
         ),
     }
 
