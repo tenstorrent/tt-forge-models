@@ -1,5 +1,13 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 # MiniCPM-o-4_5 Inference Requirements
 
+# Pin torch to prevent pip from changing its freeze format when installing
+# torchaudio (a transitive dep of vocos). Without this pin, the requirements
+# manager detects torch as 'changed' and purges it from sys.modules, causing:
+#   RuntimeError: function '_has_torch_function' already has a docstring
+torch==2.9.1+cpu
+
 # Model-specific dependencies
+minicpmo>=0.1.2
 vector_quantize_pytorch>=1.18.5
 vocos>=0.1.0
