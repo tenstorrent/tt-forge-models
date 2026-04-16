@@ -20,6 +20,81 @@ from ....config import (
 )
 
 
+def _patch_transformers_minimax_m2_gguf():
+    """Monkey-patch transformers to add minimax-m2 GGUF architecture support.
+
+    Transformers 5.x has MiniMaxM2ForCausalLM but lacks GGUF loading support
+    for the minimax-m2 architecture. The gguf library already knows about
+    minimax-m2 tensor names, so we only need to bridge transformers' config
+    processing layer.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "minimax-m2" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register minimax-m2 as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("minimax-m2")
+
+    # 2. Add config mapping for minimax-m2
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["minimax-m2"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+        "vocab_size": "vocab_size",
+        "expert_count": "num_local_experts",
+        "expert_used_count": "num_experts_per_tok",
+    }
+
+    # 3. Register minimax-m2 tokenizer converter (BPE-based, same as qwen2)
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "minimax-m2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["minimax-m2"] = GGUFQwen2Converter
+
+    # 4. Patch load_gguf_checkpoint to fix model_type
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        # GGUF reports model_type as "minimax-m2" but transformers expects "minimax_m2"
+        if config.get("model_type") == "minimax-m2":
+            config["model_type"] = "minimax_m2"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Also patch modules that imported load_gguf_checkpoint directly
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_minimax_m2_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available MiniMax-M2.5 GGUF model variants for causal language modeling."""
 
