@@ -15,21 +15,22 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
 )
 
 
-def load_pipe(pretrained_model_name):
+def load_pipe(pretrained_model_name, dtype=torch.bfloat16):
     """Load Amanatsu Illustrious SDXL pipeline.
 
     Args:
         pretrained_model_name: HuggingFace model identifier
+        dtype: torch dtype for the pipeline (default: bfloat16)
 
     Returns:
         StableDiffusionXLPipeline: Loaded pipeline with components set to eval mode
     """
     pipe = StableDiffusionXLPipeline.from_pretrained(
-        pretrained_model_name, torch_dtype=torch.float32
+        pretrained_model_name, torch_dtype=dtype
     )
     modules = [pipe.text_encoder, pipe.unet, pipe.text_encoder_2, pipe.vae]
 
-    pipe.to("cpu", dtype=torch.float32)
+    pipe.to("cpu", dtype=dtype)
 
     for module in modules:
         module.eval()

@@ -13,6 +13,8 @@ Available variants:
 
 from typing import Optional
 
+import torch
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -72,15 +74,17 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The UNet model used for denoising.
         """
-        self.pipeline = load_pipe(self._variant_config.pretrained_model_name)
-
-        if dtype_override is not None:
-            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
-
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        self.pipeline = load_pipe(
+            self._variant_config.pretrained_model_name, dtype=dtype
+        )
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Amanatsu Illustrious UNet model.
+
+        Uses 512x512 resolution to keep the latent size (64x64) tractable for
+        CPU reference runs.
 
         Returns:
             dict: Keyword arguments for the UNet forward method:
@@ -89,8 +93,9 @@ class ModelLoader(ForgeModel):
                 - encoder_hidden_states (torch.Tensor): Encoded prompt embeddings
                 - added_cond_kwargs (dict): Additional conditioning inputs
         """
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         if self.pipeline is None:
-            self.load_model(dtype_override=dtype_override)
+            self.load_model(dtype_override=dtype)
 
         (
             latent_model_input,
@@ -99,18 +104,15 @@ class ModelLoader(ForgeModel):
             timestep_cond,
             added_cond_kwargs,
             add_time_ids,
-        ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
+        ) = stable_diffusion_preprocessing_xl(
+            self.pipeline, self.prompt, height=512, width=512
+        )
 
         timestep = timesteps[0]
 
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timestep = timestep.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
-
         return {
-            "sample": latent_model_input,
-            "timestep": timestep,
-            "encoder_hidden_states": prompt_embeds,
+            "sample": latent_model_input.to(dtype),
+            "timestep": timestep.to(dtype),
+            "encoder_hidden_states": prompt_embeds.to(dtype),
             "added_cond_kwargs": added_cond_kwargs,
         }
