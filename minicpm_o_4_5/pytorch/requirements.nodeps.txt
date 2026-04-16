@@ -1,0 +1,5 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+# Install torchaudio without deps to avoid torch version change in pip freeze
+# which would cause RequirementsManager to purge torch from sys.modules,
+# triggering a torch double-init error (docstring conflict in torch._C).
+torchaudio==2.9.1+cpu
