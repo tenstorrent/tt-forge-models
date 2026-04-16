@@ -70,13 +70,15 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load the Boltning HyperD SDXL pipeline and return the UNet component.
 
+        The pipeline is always loaded in float32 to ensure reliable preprocessing
+        with the text encoders. The UNet is then converted to the requested dtype.
+
         Returns:
             UNet2DConditionModel: The UNet component from the SDXL pipeline.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
         self.pipeline = StableDiffusionXLPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
+            torch_dtype=torch.float32,
             **kwargs,
         )
         self.pipeline.to("cpu")
@@ -92,6 +94,9 @@ class ModelLoader(ForgeModel):
             for param in module.parameters():
                 if param.requires_grad:
                     param.requires_grad = False
+
+        if dtype_override is not None:
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
         return self.pipeline.unet
 
