@@ -4,9 +4,90 @@
 """
 Tiny Random JAIS model loader implementation for causal language modeling.
 """
+import sys
+import types
+
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
+
+
+def _patch_transformers_compat():
+    """Patch missing transformers modules needed by JAIS custom code.
+
+    The JAIS model uses custom code written for older transformers versions.
+    This patches:
+    - find_pruneable_heads_and_indices (removed in transformers 5.x)
+    - prune_conv1d_layer (removed in transformers 5.x)
+    - transformers.utils.model_parallel_utils (removed in transformers 5.x)
+    - PreTrainedModel.get_head_mask (removed in transformers 5.x)
+    """
+    from transformers import pytorch_utils
+
+    if not hasattr(pytorch_utils, "find_pruneable_heads_and_indices"):
+
+        def find_pruneable_heads_and_indices(heads, n_heads, head_size, already_pruned):
+            mask = torch.ones(n_heads, head_size)
+            for head in heads:
+                if head not in already_pruned:
+                    mask[head] = 0
+            mask = mask.view(-1).contiguous().eq(1)
+            index = torch.arange(len(mask))[mask].long()
+            return heads, index
+
+        pytorch_utils.find_pruneable_heads_and_indices = (
+            find_pruneable_heads_and_indices
+        )
+
+    if not hasattr(pytorch_utils, "prune_conv1d_layer"):
+
+        def prune_conv1d_layer(layer, index, dim=0):
+            nf = layer.nf
+            weight = layer.weight.index_select(dim, index)
+            if dim == 0:
+                bias = layer.bias.index_select(0, index)
+                nf = len(index)
+            else:
+                bias = layer.bias
+            new_layer = pytorch_utils.Conv1D(nf, layer.weight.shape[1 - dim])
+            new_layer.weight = torch.nn.Parameter(weight)
+            new_layer.bias = torch.nn.Parameter(bias)
+            return new_layer
+
+        pytorch_utils.prune_conv1d_layer = prune_conv1d_layer
+
+    if "transformers.utils.model_parallel_utils" not in sys.modules:
+        mpu = types.ModuleType("transformers.utils.model_parallel_utils")
+
+        def assert_device_map(device_map, num_blocks):
+            pass
+
+        def get_device_map(n_layers, devices):
+            return {i: devices[0] for i in range(n_layers)}
+
+        mpu.assert_device_map = assert_device_map
+        mpu.get_device_map = get_device_map
+        sys.modules["transformers.utils.model_parallel_utils"] = mpu
+
+    from transformers import PreTrainedModel
+
+    if not hasattr(PreTrainedModel, "get_head_mask"):
+
+        def get_head_mask(
+            self, head_mask, num_hidden_layers, is_attention_chunked=False
+        ):
+            if head_mask is not None:
+                head_mask = self._convert_head_mask_to_5d(head_mask, num_hidden_layers)
+                if is_attention_chunked:
+                    head_mask = head_mask.unsqueeze(-1)
+            else:
+                head_mask = [None] * num_hidden_layers
+            return head_mask
+
+        PreTrainedModel.get_head_mask = get_head_mask
+
+
+_patch_transformers_compat()
 
 from ...base import ForgeModel
 from ...config import (
@@ -83,12 +164,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if not hasattr(config, "add_cross_attention"):
+            config.add_cross_attention = False
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
