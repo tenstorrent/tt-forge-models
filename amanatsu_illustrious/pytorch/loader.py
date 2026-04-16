@@ -33,8 +33,10 @@ REPO_ID = "John6666/amanatsu-illustrious-v11-sdxl"
 
 # SDXL UNet input shapes (with classifier-free guidance, batch doubles)
 _SDXL_LATENT_CHANNELS = 4
-_SDXL_LATENT_HEIGHT = 64  # 512 / vae_scale_factor(8)
-_SDXL_LATENT_WIDTH = 64
+# Use 32x32 latents (256x256 effective image size) for random-weights mode to
+# reduce self-attention sequence length from 1024 to 256 for CPU tractability
+_SDXL_LATENT_HEIGHT = 32  # 256 / vae_scale_factor(8)
+_SDXL_LATENT_WIDTH = 32
 _SDXL_SEQ_LEN = 77
 _SDXL_ENCODER_HIDDEN_SIZE = 2048  # SDXL dual text encoder concat output
 _SDXL_POOLED_SIZE = 1280  # SDXL pooled text embed size
