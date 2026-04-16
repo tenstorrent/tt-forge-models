@@ -154,8 +154,8 @@ class ModelLoader(ForgeModel):
         seq_len = inputs["input_ids"].shape[1]
         inputs["position_ids"] = torch.arange(seq_len, dtype=torch.long).unsqueeze(0)
 
-        # Return as kwargs dict so forward(data=inputs) is called correctly
-        return {"data": inputs}
+        # Return as a list so model is called as model(inputs), matching forward(self, data, ...)
+        return [inputs]
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
