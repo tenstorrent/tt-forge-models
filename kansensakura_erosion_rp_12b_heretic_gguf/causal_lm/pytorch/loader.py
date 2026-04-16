@@ -4,9 +4,12 @@
 """
 KansenSakura Erosion RP 12B Heretic GGUF model loader implementation for causal language modeling.
 """
+import importlib
+import importlib.metadata
+from typing import Optional
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
@@ -30,6 +33,26 @@ class ModelVariant(StrEnum):
 
 class ModelLoader(ForgeModel):
     """KansenSakura Erosion RP 12B Heretic GGUF model loader implementation for causal language modeling tasks."""
+
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix gguf version detection after RequirementsManager uninstall/reinstall cycle.
+
+        RequirementsManager restores the golden env state (uninstalling gguf) then
+        reinstalls it from requirements.txt. During this cycle the transformers
+        is_gguf_available LRU cache can get poisoned with 'N/A'. Always refresh
+        the distribution mapping, invalidate importlib caches, and clear the
+        is_gguf_available LRU cache so it re-evaluates cleanly.
+        """
+        import transformers.utils.import_utils as _import_utils
+
+        importlib.invalidate_caches()
+        try:
+            importlib.metadata.version("gguf")
+            _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+        except importlib.metadata.PackageNotFoundError:
+            pass
+        _import_utils.is_gguf_available.cache_clear()
 
     _VARIANTS = {
         ModelVariant.KANSENSAKURA_EROSION_RP_12B_HERETIC_I1_GGUF: LLMModelConfig(
@@ -64,6 +87,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_version_detection()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -78,6 +102,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._fix_gguf_version_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -123,6 +148,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        self._fix_gguf_version_detection()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
