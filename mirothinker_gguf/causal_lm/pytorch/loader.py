@@ -101,6 +101,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Ensure all parameters are in bfloat16 — GGUF dequantization may
+        # produce float32 weights, but torch._grouped_mm in the MoE layer
+        # requires BF16.
+        model = model.to(effective_dtype)
+
         self.config = model.config
         self.model = model
         return model
