@@ -85,23 +85,24 @@ class ModelLoader(ForgeModel):
 
         When TT_RANDOM_WEIGHTS=1, loads only the UNet config and uses random
         weights to avoid downloading the full 6.5GB model on compile-only systems.
+        Uses float32 in that mode because AMD CPUs without AVX512BF16 fall back
+        to a very slow bfloat16 conv2d path.
 
         Returns:
             torch.nn.Module: The UNet model used for denoising.
         """
         from diffusers import UNet2DConditionModel
 
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
-
         if os.environ.get("TT_RANDOM_WEIGHTS", "") == "1":
-            # Download only the tiny UNet config JSON, then random-init
+            # float32 is ~10x faster than bfloat16 on AMD EPYC (no AVX512BF16)
             unet_config = UNet2DConditionModel.load_config(
                 self._variant_config.pretrained_model_name, subfolder="unet"
             )
             unet = UNet2DConditionModel.from_config(unet_config)
-            unet = unet.to(dtype).eval()
+            unet = unet.to(torch.float32).eval()
             return unet
 
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         self.pipeline = load_pipe(
             self._variant_config.pretrained_model_name, dtype=dtype
         )
@@ -111,8 +112,9 @@ class ModelLoader(ForgeModel):
         """Load and return sample inputs for the Amanatsu Illustrious UNet model.
 
         Uses 512x512 resolution to keep the latent size (64x64) tractable for
-        CPU reference runs. When TT_RANDOM_WEIGHTS=1, uses random tensors with
-        the correct SDXL input shapes.
+        CPU reference runs. When TT_RANDOM_WEIGHTS=1, uses random float32 tensors
+        with the correct SDXL input shapes (float32 avoids the slow bfloat16
+        conv2d path on AMD CPUs without AVX512BF16).
 
         Returns:
             dict: Keyword arguments for the UNet forward method:
@@ -121,10 +123,10 @@ class ModelLoader(ForgeModel):
                 - encoder_hidden_states (torch.Tensor): Encoded prompt embeddings
                 - added_cond_kwargs (dict): Additional conditioning inputs
         """
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
-
         if os.environ.get("TT_RANDOM_WEIGHTS", "") == "1":
-            # CFG doubles the batch dimension
+            # Use float32 — AMD EPYC 7352 has no AVX512BF16, making bfloat16
+            # conv2d use a very slow fallback path.
+            # CFG doubles the batch dimension.
             cfg_batch = batch_size * 2
             torch.manual_seed(42)
             return {
@@ -133,20 +135,26 @@ class ModelLoader(ForgeModel):
                     _SDXL_LATENT_CHANNELS,
                     _SDXL_LATENT_HEIGHT,
                     _SDXL_LATENT_WIDTH,
-                    dtype=dtype,
+                    dtype=torch.float32,
                 ),
-                "timestep": torch.tensor(999, dtype=dtype),
+                "timestep": torch.tensor(999, dtype=torch.float32),
                 "encoder_hidden_states": torch.randn(
-                    cfg_batch, _SDXL_SEQ_LEN, _SDXL_ENCODER_HIDDEN_SIZE, dtype=dtype
+                    cfg_batch,
+                    _SDXL_SEQ_LEN,
+                    _SDXL_ENCODER_HIDDEN_SIZE,
+                    dtype=torch.float32,
                 ),
                 "added_cond_kwargs": {
                     "text_embeds": torch.randn(
-                        cfg_batch, _SDXL_POOLED_SIZE, dtype=dtype
+                        cfg_batch, _SDXL_POOLED_SIZE, dtype=torch.float32
                     ),
-                    "time_ids": torch.zeros(cfg_batch, _SDXL_TIME_IDS, dtype=dtype),
+                    "time_ids": torch.zeros(
+                        cfg_batch, _SDXL_TIME_IDS, dtype=torch.float32
+                    ),
                 },
             }
 
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         if self.pipeline is None:
             self.load_model(dtype_override=dtype)
 
