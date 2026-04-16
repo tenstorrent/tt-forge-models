@@ -2,9 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Ministral 3B Instruct BnB 4-bit model loader implementation for multimodal vision-language modeling.
+Ministral 3B Instruct BnB 4-bit model loader implementation.
 """
 
+import torch
 from typing import Optional
 
 from ....config import (
@@ -28,7 +29,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Ministral 3B Instruct BnB 4-bit model loader for multimodal vision-language tasks."""
+    """Ministral 3B Instruct BnB 4-bit model loader."""
 
     _VARIANTS = {
         ModelVariant.MINISTRAL_3B_INSTRUCT_2512_BNB_4BIT: LLMModelConfig(
@@ -38,12 +39,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.MINISTRAL_3B_INSTRUCT_2512_BNB_4BIT
 
-    sample_text = "What do you see in this image?"
-    sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
+    sample_text = "What is the meaning of life?"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
+        self.tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -53,24 +53,19 @@ class ModelLoader(ForgeModel):
             model="ministral_3b_instruct_bnb_4bit",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.MM_VISUAL_QA,
+            task=ModelTask.TEXT_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self, dtype_override=None):
-        """Load processor for the current variant."""
-        from transformers import AutoProcessor
+    def _load_tokenizer(self):
+        """Load tokenizer for the current variant."""
+        from transformers import AutoTokenizer
 
-        kwargs = {}
-        if dtype_override is not None:
-            kwargs["torch_dtype"] = dtype_override
-
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **kwargs
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name,
         )
-
-        return self.processor
+        return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Ministral 3B Instruct BnB 4-bit model instance.
@@ -84,8 +79,8 @@ class ModelLoader(ForgeModel):
         from transformers import Mistral3ForConditionalGeneration
 
         pretrained_model_name = self._variant_config.pretrained_model_name
-        if self.processor is None:
-            self._load_processor(dtype_override)
+        if self.tokenizer is None:
+            self._load_tokenizer()
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -104,49 +99,21 @@ class ModelLoader(ForgeModel):
         self.config = model.config
         return model
 
-    def load_inputs(
-        self,
-        dtype_override=None,
-        prompt: Optional[str] = None,
-        image_url: Optional[str] = None,
-    ):
-        """Load and return sample inputs for the model.
+    def load_inputs(self, dtype_override=None):
+        """Load and return text-only sample inputs for the model.
+
+        Text-only inputs avoid the Pixtral vision encoder which has
+        dynamic-shape issues with Dynamo tracing (0-element reshape).
 
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        from PIL import Image
-        from ....tools.utils import cast_input_to_type, get_file
+        if self.tokenizer is None:
+            self._load_tokenizer()
 
-        if self.processor is None:
-            self._load_processor(dtype_override)
-
-        image_file = get_file(image_url or self.sample_image_url)
-        image = Image.open(image_file).convert("RGB")
-
-        text_prompt = self.processor.apply_chat_template(
-            [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image"},
-                        {"type": "text", "text": prompt or self.sample_text},
-                    ],
-                }
-            ],
-            add_generation_prompt=True,
-        )
-
-        inputs = self.processor(
-            text=text_prompt,
-            images=[image],
+        inputs = self.tokenizer(
+            self.sample_text,
             return_tensors="pt",
         )
-
-        if dtype_override is not None:
-            if "pixel_values" in inputs:
-                inputs["pixel_values"] = cast_input_to_type(
-                    inputs["pixel_values"], dtype_override
-                )
 
         return inputs
