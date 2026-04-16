@@ -6,9 +6,44 @@ Cambrian-S model loader implementation for multimodal visual question answering.
 """
 
 import torch
-from PIL import Image
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoModelForCausalLM
 from typing import Optional
+
+# Register CambrianQwen model type with transformers AutoModel/AutoConfig
+from cambrian.model.language_model.cambrian_qwen2 import (
+    CambrianQwenForCausalLM,
+)  # noqa: F401
+
+
+def _patch_cambrian_qwen_rope():
+    """Fix compatibility between cambrian-s and newer transformers.
+
+    CambrianQwenForCausalLM.__init__ sets config.rope_scaling = None after
+    calling Qwen2ForCausalLM.__init__ but before creating CambrianQwenModel.
+    In newer transformers, this invalidates the computed rope_parameters
+    property, causing a TypeError in Qwen2RotaryEmbedding. This patch restores
+    rope_parameters immediately after the rope_scaling reset.
+    """
+    from cambrian.model.language_model.cambrian_qwen2 import CambrianQwenModel
+    from transformers import Qwen2ForCausalLM
+
+    import torch.nn as nn
+
+    def _patched_init(self, config):
+        Qwen2ForCausalLM.__init__(self, config)
+        config.model_type = "cambrian_qwen"
+        rope_params = config.rope_parameters
+        config.rope_scaling = None
+        if config.rope_parameters is None and rope_params is not None:
+            config.rope_parameters = rope_params
+        self.model = CambrianQwenModel(config)
+        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        self.post_init()
+
+    CambrianQwenForCausalLM.__init__ = _patched_init
+
+
+_patch_cambrian_qwen_rope()
 
 from ....base import ForgeModel
 from ....config import (
@@ -20,7 +55,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....tools.utils import get_file, cast_input_to_type
+from ....tools.utils import cast_input_to_type
 
 
 class ModelVariant(StrEnum):
@@ -59,7 +94,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
+        from transformers import AutoTokenizer
+
+        self.processor = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
         )
@@ -93,26 +130,35 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        image_file = get_file(
-            "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
-        )
-        image = Image.open(image_file)
+        tokenizer = self.processor
+        IMAGE_TOKEN_INDEX = -200
 
         conversation = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": "What is shown in this image?"},
-                ],
-            }
+            {"role": "user", "content": "<image>\nWhat is shown in this image?"},
         ]
-
-        text_prompt = self.processor.apply_chat_template(
-            conversation, add_generation_prompt=True
+        text_prompt = tokenizer.apply_chat_template(
+            conversation, add_generation_prompt=True, tokenize=False
         )
 
-        inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
+        # Tokenize with IMAGE_TOKEN_INDEX replacing <image>
+        chunks = text_prompt.split("<image>")
+        input_ids = []
+        for i, chunk in enumerate(chunks):
+            if i > 0:
+                input_ids.append(IMAGE_TOKEN_INDEX)
+            input_ids.extend(tokenizer.encode(chunk, add_special_tokens=False))
+
+        input_ids = torch.tensor([input_ids], dtype=torch.long)
+        attention_mask = torch.ones_like(input_ids)
+
+        # Create dummy image tensor for the SigLIP2 vision encoder (384x384)
+        images = torch.randn(1, 3, 384, 384)
+
+        inputs = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "images": images,
+        }
 
         if dtype_override is not None:
             for key in inputs:
@@ -124,7 +170,7 @@ class ModelLoader(ForgeModel):
                 if torch.is_tensor(inputs[key]):
                     inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        return dict(inputs)
+        return inputs
 
     def decode_output(self, outputs, input_length=None):
         """Decode model outputs into human-readable text."""
