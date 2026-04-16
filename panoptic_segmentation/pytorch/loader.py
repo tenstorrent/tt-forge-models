@@ -307,6 +307,40 @@ class ModelLoader(ForgeModel):
         # Tests expect a torch.nn.Module instance
         return self._model
 
+    def preprocess_image(
+        self,
+        image_path: str,
+        image_size: Tuple[int, int],
+        dtype: torch.dtype = torch.float32,
+    ) -> torch.Tensor:
+        import cv2
+        import numpy as np
+        import urllib.request
+        import torch
+
+        # ---- Load image (Default is BGR) ----
+        if image_path.startswith("http"):
+            with urllib.request.urlopen(image_path) as response:
+                image_data = np.asarray(bytearray(response.read()), dtype=np.uint8)
+                im = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
+        else:
+            im = cv2.imread(image_path)
+
+        if im is None:
+            raise ValueError(f"Could not load image from {image_path}")
+
+        # ---- Resize (cv2 uses W, H order) ----
+        im = cv2.resize(im, (image_size[1], image_size[0]))
+
+        # ---- Convert to CHW and float32 (Keep range [0, 255]) ----
+        im = im.astype("float32")
+        tensor_input = torch.from_numpy(im).permute(2, 0, 1)  # (H, W, C) -> (C, H, W)
+
+        # ---- Cast dtype ----
+        tensor_input = tensor_input.to(dtype)
+
+        return tensor_input
+
     def _setup_metadata(self, cfg):
         """Setup metadata for COCO panoptic dataset like in panoptic_seg.py."""
         # Lazy import - only import when actually setting up metadata
@@ -341,10 +375,23 @@ class ModelLoader(ForgeModel):
 
         batched_inputs: List[Dict[str, Any]] = []
         for _ in range(batch_size):
-            # Create random tensor in (C, H, W) format expected by the model
-            tensor_input = torch.rand(
-                3, image_size[0], image_size[1], dtype=dtype_override
-            )
+            try:
+                # Attempt to use the real sample image from the config URL
+                if config.sample_image_url:
+                    tensor_input = self.preprocess_image(
+                        config.sample_image_url, image_size, dtype_override
+                    )
+                else:
+                    raise ValueError("No sample_image_url provided in config.")
+            except Exception as e:
+                # Fallback to random noise if network or decode fails
+                print(
+                    f"Warning: Could not load sample image ({e}). Falling back to random noise."
+                )
+                tensor_input = torch.rand(
+                    3, image_size[0], image_size[1], dtype=dtype_override
+                )
+
             batched_inputs.append(
                 {
                     "image": tensor_input,
@@ -372,22 +419,26 @@ class ModelLoader(ForgeModel):
         if self.predictor is None:
             raise RuntimeError("Model not loaded. Call load_model() first.")
 
-        # Load image
+        # Load image using centralized preprocessor
         if image_path is None:
             # Use sample image from config
             config = self._variant_config
             if config.sample_image_url:
                 image_path = config.sample_image_url
 
-        if image_path.startswith("http"):
-            # Download image from URL
-            print(f"Downloading image from: {image_path}")
-            with urllib.request.urlopen(image_path) as response:
-                image_data = np.asarray(bytearray(response.read()), dtype="uint8")
-                im = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
-        else:
-            # Load from local file
-            im = cv2.imread(image_path)
+        if image_path is None:
+            raise ValueError(
+                "No image_path provided and no sample_image_url in config."
+            )
+
+        # Default image size from config for predict
+        image_size = self._variant_config.image_size
+
+        # We need a NumPy BGR image for DefaultPredictor.__call__
+        # but let's reuse preprocess_image logic and convert back or just inline the decode
+        # To be safe for the predictor, we'll fetch the processed tensor and convert to NumPy
+        tensor_im = self.preprocess_image(image_path, image_size)
+        im = tensor_im.cpu().numpy().transpose(1, 2, 0).astype("uint8")
 
         if im is None:
             raise ValueError(f"Could not load image from {image_path}")
