@@ -68,14 +68,24 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoModel
+        from huggingface_hub import hf_hub_download
+        import json
+        from transformers import Qwen2ForCausalLM, Qwen2Config
 
-        full_model = AutoModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            torch_dtype=dtype_override or torch.float32,
+        # The HF repo is missing custom code files (configuration_bailingmm.py),
+        # so we cannot use AutoModel. Instead, load the LLM backbone directly
+        # using the Qwen2 config embedded in the model's config.json.
+        config_path = hf_hub_download(
+            self._variant_config.pretrained_model_name, "config.json"
         )
-        model = MingOmniTTSLLMWrapper(full_model.llm)
+        with open(config_path) as f:
+            full_config = json.load(f)
+
+        llm_config = Qwen2Config(**full_config["llm_config"])
+        llm = Qwen2ForCausalLM(llm_config)
+        llm.to(dtype=dtype_override or torch.float32)
+
+        model = MingOmniTTSLLMWrapper(llm)
         model.eval()
         return model
 
