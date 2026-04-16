@@ -48,6 +48,7 @@ class ModelLoader(ForgeModel):
         """Initialize MiniCPM-Llama3-V-2.5 model loader."""
         super().__init__(variant)
         self.tokenizer = None
+        self._processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -110,17 +111,51 @@ class ModelLoader(ForgeModel):
 
         return model
 
+    def _load_processor(self):
+        from transformers import AutoProcessor
+
+        self._processor = AutoProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+        )
+        return self._processor
+
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return input tensors for MiniCPM-Llama3-V-2.5."""
-        if self.tokenizer is None:
-            self._load_tokenizer()
+        if self._processor is None:
+            self._load_processor()
 
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         image = Image.open(image_file).convert("RGB")
 
-        msgs = [{"role": "user", "content": self.sample_text}]
+        # Build messages in the format expected by the processor (mirrors chat() logic)
+        msgs = [{"role": "user", "content": [image, self.sample_text]}]
+        images = []
+        for msg in msgs:
+            content = msg["content"]
+            cur_msgs = []
+            for c in content:
+                if isinstance(c, Image.Image):
+                    images.append(c)
+                    cur_msgs.append("(<image>./</image>)")
+                elif isinstance(c, str):
+                    cur_msgs.append(c)
+            msg["content"] = "\n".join(cur_msgs)
 
-        return {"image": image, "msgs": msgs}
+        prompt = self._processor.tokenizer.apply_chat_template(
+            msgs, tokenize=False, add_generation_prompt=True
+        )
+        inputs = self._processor(prompt, images, return_tensors="pt")
+
+        # Ensure int64 for embedding layer compatibility
+        inputs["input_ids"] = inputs["input_ids"].long()
+
+        # forward() requires position_ids (not returned by processor)
+        seq_len = inputs["input_ids"].shape[1]
+        inputs["position_ids"] = torch.arange(seq_len, dtype=torch.long).unsqueeze(0)
+
+        # Return as kwargs dict so forward(data=inputs) is called correctly
+        return {"data": inputs}
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
