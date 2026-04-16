@@ -79,6 +79,21 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # Restore nn.Module.__getattr__ to the original to prevent RecursionError
+        # during torch.compile tracing. Multiple worktree copies of minicpm loaders
+        # each monkeypatch nn.Module.__getattr__ in a chain (~130 layers), causing
+        # excessive recursion when torch._dynamo inlines the chain symbolically.
+        import torch.nn as nn
+
+        getattr_fn = nn.Module.__getattr__
+        while (
+            hasattr(getattr_fn, "__code__")
+            and "original_getattr" in getattr_fn.__code__.co_freevars
+        ):
+            idx = getattr_fn.__code__.co_freevars.index("original_getattr")
+            getattr_fn = getattr_fn.__closure__[idx].cell_contents
+        nn.Module.__getattr__ = getattr_fn
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
