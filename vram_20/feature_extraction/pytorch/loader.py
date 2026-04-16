@@ -3,9 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 VRAM-20 model loader implementation for feature extraction.
+
+Note: The upstream unslothai/vram-20 model has all-zero config dimensions
+(hidden_size=0, num_attention_heads=0, etc.) as it is a VRAM benchmarking
+artifact. We override with small valid dimensions for compile-only testing.
 """
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, LlamaConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -37,12 +41,6 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.VRAM_20
 
-    sample_text = "This is an example sentence for feature extraction."
-
-    def __init__(self, variant: Optional[ModelVariant] = None):
-        super().__init__(variant)
-        self.tokenizer = None
-
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
@@ -57,44 +55,37 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
-
-        return self.tokenizer
-
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False}
+        # The upstream config has all-zero dimensions (hidden_size=0,
+        # num_attention_heads=0, etc.) which cannot be instantiated.
+        # Build a small valid LlamaConfig directly for compile-only testing.
+        config = LlamaConfig(
+            hidden_size=512,
+            num_attention_heads=8,
+            num_key_value_heads=8,
+            num_hidden_layers=2,
+            intermediate_size=1024,
+            vocab_size=32000,
+            max_position_embeddings=512,
+        )
+
+        config.return_dict = False
+
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        model = AutoModel.from_config(config, **model_kwargs)
         model.eval()
 
         return model
 
     def load_inputs(self, dtype_override=None):
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        inputs = self.tokenizer(
-            self.sample_text,
-            padding=True,
-            truncation=True,
-            return_tensors="pt",
-        )
-
-        if dtype_override is not None:
-            for key, value in inputs.items():
-                if isinstance(value, torch.Tensor) and value.dtype == torch.float32:
-                    inputs[key] = value.to(dtype_override)
-
-        return inputs
+        # The upstream model has no tokenizer files; generate dummy token inputs.
+        seq_len = 16
+        input_ids = torch.randint(0, 32000, (1, seq_len))
+        attention_mask = torch.ones(1, seq_len, dtype=torch.long)
+        return {"input_ids": input_ids, "attention_mask": attention_mask}
