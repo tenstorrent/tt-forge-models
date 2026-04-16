@@ -124,10 +124,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         config = AutoConfig.from_pretrained(pretrained_model_name)
-        if getattr(config, "use_cache", True):
-            config.text_config.layer_types = [
-                "full_attention"
-            ] * config.text_config.num_hidden_layers
+        # if getattr(config, "use_cache", True):
+        #     config.text_config.layer_types = [
+        #         "full_attention"
+        #     ] * config.text_config.num_hidden_layers
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs
