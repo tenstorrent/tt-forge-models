@@ -89,11 +89,13 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
 
-        # Newer transformers uses "rope_type" instead of "type" in rope_scaling,
-        # but the custom MiniCPM modeling code expects "type".
-        if hasattr(config, "rope_scaling") and config.rope_scaling is not None:
-            if "rope_type" in config.rope_scaling and "type" not in config.rope_scaling:
-                config.rope_scaling["type"] = config.rope_scaling["rope_type"]
+        # Newer transformers auto-populates rope_parameters from rope_theta/rope_type,
+        # making rope_scaling return a non-None dict even when the original config
+        # had rope_scaling=null. The custom MiniCPM modeling code checks
+        # `if self.config.rope_scaling is None` and breaks when it's not.
+        # Reset rope_parameters to None to restore the expected behavior.
+        if hasattr(config, "rope_parameters"):
+            config.rope_parameters = None
 
         model_kwargs["config"] = config
 
