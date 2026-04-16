@@ -85,6 +85,51 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _ensure_gguf_available():
+        """Ensure diffusers recognizes gguf even if it was installed after import."""
+        import importlib.util
+
+        if importlib.util.find_spec("gguf") is None:
+            return
+
+        import diffusers.utils.import_utils as _diu
+
+        if not _diu._gguf_available:
+            _diu._gguf_available = True
+
+        if _diu._gguf_version == "N/A":
+            try:
+                import importlib.metadata
+
+                _diu._gguf_version = importlib.metadata.version("gguf")
+            except Exception:
+                pass
+
+            try:
+                _diu.is_gguf_version.cache_clear()
+            except AttributeError:
+                pass
+
+        import diffusers.quantizers.gguf.gguf_quantizer as _gq
+
+        if not hasattr(_gq, "_replace_with_gguf_linear"):
+            from diffusers.quantizers.gguf.utils import (
+                GGML_QUANT_SIZES,
+                GGUFParameter,
+                _dequantize_gguf_and_restore_linear,
+                _quant_shape_from_byte_shape,
+                _replace_with_gguf_linear,
+            )
+
+            _gq.GGML_QUANT_SIZES = GGML_QUANT_SIZES
+            _gq.GGUFParameter = GGUFParameter
+            _gq._dequantize_gguf_and_restore_linear = (
+                _dequantize_gguf_and_restore_linear
+            )
+            _gq._quant_shape_from_byte_shape = _quant_shape_from_byte_shape
+            _gq._replace_with_gguf_linear = _replace_with_gguf_linear
+
     def load_model(
         self,
         *,
@@ -96,13 +141,7 @@ class ModelLoader(ForgeModel):
         Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
         Returns the transformer nn.Module directly for compilation testing.
         """
-        import diffusers.utils.import_utils as _diffusers_import_utils
-
-        if not _diffusers_import_utils._gguf_available:
-            import importlib.util
-
-            if importlib.util.find_spec("gguf") is not None:
-                _diffusers_import_utils._gguf_available = True
+        self._ensure_gguf_available()
 
         from diffusers import (
             GGUFQuantizationConfig,
