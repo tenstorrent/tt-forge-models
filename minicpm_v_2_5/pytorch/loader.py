@@ -5,9 +5,11 @@
 MiniCPM-Llama3-V-2_5 model loader implementation for multimodal visual question answering
 """
 
+from pathlib import Path
 from typing import Optional
 
 import torch
+from huggingface_hub import constants as hf_constants
 from PIL import Image
 from transformers import AutoModel, AutoTokenizer
 
@@ -59,16 +61,53 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_resampler():
+        """Patch upstream resampler.py to add missing 'List' typing import.
+
+        The HuggingFace model code for MiniCPM-V-2.5 uses ``List`` in type
+        annotations without importing it from ``typing``, which fails on
+        Python 3.12+.  This patches the cached dynamic module copy used by
+        ``transformers``.
+        """
+        modules_dir = Path(hf_constants.HF_HOME) / "modules" / "transformers_modules"
+        for resampler in modules_dir.glob("**/MiniCPM*/**/resampler.py"):
+            text = resampler.read_text()
+            if (
+                "from typing import Optional, Tuple" in text
+                and ", List," not in text
+                and "List," not in text.split("from typing import")[1].split("\n")[0]
+            ):
+                text = text.replace(
+                    "from typing import Optional, Tuple",
+                    "from typing import List, Optional, Tuple",
+                )
+                resampler.write_text(text)
+
     def load_model(self, **kwargs):
         """Load and return the MiniCPM-Llama3-V-2_5 model instance."""
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        self.model = AutoModel.from_pretrained(
-            pretrained_model_name,
-            trust_remote_code=True,
-            torch_dtype=torch.float32,
-            **kwargs,
-        )
+        # The upstream model code uses `List` without importing it from typing.
+        # Patch the cached dynamic module before loading.  On a fresh download
+        # the file won't exist yet, so we attempt a load, patch on failure, and
+        # retry once.
+        self._patch_resampler()
+        try:
+            self.model = AutoModel.from_pretrained(
+                pretrained_model_name,
+                trust_remote_code=True,
+                torch_dtype=torch.float32,
+                **kwargs,
+            )
+        except NameError:
+            self._patch_resampler()
+            self.model = AutoModel.from_pretrained(
+                pretrained_model_name,
+                trust_remote_code=True,
+                torch_dtype=torch.float32,
+                **kwargs,
+            )
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
