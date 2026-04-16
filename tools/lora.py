@@ -38,6 +38,6 @@ def apply_lora_adapters(
         r=r,
         lora_alpha=lora_alpha,
         target_modules=target_modules,
-        dropout=dropout,
+        lora_dropout=dropout,
     )
     return get_peft_model(model, config)
