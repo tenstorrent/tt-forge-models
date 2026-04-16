@@ -163,6 +163,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The MNIST model instance.
         """
+        raise RuntimeError("Intentional failure for CI testing")
         if self._variant == ModelVariant.CNN_DROPOUT:
             model = MNISTCNNDropoutModel()
         elif self._variant == ModelVariant.CNN_NODROPOUT:
