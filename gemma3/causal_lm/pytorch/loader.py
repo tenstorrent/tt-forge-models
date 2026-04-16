@@ -59,7 +59,7 @@ class ModelLoader(ForgeModel):
             max_length=256,
         ),
         ModelVariant.GEMMA_3_27B_IT: LLMModelConfig(
-            pretrained_model_name="google/gemma-3-27b-it",
+            pretrained_model_name="unsloth/gemma-3-27b-it",
             max_length=256,
         ),
         ModelVariant.GEMMA_3_4B_IT_BNB_4BIT: LLMModelConfig(
@@ -182,7 +182,6 @@ class ModelLoader(ForgeModel):
         if self._variant in (
             ModelVariant.GEMMA_3_270M,
             ModelVariant.GEMMA_3_1B_PT,
-            ModelVariant.GEMMA_3_34M,
         ):
             inputs = self.tokenizer(
                 prompt or self.sample_text,
@@ -227,10 +226,7 @@ class ModelLoader(ForgeModel):
 
     def load_shard_spec(self, model):
         """Load the sharding specification for tensor parallel execution."""
-        if self._variant not in (
-            ModelVariant.GEMMA_3_12B_IT_ABLITERATED,
-            ModelVariant.GEMMA_3_27B_IT,
-        ):
+        if self._variant != ModelVariant.GEMMA_3_27B_IT:
             return None
 
         shard_specs = {}
