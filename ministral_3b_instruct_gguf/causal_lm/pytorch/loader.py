@@ -20,6 +20,54 @@ from ....config import (
 )
 
 
+def _patch_transformers_mistral3_gguf():
+    """Monkey-patch transformers to add mistral3 GGUF architecture support.
+
+    The Ministral 3B Instruct GGUF file uses the 'mistral3' architecture
+    identifier, which is not yet recognized by transformers' GGUF loader.
+    Since mistral3 is structurally identical to mistral, we register it
+    with the same config mapping.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        load_gguf_checkpoint as _orig_load,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "mistral3" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral3"] = GGUF_TO_TRANSFORMERS_MAPPING[
+        "config"
+    ]["mistral"].copy()
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUFLlamaConverter
+
+    _orig_load_fn = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = _orig_load_fn(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "mistral3":
+            config["model_type"] = "mistral"
+            config["architectures"] = ["MistralForCausalLM"]
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_mistral3_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Ministral 3B Instruct GGUF model variants for causal language modeling."""
 
