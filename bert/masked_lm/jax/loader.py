@@ -26,7 +26,10 @@ class ModelVariant(StrEnum):
     """Available BERT model variants."""
 
     BASE = "Base"
+    BASE_CASED = "Base (Cased)"
+    BASE_CHINESE = "Base (Chinese)"
     LARGE = "Large"
+    MULTILINGUAL_BASE = "Multilingual Base (Uncased)"
 
 
 class ModelLoader(ForgeModel):
@@ -37,15 +40,28 @@ class ModelLoader(ForgeModel):
         ModelVariant.BASE: LLMModelConfig(
             pretrained_model_name="google-bert/bert-base-uncased",
         ),
+        ModelVariant.BASE_CASED: LLMModelConfig(
+            pretrained_model_name="google-bert/bert-base-cased",
+        ),
+        ModelVariant.BASE_CHINESE: LLMModelConfig(
+            pretrained_model_name="google-bert/bert-base-chinese",
+        ),
         ModelVariant.LARGE: LLMModelConfig(
             pretrained_model_name="google-bert/bert-large-uncased",
+        ),
+        ModelVariant.MULTILINGUAL_BASE: LLMModelConfig(
+            pretrained_model_name="google-bert/bert-base-multilingual-uncased",
         ),
     }
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.BASE
 
-    sample_text = "The capital of France is [MASK]."
+    _SAMPLE_TEXTS = {
+        ModelVariant.BASE_CHINESE: "\u6211\u7231[\u004d\u0041\u0053\u004b]\u56fd\u3002",
+    }
+
+    _DEFAULT_SAMPLE_TEXT = "The capital of France is [MASK]."
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -56,6 +72,10 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self._tokenizer = None
+
+    @property
+    def sample_text(self):
+        return self._SAMPLE_TEXTS.get(self._variant, self._DEFAULT_SAMPLE_TEXT)
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -68,11 +88,19 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
+
+        variant_groups = {
+            ModelVariant.BASE_CASED: ModelGroup.VULCAN,
+            ModelVariant.BASE_CHINESE: ModelGroup.VULCAN,
+            ModelVariant.MULTILINGUAL_BASE: ModelGroup.VULCAN,
+        }
 
         return ModelInfo(
             model="BERT",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=variant_groups.get(variant, ModelGroup.GENERALITY),
             task=ModelTask.NLP_MASKED_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.JAX,

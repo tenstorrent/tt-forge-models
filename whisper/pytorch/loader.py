@@ -5,7 +5,9 @@
 Whisper model loader implementation
 """
 
+import numpy as np
 import torch
+from huggingface_hub import hf_hub_download
 from transformers import (
     WhisperProcessor,
     WhisperForConditionalGeneration,
@@ -32,12 +34,19 @@ class ModelVariant(StrEnum):
     """Available Whisper model variants."""
 
     WHISPER_TINY = "Tiny"
+    WHISPER_TINY_EN = "Tiny_en"
     WHISPER_BASE = "Base"
+    WHISPER_BASE_EN = "Base_en"
     WHISPER_SMALL = "Small"
+    WHISPER_SMALL_EN = "Small_en"
     WHISPER_MEDIUM = "Medium"
+    WHISPER_MEDIUM_EN = "Medium_en"
     WHISPER_LARGE = "Large"
+    WHISPER_LARGE_V2 = "Large_v2"
     WHISPER_LARGE_V3 = "Large_v3"
     WHISPER_LARGE_V3_TURBO = "Large_v3_Turbo"
+    WHISPER_MEDIUM_JP = "Medium_jp"
+    WHISPER_BASE_BUNGOMA_EN = "Base_Bungoma_en"
 
 
 class ModelLoader(ForgeModel):
@@ -48,23 +57,44 @@ class ModelLoader(ForgeModel):
         ModelVariant.WHISPER_TINY: ModelConfig(
             pretrained_model_name="openai/whisper-tiny",
         ),
+        ModelVariant.WHISPER_TINY_EN: ModelConfig(
+            pretrained_model_name="openai/whisper-tiny.en",
+        ),
         ModelVariant.WHISPER_BASE: ModelConfig(
             pretrained_model_name="openai/whisper-base",
+        ),
+        ModelVariant.WHISPER_BASE_EN: ModelConfig(
+            pretrained_model_name="openai/whisper-base.en",
         ),
         ModelVariant.WHISPER_SMALL: ModelConfig(
             pretrained_model_name="openai/whisper-small",
         ),
+        ModelVariant.WHISPER_SMALL_EN: ModelConfig(
+            pretrained_model_name="openai/whisper-small.en",
+        ),
         ModelVariant.WHISPER_MEDIUM: ModelConfig(
             pretrained_model_name="openai/whisper-medium",
         ),
+        ModelVariant.WHISPER_MEDIUM_EN: ModelConfig(
+            pretrained_model_name="openai/whisper-medium.en",
+        ),
         ModelVariant.WHISPER_LARGE: ModelConfig(
             pretrained_model_name="openai/whisper-large",
+        ),
+        ModelVariant.WHISPER_LARGE_V2: ModelConfig(
+            pretrained_model_name="openai/whisper-large-v2",
         ),
         ModelVariant.WHISPER_LARGE_V3: ModelConfig(
             pretrained_model_name="openai/whisper-large-v3",
         ),
         ModelVariant.WHISPER_LARGE_V3_TURBO: ModelConfig(
             pretrained_model_name="openai/whisper-large-v3-turbo",
+        ),
+        ModelVariant.WHISPER_MEDIUM_JP: ModelConfig(
+            pretrained_model_name="vumichien/whisper-medium-jp",
+        ),
+        ModelVariant.WHISPER_BASE_BUNGOMA_EN: ModelConfig(
+            pretrained_model_name="eai6/whisper-base-bungoma.en",
         ),
     }
 
@@ -84,12 +114,26 @@ class ModelLoader(ForgeModel):
         """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
+        if variant == ModelVariant.WHISPER_TINY_EN:
+            group = ModelGroup.VULCAN
+        elif variant == ModelVariant.WHISPER_LARGE_V3:
+            group = ModelGroup.RED
+        else:
+            group = ModelGroup.GENERALITY
+
         return ModelInfo(
             model="Whisper",
             variant=variant,
             group=(
                 ModelGroup.RED
                 if variant == ModelVariant.WHISPER_LARGE_V3
+                else ModelGroup.VULCAN
+                if variant
+                in (
+                    ModelVariant.WHISPER_MEDIUM_EN,
+                    ModelVariant.WHISPER_MEDIUM_JP,
+                    ModelVariant.WHISPER_BASE_BUNGOMA_EN,
+                )
                 else ModelGroup.GENERALITY
             ),
             task=ModelTask.AUDIO_ASR,
@@ -123,7 +167,13 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self._variant == ModelVariant.WHISPER_LARGE_V3:
+        if self._variant == ModelVariant.WHISPER_MEDIUM_MLX:
+            self.model = self._load_mlx_model(pretrained_model_name, **model_kwargs)
+            self.processor = WhisperProcessor.from_pretrained(
+                "openai/whisper-medium", use_cache=False
+            )
+            self.feature_extractor = None
+        elif self._variant == ModelVariant.WHISPER_LARGE_V3:
             self.model = WhisperModel.from_pretrained(
                 pretrained_model_name, **model_kwargs
             )
@@ -144,6 +194,33 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.model.to(dtype_override)
         return self.model
+
+    @staticmethod
+    def _load_mlx_model(pretrained_model_name, **model_kwargs):
+        """Load a Whisper model from an MLX-community .npz weights file."""
+
+        config = WhisperConfig.from_pretrained(pretrained_model_name)
+        model = WhisperForConditionalGeneration(config)
+
+        npz_path = hf_hub_download(pretrained_model_name, "weights.npz")
+        mlx_weights = np.load(npz_path)
+
+        state_dict = model.state_dict()
+        for key in state_dict:
+            mlx_key = key
+            if mlx_key in mlx_weights:
+                tensor = torch.from_numpy(mlx_weights[mlx_key].copy())
+                if tensor.shape != state_dict[key].shape:
+                    tensor = tensor.reshape(state_dict[key].shape)
+                state_dict[key] = tensor
+
+        model.load_state_dict(state_dict)
+
+        dtype_override = model_kwargs.get("torch_dtype")
+        if dtype_override is not None:
+            model.to(dtype_override)
+
+        return model
 
     def load_inputs(self, dtype_override=None):
         """Generate sample inputs for Whisper model."""

@@ -1,0 +1,10 @@
+# MiniCPM-o-4_5 Inference Requirements
+# Note: torchaudio is in requirements.nodeps.txt to prevent torch version conflicts
+
+# Model-specific dependencies
+minicpmo
+onnx
+onnxruntime
+hyperpyyaml
+vector_quantize_pytorch>=1.18.5
+vocos>=0.1.0

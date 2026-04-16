@@ -1,0 +1,2 @@
+gliner2
+llm2vec

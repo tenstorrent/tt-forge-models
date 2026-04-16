@@ -2,6 +2,5 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-StableLM Causal LM model implementation for Tenstorrent projects.
+StableLM causal language models
 """
-from .pytorch import ModelLoader

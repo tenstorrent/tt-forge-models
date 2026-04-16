@@ -25,8 +25,10 @@ class ModelVariant(StrEnum):
     """Available RT-DETR model variants for object detection."""
 
     RTDETR_R18VD = "R18vd"
+    RTDETR_R18VD_COCO_O365 = "R18vd_coco_o365"
     RTDETR_R34VD = "R34vd"
     RTDETR_R50VD = "R50vd"
+    RTDETR_R50VD_COCO_O365 = "R50vd_coco_o365"
     RTDETR_R101VD = "R101vd"
 
 
@@ -38,11 +40,17 @@ class ModelLoader(ForgeModel):
         ModelVariant.RTDETR_R18VD: ModelConfig(
             pretrained_model_name="PekingU/rtdetr_r18vd",
         ),
+        ModelVariant.RTDETR_R18VD_COCO_O365: ModelConfig(
+            pretrained_model_name="PekingU/rtdetr_r18vd_coco_o365",
+        ),
         ModelVariant.RTDETR_R34VD: ModelConfig(
             pretrained_model_name="PekingU/rtdetr_r34vd",
         ),
         ModelVariant.RTDETR_R50VD: ModelConfig(
             pretrained_model_name="PekingU/rtdetr_r50vd",
+        ),
+        ModelVariant.RTDETR_R50VD_COCO_O365: ModelConfig(
+            pretrained_model_name="PekingU/rtdetr_r50vd_coco_o365",
         ),
         ModelVariant.RTDETR_R101VD: ModelConfig(
             pretrained_model_name="PekingU/rtdetr_r101vd",
@@ -80,6 +88,11 @@ class ModelLoader(ForgeModel):
             ModelVariant.RTDETR_R18VD,
         ]:
             group = ModelGroup.RED
+        elif variant in [
+            ModelVariant.RTDETR_R18VD_COCO_O365,
+            ModelVariant.RTDETR_R50VD_COCO_O365,
+        ]:
+            group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
 
