@@ -20,6 +20,65 @@ from ....config import (
 )
 
 
+def _patch_transformers_mistral3_gguf():
+    """Monkey-patch transformers to add mistral3 GGUF architecture support.
+
+    The GGUF file reports architecture as 'mistral3', but transformers only
+    knows about 'mistral'. Since mistral3 uses the same config layout, we
+    reuse the mistral config mapping and map model_type back to 'mistral'.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "mistral3" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register mistral3 as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+
+    # 2. Add config mapping for mistral3 (same as mistral)
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral3"] = dict(
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral"]
+    )
+
+    # 3. Register mistral3 tokenizer converter (same as llama)
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUFLlamaConverter
+
+    # 4. Patch load_gguf_checkpoint to set model_type to mistral
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "mistral3":
+            config["model_type"] = "mistral"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Also patch modules that imported load_gguf_checkpoint directly
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_mistral3_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Huihui-Ministral-3-14B-Reasoning i1 GGUF model variants for causal language modeling."""
 
