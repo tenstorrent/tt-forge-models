@@ -67,6 +67,8 @@ def _patch_transformers_minimax_m2_gguf():
 
     if "minimax-m2" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["minimax-m2"] = GGUFQwen2Converter
+    if "minimax_m2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["minimax_m2"] = GGUFQwen2Converter
 
     # 4. Patch load_gguf_checkpoint to fix model_type
     orig_load = gguf_utils.load_gguf_checkpoint
