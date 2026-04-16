@@ -54,35 +54,35 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the PornmasterPro noobV3VAE pipeline.
+        """Load and return the UNet from the PornmasterPro noobV3VAE pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            DiffusionPipeline: The Stable Diffusion XL pipeline instance.
+            torch.nn.Module: The UNet model used for denoising.
         """
         # Load the pipeline
         self.pipeline = load_pipe(self.pretrained_model_name)
 
         # Apply dtype conversion if specified
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the model.
+        """Load and return sample inputs for the UNet model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            List : Input tensors that can be fed to the model:
-                - latent_model_input (torch.Tensor): Latent input for the UNet
-                - timestep (torch.Tensor): Timestep tensor
-                - prompt_embeds (torch.Tensor): Encoded prompt embeddings
+            dict: Keyword arguments for the UNet forward method:
+                - sample (torch.Tensor): Latent input for the UNet
+                - timestep (torch.Tensor): Single timestep tensor
+                - encoder_hidden_states (torch.Tensor): Encoded prompt embeddings
                 - added_cond_kwargs (dict): Additional conditioning inputs
         """
         # Ensure pipeline is initialized
@@ -99,10 +99,18 @@ class ModelLoader(ForgeModel):
             add_time_ids,
         ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
 
+        # Select only the first timestep for a single UNet forward pass
+        timestep = timesteps[0]
+
         # Apply dtype conversion if specified
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
