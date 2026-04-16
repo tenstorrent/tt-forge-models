@@ -122,18 +122,22 @@ class ModelLoader(ForgeModel):
         image_file = get_file(image_url or self.sample_image_url)
         image = Image.open(image_file).convert("RGB")
 
-        text_prompt = self.processor.apply_chat_template(
-            [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image"},
-                        {"type": "text", "text": prompt or self.sample_text},
-                    ],
-                }
-            ],
-            add_generation_prompt=True,
-        )
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": prompt or self.sample_text},
+                ],
+            }
+        ]
+        try:
+            text_prompt = self.processor.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+            )
+        except ValueError:
+            text_prompt = prompt or self.sample_text
 
         inputs = self.processor(
             text=text_prompt,
