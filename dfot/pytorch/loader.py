@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.DFOT_RE10K
 
-    # Default DiT-XL configuration used by all DFoT pretrained models.
-    _DEFAULT_CFG = DiT3DConfig(
+    # DiT-XL/2 configuration used by RE10K and K600 variants.
+    _DIT_XL_CFG = DiT3DConfig(
         in_channels=4,
         patch_size=2,
         hidden_size=1152,
@@ -79,11 +79,32 @@ class ModelLoader(ForgeModel):
         external_cond_dim=0,
     )
 
+    # DiT-B/2 configuration used by MCRAFT variant.
+    _DIT_B_CFG = DiT3DConfig(
+        in_channels=4,
+        patch_size=2,
+        hidden_size=768,
+        depth=12,
+        num_heads=12,
+        mlp_ratio=4.0,
+        max_tokens=16,
+        spatial_resolution=32,
+        external_cond_dim=0,
+    )
+
+    # Per-variant architecture configs.
+    _VARIANT_CFGS = {
+        ModelVariant.DFOT_RE10K: _DIT_XL_CFG,
+        ModelVariant.DFOT_K600: _DIT_XL_CFG,
+        ModelVariant.DFOT_MCRAFT: _DIT_B_CFG,
+    }
+
     # Number of video frames for sample inputs.
     DEFAULT_NUM_FRAMES = 8
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self._cfg = self._VARIANT_CFGS[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -113,7 +134,7 @@ class ModelLoader(ForgeModel):
         ckpt_path = hf_hub_download(repo_id=HF_REPO_ID, filename=ckpt_filename)
 
         # Load model from checkpoint
-        model = load_dit3d_from_checkpoint(ckpt_path, self._DEFAULT_CFG)
+        model = load_dit3d_from_checkpoint(ckpt_path, self._cfg)
         model.eval()
 
         if dtype_override is not None:
@@ -136,7 +157,7 @@ class ModelLoader(ForgeModel):
                 - x: (1, T, 4, 32, 32) noisy latent video frames
                 - noise_levels: (1, T) per-frame noise levels
         """
-        cfg = self._DEFAULT_CFG
+        cfg = self._cfg
         T = num_frames or self.DEFAULT_NUM_FRAMES
         dtype = dtype_override or torch.float32
 
