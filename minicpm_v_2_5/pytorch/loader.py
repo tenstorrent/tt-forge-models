@@ -11,7 +11,7 @@ from typing import Optional
 import torch
 from huggingface_hub import constants as hf_constants
 from PIL import Image
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoProcessor, AutoTokenizer
 
 from ...base import ForgeModel
 from ...config import (
@@ -47,6 +47,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.model = None
         self.tokenizer = None
+        self.processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -111,6 +112,9 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
+        self.processor = AutoProcessor.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
         self.model.eval()
 
         return self.model
@@ -119,7 +123,7 @@ class ModelLoader(ForgeModel):
         """Load and return sample inputs for the MiniCPM-Llama3-V-2_5 model.
 
         Returns:
-            dict: Input arguments containing image and messages for the model.
+            dict: ``data`` dict expected by :meth:`MiniCPMV.forward`.
         """
         image_file = get_file(
             "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
@@ -127,14 +131,14 @@ class ModelLoader(ForgeModel):
         image = Image.open(image_file).convert("RGB")
 
         question = "What is in the image?"
-        msgs = [{"role": "user", "content": question}]
+        msgs = [{"role": "user", "content": f"(<image>./</image>)\n{question}"}]
+        prompt = self.processor.tokenizer.apply_chat_template(
+            msgs, tokenize=False, add_generation_prompt=True
+        )
+        inputs = self.processor(prompt, [image], return_tensors="pt", max_length=2048)
+        inputs["position_ids"] = torch.arange(inputs["input_ids"].shape[1]).unsqueeze(0)
 
-        return {
-            "image": image,
-            "msgs": msgs,
-            "tokenizer": self.tokenizer,
-            "sampling": False,
-        }
+        return {"data": inputs}
 
     def decode_output(self, outputs, **kwargs):
         """Decode model outputs into human-readable text.
