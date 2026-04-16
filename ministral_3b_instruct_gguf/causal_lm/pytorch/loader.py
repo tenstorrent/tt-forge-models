@@ -51,6 +51,8 @@ def _patch_transformers_mistral3_gguf():
 
     if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUFLlamaConverter
+    if "mistral" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral"] = GGUFLlamaConverter
 
     _orig_load_fn = gguf_utils.load_gguf_checkpoint
 
