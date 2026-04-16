@@ -56,6 +56,8 @@ def _patch_transformers_mistral4_gguf():
 
     if "mistral4" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["mistral4"] = GGUFLlamaConverter
+    if "mistral" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral"] = GGUFLlamaConverter
 
     # 4. Patch load_gguf_checkpoint to remap model_type from mistral4 to mistral
     orig_load = gguf_utils.load_gguf_checkpoint
