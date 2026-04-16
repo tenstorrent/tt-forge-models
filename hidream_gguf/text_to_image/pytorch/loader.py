@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 
 import torch
 from diffusers import DiffusionPipeline
+from transformers import LlamaForCausalLM, PreTrainedTokenizerFast
 
 from ....base import ForgeModel
 from ....config import (
@@ -30,6 +31,11 @@ class ModelVariant(StrEnum):
 
 class ModelLoader(ForgeModel):
     """HiDream GGUF model loader implementation for text-to-image generation."""
+
+    # text_encoder_4 and tokenizer_4 use Meta-Llama-3.1-8B-Instruct which is
+    # stored in a separate gated HuggingFace repo and not bundled in the HiDream
+    # repo. Use the ungated unsloth mirror with identical architecture.
+    LLAMA_MODEL_ID = "unsloth/Llama-3.1-8B-Instruct"
 
     _VARIANTS = {
         ModelVariant.HIDREAM_I1_FULL: ModelConfig(
@@ -68,12 +74,19 @@ class ModelLoader(ForgeModel):
         if extra_pipe_kwargs is None:
             extra_pipe_kwargs = {}
 
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
+        text_encoder_4 = LlamaForCausalLM.from_pretrained(
+            self.LLAMA_MODEL_ID, torch_dtype=dtype
+        )
+        tokenizer_4 = PreTrainedTokenizerFast.from_pretrained(self.LLAMA_MODEL_ID)
+
         pipe_kwargs = {
-            "torch_dtype": (
-                dtype_override if dtype_override is not None else torch.float32
-            ),
+            "torch_dtype": dtype,
             "device_map": device_map,
             "low_cpu_mem_usage": low_cpu_mem_usage,
+            "text_encoder_4": text_encoder_4,
+            "tokenizer_4": tokenizer_4,
         }
         pipe_kwargs.update(extra_pipe_kwargs)
 
