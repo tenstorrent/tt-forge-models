@@ -8,6 +8,45 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_transformers_mistral3_gguf():
+    """Monkey-patch transformers to add mistral3 GGUF architecture support.
+
+    The Ministral 3B model uses the 'mistral3' architecture identifier in its
+    GGUF metadata. Transformers 5.x supports 'mistral' but not 'mistral3'.
+    We bridge the gap by registering the config mapping (reusing the mistral
+    mapping) and remapping model_type to mistral.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "mistral3" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # Register mistral3 as a supported architecture reusing the mistral mapping
+    GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral3"] = GGUF_TO_TRANSFORMERS_MAPPING[
+        "config"
+    ]["mistral"].copy()
+
+    # Patch load_gguf_checkpoint to remap model_type from mistral3 to mistral
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "mistral3":
+            config["model_type"] = "mistral"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_mistral3_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
