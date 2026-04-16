@@ -42,6 +42,11 @@ _SDXL_ENCODER_HIDDEN_SIZE = 2048  # SDXL dual text encoder concat output
 _SDXL_POOLED_SIZE = 1280  # SDXL pooled text embed size
 _SDXL_TIME_IDS = 6  # SDXL added_cond_kwargs time_ids length
 
+# Compile-only mode uses a minimal cross_attention_dim to keep TT-MLIR
+# compilation tractable (full 2048 produces 2048x160 K/V projection matrices
+# that take 1.5+ hours to compile regardless of parameter count).
+_COMPILE_ONLY_CROSS_ATTN_DIM = 64
+
 
 class ModelVariant(StrEnum):
     """Available Amanatsu Illustrious model variants."""
@@ -94,18 +99,24 @@ class ModelLoader(ForgeModel):
         from diffusers import UNet2DConditionModel
 
         if os.environ.get("TT_RANDOM_WEIGHTS", "") == "1":
-            # float32 is ~10x faster than bfloat16 on AMD EPYC (no AVX512BF16)
-            # Scale down the architecture to reduce TT-MLIR compilation time from
-            # hours (2.6B param full SDXL) to seconds (19M param minimal version).
-            # Keeps SDXL-compatible input/output interface (in_channels=4,
-            # cross_attention_dim=2048, addition_embed_type="text_time") so
-            # load_inputs() shapes remain valid.
+            # float32 is ~10x faster than bfloat16 on AMD EPYC (no AVX512BF16).
+            # Scale down the architecture (block channels, transformer layers,
+            # cross_attention_dim, addition_embed_type) to reduce TT-MLIR
+            # compilation time from hours to seconds.  load_inputs() uses
+            # matching shapes for the reduced config.
             unet_config = UNet2DConditionModel.load_config(
                 self._variant_config.pretrained_model_name, subfolder="unet"
             )
             unet_config["block_out_channels"] = [160, 160, 160]
             unet_config["transformer_layers_per_block"] = [1, 1, 1]
             unet_config["layers_per_block"] = 1
+            # Reduce cross_attention_dim from 2048 to avoid 2048×160 K/V
+            # projection matrices that dominate TT-MLIR compile time (1.5h+).
+            unet_config["cross_attention_dim"] = _COMPILE_ONLY_CROSS_ATTN_DIM
+            # Remove text_time conditioning (64-head attention over 2816-dim
+            # inputs) — also a major compile-time contributor.
+            unet_config["addition_embed_type"] = None
+            unet_config["projection_class_embeddings_input_dim"] = None
             unet = UNet2DConditionModel.from_config(unet_config)
             unet = unet.to(torch.float32).eval()
             return unet
@@ -137,6 +148,10 @@ class ModelLoader(ForgeModel):
             # CFG doubles the batch dimension.
             cfg_batch = batch_size * 2
             torch.manual_seed(42)
+            # encoder_hidden_states uses _COMPILE_ONLY_CROSS_ATTN_DIM (64) to
+            # match the reduced cross_attention_dim in the compile-only UNet.
+            # added_cond_kwargs is omitted because addition_embed_type=None in
+            # the compile-only config.
             return {
                 "sample": torch.randn(
                     cfg_batch,
@@ -149,17 +164,9 @@ class ModelLoader(ForgeModel):
                 "encoder_hidden_states": torch.randn(
                     cfg_batch,
                     _SDXL_SEQ_LEN,
-                    _SDXL_ENCODER_HIDDEN_SIZE,
+                    _COMPILE_ONLY_CROSS_ATTN_DIM,
                     dtype=torch.float32,
                 ),
-                "added_cond_kwargs": {
-                    "text_embeds": torch.randn(
-                        cfg_batch, _SDXL_POOLED_SIZE, dtype=torch.float32
-                    ),
-                    "time_ids": torch.zeros(
-                        cfg_batch, _SDXL_TIME_IDS, dtype=torch.float32
-                    ),
-                },
             }
 
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
