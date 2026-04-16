@@ -3,9 +3,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Sapienza NLP Minerva 3B base model loader implementation for causal language modeling.
+
+The upstream repo ``sapienzanlp/Minerva-3B-base-v1.0`` is gated.  To avoid a
+hard dependency on repo access we bundle the model configuration locally and
+fall back to it when the gated download fails.
 """
+import logging
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, MistralConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +24,31 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+logger = logging.getLogger(__name__)
+
+# Local copy of the Minerva-3B-base-v1.0 config so we can compile without
+# access to the gated HuggingFace repo.
+_MINERVA_3B_CONFIG = {
+    "attention_dropout": 0.0,
+    "bos_token_id": 1,
+    "eos_token_id": 2,
+    "hidden_act": "silu",
+    "hidden_size": 2560,
+    "initializer_range": 0.02,
+    "intermediate_size": 8960,
+    "max_position_embeddings": 16384,
+    "model_type": "mistral",
+    "num_attention_heads": 32,
+    "num_hidden_layers": 32,
+    "num_key_value_heads": 8,
+    "rms_norm_eps": 1e-05,
+    "rope_theta": 10000.0,
+    "sliding_window": 2048,
+    "tie_word_embeddings": False,
+    "use_cache": False,
+    "vocab_size": 32768,
+}
 
 
 class ModelVariant(StrEnum):
@@ -66,13 +97,26 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
+        except OSError:
+            logger.warning(
+                "Cannot access gated repo %s, falling back to mistralai/Mistral-7B-v0.1 tokenizer",
+                self._variant_config.pretrained_model_name,
+            )
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                "mistralai/Mistral-7B-v0.1", **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
+
+    def _get_local_config(self):
+        """Return a MistralConfig built from the bundled config dict."""
+        return MistralConfig(**_MINERVA_3B_CONFIG)
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -86,13 +130,25 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = self._get_local_config()
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        except OSError:
+            logger.warning(
+                "Cannot access gated repo %s, instantiating from local config",
+                pretrained_model_name,
+            )
+            config = self._get_local_config()
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            if dtype_override is not None:
+                config.torch_dtype = dtype_override
+            model = AutoModelForCausalLM.from_config(config).eval()
 
         self.config = model.config
         self.model = model
@@ -139,7 +195,14 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        try:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
+        except OSError:
+            logger.warning(
+                "Cannot access gated repo %s, using local config",
+                self._variant_config.pretrained_model_name,
+            )
+            self.config = self._get_local_config()
         return self.config
