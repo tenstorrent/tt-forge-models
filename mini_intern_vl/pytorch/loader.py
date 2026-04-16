@@ -167,11 +167,13 @@ class ModelLoader(ForgeModel):
             "attn_implementation": "eager",
         }
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
 
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
         self.model = model
 
