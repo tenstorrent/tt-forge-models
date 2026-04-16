@@ -28,6 +28,26 @@ class ModelVariant(StrEnum):
     )
 
 
+class _TextOnlyMistral3(torch.nn.Module):
+    """Wrapper that exposes only the language model + lm_head from Mistral3."""
+
+    def __init__(self, full_model):
+        super().__init__()
+        self.language_model = full_model.model.language_model
+        self.lm_head = full_model.lm_head
+        self.embed_tokens = full_model.model.language_model.embed_tokens
+
+    def forward(self, input_ids, attention_mask=None):
+        inputs_embeds = self.embed_tokens(input_ids)
+        outputs = self.language_model(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+        )
+        hidden_states = outputs[0]
+        logits = self.lm_head(hidden_states)
+        return logits
+
+
 class ModelLoader(ForgeModel):
     """Ministral 3B Instruct BnB 4-bit model loader."""
 
@@ -68,13 +88,17 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Ministral 3B Instruct BnB 4-bit model instance.
+        """Load and return the language model only.
+
+        The full Mistral3ForConditionalGeneration model includes a Pixtral
+        vision encoder that causes Dynamo tracing failures with 0-element
+        reshape. We extract just the language model + lm_head to avoid this.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            torch.nn.Module: The model instance.
+            torch.nn.Module: The language model with lm_head.
         """
         from transformers import Mistral3ForConditionalGeneration
 
@@ -90,14 +114,19 @@ class ModelLoader(ForgeModel):
         model_kwargs["device_map"] = "cpu"
 
         model_kwargs |= kwargs
-        model = Mistral3ForConditionalGeneration.from_pretrained(
+        full_model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
 
-        model.eval()
-        self.model = model
-        self.config = model.config
-        return model
+        full_model.eval()
+        self.model = full_model
+        self.config = full_model.config
+
+        # Return only the language model to avoid Pixtral vision encoder
+        # Dynamo tracing issues with 0-element tensor reshapes
+        language_model = _TextOnlyMistral3(full_model)
+        language_model.eval()
+        return language_model
 
     def load_inputs(self, dtype_override=None):
         """Load and return text-only sample inputs for the model.
