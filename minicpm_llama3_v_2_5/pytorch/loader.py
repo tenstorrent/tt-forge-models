@@ -88,18 +88,25 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_resampler(model_name: str) -> None:
-        """Patch the cached resampler.py for two known issues in all published revisions.
+        """Patch the cached resampler.py for known issues in all published revisions.
 
         1. Missing ``List`` import from typing (causes NameError on PyTorch ≥ 2.9).
         2. ``reshape((tgt_h * tgt_w, -1))`` fails when tgt_h=0 during Dynamo fake-tensor
            tracing because ''-1'' is ambiguous for a 0-element tensor.  Replace with
            ``reshape((-1, self.pos_embed.shape[-1]))`` which resolves to (0, D) safely.
+        3. Decorate ``Resampler.forward`` with ``@torch._dynamo.disable`` so that Dynamo
+           does not trace into the resampler during compilation.  The resampler uses
+           data-dependent shapes throughout (per-tile slicing, ``torch.max(patch_len)``
+           as a tensor dimension) that are fundamentally incompatible with static tracing.
+           With the decorator, the entire ``forward`` runs eagerly and receives real
+           tensor values, avoiding all shape-mismatch errors.
         """
         try:
             from transformers.dynamic_module_utils import get_cached_module_file
 
             resampler_path = Path(get_cached_module_file(model_name, "resampler.py"))
             content = resampler_path.read_text()
+            changed = False
             if (
                 "from typing import Optional, Tuple" in content
                 and "from typing import List" not in content
@@ -108,12 +115,31 @@ class ModelLoader(ForgeModel):
                     "from typing import Optional, Tuple",
                     "from typing import List, Optional, Tuple",
                 )
+                changed = True
             if ".reshape((tgt_h * tgt_w, -1))" in content:
                 content = content.replace(
                     ".reshape((tgt_h * tgt_w, -1))",
                     ".reshape((-1, self.pos_embed.shape[-1]))",
                 )
-            resampler_path.write_text(content)
+                changed = True
+            if (
+                "    def forward(self, x, tgt_sizes=None):" in content
+                and "@torch._dynamo.disable" not in content
+            ):
+                content = content.replace(
+                    "    def forward(self, x, tgt_sizes=None):",
+                    "    @torch._dynamo.disable\n    def forward(self, x, tgt_sizes=None):",
+                )
+                changed = True
+            if changed:
+                resampler_path.write_text(content)
+                # Invalidate any cached import of this module so the patched version
+                # is picked up on the next import via AutoModel.from_pretrained.
+                import sys
+
+                for key in list(sys.modules.keys()):
+                    if "resampler" in key and "transformers_modules" in key:
+                        del sys.modules[key]
         except Exception:
             pass
 
