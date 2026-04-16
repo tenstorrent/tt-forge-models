@@ -42,7 +42,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.tokenizer = None
+        self.processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -57,16 +57,19 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        """Load tokenizer for the current variant."""
-        from transformers import AutoTokenizer
+    def _load_processor(self, dtype_override=None):
+        """Load processor for the current variant."""
+        from transformers import AutoProcessor
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            padding_side="right",
+        kwargs = {}
+        if dtype_override is not None:
+            kwargs["torch_dtype"] = dtype_override
+
+        self.processor = AutoProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name, **kwargs
         )
 
-        return self.tokenizer
+        return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Ministral 3B Base model instance.
@@ -77,17 +80,17 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Ministral 3B Base model instance.
         """
-        from transformers import AutoModelForCausalLM
+        from transformers import Mistral3ForConditionalGeneration
 
         pretrained_model_name = self._variant_config.pretrained_model_name
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override)
+        if self.processor is None:
+            self._load_processor(dtype_override)
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model = AutoModelForCausalLM.from_pretrained(
+        model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
 
@@ -106,17 +109,10 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override)
+        if self.processor is None:
+            self._load_processor(dtype_override)
 
-        inputs = self.tokenizer(self.sample_text, return_tensors="pt")
-
-        if self.model is not None:
-            if (
-                hasattr(self.model.config, "sliding_window")
-                and self.model.config.sliding_window is not None
-            ):
-                self.model.config.sliding_window = inputs["input_ids"].shape[1]
+        inputs = self.processor(text=self.sample_text, return_tensors="pt")
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
@@ -133,7 +129,7 @@ class ModelLoader(ForgeModel):
         """Load the sharding specification for tensor parallel execution."""
         shard_specs = {}
 
-        for layer in model.model.layers:
+        for layer in model.model.language_model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
@@ -142,5 +138,15 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+
+        for layer in model.model.vision_tower.transformer.layers:
+            shard_specs[layer.feed_forward.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.feed_forward.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.feed_forward.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.attention.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.attention.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.attention.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.attention.o_proj.weight] = ("batch", "model")
 
         return shard_specs
