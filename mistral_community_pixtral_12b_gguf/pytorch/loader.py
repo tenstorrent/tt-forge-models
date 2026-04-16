@@ -3,10 +3,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Mistral Community Pixtral 12B GGUF model loader implementation for multimodal visual QA.
+
+The GGUF checkpoint only contains the text backbone (Llama architecture).
+We load the vision config from the base (non-GGUF) model and combine
+them into a full LlavaConfig, following the same pattern as GLM-OCR GGUF.
 """
+import importlib.metadata
 
 from PIL import Image
-from transformers import LlavaForConditionalGeneration, AutoProcessor
+from transformers import (
+    LlavaForConditionalGeneration,
+    AutoProcessor,
+    AutoConfig,
+    LlavaConfig,
+)
 from typing import Optional
 
 from ...base import ForgeModel
@@ -20,6 +30,17 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import cast_input_to_type, get_file
+
+
+def _refresh_gguf_detection():
+    """Refresh transformers' gguf package detection if the package was installed after import."""
+    from transformers.utils import import_utils
+
+    if "gguf" not in import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
+        import_utils.is_gguf_available.cache_clear()
 
 
 class ModelVariant(StrEnum):
@@ -66,6 +87,19 @@ class ModelLoader(ForgeModel):
         self.processor = AutoProcessor.from_pretrained(self.PROCESSOR_MODEL)
         return self.processor
 
+    def _build_full_config(self):
+        """Build a full LlavaConfig by wrapping the GGUF text config with vision config."""
+        _refresh_gguf_detection()
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        text_config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+        base_config = AutoConfig.from_pretrained(self.PROCESSOR_MODEL)
+        return LlavaConfig(
+            text_config=text_config.to_dict(),
+            vision_config=base_config.vision_config.to_dict(),
+        )
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -77,6 +111,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+
+        config = self._build_full_config()
+        model_kwargs["config"] = config
 
         model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
