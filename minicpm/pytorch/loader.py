@@ -98,6 +98,10 @@ class ModelLoader(ForgeModel):
         # avoids the incompatibility in post_init().
         config.tie_word_embeddings = False
 
+        # The custom MiniCPM model uses DynamicCache.get_usable_length which
+        # was removed in transformers >=5.x. Disabling cache avoids this.
+        config.use_cache = False
+
         model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
