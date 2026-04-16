@@ -7,26 +7,30 @@ Helper functions for Amanatsu Illustrious SDXL model loading and processing.
 """
 
 from typing import Optional, Tuple
+
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import StableDiffusionXLPipeline
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
 
 
-def load_pipe(variant):
+def load_pipe(pretrained_model_name, dtype=torch.bfloat16):
     """Load Amanatsu Illustrious SDXL pipeline.
 
     Args:
-        variant: Model variant name or HuggingFace repo ID
+        pretrained_model_name: HuggingFace model identifier
+        dtype: torch dtype for the pipeline (default: bfloat16)
 
     Returns:
-        DiffusionPipeline: Loaded pipeline with components set to eval mode
+        StableDiffusionXLPipeline: Loaded pipeline with components set to eval mode
     """
-    pipe = DiffusionPipeline.from_pretrained(variant, torch_dtype=torch.float32)
+    pipe = StableDiffusionXLPipeline.from_pretrained(
+        pretrained_model_name, torch_dtype=dtype
+    )
     modules = [pipe.text_encoder, pipe.unet, pipe.text_encoder_2, pipe.vae]
 
-    pipe.to("cpu", dtype=torch.float32)
+    pipe.to("cpu", dtype=dtype)
 
     for module in modules:
         module.eval()
@@ -46,46 +50,23 @@ def stable_diffusion_preprocessing_xl(
     num_inference_steps=50,
     timesteps=None,
     sigmas=None,
-    eta=0.0,
     num_images_per_prompt=1,
     height=None,
     width=None,
     clip_skip=None,
     original_size=None,
     target_size=None,
-    cross_attention_kwargs=None,
-    guidance_rescale=0.0,
     crops_coords_top_left: Tuple[int, int] = (0, 0),
     negative_original_size: Optional[Tuple[int, int]] = None,
     negative_target_size: Optional[Tuple[int, int]] = None,
     negative_crops_coords_top_left: Tuple[int, int] = (0, 0),
-    **kwargs,
 ):
-    """Preprocess inputs for Amanatsu Illustrious SDXL model.
+    """Preprocess inputs for SDXL UNet forward pass.
 
     Args:
-        pipe: SDXL pipeline
+        pipe: StableDiffusionXLPipeline instance
         prompt: Text prompt for generation
         device: Device to run on (default: "cpu")
-        negative_prompt: Negative prompt (optional)
-        guidance_scale: Guidance scale (default: 5.0)
-        num_inference_steps: Number of inference steps (default: 50)
-        timesteps: Custom timesteps (optional)
-        sigmas: Custom sigmas (optional)
-        eta: Eta parameter (default: 0.0)
-        num_images_per_prompt: Number of images per prompt (default: 1)
-        height: Image height (optional, uses default if None)
-        width: Image width (optional, uses default if None)
-        clip_skip: CLIP skip layers (optional)
-        original_size: Original size tuple (optional)
-        target_size: Target size tuple (optional)
-        cross_attention_kwargs: Cross attention kwargs (optional)
-        guidance_rescale: Guidance rescale factor (default: 0.0)
-        crops_coords_top_left: Crop coordinates (default: (0, 0))
-        negative_original_size: Negative original size (optional)
-        negative_target_size: Negative target size (optional)
-        negative_crops_coords_top_left: Negative crop coordinates (default: (0, 0))
-        **kwargs: Additional keyword arguments
 
     Returns:
         tuple: (latent_model_input, timesteps, prompt_embeds, timestep_cond, added_cond_kwargs, add_time_ids)
@@ -182,19 +163,7 @@ def stable_diffusion_preprocessing_xl(
 
     prompt_embeds = prompt_embeds.to(device)
     add_text_embeds = add_text_embeds.to(device)
-    add_time_ids = add_time_ids.to(device).repeat(
-        batch_size * num_images_per_prompt, 1
-    )
-    ip_adapter_image = None
-    ip_adapter_image_embeds = None
-    if ip_adapter_image is not None or ip_adapter_image_embeds is not None:
-        image_embeds = pipe.prepare_ip_adapter_image_embeds(
-            ip_adapter_image,
-            ip_adapter_image_embeds,
-            device,
-            batch_size * num_images_per_prompt,
-            do_classifier_free_guidance,
-        )
+    add_time_ids = add_time_ids.to(device).repeat(batch_size * num_images_per_prompt, 1)
     timestep_cond = None
     if pipe.unet.config.time_cond_proj_dim is not None:
         guidance_scale_tensor = torch.tensor(guidance_scale - 1).repeat(
@@ -204,8 +173,6 @@ def stable_diffusion_preprocessing_xl(
             guidance_scale_tensor, embedding_dim=pipe.unet.config.time_cond_proj_dim
         ).to(device=device, dtype=latents.dtype)
     added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
-    if ip_adapter_image is not None or ip_adapter_image_embeds is not None:
-        added_cond_kwargs["image_embeds"] = image_embeds
 
     latent_model_input = (
         torch.cat([latents] * 2) if do_classifier_free_guidance else latents
