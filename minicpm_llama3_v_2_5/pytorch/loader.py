@@ -88,7 +88,13 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_resampler(model_name: str) -> None:
-        """Ensure resampler.py has List imported from typing (missing in all published revisions)."""
+        """Patch the cached resampler.py for two known issues in all published revisions.
+
+        1. Missing ``List`` import from typing (causes NameError on PyTorch ≥ 2.9).
+        2. ``reshape((tgt_h * tgt_w, -1))`` fails when tgt_h=0 during Dynamo fake-tensor
+           tracing because ''-1'' is ambiguous for a 0-element tensor.  Replace with
+           ``reshape((-1, self.pos_embed.shape[-1]))`` which resolves to (0, D) safely.
+        """
         try:
             from transformers.dynamic_module_utils import get_cached_module_file
 
@@ -98,12 +104,16 @@ class ModelLoader(ForgeModel):
                 "from typing import Optional, Tuple" in content
                 and "from typing import List" not in content
             ):
-                resampler_path.write_text(
-                    content.replace(
-                        "from typing import Optional, Tuple",
-                        "from typing import List, Optional, Tuple",
-                    )
+                content = content.replace(
+                    "from typing import Optional, Tuple",
+                    "from typing import List, Optional, Tuple",
                 )
+            if ".reshape((tgt_h * tgt_w, -1))" in content:
+                content = content.replace(
+                    ".reshape((tgt_h * tgt_w, -1))",
+                    ".reshape((-1, self.pos_embed.shape[-1]))",
+                )
+            resampler_path.write_text(content)
         except Exception:
             pass
 
