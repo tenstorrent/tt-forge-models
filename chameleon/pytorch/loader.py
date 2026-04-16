@@ -3,25 +3,27 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Chameleon model loader implementation for multimodal conditional generation.
+
+The facebook/chameleon-7b repo is gated, so this loader uses ChameleonConfig
+defaults (which match the 7B architecture) and creates the model with random
+weights via from_config.  Inputs are synthetic tensors.
 """
 
 from typing import Optional
 
 import torch
-from datasets import load_dataset
-from transformers import ChameleonForConditionalGeneration, ChameleonProcessor
+from transformers import ChameleonConfig, ChameleonForConditionalGeneration
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
-from ...tools.utils import cast_input_to_type
 
 
 class ModelVariant(StrEnum):
@@ -41,12 +43,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.CHAMELEON_7B
 
-    sample_text = "What is shown in this image?<image>"
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize Chameleon model loader."""
         super().__init__(variant)
-        self.processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -61,46 +60,39 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self):
-        self.processor = ChameleonProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
-        return self.processor
-
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Chameleon model instance."""
-        model_name = self._variant_config.pretrained_model_name
+        """Load and return the Chameleon model instance with random weights."""
+        config = ChameleonConfig()
+        # vocabulary_map is required by ChameleonImageVocabularyMapping;
+        # provide a minimal mapping so the model can be instantiated.
+        config.vocabulary_map = {"<image>": config.vocab_size - 1}
 
-        model_kwargs = {}
+        model = ChameleonForConditionalGeneration(config)
+
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+            model = model.to(dtype_override)
 
-        model = ChameleonForConditionalGeneration.from_pretrained(
-            model_name, **model_kwargs
-        )
         model.eval()
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return input tensors for Chameleon."""
-        if self.processor is None:
-            self._load_processor()
+        """Return synthetic input tensors for Chameleon."""
+        config = ChameleonConfig()
+        seq_len = 32
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        input_ids = torch.randint(0, config.vocab_size, (batch_size, seq_len))
+        attention_mask = torch.ones(batch_size, seq_len, dtype=torch.long)
+        # pixel_values: (batch, num_images, channels, height, width)
+        pixel_values = torch.randn(batch_size, 1, 3, 512, 512)
 
-        inputs = self.processor(
-            images=image, text=self.sample_text, return_tensors="pt"
-        )
-
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        inputs = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "pixel_values": pixel_values,
+        }
 
         if dtype_override is not None:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]):
-                    inputs[key] = cast_input_to_type(inputs[key], dtype_override)
+            if pixel_values is not None:
+                inputs["pixel_values"] = pixel_values.to(dtype_override)
 
         return inputs
