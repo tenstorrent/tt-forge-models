@@ -6,7 +6,7 @@ Qwen-Image-Edit LoRA Collection model loader implementation.
 
 Loads the Qwen/Qwen-Image-Edit-2511 base pipeline and applies LoRA adapters
 from strangerzonehf/Qwen-Image-Edit-LoRA-Collection for specialized image
-editing tasks.
+editing tasks. Returns the transformer component for compilation.
 
 Available variants:
 - OBJECT_REMOVER_BBOX: Remove objects via bounding box prompts
@@ -103,22 +103,14 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(
-        self,
-        *,
-        dtype_override: Optional[torch.dtype] = None,
-        **kwargs,
-    ):
-        """Load the Qwen-Image-Edit pipeline with LoRA weights applied.
-
-        Returns:
-            QwenImageEditPlusPipeline with LoRA weights loaded.
-        """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+    def _load_pipeline(self, dtype_override=None):
+        pipe_kwargs = {}
+        if dtype_override is not None:
+            pipe_kwargs["torch_dtype"] = dtype_override
 
         self.pipeline = QwenImageEditPlusPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
+            **pipe_kwargs,
         )
 
         lora_file = _LORA_FILES[self._variant]
@@ -127,20 +119,77 @@ class ModelLoader(ForgeModel):
             weight_name=lora_file,
         )
 
-        return self.pipeline
+    def load_model(
+        self,
+        *,
+        dtype_override: Optional[torch.dtype] = None,
+        **kwargs,
+    ):
+        if self.pipeline is None:
+            self._load_pipeline(dtype_override=dtype_override)
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare inputs for image editing.
+        if dtype_override is not None:
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
 
-        Returns:
-            dict with prompt and image keys.
-        """
+        return self.pipeline.transformer
+
+    def load_inputs(self, dtype_override=None, batch_size=1, **kwargs) -> Any:
+        if self.pipeline is None:
+            self._load_pipeline(dtype_override=dtype_override)
+
+        dtype = dtype_override if dtype_override is not None else torch.float32
         prompt = _PROMPTS[self._variant]
+        height = 128
+        width = 128
 
-        # Create a small test image (RGB)
         image = Image.new("RGB", (256, 256), color=(128, 128, 200))
+        condition_images = [self.pipeline.image_processor.resize(image, 384, 384)]
+
+        prompt_embeds, prompt_embeds_mask = self.pipeline.encode_prompt(
+            image=condition_images,
+            prompt=prompt,
+            num_images_per_prompt=1,
+        )
+        prompt_embeds = prompt_embeds.to(dtype=dtype)
+        if prompt_embeds_mask is not None:
+            prompt_embeds_mask = prompt_embeds_mask.to(dtype=dtype)
+
+        num_channels_latents = self.pipeline.transformer.config.in_channels // 4
+        vae_scale_factor = self.pipeline.vae_scale_factor
+
+        h_latent = 2 * (int(height) // (vae_scale_factor * 2))
+        w_latent = 2 * (int(width) // (vae_scale_factor * 2))
+
+        latent_shape = (batch_size, 1, num_channels_latents, h_latent, w_latent)
+        latents = torch.randn(latent_shape, dtype=dtype)
+        latents = self.pipeline._pack_latents(
+            latents, batch_size, num_channels_latents, h_latent, w_latent
+        )
+
+        img_h = h_latent
+        img_w = w_latent
+        img_latent_shape = (batch_size, 1, num_channels_latents, img_h, img_w)
+        image_latents = torch.randn(img_latent_shape, dtype=dtype)
+        image_latents = self.pipeline._pack_latents(
+            image_latents, batch_size, num_channels_latents, img_h, img_w
+        )
+
+        latent_model_input = torch.cat([latents, image_latents], dim=1)
+
+        img_shapes = [
+            [
+                (1, height // vae_scale_factor // 2, width // vae_scale_factor // 2),
+                (1, img_h // 2, img_w // 2),
+            ]
+        ] * batch_size
+
+        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
 
         return {
-            "prompt": prompt,
-            "image": [image],
+            "hidden_states": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "encoder_hidden_states_mask": prompt_embeds_mask,
+            "img_shapes": img_shapes,
+            "return_dict": False,
         }
