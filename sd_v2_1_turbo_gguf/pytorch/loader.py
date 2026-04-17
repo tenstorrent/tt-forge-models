@@ -126,15 +126,22 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
         )
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for SD-Turbo.
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        Returns:
-            list: A list of sample text prompts.
-        """
-        prompt = [
-            "A cinematic shot of a baby racoon wearing an intricate italian priest robe.",
-        ] * batch_size
-        return prompt
+        unet = self.pipeline.unet
+        in_channels = unet.config.in_channels
+        cross_attention_dim = unet.config.cross_attention_dim
+
+        latents = torch.randn(batch_size, in_channels, 64, 64, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, 77, cross_attention_dim, dtype=dtype
+        )
+
+        return {
+            "sample": latents,
+            "timestep": 0,
+            "encoder_hidden_states": encoder_hidden_states,
+        }
