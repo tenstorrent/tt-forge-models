@@ -4,9 +4,9 @@
 """
 Qwen-Image-Edit FlatLogColor LoRA model loader implementation.
 
-Loads the Qwen-Image-Edit-2509 base diffusion pipeline and applies the
-tlennon-ie/QwenEdit2509-FlatLogColor LoRA weights for converting images
-into flat or LOG color profiles suitable for color grading workflows.
+Loads the Qwen-Image-Edit-2509 diffusion pipeline, applies the
+tlennon-ie/QwenEdit2509-FlatLogColor LoRA weights, and returns
+the transformer for compile-only testing.
 
 Available variants:
 - FLAT_LOG_COLOR_2509: FlatLogColor LoRA on Qwen-Image-Edit 2509
@@ -15,8 +15,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import DiffusionPipeline
-from PIL import Image
+from diffusers import QwenImageEditPipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -31,6 +30,9 @@ from ...config import (
 
 BASE_MODEL = "Qwen/Qwen-Image-Edit-2509"
 LORA_REPO = "tlennon-ie/QwenEdit2509-FlatLogColor"
+
+IN_CHANNELS = 64
+JOINT_ATTENTION_DIM = 3584
 
 
 class ModelVariant(StrEnum):
@@ -51,7 +53,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[DiffusionPipeline] = None
+        self._pipe = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -72,34 +74,52 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Qwen-Image-Edit pipeline with FlatLogColor LoRA weights.
+        """Load the Qwen-Image-Edit transformer with FlatLogColor LoRA weights.
 
         Returns:
-            DiffusionPipeline with LoRA weights loaded.
+            QwenImageTransformer2DModel with LoRA weights fused.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        self.pipeline = DiffusionPipeline.from_pretrained(
+        self._pipe = QwenImageEditPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
         )
 
-        self.pipeline.load_lora_weights(LORA_REPO)
+        self._pipe.load_lora_weights(LORA_REPO)
+        self._pipe.fuse_lora()
+        self._pipe.unload_lora_weights()
 
-        return self.pipeline
+        transformer = self._pipe.transformer
+        transformer.eval()
+
+        return transformer
 
     def load_inputs(self, **kwargs) -> Any:
-        """Prepare inputs for flat/LOG color conversion.
+        """Prepare sample tensor inputs for the diffusion transformer.
 
         Returns:
-            dict with prompt and image keys.
+            dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        prompt = "flatcolor"
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        batch_size = kwargs.get("batch_size", 1)
 
-        # Create a small test image (RGB)
-        image = Image.new("RGB", (256, 256), color=(128, 180, 200))
+        txt_seq_len = 32
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, img_seq_len, IN_CHANNELS, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, JOINT_ATTENTION_DIM, dtype=dtype
+        )
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_shapes = [(frame, height, width)] * batch_size
 
         return {
-            "prompt": prompt,
-            "image": image,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
         }
