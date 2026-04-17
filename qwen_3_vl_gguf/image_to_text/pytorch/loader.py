@@ -41,7 +41,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_VL_4B_INSTRUCT_GGUF
 
-    GGUF_FILE = "Qwen3-VL-4B-Instruct-Q4_K_M.gguf"
+    GGUF_FILE = "Qwen3VL-4B-Instruct-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
