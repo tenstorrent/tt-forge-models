@@ -24,6 +24,15 @@ from ...base import ForgeModel
 from datasets import load_dataset
 
 
+class Sam2Wrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, pixel_values, input_points):
+        return self.model(pixel_values=pixel_values, input_points=input_points)
+
+
 class ModelVariant(StrEnum):
     """Available SAM2 model variants."""
 
@@ -73,7 +82,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             framework_model = framework_model.to(dtype_override)
 
-        return framework_model
+        return Sam2Wrapper(framework_model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
