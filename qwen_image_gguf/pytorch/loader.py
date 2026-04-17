@@ -7,10 +7,10 @@ Qwen-Image GGUF model loader implementation for text-to-image generation.
 Repository:
 - https://huggingface.co/city96/Qwen-Image-gguf
 """
+
 import torch
-import torch.nn as nn
 from diffusers import GGUFQuantizationConfig, QwenImageTransformer2DModel
-from diffusers.quantizers.gguf.utils import GGUFParameter
+from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
 from huggingface_hub import hf_hub_download
 from typing import Optional
 
@@ -88,14 +88,7 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
         )
 
-        for module in self.transformer.modules():
-            for name, param in list(module.named_parameters(recurse=False)):
-                if isinstance(param, GGUFParameter):
-                    new_param = nn.Parameter(
-                        param.dequantize().to(compute_dtype),
-                        requires_grad=param.requires_grad,
-                    )
-                    setattr(module, name, new_param)
+        _dequantize_gguf_and_restore_linear(self.transformer)
 
         self.transformer.eval()
 
