@@ -21,7 +21,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_controlnet_lllite, create_dummy_input
+from .src.model_utils import load_controlnet_lllite, create_dummy_inputs
 
 
 class ModelVariant(StrEnum):
@@ -106,14 +106,16 @@ class ModelLoader(ForgeModel):
 
         Returns:
             list: Input tensors for the model:
-                - x (torch.Tensor): Dummy conditioning input
+                - x (torch.Tensor): Dummy feature input matching the first module's width.
+                - cond_image (torch.Tensor): Dummy conditioning image for the conv branch.
         """
         if self.model is None:
             self.load_model(dtype_override=dtype_override)
 
-        x = create_dummy_input(self.model)
+        x, cond_image = create_dummy_inputs(self.model)
 
         if dtype_override:
             x = x.to(dtype_override)
+            cond_image = cond_image.to(dtype_override)
 
-        return [x]
+        return [x, cond_image]
