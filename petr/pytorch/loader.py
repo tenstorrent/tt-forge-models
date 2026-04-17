@@ -20,14 +20,6 @@ from ...config import (
 )
 from ...base import ForgeModel
 from ...tools.utils import get_file
-from .src.petr import (
-    build_model,
-    load_checkpoint,
-    ConfigDict,
-    model_cfg,
-    resnet50_dcn_backbone_cfg,
-    LiDARInstance3DBoxes,
-)
 
 
 class ModelVariant(StrEnum):
@@ -104,6 +96,14 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The PETR model instance.
         """
+        from .src.petr import (
+            build_model,
+            load_checkpoint,
+            ConfigDict,
+            model_cfg,
+            resnet50_dcn_backbone_cfg,
+        )
+
         # Get the variant name from the instance's variant config
         variant_name = self._variant_config.pretrained_model_name
 
@@ -165,6 +165,8 @@ class ModelLoader(ForgeModel):
                     - ``box_type_3d`` (class): LiDARInstance3DBoxes class for wrapping 3D bounding boxes
                 - ``img`` (list): Random image tensor of shape [1, 6, 3, H, W] where 6 is the number of cameras
         """
+        from .src.petr import LiDARInstance3DBoxes
+
         variant_name = self._variant_config.pretrained_model_name
 
         # Determine image dimensions based on variant
