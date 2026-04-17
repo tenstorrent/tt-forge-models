@@ -175,6 +175,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # GGUF loading may not fully respect torch_dtype for quantized weights.
+        # MiniMax-M2 MoE uses torch._grouped_mm which requires bfloat16.
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
         self.config = model.config
         self.model = model
         return model
