@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -134,15 +134,6 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
-        if (
-            hasattr(self.model.config, "sliding_window")
-            and self.model.config.sliding_window is not None
-        ):
-            # if the model uses sliding window attention, match sliding window value to input size so it
-            # does not go out of bounds when updating the cache
-            # Issue: https://github.com/tenstorrent/tt-xla/issues/3186
-            self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
         return inputs
 
