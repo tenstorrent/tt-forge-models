@@ -57,7 +57,10 @@ if not hasattr(DynamicCache, "to_legacy_cache"):
     def _to_legacy_cache(self):
         legacy_cache = []
         for layer in self.layers:
-            legacy_cache.append((layer.keys, layer.values))
+            if hasattr(layer, "keys") and hasattr(layer, "values"):
+                legacy_cache.append((layer.keys, layer.values))
+            else:
+                legacy_cache.append((None, None))
         return legacy_cache
 
     DynamicCache.to_legacy_cache = _to_legacy_cache
