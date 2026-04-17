@@ -106,7 +106,7 @@ class ModelLoader(ForgeModel):
         )
 
         state_dict = load_file(model_path)
-        self._controlnet.load_state_dict(state_dict)
+        self._controlnet.load_state_dict(state_dict, strict=False)
         self._controlnet = self._controlnet.to(dtype=dtype)
         self._controlnet.eval()
         return self._controlnet
