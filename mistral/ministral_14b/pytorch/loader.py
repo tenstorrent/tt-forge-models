@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Ministral 14B model loader implementation for multimodal vision-language modeling.
+Ministral 14B model loader implementation.
 """
 
 from typing import Optional
@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Ministral 14B model loader implementation for multimodal vision-language tasks."""
+    """Ministral 14B model loader implementation."""
 
     _VARIANTS = {
         ModelVariant.MINISTRAL_14B_BASE_2512: LLMModelConfig(
@@ -40,12 +40,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.MINISTRAL_14B_BASE_2512
 
-    sample_text = "What do you see in this image?"
-    sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -55,27 +51,17 @@ class ModelLoader(ForgeModel):
             model="ministral_14b",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.MM_VISUAL_QA,
+            task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self, dtype_override=None):
-        """Load processor for the current variant."""
-        from transformers import AutoProcessor
-
-        kwargs = {}
-        if dtype_override is not None:
-            kwargs["torch_dtype"] = dtype_override
-
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **kwargs
-        )
-
-        return self.processor
-
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Ministral 14B model instance.
+
+        Uses Ministral3ForCausalLM (text-only) instead of
+        Mistral3ForConditionalGeneration to avoid Pixtral vision model
+        compilation issues with torch.compile.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
@@ -83,17 +69,15 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Ministral 14B model instance.
         """
-        from transformers import Mistral3ForConditionalGeneration
+        from transformers import Ministral3ForCausalLM
 
         pretrained_model_name = self._variant_config.pretrained_model_name
-        if self.processor is None:
-            self._load_processor(dtype_override)
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model = Mistral3ForConditionalGeneration.from_pretrained(
+        model = Ministral3ForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
 
@@ -135,7 +119,7 @@ class ModelLoader(ForgeModel):
         """Load the sharding specification for tensor parallel execution."""
         shard_specs = {}
 
-        for layer in model.model.language_model.layers:
+        for layer in model.model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
@@ -144,15 +128,5 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-
-        for layer in model.model.vision_tower.transformer.layers:
-            shard_specs[layer.attention.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.attention.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.attention.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.attention.o_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.feed_forward.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.feed_forward.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.feed_forward.down_proj.weight] = ("batch", "model")
 
         return shard_specs
