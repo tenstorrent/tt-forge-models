@@ -3,6 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 mlx-community/Phi-3-mini-4k-instruct-4bit model loader for causal language modeling.
+
+Uses the HF-native microsoft/Phi-3-mini-4k-instruct checkpoint instead of the
+MLX community 4-bit variant, as the MLX checkpoint bundles custom model code
+incompatible with newer transformers versions.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -31,7 +35,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.PHI_3_MINI_4K_INSTRUCT_4BIT: LLMModelConfig(
-            pretrained_model_name="mlx-community/Phi-3-mini-4k-instruct-4bit",
+            pretrained_model_name="microsoft/Phi-3-mini-4k-instruct",
             max_length=128,
         ),
     }
@@ -65,13 +69,7 @@ class ModelLoader(ForgeModel):
     def _load_tokenizer(self, dtype_override=None):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        tokenizer_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
 
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -84,14 +82,12 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -163,6 +159,5 @@ class ModelLoader(ForgeModel):
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
         )
         return self.config
