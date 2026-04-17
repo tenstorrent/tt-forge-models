@@ -117,9 +117,7 @@ class ModelLoader(ForgeModel):
         field = reader.fields.get("tokenizer.huggingface.json")
         if field is None:
             return None
-        parts = field.parts
-        data_index = parts[-1]
-        return bytes(field.data[data_index]).decode("utf-8")
+        return bytes(field.parts[-1]).decode("utf-8")
 
     def _load_tokenizer(self, dtype_override=None):
         from huggingface_hub import hf_hub_download
