@@ -98,62 +98,38 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         config = self.controlnet.config
 
-        # Model config: num_attention_heads=24, attention_head_dim=128,
-        # joint_attention_dim=3584, in_channels=64, patch_size=2,
-        # axes_dims_rope=[16, 56, 56]
-        hidden_size = config.num_attention_heads * config.attention_head_dim  # 3072
-        joint_attention_dim = config.joint_attention_dim  # 3584
+        in_channels = config.in_channels
+        joint_attention_dim = config.joint_attention_dim
 
-        # Image dimensions (small for testing)
         height = 128
         width = 128
         vae_scale_factor = 8
-        patch_size = config.patch_size  # 2
+        patch_size = config.patch_size
 
-        # Latent dimensions after VAE encoding and patchification
-        h_latent = height // vae_scale_factor  # 16
-        w_latent = width // vae_scale_factor  # 16
-        h_patched = h_latent // patch_size  # 8
-        w_patched = w_latent // patch_size  # 8
-        seq_len = h_patched * w_patched  # 64
+        h_latent = height // vae_scale_factor
+        w_latent = width // vae_scale_factor
+        h_patched = h_latent // patch_size
+        w_patched = w_latent // patch_size
+        seq_len = h_patched * w_patched
 
-        # Hidden states (packed latent representation)
-        hidden_states = torch.randn(batch_size, seq_len, hidden_size, dtype=dtype)
+        hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
 
-        # Encoder hidden states (text embeddings)
         text_seq_len = 128
         encoder_hidden_states = torch.randn(
             batch_size, text_seq_len, joint_attention_dim, dtype=dtype
         )
 
-        # Timestep
-        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+        timestep = torch.tensor([500], dtype=torch.long).expand(batch_size)
 
-        # ControlNet conditioning image (processed through VAE-like encoder)
-        controlnet_cond = torch.randn(
-            batch_size, config.in_channels, h_latent, w_latent, dtype=dtype
-        )
-
-        # Image and text positional IDs for 3D RoPE
-        # Image IDs: (batch, seq_len, 3) for [temporal, height, width]
-        img_ids = torch.zeros(batch_size, seq_len, 3, dtype=dtype)
-        for i in range(h_patched):
-            for j in range(w_patched):
-                idx = i * w_patched + j
-                img_ids[:, idx, 1] = i
-                img_ids[:, idx, 2] = j
-
-        # Text IDs: (batch, text_seq_len, 3)
-        txt_ids = torch.zeros(batch_size, text_seq_len, 3, dtype=dtype)
+        controlnet_cond = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
 
         inputs = {
             "hidden_states": hidden_states,
-            "timestep": timestep,
-            "encoder_hidden_states": encoder_hidden_states,
             "controlnet_cond": controlnet_cond,
-            "img_ids": img_ids,
-            "txt_ids": txt_ids,
             "conditioning_scale": 1.0,
+            "encoder_hidden_states": encoder_hidden_states,
+            "timestep": timestep,
+            "img_shapes": [(1, h_patched, w_patched)],
         }
 
         return inputs
