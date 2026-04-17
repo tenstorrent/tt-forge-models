@@ -31,6 +31,8 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Qwen3-30B-A3B EAGLE3 model loader for causal language modeling tasks."""
 
+    BASE_MODEL_NAME = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+
     _VARIANTS = {
         ModelVariant.QWEN3_30B_A3B_INSTRUCT_2507_EAGLE3: ModelConfig(
             pretrained_model_name="RedHatAI/Qwen3-30B-A3B-Instruct-2507-speculator.eagle3",
@@ -61,14 +63,12 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         tokenizer_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
+            self.BASE_MODEL_NAME, **tokenizer_kwargs
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
