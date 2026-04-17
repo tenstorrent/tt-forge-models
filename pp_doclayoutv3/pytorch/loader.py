@@ -78,19 +78,19 @@ class ModelLoader(ForgeModel):
         model = AutoModelForObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
 
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        import requests
         from PIL import Image
 
         if self.processor is None:
             self._load_processor()
 
-        url = "https://huggingface.co/spaces/ds4sd/SmolDocling-256M-Demo/resolve/main/example_images/annual_rep_14.png"
-        image = Image.open(requests.get(url, stream=True).raw).convert("RGB")
+        image = Image.new("RGB", (640, 480), color=(128, 128, 128))
 
         inputs = self.processor(images=image, return_tensors="pt")
 
