@@ -49,7 +49,7 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     _patch_qwen3vl_support()
     result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     if result.get("config", {}).get("model_type") == "qwen3vl":
-        result["config"]["model_type"] = "qwen3"
+        result["config"]["model_type"] = "qwen3_vl"
     return result
 
 
