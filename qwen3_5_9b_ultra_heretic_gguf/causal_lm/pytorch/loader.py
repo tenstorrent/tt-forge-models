@@ -4,9 +4,81 @@
 """
 Qwen3.5 9B Ultra Heretic GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+from functools import lru_cache
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+import transformers.utils.import_utils as _import_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from packaging import version as _pkg_version
+
+
+def _refresh_gguf_metadata():
+    if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
+
+
+@lru_cache
+def _fixed_is_gguf_available(
+    min_version: str = _import_utils.GGUF_MIN_VERSION,
+) -> bool:
+    _refresh_gguf_metadata()
+    is_available, gguf_version = _import_utils._is_package_available(
+        "gguf", return_version=True
+    )
+    if not is_available:
+        return False
+    try:
+        return _pkg_version.parse(gguf_version) >= _pkg_version.parse(min_version)
+    except Exception:
+        return False
+
+
+_import_utils.is_gguf_available.cache_clear()
+_import_utils.is_gguf_available = _fixed_is_gguf_available
+_gguf_utils.is_gguf_available = _fixed_is_gguf_available
+
+
+def _patch_qwen35_support():
+    if "qwen35" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    _patch_qwen35_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "qwen35":
+        result["config"]["model_type"] = "qwen3"
+    return result
+
+
+_patch_qwen35_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
