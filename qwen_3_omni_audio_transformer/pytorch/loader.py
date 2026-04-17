@@ -40,8 +40,8 @@ class Qwen3OmniAudioEncoderWrapper(torch.nn.Module):
         super().__init__()
         self.model = model
 
-    def forward(self, input_features):
-        return self.model(input_features)
+    def forward(self, input_features, feature_lens):
+        return self.model(input_features, feature_lens=feature_lens)
 
 
 class ModelLoader(ForgeModel):
@@ -86,6 +86,11 @@ class ModelLoader(ForgeModel):
         """Load and return the Qwen3-Omni AudioTransformer model."""
         from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
             Qwen3OmniMoeAudioEncoder,
+            Qwen3OmniMoeAudioEncoderConfig,
+        )
+
+        config = Qwen3OmniMoeAudioEncoderConfig.from_pretrained(
+            self._variant_config.pretrained_model_name,
         )
 
         model_kwargs = {}
@@ -95,6 +100,7 @@ class ModelLoader(ForgeModel):
 
         model = Qwen3OmniMoeAudioEncoder.from_pretrained(
             self._variant_config.pretrained_model_name,
+            config=config,
             **model_kwargs,
         )
         model.eval()
@@ -121,4 +127,7 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        return [inputs["input_features"]]
+        input_features = inputs["input_features"]
+        feature_lens = torch.tensor([input_features.shape[-1]], dtype=torch.long)
+
+        return [input_features, feature_lens]
