@@ -91,6 +91,8 @@ class ModelLoader(ForgeModel):
             add_special_tokens=True,
         )
 
+        inputs["ss_input_ids"] = torch.zeros_like(inputs["input_ids"])
+
         return inputs
 
     def decode_output(self, outputs, inputs=None):
