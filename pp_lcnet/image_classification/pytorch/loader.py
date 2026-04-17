@@ -68,22 +68,17 @@ class ModelLoader(ForgeModel):
         self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
         return self.processor
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
         model = AutoModelForImageClassification.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, **kwargs
         )
         model.eval()
 
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, batch_size=1):
         if self.processor is None:
             self._load_processor()
 
@@ -95,10 +90,5 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
-        if dtype_override is not None:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]) and inputs[key].dtype.is_floating_point:
-                    inputs[key] = inputs[key].to(dtype_override)
 
         return inputs
