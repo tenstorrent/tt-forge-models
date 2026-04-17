@@ -48,8 +48,14 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     _ensure_gguf_detectable()
     _patch_qwen3vl_support()
     result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
-    if result.get("config", {}).get("model_type") == "qwen3vl":
-        result["config"]["model_type"] = "qwen3_vl"
+    cfg = result.get("config", {})
+    if cfg.get("model_type") == "qwen3vl":
+        cfg["model_type"] = "qwen3_vl"
+        hidden_size = cfg.get("hidden_size")
+        if hidden_size and "vision_config" not in cfg:
+            cfg["vision_config"] = {"out_hidden_size": hidden_size}
+        elif hidden_size and isinstance(cfg.get("vision_config"), dict):
+            cfg["vision_config"].setdefault("out_hidden_size", hidden_size)
     return result
 
 
