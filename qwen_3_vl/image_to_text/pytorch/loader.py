@@ -42,16 +42,18 @@ def _patch_vision_pos_embed(model):
 
     @torch.compiler.disable
     def patched_fast_pos_embed_interpolate(self, grid_thw):
-        grid_thw_list = grid_thw.tolist()
-        grid_ts = [row[0] for row in grid_thw_list]
-        grid_hs = [row[1] for row in grid_thw_list]
-        grid_ws = [row[2] for row in grid_thw_list]
-        device = self.pos_embed.weight.device
+        grid_thw_cpu = grid_thw.detach().cpu()
+        embed_weight = self.pos_embed.weight.detach().cpu()
+        grid_thw_list = grid_thw_cpu.tolist()
+        grid_ts = [int(row[0]) for row in grid_thw_list]
+        grid_hs = [int(row[1]) for row in grid_thw_list]
+        grid_ws = [int(row[2]) for row in grid_thw_list]
 
         idx_list = [[] for _ in range(4)]
         weight_list = [[] for _ in range(4)]
 
         for t, h, w in grid_thw_list:
+            h, w = int(h), int(w)
             h_idxs = torch.linspace(0, self.num_grid_per_side - 1, h)
             w_idxs = torch.linspace(0, self.num_grid_per_side - 1, w)
             h_floor = h_idxs.int()
@@ -78,11 +80,9 @@ def _patch_vision_pos_embed(model):
                 idx_list[i].extend(indices[i].tolist())
                 weight_list[i].extend(weights[i].tolist())
 
-        idx_tensor = torch.tensor(idx_list, dtype=torch.long, device=device)
-        weight_tensor = torch.tensor(
-            weight_list, dtype=self.pos_embed.weight.dtype, device=device
-        )
-        pos_embeds = self.pos_embed(idx_tensor).to(device) * weight_tensor[:, :, None]
+        idx_tensor = torch.tensor(idx_list, dtype=torch.long)
+        weight_tensor = torch.tensor(weight_list, dtype=embed_weight.dtype)
+        pos_embeds = embed_weight[idx_tensor] * weight_tensor[:, :, None]
         patch_pos_embeds = pos_embeds[0] + pos_embeds[1] + pos_embeds[2] + pos_embeds[3]
         patch_pos_embeds = patch_pos_embeds.split(
             [h * w for h, w in zip(grid_hs, grid_ws)]
