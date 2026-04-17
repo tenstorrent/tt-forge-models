@@ -5,24 +5,25 @@
 SAIL-VL model loader implementation for multimodal visual question answering.
 """
 
+from typing import Optional
+
 import torch
 import torchvision.transforms as T
 from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
-from transformers import AutoModel, AutoTokenizer
-from typing import Optional
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 
-from ...tools.utils import get_file
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+from ...tools.utils import get_file
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -174,7 +175,20 @@ class ModelLoader(ForgeModel):
         )
         config_class.has_no_defaults_at_init = True
 
+        # The nested llm_config in config.json pins attn_implementation to
+        # flash_attention_2, which isn't available here. Load the config and
+        # override the nested sub-configs before instantiating the model.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        for sub_cfg_name in ("llm_config", "vision_config"):
+            sub_cfg = getattr(config, sub_cfg_name, None)
+            if sub_cfg is not None:
+                sub_cfg._attn_implementation = "eager"
+                sub_cfg._attn_implementation_internal = "eager"
+
         model_kwargs = {
+            "config": config,
             "trust_remote_code": True,
             "attn_implementation": "eager",
         }
