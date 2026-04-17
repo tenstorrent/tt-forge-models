@@ -43,7 +43,14 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT_GGUF
 
-    GGUF_FILE = "Qwen3-VL-30B-A3B-Instruct-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT_GGUF: "Qwen3-VL-30B-A3B-Instruct-Q4_K_M.gguf",
+        ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT_GGUF_OFFICIAL: "Qwen3VL-30B-A3B-Instruct-Q4_K_M.gguf",
+    }
+
+    @property
+    def GGUF_FILE(self):
+        return self._GGUF_FILES[self._variant]
 
     sample_text = "Give me a short introduction to large language models."
 
