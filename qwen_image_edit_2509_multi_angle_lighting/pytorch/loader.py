@@ -5,23 +5,28 @@
 Qwen Image Edit 2509 Multi-Angle Lighting LoRA model loader implementation.
 
 Loads the dx8152/Qwen-Edit-2509-Multi-Angle-Lighting LoRA adapter on top of the
-Qwen/Qwen-Image-Edit-2509 base diffusion pipeline for multi-angle relighting.
+Qwen/Qwen-Image-Edit-2509 base diffusion pipeline and extracts the transformer
+component for compilation.
 """
 
+from typing import Any, Optional
+
 import torch
-from diffusers import QwenImageEditPlusPipeline
 from PIL import Image
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
+)
+from .src.model_utils import (
+    load_qwen_image_edit_plus_pipeline,
+    qwen_image_edit_plus_preprocessing,
 )
 
 
@@ -50,6 +55,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
@@ -64,24 +70,41 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override or torch.bfloat16
-        pipe = QwenImageEditPlusPipeline.from_pretrained(
-            self._BASE_MODEL, torch_dtype=dtype, **kwargs
-        )
-        pipe.load_lora_weights(
+        self.pipeline = load_qwen_image_edit_plus_pipeline(
+            self._BASE_MODEL,
             self._variant_config.pretrained_model_name,
-            weight_name=self._LORA_WEIGHT_NAMES[self._variant],
+            self._LORA_WEIGHT_NAMES[self._variant],
+            dtype=dtype,
         )
-        return pipe
+        return self.pipeline.transformer
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, **kwargs) -> Any:
+        if self.pipeline is None:
+            self.load_model()
+
         image = Image.new("RGB", (512, 512), color=(128, 128, 128))
         luminance_map = Image.new("RGB", (512, 512), color=(255, 255, 255))
         prompt = "使用图2的亮度贴图对图1重新照明(光源来自前方)"
-        return {
-            "image": [image, luminance_map],
-            "prompt": prompt,
-            "negative_prompt": " ",
-            "num_inference_steps": 40,
-            "guidance_scale": 1.0,
-            "true_cfg_scale": 4.0,
+
+        (
+            latent_model_input,
+            timestep,
+            prompt_embeds,
+            prompt_embeds_mask,
+            img_shapes,
+            guidance,
+        ) = qwen_image_edit_plus_preprocessing(
+            self.pipeline, prompt, [image, luminance_map]
+        )
+
+        inputs = {
+            "hidden_states": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "encoder_hidden_states_mask": prompt_embeds_mask,
+            "img_shapes": img_shapes,
+            "guidance": guidance,
+            "return_dict": False,
         }
+
+        return inputs
