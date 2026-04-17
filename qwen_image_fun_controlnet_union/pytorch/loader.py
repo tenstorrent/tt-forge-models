@@ -26,8 +26,8 @@ from ...config import (
     StrEnum,
 )
 from .src.model_utils import (
-    create_dummy_control_image,
-    load_controlnet_state_dict,
+    create_dummy_inputs,
+    load_controlnet_model,
 )
 
 
@@ -38,7 +38,6 @@ class ModelVariant(StrEnum):
     CONTROLNET_UNION_2602 = "ControlNet_Union_2602"
 
 
-# Mapping from variant to safetensors filename
 _VARIANT_FILENAMES = {
     ModelVariant.CONTROLNET_UNION: "Qwen-Image-2512-Fun-Controlnet-Union.safetensors",
     ModelVariant.CONTROLNET_UNION_2602: "Qwen-Image-2512-Fun-Controlnet-Union-2602.safetensors",
@@ -61,7 +60,6 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._state_dict = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -77,39 +75,25 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the ControlNet Union state dict.
+        """Load and return the ControlNet Union model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            dict: The ControlNet state dict containing model weights.
+            torch.nn.Module: The ControlNet Union model with loaded weights.
         """
         filename = _VARIANT_FILENAMES[self._variant]
-        self._state_dict = load_controlnet_state_dict(filename)
-
-        if dtype_override is not None:
-            self._state_dict = {
-                k: v.to(dtype_override) for k, v in self._state_dict.items()
-            }
-
-        return self._state_dict
+        return load_controlnet_model(filename, dtype=dtype_override)
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the ControlNet Union model.
-
-        Creates a dummy control conditioning image suitable for any of the
-        supported control types (Canny, Depth, Pose, etc.).
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            torch.Tensor: A dummy control image tensor of shape (1, 3, 512, 512).
+            dict: Input tensors for the ControlNet model.
         """
-        control_image = create_dummy_control_image()
-
-        if dtype_override is not None:
-            control_image = control_image.to(dtype_override)
-
-        return control_image
+        dtype = dtype_override if dtype_override is not None else None
+        return create_dummy_inputs(dtype=dtype) if dtype else create_dummy_inputs()
