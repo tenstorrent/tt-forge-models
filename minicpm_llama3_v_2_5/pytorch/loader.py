@@ -166,6 +166,23 @@ class ModelLoader(ForgeModel):
         # cannot trace. The per-tile path avoids patch_attention_mask entirely.
         model.config.batch_vision_input = False
 
+        # Disable TorchDynamo tracing for Resampler.forward at the CLASS level.
+        # The Resampler has multiple data-dependent shapes throughout its forward
+        # method (per-tile pos_embed slicing keyed by actual tgt_h/tgt_w values,
+        # torch.max(patch_len) used as a tensor dimension) that are fundamentally
+        # incompatible with Dynamo's static fake-tensor tracing.  When Dynamo
+        # traces with fake tgt_h=0 it compiles pos_embed as shape (0,1,D); at
+        # execution x has (N,1,D) and the broadcast fails.
+        #
+        # Setting _dynamo_disable=True on the class-level forward ensures that
+        # Dynamo creates a graph break whenever it encounters a Resampler call,
+        # so the entire forward runs eagerly with real tensor values.
+        import torch._dynamo as _dynamo  # noqa: PLC0415
+
+        resampler_cls = type(model.resampler)
+        if not getattr(resampler_cls.forward, "_dynamo_disable", False):
+            resampler_cls.forward = _dynamo.disable(resampler_cls.forward)
+
         # Wrap so the test framework can call model(**inputs_dict) and forward
         # receives the dict as the required `data` positional argument.
         return _MiniCPMVWrapper(model)
