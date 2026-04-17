@@ -285,10 +285,6 @@ class ModelLoader(ForgeModel):
         if "mlx-community" in pretrained_model_name:
             model_kwargs["ignore_mismatched_sizes"] = True
 
-        # BnB variants need device_map="cpu" for CPU-based loading
-        if self._variant == ModelVariant.UNSLOTH_QWEN_2_5_7B_BNB_4BIT:
-            model_kwargs["device_map"] = "cpu"
-
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
