@@ -9,7 +9,7 @@ from typing import Optional
 
 import torch
 from PIL import Image
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoConfig, AutoModel, AutoProcessor
 
 from ...base import ForgeModel
 from ...config import (
@@ -72,9 +72,13 @@ class ModelLoader(ForgeModel):
         """Load and return the R-4B model instance."""
         model_name = self._variant_config.pretrained_model_name
 
+        config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+        config.tie_word_embeddings = False
+
         model_kwargs = {
             "trust_remote_code": True,
             "torch_dtype": dtype_override if dtype_override else torch.float32,
+            "config": config,
         }
         model_kwargs |= kwargs
 
