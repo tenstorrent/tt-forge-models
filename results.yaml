@@ -39,3 +39,7 @@ results:
   status: "PASS"
   date: "20260417_121438"
   branch: "arch-c-36-tt-xla-dev/nsmith/hf-bringup-range-2000-3000-11"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[qwen_3_nemotron/causal_lm/pytorch-235B_A22B_GenRM-single_device-inference]"
+  status: "MODEL_TOO_LARGE"
+  date: "20260417_121608"
+  branch: "arch-c-36-tt-xla-dev/nsmith/hf-bringup-range-2000-3000-11"
