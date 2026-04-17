@@ -44,8 +44,8 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.QWEN_3_CODER_NEXT_IQ3_S
 
     _GGUF_FILES = {
-        ModelVariant.QWEN_3_CODER_NEXT_IQ3_S: "Qwen3-Coder-Next-IQ3_S.gguf",
-        ModelVariant.QWEN_3_CODER_NEXT_IQ4_XS: "Qwen3-Coder-Next-IQ4_XS.gguf",
+        ModelVariant.QWEN_3_CODER_NEXT_IQ3_S: "Qwen3-Coder-Next.IQ3_S.gguf",
+        ModelVariant.QWEN_3_CODER_NEXT_IQ4_XS: "Qwen3-Coder-Next.IQ4_XS.gguf",
     }
 
     @property
