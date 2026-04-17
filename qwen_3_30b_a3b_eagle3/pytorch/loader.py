@@ -9,7 +9,9 @@ import json
 from typing import Optional
 
 import torch
+import torch.nn as nn
 from transformers import AutoTokenizer
+from transformers.modeling_outputs import CausalLMOutput
 
 from ...base import ForgeModel
 from ...config import (
@@ -21,6 +23,33 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
+
+
+class Eagle3SingleStep(nn.Module):
+    """Wraps Eagle3DraftModel for a single forward pass without the iterative loop."""
+
+    def __init__(self, eagle3_model):
+        super().__init__()
+        self.fc = eagle3_model.fc
+        self.layers = eagle3_model.layers
+        self.lm_head = eagle3_model.lm_head
+        self.embed_tokens = eagle3_model.embed_tokens
+        self.config = eagle3_model.config
+
+    def forward(self, hidden_states, input_ids):
+        hidden_states = self.fc(hidden_states)
+        input_embeds = self.embed_tokens(input_ids)
+        hidden_states = hidden_states + input_embeds
+
+        for layer in self.layers:
+            layer_out = layer(hidden_states)
+            if isinstance(layer_out, tuple):
+                hidden_states = layer_out[0]
+            else:
+                hidden_states = layer_out
+
+        logits = self.lm_head(hidden_states)
+        return CausalLMOutput(logits=logits)
 
 
 class ModelVariant(StrEnum):
@@ -48,7 +77,6 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.num_layers = num_layers
-        self.t2d = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -90,7 +118,7 @@ class ModelLoader(ForgeModel):
         with open(config_path) as f:
             raw_config = json.load(f)
         config = Eagle3SpeculatorConfig(**raw_config)
-        config.transformer_layer_config._attn_implementation = "flex_attention"
+        config.transformer_layer_config._attn_implementation = "eager"
 
         if self.num_layers is not None:
             config.transformer_layer_config.num_hidden_layers = self.num_layers
@@ -100,7 +128,6 @@ class ModelLoader(ForgeModel):
 
         t2d = state_dict.pop("t2d", None)
         d2t = state_dict.pop("d2t", None)
-        self.t2d = t2d
 
         model = Eagle3DraftModel(config, t2d=t2d, d2t=d2t)
         model.load_state_dict(state_dict, strict=False)
@@ -108,7 +135,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model = model.to(dtype_override)
 
-        return model.eval()
+        return Eagle3SingleStep(model).eval()
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         seq_len = 7
