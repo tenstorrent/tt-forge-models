@@ -49,13 +49,17 @@ class ModelLoader(ForgeModel):
     def _fix_gguf_version_detection():
         import transformers.utils.import_utils as _import_utils
 
-        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
-            try:
-                importlib.metadata.version("gguf")
-                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
-                _import_utils.is_gguf_available.cache_clear()
-            except importlib.metadata.PackageNotFoundError:
-                pass
+        importlib.invalidate_caches()
+        try:
+            gguf_ver = importlib.metadata.version("gguf")
+        except importlib.metadata.PackageNotFoundError:
+            gguf_ver = None
+
+        if gguf_ver and "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+
+        if gguf_ver:
+            _import_utils.is_gguf_available.cache_clear()
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
