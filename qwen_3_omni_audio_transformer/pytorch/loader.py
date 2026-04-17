@@ -127,7 +127,7 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        input_features = inputs["input_features"]
+        input_features = inputs["input_features"].squeeze(0)
         if dtype_override is not None:
             input_features = input_features.to(dtype_override)
         feature_lens = torch.tensor([input_features.shape[-1]], dtype=torch.long)
