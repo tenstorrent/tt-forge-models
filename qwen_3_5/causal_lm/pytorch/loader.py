@@ -6,7 +6,21 @@ Qwen 3.5 model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.cache_utils import DynamicCache, LinearAttentionCacheLayerMixin
 from typing import Optional
+
+
+def _to_legacy_cache_hybrid(self):
+    legacy_cache = []
+    for layer in self.layers:
+        if isinstance(layer, LinearAttentionCacheLayerMixin):
+            legacy_cache.append((layer.conv_states, layer.recurrent_states))
+        else:
+            legacy_cache.append((layer.keys, layer.values))
+    return legacy_cache
+
+
+DynamicCache.to_legacy_cache = _to_legacy_cache_hybrid
 
 from ....base import ForgeModel
 from ....config import (
