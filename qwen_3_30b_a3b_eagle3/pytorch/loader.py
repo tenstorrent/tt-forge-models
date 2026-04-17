@@ -5,10 +5,14 @@
 Qwen3-30B-A3B EAGLE3 speculative decoding draft model loader for causal language modeling.
 """
 
+import json
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
+from speculators.models.eagle3 import Eagle3DraftModel, Eagle3SpeculatorConfig
+from transformers import AutoTokenizer
 
 from ...base import ForgeModel
 from ...config import (
@@ -80,23 +84,27 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        config_path = hf_hub_download(pretrained_model_name, "config.json")
+        with open(config_path) as f:
+            raw_config = json.load(f)
+        config = Eagle3SpeculatorConfig(**raw_config)
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            config.transformer_layer_config.num_hidden_layers = self.num_layers
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        weights_path = hf_hub_download(pretrained_model_name, "model.safetensors")
+        state_dict = load_file(weights_path)
 
-        return model
+        t2d = state_dict.pop("t2d", None)
+        d2t = state_dict.pop("d2t", None)
+
+        model = Eagle3DraftModel(config, t2d=t2d, d2t=d2t)
+        model.load_state_dict(state_dict, strict=False)
+
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
+        return model.eval()
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
