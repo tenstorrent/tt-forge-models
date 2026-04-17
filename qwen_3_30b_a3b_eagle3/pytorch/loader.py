@@ -89,6 +89,7 @@ class ModelLoader(ForgeModel):
         with open(config_path) as f:
             raw_config = json.load(f)
         config = Eagle3SpeculatorConfig(**raw_config)
+        config.transformer_layer_config._attn_implementation = "eager"
 
         if self.num_layers is not None:
             config.transformer_layer_config.num_hidden_layers = self.num_layers
