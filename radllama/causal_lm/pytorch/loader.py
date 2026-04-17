@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
+            pretrained_model_name, trust_remote_code=True, **tokenizer_kwargs
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -86,12 +86,14 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             from transformers import AutoConfig
 
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
         model.eval()
 
