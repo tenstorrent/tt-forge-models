@@ -97,7 +97,10 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-                if dtype_override is not None:
-                    inputs[key] = inputs[key].to(dtype_override)
+                if inputs[key].dtype.is_floating_point:
+                    target_dtype = (
+                        dtype_override if dtype_override is not None else torch.float32
+                    )
+                    inputs[key] = inputs[key].to(target_dtype)
 
         return inputs
