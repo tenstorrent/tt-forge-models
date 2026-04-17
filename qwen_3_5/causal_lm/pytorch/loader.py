@@ -395,10 +395,11 @@ class ModelLoader(ForgeModel):
                 shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
                 shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
-                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+                attn = getattr(layer, "self_attn", None) or layer.linear_attn
+                shard_specs[attn.q_proj.weight] = ("model", "batch")
+                shard_specs[attn.k_proj.weight] = ("model", "batch")
+                shard_specs[attn.v_proj.weight] = ("model", "batch")
+                shard_specs[attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
 
         return shard_specs
