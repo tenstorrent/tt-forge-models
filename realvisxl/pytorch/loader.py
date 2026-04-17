@@ -13,9 +13,6 @@ Available variants:
 
 from typing import Optional
 
-import torch
-from diffusers import StableDiffusionXLPipeline
-
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -25,6 +22,10 @@ from ...config import (
     ModelSource,
     Framework,
     StrEnum,
+)
+from .src.model_utils import load_pipe
+from ...stable_diffusion_xl.pytorch.src.model_utils import (
+    stable_diffusion_preprocessing_xl,
 )
 
 
@@ -47,6 +48,8 @@ class ModelLoader(ForgeModel):
     }
     DEFAULT_VARIANT = ModelVariant.REALVISXL_V5_0
 
+    prompt = "A photograph of a mountain landscape at golden hour, highly detailed, photorealistic"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipeline = None
@@ -65,25 +68,46 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the RealVisXL V5.0 pipeline.
+        """Load and return the RealVisXL V5.0 UNet.
 
         Returns:
-            StableDiffusionXLPipeline: The RealVisXL pipeline instance.
+            torch.nn.Module: The UNet component from the RealVisXL pipeline.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
-        self.pipeline = StableDiffusionXLPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
-        )
-        return self.pipeline
+        self.pipeline = load_pipe(self._variant_config.pretrained_model_name)
+
+        if dtype_override is not None:
+            self.pipeline = self.pipeline.to(dtype_override)
+
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the RealVisXL model.
+        """Load and return preprocessed tensor inputs for the RealVisXL UNet.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments for the UNet forward method.
         """
-        return [
-            "A photograph of a mountain landscape at golden hour, highly detailed, photorealistic"
-        ] * batch_size
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        (
+            latent_model_input,
+            timesteps,
+            prompt_embeds,
+            timestep_cond,
+            added_cond_kwargs,
+            add_time_ids,
+        ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
+
+        timestep = timesteps[0]
+
+        if dtype_override:
+            latent_model_input = latent_model_input.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            prompt_embeds = prompt_embeds.to(dtype_override)
+
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
