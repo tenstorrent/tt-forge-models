@@ -163,6 +163,38 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
+        # The bundled modeling_qwen2.py looks up ROPE_INIT_FUNCTIONS["default"],
+        # but modern transformers dropped that key. Re-register a default impl
+        # equivalent to transformers' own Qwen2RotaryEmbedding.
+        from transformers import modeling_rope_utils
+
+        if "default" not in modeling_rope_utils.ROPE_INIT_FUNCTIONS:
+
+            def _compute_default_rope_parameters(
+                config=None, device=None, seq_len=None, **_
+            ):
+                base = getattr(config, "rope_theta", None)
+                if base is None:
+                    base = config.rope_parameters["rope_theta"]
+                dim = (
+                    getattr(config, "head_dim", None)
+                    or config.hidden_size // config.num_attention_heads
+                )
+                inv_freq = 1.0 / (
+                    base
+                    ** (
+                        torch.arange(0, dim, 2, dtype=torch.int64).to(
+                            device=device, dtype=torch.float
+                        )
+                        / dim
+                    )
+                )
+                return inv_freq, 1.0
+
+            modeling_rope_utils.ROPE_INIT_FUNCTIONS["default"] = (
+                _compute_default_rope_parameters
+            )
+
         # The remote SailVLConfig has a buggy default constructor that raises
         # on its fallback InternLM2ForCausalLM architecture; transformers
         # exercises this path via __repr__/to_diff_dict during from_pretrained.
