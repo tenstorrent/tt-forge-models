@@ -194,6 +194,12 @@ class ModelLoader(ForgeModel):
             max_length=max_length,
         )
 
+        if self.model is not None and (
+            hasattr(self.model.config, "sliding_window")
+            and self.model.config.sliding_window is not None
+        ):
+            self.model.config.sliding_window = inputs["input_ids"].shape[1]
+
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
