@@ -113,13 +113,23 @@ class ModelLoader(ForgeModel):
 
         test_input = "What is the capital of France?"
 
-        inputs = self.tokenizer(test_input, return_tensors="pt")
+        tokens = self.tokenizer(test_input, return_tensors="pt")
+        input_ids = tokens["input_ids"]
 
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        if batch_size > 1:
+            input_ids = input_ids.repeat_interleave(batch_size, dim=0)
 
-        return inputs
+        seq_len = input_ids.shape[1]
+        hidden_size = 2048
+        hidden_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        hidden_states = torch.randn(
+            batch_size, seq_len, hidden_size, dtype=hidden_dtype
+        )
+
+        return {
+            "hidden_states": hidden_states,
+            "input_ids": input_ids,
+        }
 
     def decode_output(self, outputs, dtype_override=None):
         if self.tokenizer is None:
