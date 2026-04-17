@@ -217,6 +217,15 @@ class ModelLoader(ForgeModel):
                     inputs["pixel_values"], dtype_override
                 )
 
+        # Convert image_sizes from a tensor to Python int tuples so torch._dynamo
+        # uses concrete integer values rather than fake-tensor zeros during tracing.
+        # Without this, the pixtral patch merger receives h=0,w=0 (from 0//patch_size)
+        # which causes unfold to fail on a [1, hidden, 0, 0] tensor.
+        if "image_sizes" in inputs and inputs["image_sizes"] is not None:
+            inputs["image_sizes"] = [
+                tuple(int(v) for v in size) for size in inputs["image_sizes"]
+            ]
+
         return inputs
 
     def get_mesh_config(self, num_devices: int):
