@@ -31,7 +31,6 @@ class ModelVariant(StrEnum):
     QWEN_2_VL_2B_INSTRUCT_AWQ = "2B_INSTRUCT_Awq"
     QWEN_2_VL_2B_INSTRUCT_GPTQ_INT4 = "2B_INSTRUCT_Gptq_Int4"
 
-    # mlx-community quantized variants
     QWEN_2_VL_2B_INSTRUCT_4BIT = "2B_Instruct_4bit"
 
 
@@ -49,9 +48,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_2_VL_7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2-VL-7B-Instruct",
         ),
-        # mlx-community quantized variants
+        # MLX models cannot be loaded directly with transformers, use the base model
         ModelVariant.QWEN_2_VL_2B_INSTRUCT_4BIT: LLMModelConfig(
-            pretrained_model_name="mlx-community/Qwen2-VL-2B-Instruct-4bit",
+            pretrained_model_name="Qwen/Qwen2-VL-2B-Instruct",
         ),
     }
 
@@ -159,9 +158,6 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         else:
             model_kwargs["torch_dtype"] = torch.float32
-
-        if "mlx-community" in pretrained_model_name:
-            model_kwargs["ignore_mismatched_sizes"] = True
 
         model_kwargs |= kwargs
 
