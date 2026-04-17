@@ -26,6 +26,11 @@ class ModelVariant(StrEnum):
     LLAMA3_1_8B_EAGLE3_QUANTIZED = "3.1_8B_Eagle3_Quantized"
 
 
+TOKENIZER_MODEL_MAP = {
+    ModelVariant.LLAMA3_1_8B_EAGLE3_QUANTIZED: "RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic",
+}
+
+
 class ModelLoader(ForgeModel):
     """SpeculatorLlama Eagle3 model loader implementation."""
 
@@ -62,8 +67,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        tokenizer_model = TOKENIZER_MODEL_MAP.get(
+            self._variant, self._variant_config.pretrained_model_name
+        )
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            tokenizer_model,
             trust_remote_code=True,
             **tokenizer_kwargs,
         )
