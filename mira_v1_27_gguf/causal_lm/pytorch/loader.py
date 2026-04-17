@@ -98,6 +98,16 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Match sliding_window to input size to prevent out-of-bounds cache updates
+        # Issue: https://github.com/tenstorrent/tt-xla/issues/3186
+        max_length = self._variant_config.max_length
+        if (
+            hasattr(model.config, "sliding_window")
+            and model.config.sliding_window is not None
+            and max_length is not None
+        ):
+            model.config.sliding_window = max_length
+
         self.config = model.config
         self.model = model
         return model
@@ -165,4 +175,13 @@ class ModelLoader(ForgeModel):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
+        # Match sliding_window to input size to prevent out-of-bounds cache updates
+        # Issue: https://github.com/tenstorrent/tt-xla/issues/3186
+        max_length = self._variant_config.max_length
+        if (
+            hasattr(self.config, "sliding_window")
+            and self.config.sliding_window is not None
+            and max_length is not None
+        ):
+            self.config.sliding_window = max_length
         return self.config
