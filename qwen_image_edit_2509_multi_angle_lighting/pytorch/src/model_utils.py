@@ -71,13 +71,14 @@ def qwen_image_edit_plus_preprocessing(pipe, prompt, images, device="cpu"):
     )
 
     num_channels_latents = pipe.transformer.config.in_channels // 4
+    vae_dtype = pipe.vae.dtype
     latents, image_latents = pipe.prepare_latents(
         vae_images,
         1,
         num_channels_latents,
         height,
         width,
-        prompt_embeds.dtype,
+        vae_dtype,
         device,
         torch.Generator(device).manual_seed(0),
         None,
