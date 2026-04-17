@@ -52,6 +52,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipeline: Optional[QwenImageEditPlusPipeline] = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -90,13 +91,13 @@ class ModelLoader(ForgeModel):
         )
         self.pipeline.fuse_lora()
 
-        transformer = self.pipeline.transformer
-        transformer.eval()
-        return transformer
+        self._transformer = self.pipeline.transformer
+        self._transformer.eval()
+        return self._transformer
 
     def load_inputs(self, **kwargs) -> Any:
         """Prepare sample inputs for the diffusion transformer."""
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = next(self._transformer.parameters()).dtype
         batch_size = kwargs.get("batch_size", 1)
 
         img_dim = 64
