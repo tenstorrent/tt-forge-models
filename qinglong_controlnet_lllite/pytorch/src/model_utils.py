@@ -19,86 +19,133 @@ from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
 
 
-def _make_layer(weight):
-    """Create a Linear or Conv2d layer based on weight tensor dimensions."""
-    if weight.dim() == 2:
-        layer = nn.Linear(weight.shape[1], weight.shape[0], bias=False)
-    elif weight.dim() == 4:
-        layer = nn.Conv2d(
-            weight.shape[1],
-            weight.shape[0],
-            kernel_size=(weight.shape[2], weight.shape[3]),
-            bias=False,
-        )
-    else:
-        raise ValueError(f"Unsupported weight dimension: {weight.dim()}")
+def _make_linear(weight, bias):
+    layer = nn.Linear(weight.shape[1], weight.shape[0], bias=bias is not None)
     layer.weight = nn.Parameter(weight)
+    if bias is not None:
+        layer.bias = nn.Parameter(bias)
     return layer
 
 
+def _make_conv2d(weight, bias):
+    layer = nn.Conv2d(
+        weight.shape[1],
+        weight.shape[0],
+        kernel_size=(weight.shape[2], weight.shape[3]),
+        bias=bias is not None,
+    )
+    layer.weight = nn.Parameter(weight)
+    if bias is not None:
+        layer.bias = nn.Parameter(bias)
+    return layer
+
+
+def _build_sequential(state_dict, prefix, layer_fn, activation_cls):
+    """Build an nn.Sequential from indexed weight/bias entries under `prefix`.
+
+    The state dict stores layers at even indices with activations implied between
+    them. We rebuild a Sequential alternating layer_fn(weight,bias) with
+    activation_cls() so that the indexing matches the saved keys.
+    """
+    layers = []
+    indices = []
+    for key in state_dict:
+        m = re.match(rf"^{re.escape(prefix)}\.(\d+)\.weight$", key)
+        if m:
+            indices.append(int(m.group(1)))
+    if not indices:
+        return None
+    for idx in sorted(set(indices)):
+        weight = state_dict[f"{prefix}.{idx}.weight"]
+        bias = state_dict.get(f"{prefix}.{idx}.bias")
+        # Pad with activations for skipped indices so Sequential indexing matches.
+        while len(layers) < idx:
+            layers.append(activation_cls())
+        layers.append(layer_fn(weight, bias))
+    return nn.Sequential(*layers)
+
+
 class LLLiteModule(nn.Module):
-    """A single LLLite control module consisting of down/mid/up projections."""
+    """A single LLLite control module.
 
-    def __init__(self, down_weight, mid_weight, up_weight):
+    Contains a Conv2d stack (conditioning1) that processes the control image and
+    Linear stacks (down/mid/up) that patch into the SDXL UNet attention. For
+    compile testing we feed the conditioning image through conditioning1 and the
+    latent through down/mid/up with the conditioning features concatenated on
+    the last dim before mid (mirroring the reference LLLite architecture).
+    """
+
+    def __init__(self, state_dict, prefix):
         super().__init__()
-        self.down = _make_layer(down_weight)
-        self.mid = _make_layer(mid_weight)
-        self.up = _make_layer(up_weight)
+        self.conditioning1 = _build_sequential(
+            state_dict, f"{prefix}.conditioning1", _make_conv2d, nn.ReLU
+        )
+        self.down = _build_sequential(
+            state_dict, f"{prefix}.down", _make_linear, nn.ReLU
+        )
+        self.mid = _build_sequential(state_dict, f"{prefix}.mid", _make_linear, nn.ReLU)
+        self.up = _build_sequential(state_dict, f"{prefix}.up", _make_linear, nn.ReLU)
 
-    def forward(self, x):
-        x = self.down(x)
-        x = torch.nn.functional.silu(x)
-        x = self.mid(x)
-        x = torch.nn.functional.silu(x)
-        x = self.up(x)
-        return x
+        self._in_dim = self.down[0].in_features
+        self._mid_in = self.mid[0].in_features
+        self._down_out = self.down[0].out_features
+        self._cond_out = self.conditioning1[-1].out_channels
+
+    def forward(self, x, cond_image):
+        cx = self.conditioning1(cond_image)
+        cx = cx.flatten(2).mean(dim=-1)
+        cx = cx.unsqueeze(1).expand(-1, x.shape[1], -1)
+        h = self.down(x)
+        h = torch.nn.functional.silu(h)
+        h = torch.cat([h, cx], dim=-1)
+        h = self.mid(h)
+        h = torch.nn.functional.silu(h)
+        h = self.up(h)
+        return h
 
 
 class ControlNetLLLite(nn.Module):
-    """ControlNet-LLLite model assembled from safetensors state dict.
+    """ControlNet-LLLite model assembled from a safetensors state dict.
 
-    Groups the loaded weights into individual LLLite modules by parsing
-    the state dict key naming convention.
+    The safetensors file bundles many LLLite modules keyed by the UNet location
+    they patch. Modules come in multiple sizes (different in_dim) so for a
+    single-input forward we keep only modules matching the first encountered
+    in_dim and sum their outputs.
     """
 
     def __init__(self, state_dict):
         super().__init__()
         self.modules_dict = nn.ModuleDict()
 
-        # Group keys by module name (everything before .down/.mid/.up)
-        module_groups = OrderedDict()
+        module_prefixes = OrderedDict()
         for key in sorted(state_dict.keys()):
-            match = re.match(r"(.+)\.(down|mid|up)\.weight", key)
+            match = re.match(
+                r"(.+?)\.(?:conditioning1|down|mid|up)\.\d+\.(?:weight|bias)$", key
+            )
             if match:
-                module_name = match.group(1).replace(".", "_")
-                if module_name not in module_groups:
-                    module_groups[module_name] = {}
-                module_groups[module_name][match.group(2)] = state_dict[key]
+                module_prefixes[match.group(1)] = None
 
-        for name, weights in module_groups.items():
-            if "down" in weights and "mid" in weights and "up" in weights:
-                self.modules_dict[name] = LLLiteModule(
-                    weights["down"], weights["mid"], weights["up"]
-                )
+        target_in_dim = None
+        for prefix in module_prefixes:
+            module = LLLiteModule(state_dict, prefix)
+            if target_in_dim is None:
+                target_in_dim = module._in_dim
+            if module._in_dim != target_in_dim:
+                continue
+            sanitized = prefix.replace(".", "_")
+            self.modules_dict[sanitized] = module
 
-    def forward(self, x):
-        """Forward pass through all LLLite modules, summing their outputs."""
+        self._in_dim = target_in_dim
+
+    def forward(self, x, cond_image):
         out = torch.zeros_like(x)
         for module in self.modules_dict.values():
-            out = out + module(x)
+            out = out + module(x, cond_image)
         return out
 
 
 def load_controlnet_lllite(repo_id, filename):
-    """Download and load a ControlNet-LLLite model from HuggingFace.
-
-    Args:
-        repo_id: HuggingFace repository ID (e.g. "bdsqlsz/qinglong_controlnet-lllite")
-        filename: Safetensors filename to download
-
-    Returns:
-        ControlNetLLLite: The loaded model in eval mode
-    """
+    """Download and load a ControlNet-LLLite model from HuggingFace."""
     model_path = hf_hub_download(repo_id=repo_id, filename=filename)
     state_dict = load_file(model_path)
 
@@ -110,27 +157,12 @@ def load_controlnet_lllite(repo_id, filename):
     return model
 
 
-def create_dummy_input(model, batch_size=1):
-    """Create a dummy input tensor for the ControlNet-LLLite model.
+def create_dummy_input(model, batch_size=1, seq_len=64, cond_size=64):
+    """Create dummy inputs for the ControlNet-LLLite model.
 
-    Infers the input shape from the first module's down projection layer.
-
-    Args:
-        model: ControlNetLLLite model instance
-        batch_size: Batch size for the input tensor
-
-    Returns:
-        torch.Tensor: Dummy input tensor matching the first module's expected input
+    Returns a latent [B, seq, in_dim] and a control image [B, 3, H, W].
     """
-    first_module = next(iter(model.modules_dict.values()))
-    weight = first_module.down.weight
-
     torch.manual_seed(42)
-    if weight.dim() == 4:
-        # Conv2d: [out_channels, in_channels, kH, kW]
-        in_channels = weight.shape[1]
-        return torch.randn(batch_size, in_channels, 64, 64)
-    else:
-        # Linear: [out_features, in_features]
-        input_dim = weight.shape[1]
-        return torch.randn(batch_size, input_dim)
+    x = torch.randn(batch_size, seq_len, model._in_dim)
+    cond_image = torch.randn(batch_size, 3, cond_size, cond_size)
+    return x, cond_image
