@@ -9,6 +9,35 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
+
+
+def _patch_grouped_mm_for_float32():
+    """Patch transformers MoE _grouped_mm to cast float32 inputs to bfloat16.
+
+    torch._grouped_mm requires BF16 inputs, but during XLA FakeTensor
+    tracing the tensors may be float32. This patches the module-level
+    _grouped_mm function in transformers.integrations.moe so that all
+    callers within that module (including _grouped_linear and
+    grouped_mm_experts_forward) automatically get the cast.
+    """
+    import transformers.integrations.moe as moe_module
+
+    _orig = moe_module._grouped_mm
+
+    def _patched(input, weight, offs=None):
+        if weight.dtype == torch.float32:
+            input = input.to(torch.bfloat16)
+            weight = weight.to(torch.bfloat16)
+        else:
+            input = input.to(weight.dtype)
+        if hasattr(torch.nn.functional, "grouped_mm"):
+            return torch.nn.functional.grouped_mm(input, weight, offs=offs)
+        return torch._grouped_mm(input, weight, offs=offs)
+
+    moe_module._grouped_mm = _patched
+
+
+_patch_grouped_mm_for_float32()
 from ....config import (
     LLMModelConfig,
     ModelInfo,
