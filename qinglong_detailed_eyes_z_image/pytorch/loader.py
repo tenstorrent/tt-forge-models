@@ -11,10 +11,10 @@ eye generation in text-to-image diffusion.
 Reference: https://huggingface.co/bdsqlsz/qinglong_DetailedEyes_Z-Image
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import ZImagePipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -26,6 +26,9 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+BASE_MODEL = "Tongyi-MAI/Z-Image-Turbo"
+LORA_REPO = "bdsqlsz/qinglong_DetailedEyes_Z-Image"
 
 
 class ModelVariant(StrEnum):
@@ -39,18 +42,17 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
-            pretrained_model_name="bdsqlsz/qinglong_DetailedEyes_Z-Image",
+            pretrained_model_name=LORA_REPO,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BASE
 
-    base_model = "Tongyi-MAI/Z-Image-Turbo"
     prompt = "A close-up portrait with highly detailed eyes, photorealistic"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._pipe = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -65,37 +67,60 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Z-Image-Turbo pipeline with DetailedEyes LoRA.
+    def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
+        """Load the Z-Image-Turbo pipeline with DetailedEyes LoRA weights applied."""
+        self._pipe = ZImagePipeline.from_pretrained(
+            BASE_MODEL,
+            torch_dtype=dtype,
+            low_cpu_mem_usage=False,
+        )
+        self._pipe.load_lora_weights(LORA_REPO)
+        self._pipe.fuse_lora()
+        return self._pipe
 
-        Loads the base Tongyi-MAI/Z-Image-Turbo pipeline and applies the
-        qinglong_DetailedEyes_Z-Image LoRA adapter weights on top.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
+    def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        """Load and return the DiT transformer with DetailedEyes LoRA weights fused.
 
         Returns:
-            DiffusionPipeline: The pipeline with LoRA weights loaded.
+            torch.nn.Module: The Z-Image-Turbo DiT transformer with LoRA applied.
         """
-        dtype = dtype_override or torch.float16
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self.base_model, torch_dtype=dtype, **kwargs
-        )
-        self.pipeline.load_lora_weights(
-            self._variant_config.pretrained_model_name,
-        )
-        return self.pipeline
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        if self._pipe is None:
+            self._load_pipeline(dtype)
+        if dtype_override is not None:
+            self._pipe.transformer = self._pipe.transformer.to(dtype_override)
+        return self._pipe.transformer
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the model.
-
-        Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the inputs.
+    def load_inputs(self, **kwargs) -> Any:
+        """Load and return sample inputs for the transformer.
 
         Returns:
-            dict: Dictionary containing prompt for text-to-image generation.
+            list: [latent_input_list, timestep, prompt_embeds]
         """
-        return {
-            "prompt": [self.prompt] * batch_size,
-        }
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        height = 128
+        width = 128
+
+        if self._pipe is None:
+            self._load_pipeline(dtype)
+
+        prompt_embeds, _ = self._pipe.encode_prompt(
+            prompt=self.prompt,
+            device="cpu",
+            do_classifier_free_guidance=False,
+        )
+
+        num_channels_latents = self._pipe.transformer.in_channels
+        vae_scale = self._pipe.vae_scale_factor * 2
+        latent_h = height // vae_scale
+        latent_w = width // vae_scale
+        latents = torch.randn(
+            1, num_channels_latents, latent_h, latent_w, dtype=torch.float32
+        )
+
+        timestep = torch.tensor([0.5], dtype=dtype)
+
+        latent_input = latents.to(dtype).unsqueeze(2)
+        latent_input_list = list(latent_input.unbind(dim=0))
+
+        return [latent_input_list, timestep, prompt_embeds]
