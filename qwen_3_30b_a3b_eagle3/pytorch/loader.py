@@ -9,9 +9,6 @@ import json
 from typing import Optional
 
 import torch
-from huggingface_hub import hf_hub_download
-from safetensors.torch import load_file
-from speculators.models.eagle3 import Eagle3DraftModel, Eagle3SpeculatorConfig
 from transformers import AutoTokenizer
 
 from ...base import ForgeModel
@@ -79,6 +76,10 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from huggingface_hub import hf_hub_download
+        from safetensors.torch import load_file
+        from speculators.models.eagle3 import Eagle3DraftModel, Eagle3SpeculatorConfig
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
