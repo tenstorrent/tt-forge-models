@@ -25,11 +25,13 @@ class Wrapper(torch.nn.Module):
         super().__init__()
         self.model = model
 
-    def forward(self, **kwargs):
-        outputs = self.model(**kwargs)
-        if hasattr(outputs, "logits"):
-            return outputs.logits
-        return outputs[0]
+    def forward(self, *args, **kwargs):
+        kwargs["use_cache"] = False
+        kwargs["return_dict"] = False
+        outputs = self.model(*args, **kwargs)
+        if isinstance(outputs, (tuple, list)):
+            return outputs[0]
+        return outputs
 
 
 class ModelVariant(StrEnum):
