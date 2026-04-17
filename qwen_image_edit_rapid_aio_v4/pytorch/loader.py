@@ -76,6 +76,7 @@ class ModelLoader(ForgeModel):
                 REPO_ID,
                 torch_dtype=dtype,
             )
+            self._transformer = self._transformer.to(dtype)
             self._transformer.eval()
         elif dtype_override is not None:
             self._transformer = self._transformer.to(dtype=dtype_override)
