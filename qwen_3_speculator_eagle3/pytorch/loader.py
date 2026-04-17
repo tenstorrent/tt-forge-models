@@ -5,8 +5,11 @@
 Qwen 3 8B EAGLE3 speculator model loader implementation for speculative decoding.
 """
 
+import types
+
 import torch
 from speculators import SpeculatorModel
+from transformers.modeling_outputs import CausalLMOutputWithPast
 from typing import Optional
 
 from ...base import ForgeModel
@@ -19,6 +22,73 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+def _eagle3_forward(
+    self,
+    input_ids,
+    hidden_states,
+    attention_mask=None,
+    position_ids=None,
+    past_key_values=None,
+    use_cache=None,
+    output_attentions=None,
+    output_hidden_states=None,
+    return_dict=None,
+):
+    """Forward pass for EAGLE-3 speculator (speculators 0.2.0 has a stub)."""
+    return_dict = (
+        return_dict if return_dict is not None else self.config.use_return_dict
+    )
+
+    inputs_embeds = self.embed_tokens(input_ids)
+    fused_hidden = self.fc(hidden_states)
+    layer_input = torch.cat([inputs_embeds, fused_hidden], dim=-1)
+
+    batch_size, seq_length = layer_input.shape[:2]
+    if attention_mask is not None and attention_mask.dim() == 2:
+        from transformers.modeling_attn_mask_utils import (
+            _prepare_4d_causal_attention_mask,
+        )
+
+        past_key_values_length = (
+            past_key_values[0][0].shape[2] if past_key_values else 0
+        )
+        attention_mask = _prepare_4d_causal_attention_mask(
+            attention_mask,
+            (batch_size, seq_length),
+            hidden_states,
+            past_key_values_length,
+        )
+
+    if position_ids is None:
+        device = hidden_states.device
+        position_ids = (
+            torch.arange(seq_length, dtype=torch.long, device=device)
+            .unsqueeze(0)
+            .expand(batch_size, -1)
+        )
+
+    layer_outputs = self.layers[0](
+        layer_input,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        past_key_value=past_key_values[0] if past_key_values else None,
+        output_attentions=output_attentions,
+        use_cache=use_cache,
+    )
+
+    hidden_states = layer_outputs[0]
+    hidden_states = self.norm(hidden_states)
+    logits = self.lm_head(hidden_states)
+
+    if not return_dict:
+        return logits
+
+    return CausalLMOutputWithPast(
+        logits=logits,
+        past_key_values=[layer_outputs[1]] if use_cache else None,
+    )
 
 
 class ModelVariant(StrEnum):
@@ -79,6 +149,7 @@ class ModelLoader(ForgeModel):
             cfg.pretrained_model_name,
             **model_kwargs,
         )
+        model.forward = types.MethodType(_eagle3_forward, model)
         model.eval()
 
         return model
