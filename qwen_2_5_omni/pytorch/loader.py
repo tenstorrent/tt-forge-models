@@ -143,7 +143,7 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        if dtype_override is not None:
-            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+        inputs.pop("pixel_values", None)
+        inputs.pop("image_grid_thw", None)
 
         return inputs
