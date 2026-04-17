@@ -11,7 +11,7 @@ from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
-from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLVisionEncoder
+from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLVisionModel
 from typing import Optional
 
 
@@ -87,7 +87,7 @@ def _patched_fast_pos_embed_interpolate(self, grid_thw):
     return patch_pos_embeds
 
 
-Qwen3VLVisionEncoder.fast_pos_embed_interpolate = _patched_fast_pos_embed_interpolate
+Qwen3VLVisionModel.fast_pos_embed_interpolate = _patched_fast_pos_embed_interpolate
 
 from ....base import ForgeModel
 from ....config import (
