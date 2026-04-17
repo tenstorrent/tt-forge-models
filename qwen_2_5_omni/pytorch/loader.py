@@ -107,6 +107,12 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
+        from transformers import AutoConfig
+
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "thinker_config"):
+            model_kwargs["config"] = config.thinker_config
+
         model = Qwen2_5OmniThinkerForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
