@@ -6,6 +6,7 @@ Qwen 3 VL 8B Medical Extraction GGUF model loader implementation for image to te
 """
 
 from transformers import (
+    AutoConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -71,6 +72,13 @@ class ModelLoader(ForgeModel):
 
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
+
+        # transformers does not support parsing qwen3vl GGUF configs yet;
+        # supply the config from the base model so random-weight mode works.
+        if "config" not in model_kwargs:
+            model_kwargs["config"] = AutoConfig.from_pretrained(
+                "Qwen/Qwen3-VL-8B-Instruct"
+            )
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
