@@ -8,6 +8,51 @@ import torch
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
+
+def _patch_qwen2vl_gguf():
+    """Monkey-patch transformers to support qwen2vl GGUF architecture."""
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen2vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen2vl"] = GGUF_TO_TRANSFORMERS_MAPPING[
+        "config"
+    ]["qwen2"].copy()
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen2vl":
+            result["config"]["model_type"] = "qwen2_5_vl"
+            rope_theta = result["config"].get("rope_theta", 1000000.0)
+            result["config"]["rope_scaling"] = {
+                "type": "mrope",
+                "mrope_section": [16, 24, 24],
+                "rope_theta": rope_theta,
+                "rope_type": "default",
+            }
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_qwen2vl_gguf()
+
 from ...base import ForgeModel
 from ...config import (
     LLMModelConfig,
