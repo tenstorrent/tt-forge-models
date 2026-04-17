@@ -6,7 +6,7 @@ ProtonX Legal Text Correction model loader implementation
 """
 
 import torch
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import AutoModelForSeq2SeqLM, PreTrainedTokenizerFast
 from typing import Optional
 
 from ...base import ForgeModel
@@ -64,7 +64,10 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        # transformers 5.x AutoTokenizer -> T5TokenizerFast assumes a Unigram
+        # vocab, but this repo ships a BPE tokenizer.json. Load the fast
+        # tokenizer directly from tokenizer.json to avoid the mismatch.
+        self.tokenizer = PreTrainedTokenizerFast.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
 
