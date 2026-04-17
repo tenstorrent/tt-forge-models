@@ -5,12 +5,15 @@
 Sa2VA model loader implementation for multimodal visual question answering.
 """
 
+import os
 import torch
 import torchvision.transforms as T
 from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
 from transformers import AutoModel, AutoTokenizer
+from transformers.dynamic_module_utils import get_imports
 from typing import Optional
+from unittest.mock import patch
 
 from ...tools.utils import get_file
 from ...base import ForgeModel
@@ -23,6 +26,14 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
+    imports = get_imports(filename)
+    if not torch.cuda.is_available() and "flash_attn" in imports:
+        imports.remove("flash_attn")
+    return imports
+
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -170,7 +181,8 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
         self.model = model
 
