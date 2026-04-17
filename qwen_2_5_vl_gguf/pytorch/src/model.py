@@ -13,6 +13,8 @@ class Wrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
         self.model = model
+        if hasattr(model, "visual"):
+            model.visual.forward = torch.compiler.disable(model.visual.forward)
 
     def forward(self, input_ids, attention_mask, pixel_values, image_grid_thw):
         inputs = {
