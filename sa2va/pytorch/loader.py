@@ -123,6 +123,23 @@ def load_image(image_path, input_size=448, max_num=12):
     return pixel_values
 
 
+class Sa2VAWrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(
+        self, pixel_values, input_ids, attention_mask, image_flags, use_cache=False
+    ):
+        return self.model._llm_forward(
+            pixel_values=pixel_values,
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            image_flags=image_flags,
+            use_cache=use_cache,
+        )
+
+
 class ModelVariant(StrEnum):
     """Available Sa2VA model variants."""
 
@@ -186,7 +203,9 @@ class ModelLoader(ForgeModel):
         model.eval()
         self.model = model
 
-        return model
+        wrapper = Sa2VAWrapper(model)
+        wrapper.eval()
+        return wrapper
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
