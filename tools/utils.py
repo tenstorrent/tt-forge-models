@@ -340,11 +340,12 @@ def get_static_cache_decode_inputs(
     token_id = get_simple_decode_token_id(tokenizer, config)
     input_ids = torch.full((batch_size, 1), fill_value=token_id, dtype=torch.long)
     prefill_len = max_cache_len - 1
-    prefill_input_ids = torch.full(
-        (batch_size, prefill_len),
-        token_id,
-        dtype=torch.long,
-        device=device,
+
+    sample_text = "The quick brown fox jumps over the lazy dog. " * 10
+    sample_ids = tokenizer.encode(sample_text, add_special_tokens=False)
+    tiled = (sample_ids * ((prefill_len // len(sample_ids)) + 1))[:prefill_len]
+    prefill_input_ids = (
+        torch.tensor(tiled, dtype=torch.long).unsqueeze(0).expand(batch_size, -1)
     )
 
     with torch.no_grad():

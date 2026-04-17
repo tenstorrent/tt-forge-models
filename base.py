@@ -6,6 +6,9 @@
 This module provides the ForgeModel base class with common functionality
 for loading models, inputs, etc.
 """
+import inspect
+import os
+import warnings
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, Union, Type, Any
 
@@ -220,4 +223,34 @@ class ForgeModel(ABC):
         Returns:
             Any: Model configuration object
         """
+        return None
+
+    def get_weight_dtype_config_path(self) -> Optional[str]:
+        """Return path to a per-variant weight dtype override JSON, if it exists.
+
+        Looks for mixed_precision_configs/{hf_model_name}.json relative to this
+        loader's directory, where hf_model_name is the part after '/' in the
+        pretrained_model_name (e.g. "Mistral-7B-Instruct-v0.3").
+
+        Returns:
+            Absolute path to the JSON file, or None if not found.
+        """
+        if self._variant is None:
+            return None
+        variant_config = self.get_variant_config(self._variant)
+        if variant_config is None or not hasattr(
+            variant_config, "pretrained_model_name"
+        ):
+            return None
+        hf_model_name = variant_config.pretrained_model_name.split("/")[-1]
+        loader_dir = os.path.dirname(os.path.abspath(inspect.getfile(self.__class__)))
+        config_dir = os.path.join(loader_dir, "mixed_precision_configs")
+        config_path = os.path.join(config_dir, f"{hf_model_name}.json")
+        if os.path.exists(config_path):
+            return config_path
+        if os.path.isdir(config_dir):
+            warnings.warn(
+                f"Weight dtype config not found at {config_path}. "
+                f"Available configs: {os.listdir(config_dir)}"
+            )
         return None

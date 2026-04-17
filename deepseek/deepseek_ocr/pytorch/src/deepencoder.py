@@ -270,9 +270,6 @@ class CLIPVisionEmbeddings(nn.Module):
         self.num_patches = (self.image_size // self.patch_size) ** 2
         self.num_positions = self.num_patches + 1
         self.position_embedding = torch.nn.Embedding(self.num_positions, self.embed_dim)
-        self.register_buffer(
-            "position_ids", torch.arange(self.num_positions).expand((1, -1))
-        )
 
     def forward(self, pixel_values, patch_embeds):
         batch_size = pixel_values.shape[0]
@@ -284,8 +281,15 @@ class CLIPVisionEmbeddings(nn.Module):
 
         class_embeds = self.class_embedding.expand(batch_size, 1, -1)
         embeddings = torch.cat([class_embeds, patch_embeds], dim=1)
+        # After load_state_dict, num_embeddings may differ from __init__; match indices to the table.
+        num_pos = self.position_embedding.num_embeddings
+        position_ids = torch.arange(
+            num_pos,
+            device=embeddings.device,
+            dtype=torch.long,
+        ).unsqueeze(0)
         embeddings = embeddings + get_abs_pos(
-            self.position_embedding(self.position_ids), embeddings.size(1)
+            self.position_embedding(position_ids), embeddings.size(1)
         )
         return embeddings
 

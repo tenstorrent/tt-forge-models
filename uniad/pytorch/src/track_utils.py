@@ -1658,7 +1658,18 @@ class Instances:
                 ret.set(k, ret_list)
 
             else:
-                ret.set(k, v[item])
+                field_item = item
+                # Keep tensor indexing on the same device as the indexed field.
+                if isinstance(item, torch.Tensor):
+                    if isinstance(v, torch.Tensor) and item.device != v.device:
+                        field_item = item.to(v.device)
+                    elif (
+                        hasattr(v, "tensor")
+                        and isinstance(v.tensor, torch.Tensor)
+                        and item.device != v.tensor.device
+                    ):
+                        field_item = item.to(v.tensor.device)
+                ret.set(k, v[field_item])
         return ret
 
     def __len__(self) -> int:

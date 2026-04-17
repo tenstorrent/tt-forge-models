@@ -1,0 +1,5 @@
+{
+  "model.layers.*.mlp.gate_proj.weight": "bfp_bf4",
+  "model.layers.*.mlp.up_proj.weight": "bfp_bf4",
+  "default": "bfp_bf8"
+}

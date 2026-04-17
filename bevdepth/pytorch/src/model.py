@@ -1425,7 +1425,7 @@ class VoxelPoolingInference(Function):
         Vz = voxel_num_z
 
         total_samples = B * Cams * D * H * W
-        geom_flat = geom_xyz.view(total_samples, 3)
+        geom_flat = geom_xyz.reshape(total_samples, 3)
         sx_all = geom_flat[:, 0]
         sy_all = geom_flat[:, 1]
         sz_all = geom_flat[:, 2]

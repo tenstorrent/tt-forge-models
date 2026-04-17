@@ -32,6 +32,8 @@ class ModelVariant(StrEnum):
     GLM_4_7 = "4.7"
     GLM_4_5 = "4.5"
     GLM_4_5_AIR = "4.5_Air"
+    GLM_5 = "5"
+    GLM_5_1 = "5.1"
 
 
 class ModelLoader(ForgeModel):
@@ -49,6 +51,14 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GLM_4_5_AIR: LLMModelConfig(
             pretrained_model_name="zai-org/GLM-4.5-Air",
+            max_length=128,
+        ),
+        ModelVariant.GLM_5: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-5",
+            max_length=128,
+        ),
+        ModelVariant.GLM_5_1: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-5.1",
             max_length=128,
         ),
     }
