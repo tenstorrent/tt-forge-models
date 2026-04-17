@@ -73,7 +73,7 @@ class ModelLoader(ForgeModel):
             model="ministral_3b_instruct_bnb_4bit",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.TEXT_GENERATION,
+            task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
