@@ -1,0 +1,2 @@
+pyannote.audio
+torchaudio --index-url https://download.pytorch.org/whl/cpu

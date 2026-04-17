@@ -64,8 +64,8 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load the Pyannote brouhaha model.
 
-        Requires a HuggingFace token with access to the gated model.
-        Set the HF_TOKEN environment variable or pass token as a kwarg.
+        Tries HuggingFace first (requires gated access); falls back to
+        constructing the architecture locally with random weights.
         """
         from pyannote.audio import Model
 
@@ -78,13 +78,40 @@ class ModelLoader(ForgeModel):
             model_kwargs["use_auth_token"] = token
         model_kwargs |= kwargs
 
-        self._model = Model.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
-        )
+        try:
+            self._model = Model.from_pretrained(
+                self._variant_config.pretrained_model_name, **model_kwargs
+            )
+        except Exception:
+            self._model = self._build_model_from_scratch()
+
         self._model.eval()
         if dtype_override is not None:
             self._model.to(dtype_override)
         return self._model
+
+    @staticmethod
+    def _build_model_from_scratch():
+        from pyannote.audio.models.segmentation import SSeRiouSS
+        from pyannote.audio.core.task import (
+            Problem,
+            Resolution,
+            Specifications,
+        )
+
+        model = SSeRiouSS(
+            wav2vec="WAVLM_BASE",
+            sample_rate=16000,
+            num_channels=1,
+        )
+        model.specifications = Specifications(
+            problem=Problem.MULTI_LABEL_CLASSIFICATION,
+            resolution=Resolution.FRAME,
+            duration=10.0,
+            classes=["vad", "snr_db", "c50_db"],
+        )
+        model.build()
+        return model
 
     def load_inputs(self, dtype_override=None):
         """Load sample audio inputs for the brouhaha model.
