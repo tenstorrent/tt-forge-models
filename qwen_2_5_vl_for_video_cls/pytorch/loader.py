@@ -122,28 +122,30 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Wrapped model instance for video classification.
         """
-        # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
 
-        # Load the model with dtype override if specified
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         else:
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
-        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        self._full_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        model.eval()
-        model = Wrapper(model)
+        self._full_model.eval()
+        model = Wrapper(self._full_model)
 
         return model
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the model.
+
+        Pre-computes vision features and position IDs eagerly so that the
+        compiled model only receives inputs_embeds (with vision features
+        already merged) and never runs the vision encoder during tracing.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -152,21 +154,17 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        # Ensure processor is initialized
         if self.processor is None:
             self._load_processor()
 
-        # Apply chat template to get text prompt
         text = self.processor.apply_chat_template(
             self.messages, tokenize=False, add_generation_prompt=True
         )
 
         from qwen_vl_utils import process_vision_info
 
-        # Process vision inputs
         image_inputs, video_inputs = process_vision_info(self.messages)
 
-        # Process all inputs together
         inputs = self.processor(
             text=[text],
             images=image_inputs,
@@ -175,8 +173,36 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        # Convert pixel_values to specified dtype if provided
         if dtype_override is not None:
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
-        return inputs
+        with torch.no_grad():
+            inner_model = self._full_model.model
+            inputs_embeds = inner_model.get_input_embeddings()(inputs["input_ids"])
+            image_embeds = inner_model.get_image_features(
+                inputs["pixel_values"], inputs["image_grid_thw"], return_dict=True
+            ).pooler_output
+            image_embeds = torch.cat(image_embeds, dim=0).to(
+                inputs_embeds.device, inputs_embeds.dtype
+            )
+            image_mask, _ = inner_model.get_placeholder_mask(
+                inputs["input_ids"],
+                inputs_embeds=inputs_embeds,
+                image_features=image_embeds,
+            )
+            inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+            position_ids = inner_model.compute_3d_position_ids(
+                input_ids=inputs["input_ids"],
+                image_grid_thw=inputs["image_grid_thw"],
+                video_grid_thw=None,
+                second_per_grid_ts=None,
+                inputs_embeds=inputs_embeds,
+                attention_mask=inputs["attention_mask"],
+                past_key_values=None,
+            )
+
+        return {
+            "inputs_embeds": inputs_embeds,
+            "attention_mask": inputs["attention_mask"],
+            "position_ids": position_ids,
+        }
