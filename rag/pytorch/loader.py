@@ -6,7 +6,7 @@ RAG (Retrieval-Augmented Generation) model loader implementation.
 """
 
 import torch
-from transformers import RagTokenizer, RagRetriever, RagSequenceForGeneration
+from transformers import RagTokenizer, RagSequenceForGeneration
 from typing import Optional
 
 from ...base import ForgeModel
@@ -75,11 +75,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        self._retriever = RagRetriever.from_pretrained(
-            pretrained_model_name, index_name="exact", use_dummy_dataset=True
-        )
-
-        model_kwargs = {"use_cache": False, "retriever": self._retriever}
+        model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -100,13 +96,29 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        gen_cfg = getattr(self._cached_model, "generation_config", None)
+        decoder_start_token_id = (
+            gen_cfg.decoder_start_token_id
+            if gen_cfg is not None
+            else self._cached_model.config.decoder_start_token_id
+        )
+        if decoder_start_token_id is None:
+            decoder_start_token_id = 2
         decoder_start_token_tensor = torch.tensor(
-            self._cached_model.generation_config.decoder_start_token_id,
+            decoder_start_token_id,
             dtype=torch.long,
         )
         decoder_input_ids = (
             torch.ones((1, 1), dtype=torch.long) * decoder_start_token_tensor
         )
         inputs["decoder_input_ids"] = decoder_input_ids
+
+        n_docs = self._cached_model.config.n_docs
+        seq_len = inputs["input_ids"].shape[1]
+        inputs["context_input_ids"] = torch.zeros((n_docs, seq_len), dtype=torch.long)
+        inputs["context_attention_mask"] = torch.ones(
+            (n_docs, seq_len), dtype=torch.long
+        )
+        inputs["doc_scores"] = torch.ones((1, n_docs))
 
         return inputs
