@@ -113,6 +113,75 @@ def load_image(image_path, input_size=448, max_num=12):
     return pixel_values
 
 
+def _patch_sailvl_forward(model_cls):
+    """Replace SailVL forward with an XLA-compatible variant."""
+    if getattr(model_cls, "_xla_forward_patched", False):
+        return
+
+    def xla_forward(
+        self,
+        pixel_values,
+        input_ids=None,
+        attention_mask=None,
+        position_ids=None,
+        image_flags=None,
+        past_key_values=None,
+        labels=None,
+        use_cache=None,
+        output_attentions=None,
+        output_hidden_states=None,
+        return_dict=None,
+    ):
+        from transformers.modeling_outputs import CausalLMOutputWithPast
+
+        return_dict = (
+            return_dict if return_dict is not None else self.config.use_return_dict
+        )
+
+        input_embeds = self.language_model.get_input_embeddings()(input_ids)
+        vit_embeds = self.extract_feature(pixel_values)
+
+        B, N, C = input_embeds.shape
+        input_embeds = input_embeds.reshape(B * N, C)
+        input_ids_flat = input_ids.reshape(B * N)
+
+        # Replace boolean-masked assignment with a gather + torch.where, which
+        # keeps the graph fully traceable under torch.compile/XLA.
+        vit_flat = vit_embeds.reshape(-1, C)
+        selected = input_ids_flat == self.img_context_token_id
+        selected_int = selected.to(torch.long)
+        gather_idx = (torch.cumsum(selected_int, dim=0) - 1).clamp(min=0)
+        source = vit_flat.index_select(0, gather_idx)
+        input_embeds = torch.where(selected.unsqueeze(-1), source, input_embeds)
+
+        input_embeds = input_embeds.reshape(B, N, C)
+
+        outputs = self.language_model(
+            inputs_embeds=input_embeds,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+
+        if not return_dict:
+            return (outputs.logits,) + tuple(outputs[1:])
+
+        return CausalLMOutputWithPast(
+            loss=None,
+            logits=outputs.logits,
+            past_key_values=getattr(outputs, "past_key_values", None),
+            hidden_states=getattr(outputs, "hidden_states", None),
+            attentions=getattr(outputs, "attentions", None),
+        )
+
+    model_cls.forward = xla_forward
+    model_cls._xla_forward_patched = True
+
+
 class ModelVariant(StrEnum):
     """Available SAIL-VL model variants."""
 
@@ -196,9 +265,9 @@ class ModelLoader(ForgeModel):
                 )
                 return inv_freq, 1.0
 
-            modeling_rope_utils.ROPE_INIT_FUNCTIONS["default"] = (
-                _compute_default_rope_parameters
-            )
+            modeling_rope_utils.ROPE_INIT_FUNCTIONS[
+                "default"
+            ] = _compute_default_rope_parameters
 
         # The remote SailVLConfig has a buggy default constructor that raises
         # on its fallback InternLM2ForCausalLM architecture; transformers
@@ -235,6 +304,12 @@ class ModelLoader(ForgeModel):
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
+
+        # Replace forward with an XLA-compatible version. The bundled one uses
+        # boolean masked indexing and masked assignment (plus a try/except and
+        # a rank-0 print), which cause graph breaks and partitioner errors
+        # ("fused_N has no attribute xla_args") under torch.compile backend=tt.
+        _patch_sailvl_forward(type(model))
         self.model = model
 
         return model
