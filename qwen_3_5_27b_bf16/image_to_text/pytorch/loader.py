@@ -5,6 +5,7 @@
 Qwen 3.5 27B bf16 model loader implementation for image to text.
 """
 
+import torch
 from transformers import AutoModelForImageTextToText, AutoProcessor
 from typing import Optional
 
@@ -61,6 +62,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        else:
+            model_kwargs["torch_dtype"] = torch.bfloat16
 
         model_kwargs |= kwargs
 
