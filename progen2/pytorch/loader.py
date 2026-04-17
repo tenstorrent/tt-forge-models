@@ -6,7 +6,12 @@ ProGen2 model loader implementation for protein sequence generation.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
+    PreTrainedModel,
+)
 from typing import Optional
 
 from ...config import (
@@ -92,9 +97,24 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
-        )
+        # The remote ProGen2 model calls init_weights() in __init__ before
+        # post_init() sets all_tied_weights_keys, causing an AttributeError
+        # with transformers 5.x. Patch to lazily initialize the attribute.
+        _original_init_weights = PreTrainedModel.init_weights
+
+        def _patched_init_weights(model_self):
+            if not hasattr(model_self, "all_tied_weights_keys"):
+                model_self.all_tied_weights_keys = {}
+            _original_init_weights(model_self)
+
+        PreTrainedModel.init_weights = _patched_init_weights
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                self._variant_config.pretrained_model_name, **model_kwargs
+            )
+        finally:
+            PreTrainedModel.init_weights = _original_init_weights
+
         model.eval()
         return model
 
