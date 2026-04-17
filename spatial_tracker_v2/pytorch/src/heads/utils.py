@@ -39,7 +39,7 @@ def position_grid_to_embed(
     # Combine and reshape
     emb = torch.cat([emb_x, emb_y], dim=-1)  # [1, H*W, D]
 
-    return emb.view(H, W, embed_dim)  # [H, W, D]
+    return emb.view(H, W, embed_dim).to(pos_grid.dtype)  # [H, W, D]
 
 
 def make_sincos_pos_embed(
