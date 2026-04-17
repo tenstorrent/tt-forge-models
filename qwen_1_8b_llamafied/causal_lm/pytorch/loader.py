@@ -4,6 +4,9 @@
 """
 Qwen-1.8B-Llamafied model loader implementation for causal language modeling.
 """
+import os
+import tempfile
+
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
@@ -73,6 +76,49 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _prepare_patched_tokenizer_dir(pretrained_model_name: str) -> str:
+        """Download tokenizer files and strip an invalid trailing entry in merges.txt.
+
+        The published merges.txt for ``KnutJaegersberg/Qwen-1_8B-Llamafied`` ends
+        with a truncated single-token line that the tokenizers BPE parser rejects.
+        We materialize the tokenizer assets into a local directory and drop any
+        merge line that does not have exactly two space-separated tokens.
+        """
+        from huggingface_hub import snapshot_download
+
+        local_dir = os.path.join(
+            tempfile.gettempdir(),
+            f"tt-forge-{pretrained_model_name.replace('/', '_')}-tokenizer",
+        )
+        snapshot_download(
+            pretrained_model_name,
+            local_dir=local_dir,
+            allow_patterns=[
+                "vocab.json",
+                "merges.txt",
+                "tokenizer_config.json",
+                "special_tokens_map.json",
+                "tokenizer.json",
+            ],
+        )
+
+        merges_path = os.path.join(local_dir, "merges.txt")
+        if os.path.isfile(merges_path):
+            with open(merges_path, encoding="utf-8") as f:
+                lines = f.read().split("\n")
+            cleaned = [lines[0]] if lines else []
+            for line in lines[1:]:
+                if not line:
+                    continue
+                parts = line.split(" ")
+                if len(parts) == 2 and parts[0] and parts[1]:
+                    cleaned.append(line)
+            with open(merges_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(cleaned) + "\n")
+
+        return local_dir
+
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
 
@@ -86,8 +132,12 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        tokenizer_source = self._prepare_patched_tokenizer_dir(
+            self._variant_config.pretrained_model_name
+        )
+
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            tokenizer_source,
             **tokenizer_kwargs,
         )
 
