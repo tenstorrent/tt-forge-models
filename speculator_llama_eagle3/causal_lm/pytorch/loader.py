@@ -4,12 +4,15 @@
 """
 SpeculatorLlama Eagle3 model loader implementation for causal language modeling.
 """
+import os
+
 import torch
 from typing import Optional
 
 from speculators import SpeculatorModel, SpeculatorModelConfig
 from speculators.models.eagle3 import Eagle3DraftModel
-from transformers import AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer
+from transformers.models.llama.modeling_llama import LlamaRMSNorm
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -31,6 +34,32 @@ class ModelVariant(StrEnum):
 TOKENIZER_MODEL_MAP = {
     ModelVariant.LLAMA3_1_8B_EAGLE3_QUANTIZED: "RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic",
 }
+
+
+class _RandomWeightEagle3(Eagle3DraftModel):
+    """Eagle3DraftModel subclass that skips verifier weight download."""
+
+    def _setup_embeddings_and_lm_heads(self, config, t2d, embed_requires_grad):
+        verifier_config = AutoConfig.from_pretrained(config.name_or_path)
+        if hasattr(verifier_config, "text_config"):
+            verifier_config = verifier_config.text_config
+
+        self.embed_tokens = torch.nn.Embedding(
+            verifier_config.vocab_size,
+            self.hidden_size,
+            padding_idx=verifier_config.pad_token_id,
+        )
+        self.lm_head = torch.nn.Linear(
+            self.hidden_size, self.draft_vocab_size, bias=False
+        )
+        self.verifier_lm_head = torch.nn.Linear(
+            self.hidden_size, self.draft_vocab_size, bias=False
+        )
+        self.verifier_norm = LlamaRMSNorm(
+            self.hidden_size, eps=verifier_config.rms_norm_eps
+        )
+        self.verifier_lm_head.weight.requires_grad = False
+        self.verifier_norm.weight.requires_grad = False
 
 
 class ModelLoader(ForgeModel):
@@ -97,15 +126,13 @@ class ModelLoader(ForgeModel):
         config = SpeculatorModelConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
-        model = Eagle3DraftModel(config, t2d=None, d2t=None)
 
-        import os
-
-        if not os.environ.get("TT_RANDOM_WEIGHTS"):
-            state_dict = SpeculatorModel.from_pretrained(
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            model = _RandomWeightEagle3(config, t2d=None, d2t=None)
+        else:
+            model = SpeculatorModel.from_pretrained(
                 pretrained_model_name, **model_kwargs
-            ).state_dict()
-            model.load_state_dict(state_dict, strict=False)
+            )
 
         if model_kwargs.get("torch_dtype") is not None:
             model = model.to(model_kwargs["torch_dtype"])
