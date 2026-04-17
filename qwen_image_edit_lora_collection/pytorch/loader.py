@@ -117,6 +117,7 @@ class ModelLoader(ForgeModel):
             LORA_REPO,
             weight_name=lora_file,
         )
+        self.pipeline.fuse_lora()
 
         transformer = self.pipeline.transformer
         transformer = transformer.to(dtype)
