@@ -25,6 +25,11 @@ class ModelVariant(StrEnum):
     QWEN_2_5_VL_72B_INSTRUCT_GGUF = "72b_instruct_gguf"
 
 
+_BASE_MODEL_NAME = {
+    ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_GGUF: "Qwen/Qwen2.5-VL-72B-Instruct",
+}
+
+
 class ModelLoader(ForgeModel):
     """Qwen 2.5 VL GGUF model loader implementation for image to text tasks."""
 
@@ -110,7 +115,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        self.processor = AutoProcessor.from_pretrained(_BASE_MODEL_NAME[self._variant])
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
