@@ -187,9 +187,18 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        # Apply chat template to get text prompt
+        # Flatten content items from messages for chat template compatibility
+        # The Qwen2-VL chat template expects a flat list of content items,
+        # not the standard messages-with-roles format.
+        content_items = [
+            item
+            for msg in self.messages
+            for item in (
+                msg["content"] if isinstance(msg["content"], list) else [msg["content"]]
+            )
+        ]
         text = self.processor.apply_chat_template(
-            self.messages, tokenize=False, add_generation_prompt=True
+            content_items, tokenize=False, add_generation_prompt=True
         )
 
         from qwen_vl_utils import process_vision_info
