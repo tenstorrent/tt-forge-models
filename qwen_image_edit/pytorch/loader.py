@@ -2,21 +2,19 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Qwen-Image-Edit pipeline model loader implementation.
+Qwen-Image-Edit diffusion transformer model loader implementation.
 
-Loads the full Qwen-Image-Edit diffusion pipeline for image editing tasks.
-The model takes an input image and a text prompt describing the desired edit,
-and produces an edited output image.
+Loads the QwenImageTransformer2DModel denoising transformer from the
+Qwen-Image-Edit pipeline for image editing tasks.
 
 Available variants:
-- QWEN_IMAGE_EDIT: Qwen-Image-Edit (20B, bf16)
+- QWEN_IMAGE_EDIT: Qwen-Image-Edit transformer (20B, bf16)
 """
 
 from typing import Any, Optional
 
 import torch
 from diffusers import QwenImageEditPipeline
-from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -33,13 +31,13 @@ REPO_ID = "Qwen/Qwen-Image-Edit"
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen-Image-Edit pipeline model variants."""
+    """Available Qwen-Image-Edit model variants."""
 
     QWEN_IMAGE_EDIT = "Qwen_Image_Edit"
 
 
 class ModelLoader(ForgeModel):
-    """Qwen-Image-Edit pipeline model loader."""
+    """Qwen-Image-Edit diffusion transformer model loader."""
 
     _VARIANTS = {
         ModelVariant.QWEN_IMAGE_EDIT: ModelConfig(
@@ -50,6 +48,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -65,32 +64,42 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the Qwen-Image-Edit pipeline.
-
-        Returns:
-            QwenImageEditPipeline instance.
-        """
-        dtype = dtype_override or torch.bfloat16
-        pipeline = QwenImageEditPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
-        )
-        return pipeline
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        if self._transformer is None:
+            pipeline = QwenImageEditPipeline.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                torch_dtype=dtype,
+                **kwargs,
+            )
+            self._transformer = pipeline.transformer
+            self._transformer.eval()
+        elif dtype_override is not None:
+            self._transformer = self._transformer.to(dtype=dtype_override)
+        return self._transformer
 
     def load_inputs(self, **kwargs) -> Any:
-        """Prepare sample inputs for the Qwen-Image-Edit pipeline.
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        batch_size = kwargs.get("batch_size", 1)
 
-        Returns a dict matching QwenImageEditPipeline.__call__() signature.
-        """
-        # Create a small sample RGB image for testing
-        image = Image.new("RGB", (256, 256), color=(128, 64, 32))
+        img_dim = 64
+        text_dim = 3584
+        txt_seq_len = 32
+
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
+        )
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_shapes = [(frame, height, width)] * batch_size
 
         return {
-            "image": image,
-            "prompt": "Change the background color to blue.",
-            "num_inference_steps": 50,
-            "true_cfg_scale": 4.0,
-            "negative_prompt": " ",
-            "generator": torch.manual_seed(0),
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
         }
