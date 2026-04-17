@@ -101,21 +101,19 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The Qwen 2.5 VL GGUF model instance for image to text.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
+        base_model = _BASE_MODEL_NAME[self._variant]
 
-        model_kwargs = {}
+        config = AutoConfig.from_pretrained(base_model)
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self._gguf_file
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self._gguf_file
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        self.processor = AutoProcessor.from_pretrained(_BASE_MODEL_NAME[self._variant])
+        self.processor = AutoProcessor.from_pretrained(base_model)
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -157,7 +155,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
-        )
+        self.config = AutoConfig.from_pretrained(_BASE_MODEL_NAME[self._variant])
         return self.config
