@@ -131,6 +131,7 @@ class Sa2VAWrapper(torch.nn.Module):
     def forward(
         self, pixel_values, input_ids, attention_mask, image_flags, use_cache=False
     ):
+        pixel_values = pixel_values.to(self.model.vision_model.dtype)
         return self.model._llm_forward(
             pixel_values=pixel_values,
             input_ids=input_ids,
