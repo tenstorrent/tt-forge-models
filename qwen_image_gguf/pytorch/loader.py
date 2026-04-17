@@ -89,6 +89,7 @@ class ModelLoader(ForgeModel):
         )
 
         _dequantize_gguf_and_restore_linear(self.transformer)
+        self.transformer.to(compute_dtype)
 
         self.transformer.eval()
 
