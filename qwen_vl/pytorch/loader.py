@@ -5,8 +5,30 @@
 Qwen-VL model loader implementation for vision-language tasks.
 """
 
+import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
+
+
+def _patch_transformers_compat():
+    """Patch removed classes back into transformers for transformers_stream_generator compatibility."""
+    stubs = [
+        "DisjunctiveConstraint",
+        "BeamSearchScorer",
+        "PhrasalConstraint",
+        "ConstrainedBeamSearchScorer",
+    ]
+    for name in stubs:
+        if not hasattr(transformers, name):
+            setattr(transformers, name, type(name, (), {}))
+
+    from transformers.generation import utils as gen_utils
+
+    if not hasattr(gen_utils, "SampleOutput"):
+        gen_utils.SampleOutput = type("SampleOutput", (), {})
+
+
+_patch_transformers_compat()
 
 from ...base import ForgeModel
 from ...config import (
