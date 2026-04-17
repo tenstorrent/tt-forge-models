@@ -123,7 +123,7 @@ class ModelLoader(ForgeModel):
         hidden_size = 2048
         hidden_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         hidden_states = torch.randn(
-            batch_size, seq_len, hidden_size, dtype=hidden_dtype
+            batch_size, seq_len, 3 * hidden_size, dtype=hidden_dtype
         )
 
         return {
