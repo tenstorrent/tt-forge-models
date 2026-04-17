@@ -137,10 +137,15 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from transformers import AutoConfig
+
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = _GGUF_FILES[self._variant]
 
-        model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
+        config = AutoConfig.from_pretrained(self._PROCESSOR_SOURCE)
+        config.use_cache = False
+
+        model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False, "config": config}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
