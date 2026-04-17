@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.QWEN3_5_9B_IMATRIX_GGUF
 
-    GGUF_FILE = "Qwen3.5-9B-Q4_K_M.gguf"
+    GGUF_FILE = "Qwen3.5-9B-imatrix-Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
