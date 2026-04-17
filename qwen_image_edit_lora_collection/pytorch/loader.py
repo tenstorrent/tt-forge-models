@@ -19,7 +19,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import QwenImageEditPlusPipeline
 from PIL import Image
 
 from ...base import ForgeModel
@@ -31,6 +30,10 @@ from ...config import (
     ModelSource,
     Framework,
     StrEnum,
+)
+from .src.model_utils import (
+    load_qwen_image_edit_plus_pipeline,
+    qwen_image_edit_plus_preprocessing,
 )
 
 BASE_MODEL = "Qwen/Qwen-Image-Edit-2511"
@@ -88,7 +91,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[QwenImageEditPlusPipeline] = None
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -109,16 +112,11 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Qwen-Image-Edit pipeline with LoRA weights applied.
-
-        Returns:
-            QwenImageEditPlusPipeline with LoRA weights loaded.
-        """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
-        self.pipeline = QwenImageEditPlusPipeline.from_pretrained(
+        self.pipeline = load_qwen_image_edit_plus_pipeline(
             self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
+            dtype=dtype,
         )
 
         lora_file = _LORA_FILES[self._variant]
@@ -127,20 +125,32 @@ class ModelLoader(ForgeModel):
             weight_name=lora_file,
         )
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, **kwargs) -> Any:
-        """Prepare inputs for image editing.
+        if self.pipeline is None:
+            self.load_model()
 
-        Returns:
-            dict with prompt and image keys.
-        """
+        image = Image.new("RGB", (256, 256), color=(128, 128, 200))
         prompt = _PROMPTS[self._variant]
 
-        # Create a small test image (RGB)
-        image = Image.new("RGB", (256, 256), color=(128, 128, 200))
+        (
+            latent_model_input,
+            timestep,
+            prompt_embeds,
+            prompt_embeds_mask,
+            img_shapes,
+            guidance,
+        ) = qwen_image_edit_plus_preprocessing(self.pipeline, prompt, image)
 
-        return {
-            "prompt": prompt,
-            "image": [image],
+        inputs = {
+            "hidden_states": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "encoder_hidden_states_mask": prompt_embeds_mask,
+            "img_shapes": img_shapes,
+            "guidance": guidance,
+            "return_dict": False,
         }
+
+        return inputs
