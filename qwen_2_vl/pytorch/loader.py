@@ -85,6 +85,7 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self.processor = None
+        self.raw_model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -169,6 +170,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        self.raw_model = model
         model = Wrapper(model)
 
         return model
@@ -176,20 +178,22 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the Qwen 2 VL model with this instance's variant settings.
 
+        Pre-computes vision embeddings on CPU so the vision encoder
+        does not need to go through torch.compile/dynamo.
+
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-                           If specified, converts pixel_values to the specified dtype.
+                           If specified, converts floating-point tensors to the specified dtype.
 
         Returns:
-            dict: Input tensors that can be fed to the model.
+            dict: Input tensors (inputs_embeds, attention_mask, position_ids)
+                  that can be fed directly to the language model.
         """
         # Ensure processor is initialized
         if self.processor is None:
             self._load_processor()
 
         # Flatten content items from messages for chat template compatibility
-        # The Qwen2-VL chat template expects a flat list of content items,
-        # not the standard messages-with-roles format.
         content_items = [
             item
             for msg in self.messages
@@ -215,8 +219,43 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        # Convert pixel_values to specified dtype if provided
-        if dtype_override is not None:
-            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+        # Pre-compute vision embeddings on CPU to avoid dynamo issues
+        # with the vision encoder's dynamic rotary position embeddings.
+        model = self.raw_model
+        with torch.no_grad():
+            input_ids = inputs["input_ids"]
+            attention_mask = inputs["attention_mask"]
+            pixel_values = inputs["pixel_values"]
+            image_grid_thw = inputs["image_grid_thw"]
 
-        return inputs
+            inputs_embeds = model.get_input_embeddings()(input_ids)
+
+            image_embeds = model.model.get_image_features(
+                pixel_values, image_grid_thw, return_dict=True
+            ).pooler_output
+            image_embeds = torch.cat(image_embeds, dim=0).to(
+                inputs_embeds.device, inputs_embeds.dtype
+            )
+            image_mask, _ = model.model.get_placeholder_mask(
+                input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds
+            )
+            inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+            position_ids = model.model.compute_3d_position_ids(
+                input_ids=input_ids,
+                image_grid_thw=image_grid_thw,
+                video_grid_thw=None,
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+            )
+
+        result = {
+            "inputs_embeds": inputs_embeds.detach(),
+            "attention_mask": attention_mask,
+            "position_ids": position_ids.detach(),
+        }
+
+        if dtype_override is not None:
+            result["inputs_embeds"] = result["inputs_embeds"].to(dtype_override)
+
+        return result
