@@ -45,6 +45,7 @@ class ModelLoader(ForgeModel):
     ):
         super().__init__(variant)
         self.tokenizer = None
+        self.model = None
         self.num_layers = num_layers
 
     @classmethod
@@ -94,6 +95,7 @@ class ModelLoader(ForgeModel):
         for param in model.parameters():
             param.requires_grad = False
 
+        self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -111,6 +113,13 @@ class ModelLoader(ForgeModel):
             add_special_tokens=True,
             truncation=True,
         )
+
+        if (
+            self.model is not None
+            and hasattr(self.model.config, "sliding_window")
+            and self.model.config.sliding_window is not None
+        ):
+            self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
