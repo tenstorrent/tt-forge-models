@@ -104,6 +104,7 @@ class ModelLoader(ForgeModel):
 
         thinker = self._model_wrapper.model.thinker
         model = Qwen3ASRWrapper(thinker)
+        model.float()
         model.eval()
 
         return model
