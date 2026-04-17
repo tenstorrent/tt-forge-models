@@ -6,6 +6,7 @@ Qwen3 VL NSFW Caption GGUF model loader implementation for image to text.
 """
 
 from transformers import (
+    AutoConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -60,6 +61,8 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    BASE_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -67,10 +70,12 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        # transformers does not support qwen3vl GGUF config parsing yet;
+        # supply the config from the base model so random-weights mode works.
+        model_kwargs["config"] = AutoConfig.from_pretrained(self.BASE_MODEL)
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
