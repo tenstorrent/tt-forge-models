@@ -79,12 +79,12 @@ class Qwen3VLWrapper(torch.nn.Module):
     def __init__(self, model, grid_thw_cpu):
         super().__init__()
         self.model = model
-        self.register_buffer("_grid_thw_cpu", grid_thw_cpu.clone(), persistent=False)
+        self._grid_thw_values = grid_thw_cpu.tolist()
 
     def forward(self, **kwargs):
         if "image_grid_thw" in kwargs and kwargs["image_grid_thw"] is not None:
-            kwargs["image_grid_thw"] = self._grid_thw_cpu.to(
-                dtype=kwargs["image_grid_thw"].dtype
+            kwargs["image_grid_thw"] = torch.tensor(
+                self._grid_thw_values, dtype=kwargs["image_grid_thw"].dtype
             )
         return self.model(**kwargs)
 
