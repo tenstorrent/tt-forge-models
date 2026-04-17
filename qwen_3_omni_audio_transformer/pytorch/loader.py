@@ -14,6 +14,8 @@ from typing import Optional
 
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 from ...base import ForgeModel
 from ...config import (
@@ -33,15 +35,81 @@ class ModelVariant(StrEnum):
     DEFAULT = "default"
 
 
-class Qwen3OmniAudioEncoderWrapper(torch.nn.Module):
-    """Wrapper around Qwen3OmniMoeAudioEncoder for a clean forward pass."""
+class Qwen3OmniAudioEncoderWrapper(nn.Module):
+    """Wrapper that calls encoder submodules directly with static shapes.
+
+    The original forward uses data-dependent split/pad operations that are
+    incompatible with torch.compile. This wrapper pre-chunks the mel features
+    into fixed-size windows and runs convolution, transformer, and projection
+    layers with deterministic tensor shapes.
+    """
 
     def __init__(self, model):
         super().__init__()
-        self.model = model
+        self.conv2d1 = model.conv2d1
+        self.conv2d2 = model.conv2d2
+        self.conv2d3 = model.conv2d3
+        self.conv_out = model.conv_out
+        self.positional_embedding = model.positional_embedding
+        self.layers = model.layers
+        self.ln_post = model.ln_post
+        self.proj1 = model.proj1
+        self.act = model.act
+        self.proj2 = model.proj2
+        self.num_heads = model.layers[0].self_attn.num_heads
+        self.head_dim = model.layers[0].self_attn.head_dim
+        self.scaling = model.layers[0].self_attn.scaling
 
-    def forward(self, input_features, feature_lens):
-        return self.model(input_features, feature_lens=feature_lens)
+    def forward(self, padded_input):
+        # padded_input: (num_chunks, 1, mel_bins, chunk_time)
+        x = F.gelu(self.conv2d1(padded_input))
+        x = F.gelu(self.conv2d2(x))
+        x = F.gelu(self.conv2d3(x))
+        b, c, f, t = x.size()
+        x = self.conv_out(x.permute(0, 3, 1, 2).contiguous().view(b, t, c * f))
+
+        pos = (
+            self.positional_embedding.positional_embedding[:t, :]
+            .unsqueeze(0)
+            .to(x.dtype)
+        )
+        x = x + pos
+        # (num_chunks, t, embed_dim) -> (num_chunks * t, embed_dim)
+        x = x.reshape(-1, x.shape[-1])
+
+        for layer in self.layers:
+            residual = x
+            x = layer.self_attn_layer_norm(x)
+            seq_len = x.shape[0]
+            q = self.scaling * layer.self_attn.q_proj(x).reshape(
+                seq_len, self.num_heads, self.head_dim
+            )
+            k = layer.self_attn.k_proj(x).reshape(
+                seq_len, self.num_heads, self.head_dim
+            )
+            v = layer.self_attn.v_proj(x).reshape(
+                seq_len, self.num_heads, self.head_dim
+            )
+            q = q.transpose(0, 1).unsqueeze(0)
+            k = k.transpose(0, 1).unsqueeze(0)
+            v = v.transpose(0, 1).unsqueeze(0)
+            attn_out = F.scaled_dot_product_attention(q, k, v, is_causal=False)
+            attn_out = (
+                attn_out.squeeze(0).transpose(0, 1).reshape(seq_len, -1).contiguous()
+            )
+            x = residual + layer.self_attn.out_proj(attn_out)
+            residual = x
+            x = layer.final_layer_norm(x)
+            x = layer.fc1(x)
+            x = layer.activation_fn(x)
+            x = layer.fc2(x)
+            x = residual + x
+
+        x = self.ln_post(x)
+        x = self.proj1(x)
+        x = self.act(x)
+        x = self.proj2(x)
+        return x
 
 
 class ModelLoader(ForgeModel):
@@ -114,7 +182,6 @@ class ModelLoader(ForgeModel):
         if self._processor is None:
             self._load_processor()
 
-        # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
@@ -127,9 +194,24 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        # (1, mel_bins, time) -> (mel_bins, time)
         input_features = inputs["input_features"].squeeze(0)
         if dtype_override is not None:
             input_features = input_features.to(dtype_override)
-        feature_lens = torch.tensor([input_features.shape[-1]], dtype=torch.long)
 
-        return [input_features, feature_lens]
+        mel_bins, time_steps = input_features.shape
+        n_window = 50
+        chunk_size = n_window * 2  # 100
+        num_chunks = (time_steps + chunk_size - 1) // chunk_size
+        pad_len = num_chunks * chunk_size - time_steps
+        if pad_len > 0:
+            input_features = F.pad(input_features, (0, pad_len))
+
+        # (mel_bins, time) -> (num_chunks, mel_bins, chunk_size) -> (num_chunks, 1, mel_bins, chunk_size)
+        padded_input = (
+            input_features.reshape(mel_bins, num_chunks, chunk_size)
+            .permute(1, 0, 2)
+            .unsqueeze(1)
+        )
+
+        return [padded_input]
