@@ -5,7 +5,7 @@
 """
 Mochi ComfyUI Repackaged model loader implementation.
 
-Loads single-file safetensors VAE from Comfy-Org/mochi_preview_repackaged.
+Loads VAE from genmo/mochi-1-preview via from_pretrained.
 Supports VAE component loading for encoder/decoder testing.
 
 Available variants:
@@ -16,7 +16,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import AutoencoderKLMochi  # type: ignore[import]
-from huggingface_hub import hf_hub_download  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -29,7 +28,7 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "Comfy-Org/mochi_preview_repackaged"
+REPO_ID = "genmo/mochi-1-preview"
 
 # Mochi VAE uses 12 latent channels
 LATENT_CHANNELS = 12
@@ -48,7 +47,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Mochi ComfyUI Repackaged model loader using single-file safetensors."""
+    """Mochi ComfyUI Repackaged model loader."""
 
     _VARIANTS = {
         ModelVariant.MOCHI_VAE: ModelConfig(
@@ -75,15 +74,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_vae(self, dtype: torch.dtype = torch.float32) -> AutoencoderKLMochi:
-        """Load VAE from single-file safetensors."""
-        vae_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename="split_files/vae/mochi_vae.safetensors",
-        )
-
-        self._vae = AutoencoderKLMochi.from_single_file(
-            vae_path,
-            config="genmo/mochi-1-preview",
+        """Load VAE from pretrained weights."""
+        self._vae = AutoencoderKLMochi.from_pretrained(
+            REPO_ID,
             subfolder="vae",
             torch_dtype=dtype,
         )
