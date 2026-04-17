@@ -9,6 +9,7 @@ Repository:
 """
 import torch
 from diffusers import GGUFQuantizationConfig, QwenImageTransformer2DModel
+from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -22,7 +23,7 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_BASE_URL = "https://huggingface.co/city96/Qwen-Image-gguf/resolve/main"
+REPO_ID = "city96/Qwen-Image-gguf"
 CONFIG_REPO = "Qwen/Qwen-Image"
 
 
@@ -72,13 +73,13 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+        model_path = hf_hub_download(repo_id=REPO_ID, filename=gguf_file)
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self.transformer = QwenImageTransformer2DModel.from_single_file(
-            gguf_url,
+            model_path,
             quantization_config=quantization_config,
             config=CONFIG_REPO,
             subfolder="transformer",
