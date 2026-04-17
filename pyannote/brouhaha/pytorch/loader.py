@@ -99,8 +99,12 @@ class ModelLoader(ForgeModel):
             Specifications,
         )
 
+        # Use wav2vec_layer=0 to select a single layer output instead of the
+        # learnable weighted average (wav2vec_layer=-1). The weighted average
+        # uses a 4D @ 1D matmul that is incompatible with the TT XLA override.
         model = SSeRiouSS(
             wav2vec="WAVLM_BASE",
+            wav2vec_layer=1,
             sample_rate=16000,
             num_channels=1,
         )
