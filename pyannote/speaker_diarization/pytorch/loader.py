@@ -75,24 +75,36 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the Pyannote speaker diarization pipeline's segmentation model.
+        """Load the Pyannote speaker diarization segmentation model.
 
-        Requires a HuggingFace token with access to the gated model.
+        Loads the segmentation model directly (bypassing the full
+        Pipeline) so it does not require access to the gated PLDA
+        weights that pyannote.audio 4.x fetches from
+        pyannote/speaker-diarization-community-1.
+
+        Requires a HuggingFace token with access to the variant's repo.
         Set the HF_TOKEN environment variable or pass token as a kwarg.
         """
-        from pyannote.audio import Pipeline
+        import yaml
+        from huggingface_hub import hf_hub_download
+        from pyannote.audio import Model
 
-        pipeline_kwargs = {}
         token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
-        if token:
-            pipeline_kwargs["token"] = token
+        pretrained = self._variant_config.pretrained_model_name
 
-        pipeline = Pipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, **pipeline_kwargs
-        )
+        # Resolve the segmentation model name from the pipeline config
+        # when the repo is a pipeline; fall back to the repo itself
+        # when it is already a Model (e.g. tezuesh/diarization).
+        segmentation_name = pretrained
+        try:
+            config_path = hf_hub_download(pretrained, "config.yaml", token=token)
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+            segmentation_name = config["pipeline"]["params"]["segmentation"]
+        except Exception:
+            pass
 
-        # Extract the segmentation model from the pipeline
-        self._model = pipeline._segmentation.model
+        self._model = Model.from_pretrained(segmentation_name, token=token)
         self._model.eval()
         if dtype_override is not None:
             self._model.to(dtype_override)
