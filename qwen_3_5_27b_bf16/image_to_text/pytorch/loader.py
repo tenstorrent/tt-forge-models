@@ -74,6 +74,9 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
+        target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        model = model.to(target_dtype)
+
         return model
 
     def load_inputs(self, dtype_override=None):
