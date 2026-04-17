@@ -10,6 +10,7 @@ from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
+from transformers.models.qwen3_vl import modeling_qwen3_vl
 from typing import Optional
 
 from ...base import ForgeModel
@@ -169,10 +170,8 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        import types
-
-        model.model.visual.fast_pos_embed_interpolate = types.MethodType(
-            _patched_fast_pos_embed_interpolate, model.model.visual
+        modeling_qwen3_vl.Qwen3VLVisionModel.fast_pos_embed_interpolate = (
+            _patched_fast_pos_embed_interpolate
         )
 
         return model
