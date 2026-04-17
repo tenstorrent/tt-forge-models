@@ -241,18 +241,23 @@ class ModelLoader(ForgeModel):
             )
             inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
-            # Build mm_token_type_ids: 0=text, 1=image, 2=video
-            mm_token_type_ids = torch.zeros_like(input_ids, dtype=torch.int)
-            mm_token_type_ids[input_ids == model.config.image_token_id] = 1
+            # Build position_ids, passing mm_token_type_ids if supported
+            import inspect
 
-            position_ids = model.model.compute_3d_position_ids(
-                input_ids=input_ids,
-                image_grid_thw=image_grid_thw,
-                video_grid_thw=None,
-                inputs_embeds=inputs_embeds,
-                attention_mask=attention_mask,
-                mm_token_type_ids=mm_token_type_ids,
-            )
+            pos_kwargs = {
+                "input_ids": input_ids,
+                "image_grid_thw": image_grid_thw,
+                "video_grid_thw": None,
+                "inputs_embeds": inputs_embeds,
+                "attention_mask": attention_mask,
+            }
+            sig = inspect.signature(model.model.compute_3d_position_ids)
+            if "mm_token_type_ids" in sig.parameters:
+                mm_token_type_ids = torch.zeros_like(input_ids, dtype=torch.int)
+                mm_token_type_ids[input_ids == model.config.image_token_id] = 1
+                pos_kwargs["mm_token_type_ids"] = mm_token_type_ids
+
+            position_ids = model.model.compute_3d_position_ids(**pos_kwargs)
 
         result = {
             "inputs_embeds": inputs_embeds.detach(),
