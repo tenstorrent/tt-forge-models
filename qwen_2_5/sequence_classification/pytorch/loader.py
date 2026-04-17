@@ -4,7 +4,7 @@
 """
 Qwen2.5 Sequence Classification (Reward Model) loader implementation
 """
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -124,8 +124,21 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # The custom Qwen2RMConfig loaded via trust_remote_code does not set
+        # pad_token_id, and transformers >= 5.x no longer auto-populates it on
+        # PretrainedConfig. Pre-load the config and backfill the attribute so
+        # downstream modeling code that reads config.pad_token_id works.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if not hasattr(config, "pad_token_id"):
+            config.pad_token_id = None
+
         model = AutoModel.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+            pretrained_model_name,
+            trust_remote_code=True,
+            config=config,
+            **model_kwargs,
         )
         model.eval()
 
