@@ -103,23 +103,21 @@ class ModelLoader(ForgeModel):
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the Proteus model with this instance's variant settings.
+        """Load and return sample inputs for the Proteus UNet model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            List : Input tensors that can be fed to the model:
-                - latent_model_input (torch.Tensor): Latent input for the UNet
-                - timestep (torch.Tensor): Timestep tensor
-                - prompt_embeds (torch.Tensor): Encoded prompt embeddings
+            dict: Keyword arguments for the UNet forward method:
+                - sample (torch.Tensor): Latent input for the UNet
+                - timestep (torch.Tensor): Single timestep tensor
+                - encoder_hidden_states (torch.Tensor): Encoded prompt embeddings
                 - added_cond_kwargs (dict): Additional conditioning inputs
         """
-        # Ensure pipeline is initialized
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
 
-        # Generate preprocessed inputs using SDXL preprocessing
         (
             latent_model_input,
             timesteps,
@@ -129,10 +127,16 @@ class ModelLoader(ForgeModel):
             add_time_ids,
         ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
 
-        # Apply dtype conversion if specified
+        timestep = timesteps[0]
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
