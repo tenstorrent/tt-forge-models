@@ -143,6 +143,7 @@ class ModelLoader(ForgeModel):
         input_ids = inputs["input_ids"]
         attention_mask = inputs["attention_mask"]
         pixel_values = inputs["pixel_values"]
+        image_sizes = inputs.get("image_sizes")
 
         if dtype_override:
             input_ids = cast_input_to_type(input_ids, dtype_override)
@@ -153,9 +154,14 @@ class ModelLoader(ForgeModel):
             input_ids = input_ids.repeat_interleave(batch_size, dim=0)
             attention_mask = attention_mask.repeat_interleave(batch_size, dim=0)
             pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
+            if image_sizes is not None:
+                image_sizes = image_sizes.repeat_interleave(batch_size, dim=0)
 
-        return {
+        result = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "pixel_values": pixel_values,
         }
+        if image_sizes is not None:
+            result["image_sizes"] = image_sizes
+        return result
