@@ -4,6 +4,7 @@
 """
 Mozilla-AI Mistral-7B-Instruct-v0.2-llamafile model loader implementation for causal language modeling.
 """
+import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.MISTRAL_7B_INSTRUCT_V0_2_LLAMAFILE
 
+    # The llamafile repo has no tokenizer files; load from the base model instead.
+    TOKENIZER_MODEL = "mistralai/Mistral-7B-Instruct-v0.2"
+
     sample_text = "What is the capital of France?"
 
     def __init__(
@@ -51,6 +55,7 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self.tokenizer = None
+        self.model = None
         self.num_layers = num_layers
 
     @classmethod
@@ -87,7 +92,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            self.TOKENIZER_MODEL,
             **tokenizer_kwargs,
         )
 
@@ -127,6 +132,7 @@ class ModelLoader(ForgeModel):
         )
 
         model.eval()
+        self.model = model
 
         return model
 
@@ -161,5 +167,12 @@ class ModelLoader(ForgeModel):
             truncation=True,
             max_length=max_length,
         )
+
+        if (
+            self.model is not None
+            and hasattr(self.model.config, "sliding_window")
+            and self.model.config.sliding_window is not None
+        ):
+            self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
         return inputs
