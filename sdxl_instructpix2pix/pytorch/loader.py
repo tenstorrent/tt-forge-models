@@ -5,22 +5,23 @@
 SDXL InstructPix2Pix model loader implementation
 """
 
-import torch
 from typing import Optional
+
+import torch
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 from .src.model_utils import (
-    load_sdxl_instructpix2pix_pipe,
     create_dummy_input_image,
+    load_sdxl_instructpix2pix_pipe,
     sdxl_instructpix2pix_preprocessing,
 )
 
@@ -62,35 +63,31 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SDXL InstructPix2Pix pipeline.
+        """Load and return the UNet from the SDXL InstructPix2Pix pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionXLInstructPix2PixPipeline: The pipeline instance.
+            torch.nn.Module: The UNet model used for denoising.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.pipeline = load_sdxl_instructpix2pix_pipe(pretrained_model_name)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the SDXL InstructPix2Pix model.
+        """Load and return sample inputs for the SDXL InstructPix2Pix UNet.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            List: Input tensors for the UNet:
-                - scaled_latent_model_input (torch.Tensor): Noise latents concatenated with image latents
-                - timestep (torch.Tensor)
-                - prompt_embeds (torch.Tensor)
-                - added_cond_kwargs (dict)
+            dict: Keyword arguments for the UNet forward method.
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -104,14 +101,16 @@ class ModelLoader(ForgeModel):
             added_cond_kwargs,
         ) = sdxl_instructpix2pix_preprocessing(self.pipeline, self.prompt, input_image)
 
+        timestep = timesteps[0]
+
         if dtype_override:
             scaled_latent_model_input = scaled_latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [
-            scaled_latent_model_input,
-            timesteps,
-            prompt_embeds,
-            added_cond_kwargs,
-        ]
+        return {
+            "sample": scaled_latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
