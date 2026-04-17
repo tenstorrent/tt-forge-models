@@ -77,7 +77,6 @@ class ModelLoader(ForgeModel):
             subfolder="vae",
             torch_dtype=dtype,
         )
-        self._vae = self._vae.to(dtype=dtype)
         self._vae.eval()
         return self._vae
 
@@ -94,13 +93,15 @@ class ModelLoader(ForgeModel):
             self._vae = self._vae.to(dtype=dtype_override)
         return self._vae
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare inputs for the VAE.
 
         The model forward() runs encode then decode, so default inputs are
         image-space (3-channel RGB) to match the encoder's expected input.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = dtype_override if dtype_override is not None else torch.float32
         # [batch, channels, frames, height, width]
         return torch.randn(
             1, 3, LATENT_FRAMES, LATENT_HEIGHT * 8, LATENT_WIDTH * 8, dtype=dtype
