@@ -70,13 +70,12 @@ class ModelLoader(ForgeModel):
         Returns:
             QwenImageTransformer2DModel instance.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         if self._transformer is None:
             self._transformer = QwenImageTransformer2DModel.from_pretrained(
                 REPO_ID,
                 torch_dtype=dtype,
             )
-            self._transformer = self._transformer.to(dtype)
             self._transformer.eval()
         elif dtype_override is not None:
             self._transformer = self._transformer.to(dtype=dtype_override)
@@ -87,7 +86,7 @@ class ModelLoader(ForgeModel):
 
         Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = kwargs.get("batch_size", 1)
 
         # From model config: in_channels=64
