@@ -5,8 +5,10 @@
 QIE-2511-MP-AnyLight LoRA image-to-image model loader implementation
 """
 
+from typing import Any, Optional
+
 import torch
-from typing import Optional
+from diffusers import DiffusionPipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -18,6 +20,9 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+BASE_MODEL = "Qwen/Qwen-Image-Edit-2511"
+LORA_REPO = "lilylilith/QIE-2511-MP-AnyLight"
 
 
 class ModelVariant(StrEnum):
@@ -31,18 +36,15 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
-            pretrained_model_name="lilylilith/QIE-2511-MP-AnyLight",
+            pretrained_model_name=BASE_MODEL,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BASE
 
-    base_model = "Qwen/Qwen-Image-Edit-2511"
-    prompt = "Apply the lighting from image 2 to image 1."
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self.pipeline: Optional[DiffusionPipeline] = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -57,53 +59,59 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the QIE-2511-MP-AnyLight pipeline.
-
-        Loads the base Qwen-Image-Edit-2511 pipeline and applies the
-        AnyLight LoRA adapter weights on top.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
+    def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        """Load the Qwen-Image-Edit-2511 pipeline with AnyLight LoRA applied.
 
         Returns:
-            DiffusionPipeline: The pipeline with LoRA weights loaded.
+            The QwenImageTransformer2DModel from the pipeline with LoRA weights merged.
         """
-        from diffusers import DiffusionPipeline
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        dtype = dtype_override or torch.bfloat16
         self.pipeline = DiffusionPipeline.from_pretrained(
-            self.base_model, torch_dtype=dtype, **kwargs
+            BASE_MODEL,
+            torch_dtype=dtype,
+            **kwargs,
         )
-        self.pipeline.load_lora_weights(
-            self._variant_config.pretrained_model_name,
-        )
-        return self.pipeline
+        self.pipeline.load_lora_weights(LORA_REPO)
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the QIE-2511-MP-AnyLight model.
+        return self.pipeline.transformer
 
-        Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the inputs.
+    def load_inputs(self, **kwargs) -> Any:
+        """Prepare sample inputs for the diffusion transformer.
 
-        Returns:
-            dict: Dictionary containing prompt and input images.
+        Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        from PIL import Image
-        import numpy as np
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        batch_size = kwargs.get("batch_size", 1)
 
-        # Create a sample source image (to apply lighting to)
-        image_1 = Image.fromarray(
-            np.random.randint(0, 255, (1080, 1080, 3), dtype=np.uint8)
+        # From model config: in_channels=64 (img_in linear input dimension)
+        img_dim = 64
+        # joint_attention_dim from config = 3584
+        text_dim = 3584
+        txt_seq_len = 32
+
+        # Qwen-Image-Edit-Plus pipelines compose hidden_states from the
+        # noisy output latents followed by the reference edit-image latents.
+        # img_shapes[sample] = [output_shape, *edit_input_shapes]
+        output_shape = (1, 4, 4)
+        edit_shape = (1, 4, 4)
+        img_seq_len = (
+            output_shape[0] * output_shape[1] * output_shape[2]
+            + edit_shape[0] * edit_shape[1] * edit_shape[2]
         )
 
-        # Create a sample reference lighting image
-        image_2 = Image.fromarray(
-            np.random.randint(0, 255, (1080, 1080, 3), dtype=np.uint8)
+        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
         )
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_shapes = [[output_shape, edit_shape]] * batch_size
 
         return {
-            "prompt": [self.prompt] * batch_size,
-            "image": [image_1, image_2],
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
         }
