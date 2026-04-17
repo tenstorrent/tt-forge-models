@@ -8,6 +8,7 @@ Qwen Casual LM model loader implementation
 
 import torch
 from transformers import AutoTokenizer, Qwen2ForCausalLM, AutoConfig
+from peft import PeftModel
 from typing import Optional
 
 from ....base import ForgeModel
@@ -265,6 +266,10 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        # Resolve base model name for PEFT adapter variants that don't ship a full config.
+        base_model_name = self._get_base_model_name()
+        load_name = base_model_name or pretrained_model_name
+
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -285,18 +290,19 @@ class ModelLoader(ForgeModel):
         if "mlx-community" in pretrained_model_name:
             model_kwargs["ignore_mismatched_sizes"] = True
 
-        # BnB variants need device_map="cpu" for CPU-based loading
-        if self._variant == ModelVariant.UNSLOTH_QWEN_2_5_7B_BNB_4BIT:
-            model_kwargs["device_map"] = "cpu"
-
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(load_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = Qwen2ForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
+        model = Qwen2ForCausalLM.from_pretrained(load_name, **model_kwargs)
+
+        if base_model_name is not None:
+            model = PeftModel.from_pretrained(model, pretrained_model_name)
+            model = model.merge_and_unload()
+
         model.eval()
 
         self.config = model.config
@@ -377,15 +383,22 @@ class ModelLoader(ForgeModel):
 
         return shard_specs
 
+    def _get_base_model_name(self):
+        """Return the base model repo for PEFT adapter variants, else None."""
+        peft_base_models = {
+            ModelVariant.QIAW99_QWEN_2_5_7B_INSTRUCT_OPENBOOKQA_DPO_C_NEW: "Qwen/Qwen2.5-7B-Instruct",
+        }
+        return peft_base_models.get(self._variant)
+
     def load_config(self):
         """Load and return the configuration for the Qwen 2.5 model variant.
 
         Returns:
             The configuration object for the Qwen 2.5 model.
         """
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        base_model_name = self._get_base_model_name()
+        config_name = base_model_name or self._variant_config.pretrained_model_name
+        self.config = AutoConfig.from_pretrained(config_name)
 
         return self.config
 
