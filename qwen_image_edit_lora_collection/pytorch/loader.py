@@ -19,7 +19,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import QwenImageEditPlusPipeline
 from PIL import Image
 
 from ...base import ForgeModel
@@ -32,6 +31,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from .src.model_utils import load_pipeline, preprocess_inputs
 
 BASE_MODEL = "Qwen/Qwen-Image-Edit-2511"
 LORA_REPO = "strangerzonehf/Qwen-Image-Edit-LoRA-Collection"
@@ -88,7 +88,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[QwenImageEditPlusPipeline] = None
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -109,16 +109,11 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Qwen-Image-Edit pipeline with LoRA weights applied.
-
-        Returns:
-            QwenImageEditPlusPipeline with LoRA weights loaded.
-        """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
-        self.pipeline = QwenImageEditPlusPipeline.from_pretrained(
+        self.pipeline = load_pipeline(
             self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
+            dtype=dtype,
         )
 
         lora_file = _LORA_FILES[self._variant]
@@ -127,20 +122,15 @@ class ModelLoader(ForgeModel):
             weight_name=lora_file,
         )
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare inputs for image editing.
-
-        Returns:
-            dict with prompt and image keys.
-        """
+    def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         prompt = _PROMPTS[self._variant]
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
-        # Create a small test image (RGB)
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
         image = Image.new("RGB", (256, 256), color=(128, 128, 200))
 
-        return {
-            "prompt": prompt,
-            "image": [image],
-        }
+        return preprocess_inputs(self.pipeline, prompt, image, dtype=dtype)
