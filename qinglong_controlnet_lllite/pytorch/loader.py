@@ -101,19 +101,16 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the ControlNet-LLLite model.
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-
         Returns:
-            list: Input tensors for the model:
-                - x (torch.Tensor): Dummy conditioning input
+            list: [feature tensor, conditioning image tensor]
         """
         if self.model is None:
             self.load_model(dtype_override=dtype_override)
 
-        x = create_dummy_input(self.model)
+        x, cond_image = create_dummy_input(self.model)
 
         if dtype_override:
             x = x.to(dtype_override)
+            cond_image = cond_image.to(dtype_override)
 
-        return [x]
+        return [x, cond_image]
