@@ -1,0 +1,13 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[midnight_miqu_70b_v1_5_i1_gguf/causal_lm/pytorch-70B_v1.5_i1_GGUF-tensor_parallel-inference]"
+  status: "MODEL_TOO_LARGE"
+  date: "20260416_232124"
+  branch: "arch-c-36-tt-xla-dev/nsmith/hf-bringup-range-2000-3000-4"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[minilm/embedding_generation/pytorch-all-MiniLM-L6-v2-single_device-inference]"
+  status: "PASS"
+  date: "20260417_000942"
+  branch: "arch-c-36-tt-xla-dev/nsmith/hf-bringup-range-2000-3000-4"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[pplx_embed/embedding_generation/pytorch-pplx-embed-v1-4b-single_device-inference]"
+  status: "PASS"
+  date: "20260417_034227"
+  branch: "arch-c-36-tt-xla-dev/nsmith/hf-bringup-range-2000-3000-4"
