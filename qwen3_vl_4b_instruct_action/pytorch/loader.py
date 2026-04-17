@@ -9,24 +9,46 @@ import importlib
 
 
 def _patch_qwen3_vl_source():
-    """Patch the installed transformers source to guard repeat(1, 1).
+    """Patch the installed transformers Qwen3VL source for TT XLA compatibility.
 
-    The TT XLA backend's repeat implementation uses concatenate, which fails
-    when repeat factors are all 1 (no-op produces zero concatenation args).
-    Must be called BEFORE importing any Qwen3VL classes.
+    Two fixes:
+    1. Guard repeat(t, 1) with t > 1 to avoid empty concatenation.
+    2. Cast grid_thw to long at vision model entry. This allows load_inputs
+       to pass grid_thw as float so values survive XLA device transfer
+       (integer tensors get zero-initialized in compile-only mode).
     """
     import transformers.models.qwen3_vl.modeling_qwen3_vl as mod
-
     import inspect
 
     src_file = inspect.getfile(mod)
     with open(src_file, "r") as f:
         src = f.read()
 
-    old = "            pos_embed = pos_embed.repeat(t, 1)\n"
-    new = "            if t > 1:\n                pos_embed = pos_embed.repeat(t, 1)\n"
-    if old in src and new not in src:
-        src = src.replace(old, new)
+    modified = False
+
+    # Fix 1: Guard repeat(1, 1) which fails on TT XLA backend
+    old_repeat = "            pos_embed = pos_embed.repeat(t, 1)\n"
+    new_repeat = (
+        "            if t > 1:\n                pos_embed = pos_embed.repeat(t, 1)\n"
+    )
+    if old_repeat in src and new_repeat not in src:
+        src = src.replace(old_repeat, new_repeat)
+        modified = True
+
+    # Fix 2: Cast image_grid_thw to long at conditional generation forward entry.
+    # load_inputs passes grid_thw as float so values survive XLA device transfer.
+    old_forward_entry = '        """\n\n        outputs = self.model(\n'
+    new_forward_entry = (
+        '        """\n'
+        "        if image_grid_thw is not None:\n"
+        "            image_grid_thw = image_grid_thw.long()\n"
+        "\n        outputs = self.model(\n"
+    )
+    if old_forward_entry in src and "image_grid_thw = image_grid_thw.long()" not in src:
+        src = src.replace(old_forward_entry, new_forward_entry, 1)
+        modified = True
+
+    if modified:
         with open(src_file, "w") as f:
             f.write(src)
         importlib.reload(mod)
@@ -65,28 +87,6 @@ SAMPLE_MESSAGES = [
         ],
     }
 ]
-
-
-class Qwen3VLWrapper(torch.nn.Module):
-    """Wrapper that substitutes image_grid_thw with cached CPU values.
-
-    In compile-only mode, integer tensors on XLA are zero-initialized.
-    The vision encoder uses grid_thw values for data-dependent control flow
-    (loop bounds, tensor shapes), so it cannot function with zeros.
-    This wrapper ensures the correct values are always used.
-    """
-
-    def __init__(self, model, grid_thw_cpu):
-        super().__init__()
-        self.model = model
-        self._grid_thw_values = grid_thw_cpu.tolist()
-
-    def forward(self, **kwargs):
-        if "image_grid_thw" in kwargs and kwargs["image_grid_thw"] is not None:
-            kwargs["image_grid_thw"] = torch.tensor(
-                self._grid_thw_values, dtype=kwargs["image_grid_thw"].dtype
-            )
-        return self.model(**kwargs)
 
 
 class ModelVariant(StrEnum):
@@ -139,16 +139,7 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        sample_inputs = self.processor.apply_chat_template(
-            SAMPLE_MESSAGES,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
-            return_tensors="pt",
-        )
-        grid_thw_cpu = sample_inputs["image_grid_thw"]
-
-        return Qwen3VLWrapper(model, grid_thw_cpu)
+        return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         inputs = self.processor.apply_chat_template(
@@ -158,4 +149,8 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
+        # Convert integer grid_thw to float so values survive XLA device transfer.
+        # In compile-only mode, integer tensors are zero-initialized on XLA.
+        # The patched vision model forward converts back to long.
+        inputs["image_grid_thw"] = inputs["image_grid_thw"].float()
         return inputs
