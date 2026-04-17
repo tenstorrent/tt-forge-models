@@ -10,6 +10,7 @@ to map observations (cos(theta), sin(theta), angular velocity) to a continuous
 torque action.
 """
 import torch
+import torch.nn as nn
 from typing import Optional
 
 from ...base import ForgeModel
@@ -22,6 +23,26 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+class PPOActorNetwork(nn.Module):
+    """Extracts the actor network from an SB3 PPO policy as a clean nn.Module.
+
+    SB3's policy forward pass internally casts inputs to float32, which breaks
+    bfloat16 inference. This module bypasses that by directly composing the
+    underlying nn.Module components: flatten -> policy_net -> action_net.
+    """
+
+    def __init__(self, policy):
+        super().__init__()
+        self.flatten = policy.features_extractor.flatten
+        self.policy_net = policy.mlp_extractor.policy_net
+        self.action_net = policy.action_net
+
+    def forward(self, obs):
+        x = self.flatten(obs)
+        x = self.policy_net(x)
+        return self.action_net(x)
 
 
 class ModelVariant(StrEnum):
@@ -86,10 +107,11 @@ class ModelLoader(ForgeModel):
         policy = sb3_model.policy
         policy.eval()
 
+        model = PPOActorNetwork(policy)
         if dtype_override is not None:
-            policy = policy.to(dtype_override)
+            model = model.to(dtype_override)
 
-        return policy
+        return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the PPO Pendulum-v1 model.
