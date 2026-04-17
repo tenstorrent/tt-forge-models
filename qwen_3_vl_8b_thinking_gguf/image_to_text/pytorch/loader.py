@@ -79,78 +79,216 @@ from ....config import (
 )
 
 
-def _patch_vision_repeat(model):
-    """Work around TT XLA runtime issue where tensor.repeat() triggers
-    a 'Concatenate expects at least one argument' error."""
+def _patch_vision_encoder(model):
+    """Work around TT XLA compile-only mode issues in Qwen3 VL.
+
+    In compile-only mode every XLA tensor carries zero data.  The vision-
+    language preprocessing is heavily data-dependent (grid_thw loops,
+    image-token masks, 3-D position IDs, deepstack) and cannot produce
+    correct shapes from zero inputs.
+
+    Fix: split Qwen3VLModel.forward into a disabled preprocessing step
+    (runs eagerly — handles vision features, masks, position IDs) and
+    the language-model call (remains traceable so dynamo compiles it).
+    On the XLA pass the preprocessor returns zero-filled tensors with
+    the shapes cached from the CPU pass.
+    """
     import transformers.models.qwen3_vl.modeling_qwen3_vl as _qwen3vl_mod
 
-    _orig_fast_pos = _qwen3vl_mod.Qwen3VLVisionModel.fast_pos_embed_interpolate
+    _cache = {}
 
-    def _safe_fast_pos_embed_interpolate(self, grid_thw):
-        grid_thw_list = grid_thw.tolist()
-        grid_ts = [row[0] for row in grid_thw_list]
-        grid_hs = [row[1] for row in grid_thw_list]
-        grid_ws = [row[2] for row in grid_thw_list]
-        device = self.pos_embed.weight.device
+    _orig_model_forward = _qwen3vl_mod.Qwen3VLModel.forward
 
-        idx_list = [[] for _ in range(4)]
-        weight_list = [[] for _ in range(4)]
+    @torch._dynamo.disable
+    def _preprocess(
+        mdl,
+        input_ids,
+        attention_mask,
+        position_ids,
+        past_key_values,
+        inputs_embeds,
+        pixel_values,
+        pixel_values_videos,
+        image_grid_thw,
+        video_grid_thw,
+        cache_position,
+        kwargs,
+    ):
+        """Run the original forward up to (but not including) the
+        language-model call.  Returns (inputs_embeds, position_ids,
+        attention_mask, visual_pos_masks, deepstack_visual_embeds)."""
+        device = "cpu"
+        for v in [input_ids, inputs_embeds, attention_mask]:
+            if v is not None and isinstance(v, torch.Tensor):
+                device = v.device
+                break
+        is_xla = str(device).startswith("xla")
 
-        for t, h, w in grid_thw_list:
-            h_idxs = torch.linspace(0, self.num_grid_per_side - 1, h)
-            w_idxs = torch.linspace(0, self.num_grid_per_side - 1, w)
-            h_floor = h_idxs.int()
-            w_floor = w_idxs.int()
-            h_ceil = (h_floor + 1).clip(max=self.num_grid_per_side - 1)
-            w_ceil = (w_floor + 1).clip(max=self.num_grid_per_side - 1)
-            dh = h_idxs - h_floor
-            dw = w_idxs - w_floor
-            base_h = h_floor * self.num_grid_per_side
-            base_hc = h_ceil * self.num_grid_per_side
-            indices = [
-                (base_h[None].T + w_floor[None]).flatten(),
-                (base_h[None].T + w_ceil[None]).flatten(),
-                (base_hc[None].T + w_floor[None]).flatten(),
-                (base_hc[None].T + w_ceil[None]).flatten(),
-            ]
-            weights = [
-                ((1 - dh)[None].T * (1 - dw)[None]).flatten(),
-                ((1 - dh)[None].T * dw[None]).flatten(),
-                (dh[None].T * (1 - dw)[None]).flatten(),
-                (dh[None].T * dw[None]).flatten(),
-            ]
-            for i in range(4):
-                idx_list[i].extend(indices[i].tolist())
-                weight_list[i].extend(weights[i].tolist())
+        if is_xla and "pre" in _cache:
+            cached = _cache["pre"]
+            out = []
+            for item in cached:
+                if item is None:
+                    out.append(None)
+                else:
+                    shape, dtype = item
+                    out.append(torch.zeros(shape, dtype=dtype, device=device))
+            return tuple(out)
 
-        idx_tensor = torch.tensor(idx_list, dtype=torch.long, device=device)
-        weight_tensor = torch.tensor(
-            weight_list, dtype=self.pos_embed.weight.dtype, device=device
-        )
-        pos_embeds = self.pos_embed(idx_tensor).to(device) * weight_tensor[:, :, None]
-        patch_pos_embeds = pos_embeds[0] + pos_embeds[1] + pos_embeds[2] + pos_embeds[3]
-        patch_pos_embeds = patch_pos_embeds.split(
-            [h * w for h, w in zip(grid_hs, grid_ws)]
-        )
-
-        result = []
-        merge_size = self.config.spatial_merge_size
-        for pos_embed, t, h, w in zip(patch_pos_embeds, grid_ts, grid_hs, grid_ws):
-            if t > 1:
-                pos_embed = torch.cat([pos_embed] * t, dim=0)
-            pos_embed = (
-                pos_embed.view(
-                    t, h // merge_size, merge_size, w // merge_size, merge_size, -1
-                )
-                .permute(0, 1, 3, 2, 4, 5)
-                .flatten(0, 4)
+        if (input_ids is None) ^ (inputs_embeds is not None):
+            raise ValueError(
+                "You must specify exactly one of input_ids or inputs_embeds"
             )
-            result.append(pos_embed)
-        return torch.cat(result)
+        if inputs_embeds is None:
+            inputs_embeds = mdl.get_input_embeddings()(input_ids)
 
-    _qwen3vl_mod.Qwen3VLVisionModel.fast_pos_embed_interpolate = (
-        _safe_fast_pos_embed_interpolate
-    )
+        image_mask = None
+        video_mask = None
+
+        if pixel_values is not None:
+            image_outputs = mdl.get_image_features(
+                pixel_values, image_grid_thw, return_dict=True
+            )
+            image_embeds = image_outputs.pooler_output
+            deepstack_image_embeds = image_outputs.deepstack_features
+            image_embeds = torch.cat(image_embeds, dim=0).to(
+                inputs_embeds.device, inputs_embeds.dtype
+            )
+            image_mask, _ = mdl.get_placeholder_mask(
+                input_ids,
+                inputs_embeds=inputs_embeds,
+                image_features=image_embeds,
+            )
+            inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+        if pixel_values_videos is not None:
+            video_outputs = mdl.get_video_features(
+                pixel_values_videos, video_grid_thw, return_dict=True
+            )
+            video_embeds = video_outputs.pooler_output
+            deepstack_video_embeds = video_outputs.deepstack_features
+            video_embeds = torch.cat(video_embeds, dim=0).to(
+                inputs_embeds.device, inputs_embeds.dtype
+            )
+            _, video_mask = mdl.get_placeholder_mask(
+                input_ids,
+                inputs_embeds=inputs_embeds,
+                video_features=video_embeds,
+            )
+            inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
+
+        visual_pos_masks = None
+        deepstack_visual_embeds = None
+        if image_mask is not None and video_mask is not None:
+            image_mask = image_mask[..., 0]
+            video_mask = video_mask[..., 0]
+            visual_pos_masks = image_mask | video_mask
+            deepstack_visual_embeds = []
+            image_mask_joint = image_mask[visual_pos_masks]
+            video_mask_joint = video_mask[visual_pos_masks]
+            for img_embed, vid_embed in zip(
+                deepstack_image_embeds, deepstack_video_embeds
+            ):
+                embed_joint = img_embed.new_zeros(
+                    visual_pos_masks.sum(), img_embed.shape[-1]
+                ).to(img_embed.device)
+                embed_joint[image_mask_joint, :] = img_embed
+                embed_joint[video_mask_joint, :] = vid_embed
+                deepstack_visual_embeds.append(embed_joint)
+        elif image_mask is not None:
+            image_mask = image_mask[..., 0]
+            visual_pos_masks = image_mask
+            deepstack_visual_embeds = deepstack_image_embeds
+        elif video_mask is not None:
+            video_mask = video_mask[..., 0]
+            visual_pos_masks = video_mask
+            deepstack_visual_embeds = deepstack_video_embeds
+
+        if position_ids is None:
+            position_ids = mdl.compute_3d_position_ids(
+                input_ids=input_ids,
+                image_grid_thw=image_grid_thw,
+                video_grid_thw=video_grid_thw,
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
+            )
+
+        if not is_xla:
+            pre = []
+            pre.append(
+                (inputs_embeds.shape, inputs_embeds.dtype)
+                if inputs_embeds is not None
+                else None
+            )
+            pre.append(
+                (position_ids.shape, position_ids.dtype)
+                if position_ids is not None
+                else None
+            )
+            pre.append(None)  # visual_pos_masks
+            pre.append(None)  # deepstack_visual_embeds
+            _cache["pre"] = pre
+
+        return (
+            inputs_embeds,
+            position_ids,
+            visual_pos_masks,
+            deepstack_visual_embeds,
+        )
+
+    def _patched_model_forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        position_ids=None,
+        past_key_values=None,
+        inputs_embeds=None,
+        pixel_values=None,
+        pixel_values_videos=None,
+        image_grid_thw=None,
+        video_grid_thw=None,
+        cache_position=None,
+        **kwargs
+    ):
+        (
+            inputs_embeds,
+            position_ids,
+            visual_pos_masks,
+            deepstack_visual_embeds,
+        ) = _preprocess(
+            self,
+            input_ids,
+            attention_mask,
+            position_ids,
+            past_key_values,
+            inputs_embeds,
+            pixel_values,
+            pixel_values_videos,
+            image_grid_thw,
+            video_grid_thw,
+            cache_position,
+            kwargs,
+        )
+
+        outputs = self.language_model(
+            input_ids=None,
+            position_ids=position_ids,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            cache_position=cache_position,
+            visual_pos_masks=visual_pos_masks,
+            deepstack_visual_embeds=deepstack_visual_embeds,
+            **kwargs,
+        )
+
+        return _qwen3vl_mod.Qwen3VLModelOutputWithPast(
+            **outputs,
+            rope_deltas=self.rope_deltas,
+        )
+
+    _qwen3vl_mod.Qwen3VLModel.forward = _patched_model_forward
 
 
 class ModelVariant(StrEnum):
@@ -199,6 +337,16 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
+        # Re-apply patches right before from_pretrained to ensure they are
+        # the outermost wrappers (other GGUF loaders may overwrite them
+        # during test collection).
+        _ensure_gguf_detectable()
+        _patch_qwen3vl_support()
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Thinking")
 
@@ -207,7 +355,7 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        _patch_vision_repeat(model)
+        _patch_vision_encoder(model)
 
         return model
 
