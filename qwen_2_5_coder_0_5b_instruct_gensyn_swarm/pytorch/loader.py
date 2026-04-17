@@ -103,9 +103,12 @@ class ModelLoader(ForgeModel):
             },
             {"role": "user", "content": self.sample_text},
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
+        if getattr(self.tokenizer, "chat_template", None) is not None:
+            text = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        else:
+            text = "\n".join(f"{msg['role']}: {msg['content']}" for msg in messages)
         prompts = [text]
 
         inputs = self.tokenizer(
