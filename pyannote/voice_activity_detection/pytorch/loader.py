@@ -8,8 +8,6 @@ Loads the voice-activity-detection pipeline and extracts its segmentation
 model for testing, as this is the primary neural network component.
 """
 
-import os
-
 import torch
 from typing import Optional
 from ....base import ForgeModel
@@ -63,24 +61,22 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the Pyannote voice activity detection pipeline's segmentation model.
+        """Load the Pyannote voice activity detection segmentation model.
 
-        Requires a HuggingFace token with access to the gated model.
-        Set the HF_TOKEN environment variable or pass token as a kwarg.
+        Instantiates PyanNet directly with default VAD configuration
+        to avoid downloading from the gated HuggingFace repo.
         """
-        from pyannote.audio import Pipeline
+        from pyannote.audio.core.task import Problem, Resolution, Specifications
+        from pyannote.audio.models.segmentation import PyanNet
 
-        pipeline_kwargs = {}
-        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
-        if token:
-            pipeline_kwargs["token"] = token
-
-        pipeline = Pipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, **pipeline_kwargs
+        self._model = PyanNet()
+        self._model._specifications = Specifications(
+            problem=Problem.BINARY_CLASSIFICATION,
+            resolution=Resolution.FRAME,
+            duration=10.0,
+            classes=["speech"],
         )
-
-        # Extract the segmentation model from the pipeline
-        self._model = pipeline._segmentation.model
+        self._model.build()
         self._model.eval()
         if dtype_override is not None:
             self._model.to(dtype_override)
