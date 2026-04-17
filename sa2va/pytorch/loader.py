@@ -127,6 +127,8 @@ class Sa2VAWrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
         self.model = model
+        if not hasattr(model, "_count"):
+            model._count = 0
 
     def forward(
         self, pixel_values, input_ids, attention_mask, image_flags, use_cache=False
