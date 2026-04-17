@@ -97,28 +97,11 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, **kwargs) -> Any:
         """Prepare inputs for the VAE.
 
-        Pass vae_type="decoder" or vae_type="encoder" to select input type.
-        Defaults to decoder inputs.
+        The model forward() runs encode then decode, so default inputs are
+        image-space (3-channel RGB) to match the encoder's expected input.
         """
         dtype = kwargs.get("dtype_override", torch.float32)
-        vae_type = kwargs.get("vae_type", "decoder")
-
-        if vae_type == "decoder":
-            # [batch, channels, frames, height, width]
-            return torch.randn(
-                1,
-                LATENT_CHANNELS,
-                LATENT_FRAMES,
-                LATENT_HEIGHT,
-                LATENT_WIDTH,
-                dtype=dtype,
-            )
-        elif vae_type == "encoder":
-            # [batch, channels, frames, height, width]
-            return torch.randn(
-                1, 3, LATENT_FRAMES, LATENT_HEIGHT * 8, LATENT_WIDTH * 8, dtype=dtype
-            )
-        else:
-            raise ValueError(
-                f"Unknown vae_type: {vae_type}. Expected 'decoder' or 'encoder'."
-            )
+        # [batch, channels, frames, height, width]
+        return torch.randn(
+            1, 3, LATENT_FRAMES, LATENT_HEIGHT * 8, LATENT_WIDTH * 8, dtype=dtype
+        )
