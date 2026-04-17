@@ -3,12 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Qwen3.5-2B Polaris HighIQ Thinking Compact i1 GGUF model loader implementation for image to text.
+
+Note: The underlying GGUF resolves to a Qwen3 causal LM architecture,
+so we use AutoModelForCausalLM instead of AutoModelForImageTextToText.
 """
 
-from transformers import (
-    AutoModelForImageTextToText,
-    AutoProcessor,
-)
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -45,9 +46,12 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "Qwen3.5-2B-Polaris-HighIQ-Thinking-Compact.i1-Q4_K_M.gguf"
 
+    sample_text = "Give me a short introduction to large language model."
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
+        self.tokenizer = None
+        self.config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -62,8 +66,25 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_tokenizer(self, dtype_override=None):
+        tokenizer_kwargs = {}
+        if dtype_override is not None:
+            tokenizer_kwargs["torch_dtype"] = dtype_override
+        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        )
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        return self.tokenizer
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -71,35 +92,42 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3.5-2B")
-
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
-        )
-        model.eval()
+        ).eval()
 
+        self.config = model.config
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+
+        max_length = self._variant_config.max_length
+
         messages = [
             {
                 "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                    },
-                    {"type": "text", "text": "Describe this image."},
-                ],
+                "content": self.sample_text,
             }
         ]
-
-        inputs = self.processor.apply_chat_template(
+        text = self.tokenizer.apply_chat_template(
             messages,
-            tokenize=True,
+            tokenize=False,
             add_generation_prompt=True,
-            return_dict=True,
-            return_tensors="pt",
         )
+        prompts = [text]
+
+        inputs = self.tokenizer(
+            prompts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=max_length,
+        )
+
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
         return inputs
