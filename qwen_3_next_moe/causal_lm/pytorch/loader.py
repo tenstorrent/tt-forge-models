@@ -8,6 +8,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+from torch import nn
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -18,6 +20,15 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+class Qwen3NextMoEWrapper(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, **kwargs):
+        return self.model(**kwargs).logits
 
 
 class ModelVariant(StrEnum):
@@ -137,7 +148,7 @@ class ModelLoader(ForgeModel):
 
         self.config = model.config
         self.model = model
-        return model
+        return Qwen3NextMoEWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Qwen 3 Next MoE model.
@@ -191,6 +202,8 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
+        if isinstance(model, Qwen3NextMoEWrapper):
+            model = model.model
         shard_specs = {}
         for layer in model.model.layers:
             mlp = layer.mlp
