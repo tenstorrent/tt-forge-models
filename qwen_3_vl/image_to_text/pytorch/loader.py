@@ -5,6 +5,8 @@
 Qwen 3 model loader implementation for image to text.
 """
 
+import torch
+from PIL import Image
 from transformers import (
     Qwen3VLForConditionalGeneration,
     Qwen3VLMoeForConditionalGeneration,
@@ -182,13 +184,16 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Load the model with dtype override if specified
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs = {
+            "low_cpu_mem_usage": True,
+            "use_cache": False,
+            "torch_dtype": dtype_override
+            if dtype_override is not None
+            else torch.float32,
+        }
 
-        model_kwargs["dtype"] = "auto"
-        model_kwargs["device_map"] = "auto"
+        if self._variant == ModelVariant.QWEN_3_VL_8B_INSTRUCT_AWQ:
+            model_kwargs["device_map"] = "cpu"
 
         model_kwargs |= kwargs
 
@@ -221,14 +226,12 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
+        dummy_image = Image.new("RGB", (224, 224), color=(128, 128, 128))
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                    },
+                    {"type": "image", "image": dummy_image},
                     {"type": "text", "text": "Describe this image."},
                 ],
             }
@@ -241,4 +244,6 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
+        if dtype_override is not None and "pixel_values" in inputs:
+            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
         return inputs
