@@ -6,11 +6,38 @@ Qwen3-VL-4B-Instruct-action model loader implementation for image to text.
 """
 
 import torch
+import transformers.models.qwen3_vl.modeling_qwen3_vl as _qwen3_vl_module
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
 from typing import Optional
+
+
+def _patch_fast_pos_embed_interpolate():
+    """Patch the installed transformers source to guard repeat(1, 1).
+
+    The TT XLA backend's repeat implementation uses concatenate, which fails
+    when repeat factors are all 1 (no-op produces zero concatenation args).
+    This patches the source file to skip repeat when t <= 1.
+    """
+    import importlib
+    import inspect
+
+    src_file = inspect.getfile(_qwen3_vl_module)
+    with open(src_file, "r") as f:
+        src = f.read()
+
+    old = "            pos_embed = pos_embed.repeat(t, 1)\n"
+    new = "            if t > 1:\n                pos_embed = pos_embed.repeat(t, 1)\n"
+    if old in src and new not in src:
+        src = src.replace(old, new)
+        with open(src_file, "w") as f:
+            f.write(src)
+        importlib.reload(_qwen3_vl_module)
+
+
+_patch_fast_pos_embed_interpolate()
 
 from ...base import ForgeModel
 from ...config import (
