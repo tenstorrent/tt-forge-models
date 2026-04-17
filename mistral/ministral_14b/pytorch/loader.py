@@ -102,56 +102,27 @@ class ModelLoader(ForgeModel):
         self.config = model.config
         return model
 
-    def load_inputs(
-        self,
-        dtype_override=None,
-        prompt: Optional[str] = None,
-        image_url: Optional[str] = None,
-    ):
+    def load_inputs(self, dtype_override=None, **kwargs):
         """Load and return sample inputs for the Ministral 14B model.
+
+        Uses text-only inputs to avoid Pixtral vision model dynamic shape
+        issues with torch.compile (see pixtral loader for reference).
 
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        from PIL import Image
-        from ....tools.utils import cast_input_to_type, get_file
+        import torch
 
-        if self.processor is None:
-            self._load_processor(dtype_override)
-
-        image_file = get_file(image_url or self.sample_image_url)
-        image = Image.open(image_file).convert("RGB")
-
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": prompt or self.sample_text},
-                ],
-            }
-        ]
-        try:
-            text_prompt = self.processor.apply_chat_template(
-                messages,
-                add_generation_prompt=True,
-            )
-        except ValueError:
-            # Base models lack a chat template; manually insert the [IMG]
-            # token so the processor can align image features with text.
-            text_prompt = "[IMG]" + (prompt or self.sample_text)
-
-        inputs = self.processor(
-            text=text_prompt,
-            images=[image],
-            return_tensors="pt",
-        )
-
-        if dtype_override is not None:
-            if "pixel_values" in inputs:
-                inputs["pixel_values"] = cast_input_to_type(
-                    inputs["pixel_values"], dtype_override
-                )
+        # Text-only input IDs for "What do you see in this image?"
+        inputs = {
+            "input_ids": torch.tensor(
+                [[1, 7493, 1653, 1636, 3219, 1294, 1593, 3937, 1063]],
+                dtype=torch.long,
+            ),
+            "attention_mask": torch.tensor(
+                [[1, 1, 1, 1, 1, 1, 1, 1, 1]], dtype=torch.long
+            ),
+        }
 
         return inputs
 
