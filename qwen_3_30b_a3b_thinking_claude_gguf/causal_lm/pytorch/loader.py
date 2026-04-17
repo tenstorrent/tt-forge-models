@@ -40,6 +40,8 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "Qwen3-30B-A3B-Thinking-2507-Claude-4.5-Sonnet-High-Reasoning-Distill.Q4_K_M.gguf"
 
+    BASE_MODEL_NAME = "Qwen/Qwen3-30B-A3B"
+
     sample_text = "Give me a short introduction to large language model."
 
     def __init__(
@@ -65,10 +67,9 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self.BASE_MODEL_NAME, **tokenizer_kwargs
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -160,7 +161,5 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        self.config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
         return self.config
