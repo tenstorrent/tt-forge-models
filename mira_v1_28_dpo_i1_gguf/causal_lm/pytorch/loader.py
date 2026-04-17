@@ -100,6 +100,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        model.config.use_cache = False
+
         self.config = model.config
         self.model = model
         return model
@@ -126,7 +128,7 @@ class ModelLoader(ForgeModel):
         inputs = self.tokenizer(
             prompts,
             return_tensors="pt",
-            padding=True,
+            padding="max_length",
             truncation=True,
             max_length=max_length,
         )
