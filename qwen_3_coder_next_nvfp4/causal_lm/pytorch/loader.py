@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.QWEN_3_CODER_NEXT_NVFP4_GB10: LLMModelConfig(
-            pretrained_model_name="saricles/Qwen3-Coder-Next-NVFP4-GB10",
+            pretrained_model_name="GadflyII/Qwen3-Coder-Next-NVFP4",
             max_length=128,
         ),
     }
