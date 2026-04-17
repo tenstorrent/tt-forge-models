@@ -50,7 +50,7 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_1_5_1_8B_CHAT_GPTQ_4BIT: LLMModelConfig(
             pretrained_model_name="ModelCloud/Qwen1.5-1.8B-Chat-GPTQ-4bits-dynamic-cfg-with-lm_head-symFalse",
-            max_length=512,
+            max_length=128,
         ),
         ModelVariant.QWEN_1_5_7B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen1.5-7B",
@@ -176,6 +176,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         if is_gptq:
+            model_kwargs["use_cache"] = False
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
             )
@@ -186,6 +187,8 @@ class ModelLoader(ForgeModel):
 
         # Disable DynamicCache
         model._supports_cache_class = False
+        if is_gptq:
+            model.config.use_cache = False
         model.eval()
 
         return model
