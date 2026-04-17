@@ -48,6 +48,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.num_layers = num_layers
+        self.t2d = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -89,7 +90,7 @@ class ModelLoader(ForgeModel):
         with open(config_path) as f:
             raw_config = json.load(f)
         config = Eagle3SpeculatorConfig(**raw_config)
-        config.transformer_layer_config._attn_implementation = "eager"
+        config.transformer_layer_config._attn_implementation = "flex_attention"
 
         if self.num_layers is not None:
             config.transformer_layer_config.num_hidden_layers = self.num_layers
@@ -99,6 +100,7 @@ class ModelLoader(ForgeModel):
 
         t2d = state_dict.pop("t2d", None)
         d2t = state_dict.pop("d2t", None)
+        self.t2d = t2d
 
         model = Eagle3DraftModel(config, t2d=t2d, d2t=d2t)
         model.load_state_dict(state_dict, strict=False)
@@ -116,6 +118,9 @@ class ModelLoader(ForgeModel):
 
         tokens = self.tokenizer(test_input, return_tensors="pt")
         input_ids = tokens["input_ids"]
+
+        if self.t2d is not None:
+            input_ids = self.t2d[input_ids]
 
         if batch_size > 1:
             input_ids = input_ids.repeat_interleave(batch_size, dim=0)
