@@ -71,14 +71,13 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        # Gated model requires authentication
         token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
-        if token:
-            model_kwargs["use_auth_token"] = token
         model_kwargs |= kwargs
 
         self._model = Model.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
+            self._variant_config.pretrained_model_name,
+            token=token,
+            **model_kwargs,
         )
         self._model.eval()
         if dtype_override is not None:
