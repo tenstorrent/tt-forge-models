@@ -137,7 +137,9 @@ class ModelLoader(ForgeModel):
                 add_generation_prompt=True,
             )
         except ValueError:
-            text_prompt = prompt or self.sample_text
+            # Base models lack a chat template; manually insert the [IMG]
+            # token so the processor can align image features with text.
+            text_prompt = "[IMG]" + (prompt or self.sample_text)
 
         inputs = self.processor(
             text=text_prompt,
@@ -162,7 +164,7 @@ class ModelLoader(ForgeModel):
         """Load the sharding specification for tensor parallel execution."""
         shard_specs = {}
 
-        for layer in model.language_model.layers:
+        for layer in model.model.language_model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
@@ -172,7 +174,7 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
 
-        for layer in model.vision_tower.vision_model.encoder.layers:
+        for layer in model.model.vision_tower.vision_model.encoder.layers:
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
