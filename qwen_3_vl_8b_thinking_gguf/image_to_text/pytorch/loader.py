@@ -9,6 +9,7 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
+import torch
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
@@ -78,6 +79,80 @@ from ....config import (
 )
 
 
+def _patch_vision_repeat(model):
+    """Work around TT XLA runtime issue where tensor.repeat() triggers
+    a 'Concatenate expects at least one argument' error."""
+    import transformers.models.qwen3_vl.modeling_qwen3_vl as _qwen3vl_mod
+
+    _orig_fast_pos = _qwen3vl_mod.Qwen3VLVisionModel.fast_pos_embed_interpolate
+
+    def _safe_fast_pos_embed_interpolate(self, grid_thw):
+        grid_thw_list = grid_thw.tolist()
+        grid_ts = [row[0] for row in grid_thw_list]
+        grid_hs = [row[1] for row in grid_thw_list]
+        grid_ws = [row[2] for row in grid_thw_list]
+        device = self.pos_embed.weight.device
+
+        idx_list = [[] for _ in range(4)]
+        weight_list = [[] for _ in range(4)]
+
+        for t, h, w in grid_thw_list:
+            h_idxs = torch.linspace(0, self.num_grid_per_side - 1, h)
+            w_idxs = torch.linspace(0, self.num_grid_per_side - 1, w)
+            h_floor = h_idxs.int()
+            w_floor = w_idxs.int()
+            h_ceil = (h_floor + 1).clip(max=self.num_grid_per_side - 1)
+            w_ceil = (w_floor + 1).clip(max=self.num_grid_per_side - 1)
+            dh = h_idxs - h_floor
+            dw = w_idxs - w_floor
+            base_h = h_floor * self.num_grid_per_side
+            base_hc = h_ceil * self.num_grid_per_side
+            indices = [
+                (base_h[None].T + w_floor[None]).flatten(),
+                (base_h[None].T + w_ceil[None]).flatten(),
+                (base_hc[None].T + w_floor[None]).flatten(),
+                (base_hc[None].T + w_ceil[None]).flatten(),
+            ]
+            weights = [
+                ((1 - dh)[None].T * (1 - dw)[None]).flatten(),
+                ((1 - dh)[None].T * dw[None]).flatten(),
+                (dh[None].T * (1 - dw)[None]).flatten(),
+                (dh[None].T * dw[None]).flatten(),
+            ]
+            for i in range(4):
+                idx_list[i].extend(indices[i].tolist())
+                weight_list[i].extend(weights[i].tolist())
+
+        idx_tensor = torch.tensor(idx_list, dtype=torch.long, device=device)
+        weight_tensor = torch.tensor(
+            weight_list, dtype=self.pos_embed.weight.dtype, device=device
+        )
+        pos_embeds = self.pos_embed(idx_tensor).to(device) * weight_tensor[:, :, None]
+        patch_pos_embeds = pos_embeds[0] + pos_embeds[1] + pos_embeds[2] + pos_embeds[3]
+        patch_pos_embeds = patch_pos_embeds.split(
+            [h * w for h, w in zip(grid_hs, grid_ws)]
+        )
+
+        result = []
+        merge_size = self.config.spatial_merge_size
+        for pos_embed, t, h, w in zip(patch_pos_embeds, grid_ts, grid_hs, grid_ws):
+            if t > 1:
+                pos_embed = torch.cat([pos_embed] * t, dim=0)
+            pos_embed = (
+                pos_embed.view(
+                    t, h // merge_size, merge_size, w // merge_size, merge_size, -1
+                )
+                .permute(0, 1, 3, 2, 4, 5)
+                .flatten(0, 4)
+            )
+            result.append(pos_embed)
+        return torch.cat(result)
+
+    _qwen3vl_mod.Qwen3VLVisionModel.fast_pos_embed_interpolate = (
+        _safe_fast_pos_embed_interpolate
+    )
+
+
 class ModelVariant(StrEnum):
     """Available Qwen 3 VL 8B Thinking GGUF model variants for image to text."""
 
@@ -131,6 +206,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+
+        _patch_vision_repeat(model)
 
         return model
 
