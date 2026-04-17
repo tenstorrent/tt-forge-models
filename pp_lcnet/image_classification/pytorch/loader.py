@@ -79,6 +79,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForImageClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
 
         return model
