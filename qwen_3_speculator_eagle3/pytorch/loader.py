@@ -6,7 +6,7 @@ Qwen 3 8B EAGLE3 speculator model loader implementation for speculative decoding
 """
 
 import torch
-from transformers import AutoModel
+from speculators import SpeculatorModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -71,11 +71,11 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
 
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(
+        model = SpeculatorModel.from_pretrained(
             cfg.pretrained_model_name,
             **model_kwargs,
         )
@@ -97,10 +97,13 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override or torch.bfloat16
         hidden_size = 4096  # Qwen3-8B hidden size
+        num_fused_layers = 3
         seq_len = 1
 
         torch.manual_seed(42)
-        hidden_states = torch.randn(1, seq_len, hidden_size, dtype=dtype)
-        input_ids = torch.randint(0, 32000, (1, seq_len))
+        hidden_states = torch.randn(
+            1, seq_len, num_fused_layers * hidden_size, dtype=dtype
+        )
+        input_ids = torch.randint(0, 151936, (1, seq_len))
 
-        return {"hidden_states": hidden_states, "input_ids": input_ids}
+        return {"input_ids": input_ids, "hidden_states": hidden_states}
