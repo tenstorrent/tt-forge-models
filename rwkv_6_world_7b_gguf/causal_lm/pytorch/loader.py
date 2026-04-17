@@ -19,6 +19,10 @@ from ....config import (
     StrEnum,
 )
 
+from .model_utils import patch_transformers_rwkv6_gguf
+
+patch_transformers_rwkv6_gguf()
+
 
 class ModelVariant(StrEnum):
     """Available RWKV 6 World 7B GGUF model variants for causal language modeling."""
@@ -62,14 +66,28 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        try:
+            tokenizer_kwargs = {}
+            if dtype_override is not None:
+                tokenizer_kwargs["torch_dtype"] = dtype_override
+            tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
+        except Exception:
+            from transformers import PreTrainedTokenizerFast
+            from tokenizers import Tokenizer, models, pre_tokenizers
+
+            tok = Tokenizer(models.BPE())
+            tok.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+            self.tokenizer = PreTrainedTokenizerFast(
+                tokenizer_object=tok,
+                bos_token="<s>",
+                eos_token="</s>",
+                pad_token="</s>",
+            )
+
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
