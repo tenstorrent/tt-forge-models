@@ -64,26 +64,48 @@ class ModelLoader(ForgeModel):
 
         Requires a HuggingFace token with access to the gated model.
         Set the HF_TOKEN environment variable or pass token as a kwarg.
+        When TT_RANDOM_WEIGHTS=1, builds the PyanNet architecture directly
+        with random weights so the gated repo download can be skipped.
         """
-        from pyannote.audio import Model
+        if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+            self._model = self._build_random_model()
+        else:
+            from pyannote.audio import Model
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
 
-        # Gated model requires authentication
-        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
-        if token:
-            model_kwargs["use_auth_token"] = token
-        model_kwargs |= kwargs
+            # Gated model requires authentication
+            token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
+            if token:
+                model_kwargs["use_auth_token"] = token
+            model_kwargs |= kwargs
 
-        self._model = Model.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
-        )
+            self._model = Model.from_pretrained(
+                self._variant_config.pretrained_model_name, **model_kwargs
+            )
         self._model.eval()
         if dtype_override is not None:
             self._model.to(dtype_override)
         return self._model
+
+    @staticmethod
+    def _build_random_model():
+        """Build a PyanNet with random weights, bypassing the gated HF download."""
+        from pyannote.audio.core.task import Problem, Resolution, Specifications
+        from pyannote.audio.models.segmentation.PyanNet import PyanNet
+
+        model = PyanNet()
+        # pyannote/segmentation is a 3-speaker, 10-second frame-level classifier.
+        model.specifications = Specifications(
+            problem=Problem.MULTI_LABEL_CLASSIFICATION,
+            resolution=Resolution.FRAME,
+            duration=10.0,
+            classes=["speaker1", "speaker2", "speaker3"],
+        )
+        model.build()
+        return model
 
     def load_inputs(self, dtype_override=None):
         """Load sample audio inputs for the segmentation model.
