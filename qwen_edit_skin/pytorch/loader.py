@@ -15,7 +15,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import QwenImageTransformer2DModel
-from peft import PeftModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -30,6 +29,7 @@ from ...config import (
 
 BASE_MODEL = "Qwen/Qwen-Image-Edit-2509"
 LORA_REPO = "tlennon-ie/qwen-edit-skin"
+LORA_WEIGHT_NAME = "qwen-edit-skin.safetensors"
 
 
 class ModelVariant(StrEnum):
@@ -79,8 +79,13 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
         )
 
-        transformer = PeftModel.from_pretrained(transformer, LORA_REPO)
-        transformer = transformer.merge_and_unload()
+        transformer.load_lora_adapter(
+            LORA_REPO,
+            weight_name=LORA_WEIGHT_NAME,
+            prefix="diffusion_model",
+        )
+        transformer.fuse_lora()
+        transformer.unload_lora()
         transformer.eval()
 
         self._transformer = transformer
