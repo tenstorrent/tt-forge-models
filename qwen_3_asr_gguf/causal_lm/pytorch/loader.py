@@ -4,8 +4,17 @@
 """
 Qwen 3 ASR GGUF model loader implementation for causal language modeling.
 """
+import json
+import os
+import tempfile
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
+    PreTrainedTokenizerFast,
+)
 from typing import Optional
 
 import transformers.configuration_utils as _config_utils
@@ -99,15 +108,40 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+    @staticmethod
+    def _extract_hf_tokenizer_json(gguf_path):
+        """Extract tokenizer.huggingface.json from a GGUF file."""
+        from gguf import GGUFReader
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        reader = GGUFReader(gguf_path)
+        field = reader.fields.get("tokenizer.huggingface.json")
+        if field is None:
+            return None
+        parts = field.parts
+        data_index = parts[-1]
+        return bytes(field.data[data_index]).decode("utf-8")
+
+    def _load_tokenizer(self, dtype_override=None):
+        from huggingface_hub import hf_hub_download
+
+        gguf_path = hf_hub_download(
+            self._variant_config.pretrained_model_name, self.GGUF_FILE
         )
+        tokenizer_json = self._extract_hf_tokenizer_json(gguf_path)
+        if tokenizer_json is not None:
+            with tempfile.TemporaryDirectory() as tmp:
+                tok_path = os.path.join(tmp, "tokenizer.json")
+                with open(tok_path, "w") as f:
+                    f.write(tokenizer_json)
+                self.tokenizer = PreTrainedTokenizerFast(tokenizer_file=tok_path)
+        else:
+            tokenizer_kwargs = {}
+            if dtype_override is not None:
+                tokenizer_kwargs["torch_dtype"] = dtype_override
+            tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
