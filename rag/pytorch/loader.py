@@ -5,8 +5,11 @@
 RAG (Retrieval-Augmented Generation) model loader implementation.
 """
 
+from unittest.mock import patch
+
 import torch
 from transformers import RagTokenizer, RagRetriever, RagSequenceForGeneration
+from transformers.models.rag.retrieval_rag import HFIndexBase
 from typing import Optional
 
 from ...base import ForgeModel
@@ -75,9 +78,10 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        self._retriever = RagRetriever.from_pretrained(
-            pretrained_model_name, index_name="exact", use_dummy_dataset=True
-        )
+        with patch.object(HFIndexBase, "_check_dataset_format", lambda *a, **kw: None):
+            self._retriever = RagRetriever.from_pretrained(
+                pretrained_model_name, index_name="exact", use_dummy_dataset=True
+            )
 
         model_kwargs = {"use_cache": False, "retriever": self._retriever}
         if dtype_override is not None:
