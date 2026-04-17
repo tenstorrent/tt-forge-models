@@ -62,9 +62,12 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        # Use the built-in Qwen2 tokenizer rather than the repo's custom
+        # tokenization_qwen.py, which imports from a path removed in
+        # transformers 5.x (tokenization_qwen2_fast).
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
+            trust_remote_code=False,
             **tokenizer_kwargs,
         )
 
@@ -73,7 +76,11 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        # Use the built-in transformers Qwen2 implementation rather than the
+        # repo's custom modeling_qwen.py, which references the removed
+        # config.rope_theta attribute (moved under config.rope_parameters in
+        # transformers 5.x).
+        model_kwargs = {"trust_remote_code": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
