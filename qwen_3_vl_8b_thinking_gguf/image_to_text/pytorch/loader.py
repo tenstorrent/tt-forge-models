@@ -5,11 +5,60 @@
 Qwen 3 VL 8B Thinking GGUF model loader implementation for image to text.
 """
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.utils.import_utils import (
+    PACKAGE_DISTRIBUTION_MAPPING,
+    is_gguf_available,
+)
 from typing import Optional
+
+
+def _ensure_gguf_detectable():
+    if "gguf" not in PACKAGE_DISTRIBUTION_MAPPING:
+        PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+    is_gguf_available.cache_clear()
+
+
+def _patch_qwen3vl_support():
+    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section][
+                "qwen3vl"
+            ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"]
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    _ensure_gguf_detectable()
+    _patch_qwen3vl_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "qwen3vl":
+        result["config"]["model_type"] = "qwen3"
+    return result
+
+
+_ensure_gguf_detectable()
+_patch_qwen3vl_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
