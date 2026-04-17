@@ -29,6 +29,8 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Qwen 3 DFlash model loader implementation for causal language modeling tasks."""
 
+    TOKENIZER_MODEL_NAME = "Qwen/Qwen3-4B"
+
     _VARIANTS = {
         ModelVariant.QWEN_3_4B_DFLASH_B16: LLMModelConfig(
             pretrained_model_name="z-lab/Qwen3-4B-DFlash-b16",
@@ -58,7 +60,7 @@ class ModelLoader(ForgeModel):
     def _ensure_tokenizer(self):
         if self.tokenizer is None:
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self._variant_config.pretrained_model_name,
+                self.TOKENIZER_MODEL_NAME,
                 trust_remote_code=True,
             )
 
