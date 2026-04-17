@@ -16,7 +16,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import QwenImageEditPlusPipeline  # type: ignore[import]
-from PIL import Image  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -91,18 +90,34 @@ class ModelLoader(ForgeModel):
 
         return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for image editing with camera angle control.
+    def load_inputs(self, **kwargs) -> Any:
+        """Prepare sample inputs for the diffusion transformer.
 
         Returns:
-            dict with prompt and image keys.
+            dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        if prompt is None:
-            prompt = "Move the camera forward"
+        dtype = kwargs.get("dtype_override", torch.float32)
+        batch_size = kwargs.get("batch_size", 1)
 
-        image = Image.new("RGB", (512, 512), color=(128, 128, 200))
+        img_dim = 64
+        text_dim = 3584
+        txt_seq_len = 32
+
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
+        )
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_shapes = [(frame, height, width)] * batch_size
 
         return {
-            "prompt": prompt,
-            "image": image,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
         }
