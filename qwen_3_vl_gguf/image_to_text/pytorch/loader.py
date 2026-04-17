@@ -6,6 +6,7 @@ Qwen 3 VL GGUF model loader implementation for image to text.
 """
 
 from transformers import (
+    AutoConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -60,6 +61,8 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    BASE_MODEL = "Qwen/Qwen3-VL-4B-Instruct"
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -69,8 +72,12 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
+        # Transformers does not yet support the qwen3vl GGUF architecture for
+        # config extraction, so supply the config from the base (non-GGUF) repo.
+        if "config" not in model_kwargs:
+            model_kwargs["config"] = AutoConfig.from_pretrained(self.BASE_MODEL)
+
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
