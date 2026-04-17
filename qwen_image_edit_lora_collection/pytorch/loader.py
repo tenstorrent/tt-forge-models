@@ -118,8 +118,10 @@ class ModelLoader(ForgeModel):
             weight_name=lora_file,
         )
 
-        self.pipeline.transformer.eval()
-        return self.pipeline.transformer
+        transformer = self.pipeline.transformer
+        transformer = transformer.to(dtype)
+        transformer.eval()
+        return transformer
 
     def load_inputs(self, **kwargs) -> Any:
         """Prepare sample inputs for the diffusion transformer.
