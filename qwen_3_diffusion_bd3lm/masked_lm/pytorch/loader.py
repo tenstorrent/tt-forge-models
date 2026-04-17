@@ -3,7 +3,23 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Qwen3 BD3LM diffusion model loader implementation for masked language modeling.
+
+The HuggingFace model repo (dllm-hub/Qwen3-0.6B-diffusion-bd3lm-v0.1) contains
+a modeling file that imports 'dllm' inside an ``if __name__ == "__main__"`` guard.
+transformers.check_imports scans all imports regardless of guards, so the package
+must be importable even though it is never executed. A minimal stub lives in
+``stubs/dllm/`` and is added to sys.path here.
 """
+
+import importlib
+import os
+import sys
+
+if importlib.util.find_spec("dllm") is None:
+    _stubs = os.path.join(os.path.dirname(__file__), "stubs")
+    if os.path.isdir(_stubs):
+        sys.path.insert(0, _stubs)
+
 from transformers import AutoTokenizer, AutoModelForMaskedLM
 from typing import Optional
 

@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dllm"
+version = "0.0.1"
+description = "Stub package to satisfy HuggingFace check_imports for dllm-hub models"
+
+[tool.setuptools.packages.find]
+include = ["dllm*"]
