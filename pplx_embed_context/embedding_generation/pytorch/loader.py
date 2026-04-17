@@ -4,9 +4,39 @@
 """
 PPLX-Embed-Context-v1 model loader implementation for sentence embedding generation.
 """
+import sys
+import types
+from abc import ABC
+
 import torch
 from transformers import AutoModel, AutoTokenizer
 from typing import Optional
+
+
+def _ensure_sentence_transformers_models_module():
+    """Register a ``sentence_transformers.models`` shim so that the HuggingFace
+    remote code for this model (which imports ``Module`` from that path) works
+    with sentence-transformers >= 5 where the ``models`` sub-package was removed.
+    """
+    mod_name = "sentence_transformers.models"
+    if mod_name in sys.modules:
+        return
+
+    try:
+        from sentence_transformers.base.modules.module import Module
+    except Exception:
+
+        class Module(ABC, torch.nn.Module):
+            pass
+
+    shim = types.ModuleType(mod_name)
+    shim.Module = Module
+    sys.modules[mod_name] = shim
+    if "sentence_transformers" in sys.modules:
+        sys.modules["sentence_transformers"].models = shim
+
+
+_ensure_sentence_transformers_models_module()
 
 from ....base import ForgeModel
 from ....config import (
