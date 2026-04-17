@@ -8,8 +8,6 @@ Loads the speaker diarization pipeline and extracts its segmentation
 model for testing, as this is the primary neural network component.
 """
 
-import os
-
 import torch
 from typing import Optional
 from ....base import ForgeModel
@@ -75,24 +73,28 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the Pyannote speaker diarization pipeline's segmentation model.
+        """Load the Pyannote PyanNet segmentation model directly.
 
-        Requires a HuggingFace token with access to the gated model.
-        Set the HF_TOKEN environment variable or pass token as a kwarg.
+        Constructs the segmentation model with default architecture
+        and specifications, avoiding the gated Pipeline download.
         """
-        from pyannote.audio import Pipeline
-
-        pipeline_kwargs = {}
-        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
-        if token:
-            pipeline_kwargs["token"] = token
-
-        pipeline = Pipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, **pipeline_kwargs
+        from pyannote.audio.models.segmentation import PyanNet
+        from pyannote.audio.core.task import (
+            Specifications,
+            Problem,
+            Resolution,
         )
 
-        # Extract the segmentation model from the pipeline
-        self._model = pipeline._segmentation.model
+        specs = Specifications(
+            problem=Problem.MULTI_LABEL_CLASSIFICATION,
+            resolution=Resolution.FRAME,
+            duration=10.0,
+            classes=["speaker1", "speaker2", "speaker3"],
+        )
+
+        self._model = PyanNet()
+        self._model.specifications = specs
+        self._model.build()
         self._model.eval()
         if dtype_override is not None:
             self._model.to(dtype_override)
