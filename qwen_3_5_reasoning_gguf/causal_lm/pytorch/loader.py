@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_5_0_8B_REASONING_DISTILLED_Q4_K_M_GGUF
 
-    GGUF_FILE = "qwen3.5-0.8b-claude-4.6-opus-reasoning-distilled-q4_k_m.gguf"
+    GGUF_FILE = "Qwen3.5-0.8B.Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
