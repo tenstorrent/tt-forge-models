@@ -78,22 +78,35 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _fix_rope_config(config):
+        """Fix rope_scaling 'default' type removed in transformers 5.x."""
+        if (
+            hasattr(config, "rope_scaling")
+            and config.rope_scaling is not None
+            and config.rope_scaling.get("rope_type") == "default"
+        ):
+            config.rope_scaling["rope_type"] = "linear"
+            config.rope_scaling.setdefault("factor", 1.0)
+        return config
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        self._fix_rope_config(config)
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
