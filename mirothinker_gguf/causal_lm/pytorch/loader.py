@@ -55,12 +55,14 @@ def _eager_experts_forward(self, hidden_states, top_k_index, top_k_weights):
 
 
 def _replace_experts_with_eager_forward(model):
-    """Replace grouped_mm experts forward with eager loop-based implementation."""
-    for layer in model.model.layers:
-        if hasattr(layer, "mlp") and hasattr(layer.mlp, "experts"):
-            layer.mlp.experts.forward = types.MethodType(
-                _eager_experts_forward, layer.mlp.experts
-            )
+    """Replace grouped_mm experts forward with eager loop-based implementation.
+
+    Patches the Qwen3MoeExperts class forward method directly since
+    PyTorch nn.Module dispatch uses the class-level forward.
+    """
+    from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
+
+    Qwen3MoeExperts.forward = _eager_experts_forward
 
 
 class ModelVariant(StrEnum):
