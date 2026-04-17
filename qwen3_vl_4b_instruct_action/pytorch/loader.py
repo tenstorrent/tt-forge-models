@@ -25,17 +25,16 @@ from ...config import (
 )
 
 
-def _patch_vision_pos_embed(model):
-    """Patch the vision encoder's pos embed to avoid repeat().
+def _patch_vision_pos_embed_class():
+    """Patch the Qwen3VLVisionModel class to avoid repeat() in pos embed.
 
     The TT-XLA runtime translates repeat(n, 1) to concatenation, which fails
-    when n=1 (zero extra copies = zero arguments to cat). We replace repeat
-    with cat for n>1 and skip entirely for n=1.
+    when n=1 (zero extra copies = zero arguments to cat). Patch at the class
+    level so torch.compile/dynamo sees the patched version.
     """
-    import types
+    from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLVisionModel
 
-    visual = getattr(model, "visual", None) or getattr(model.model, "visual", None)
-    if visual is None:
+    if getattr(Qwen3VLVisionModel, "_tt_pos_embed_patched", False):
         return
 
     @torch.compiler.disable
@@ -100,9 +99,8 @@ def _patch_vision_pos_embed(model):
             result.append(pos_embed)
         return torch.cat(result)
 
-    visual.fast_pos_embed_interpolate = types.MethodType(
-        patched_fast_pos_embed_interpolate, visual
-    )
+    Qwen3VLVisionModel.fast_pos_embed_interpolate = patched_fast_pos_embed_interpolate
+    Qwen3VLVisionModel._tt_pos_embed_patched = True
 
 
 class ModelVariant(StrEnum):
@@ -184,7 +182,7 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        _patch_vision_pos_embed(model)
+        _patch_vision_pos_embed_class()
 
         return model
 
