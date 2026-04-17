@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.TINY_RANDOM_QWEN: LLMModelConfig(
-            pretrained_model_name="optimum-intel-internal-testing/tiny-random-qwen",
+            pretrained_model_name="Qwen/Qwen2.5-0.5B",
             max_length=128,
         ),
     }
@@ -92,7 +92,6 @@ class ModelLoader(ForgeModel):
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
             **tokenizer_kwargs,
         )
 
@@ -122,17 +121,14 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
 
-        model._supports_cache_class = False
         model.eval()
 
         return model
