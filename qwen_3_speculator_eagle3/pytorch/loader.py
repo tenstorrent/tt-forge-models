@@ -149,6 +149,8 @@ class ModelLoader(ForgeModel):
             cfg.pretrained_model_name,
             **model_kwargs,
         )
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
         model.forward = types.MethodType(_eagle3_forward, model)
         model.eval()
 
