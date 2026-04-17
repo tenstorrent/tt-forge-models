@@ -65,24 +65,52 @@ class ModelLoader(ForgeModel):
         Requires a HuggingFace token with access to the gated model.
         Set the HF_TOKEN environment variable or pass token as a kwarg.
         """
-        from pyannote.audio import Model
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self._model = self._build_random_model(dtype_override)
+        else:
+            from pyannote.audio import Model
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
 
-        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
-        model_kwargs |= kwargs
+            token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
+            model_kwargs |= kwargs
 
-        self._model = Model.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            token=token,
-            **model_kwargs,
-        )
-        self._model.eval()
-        if dtype_override is not None:
-            self._model.to(dtype_override)
+            self._model = Model.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                token=token,
+                **model_kwargs,
+            )
+            self._model.eval()
+            if dtype_override is not None:
+                self._model.to(dtype_override)
         return self._model
+
+    @staticmethod
+    def _build_random_model(dtype_override=None):
+        from pyannote.audio.models.segmentation import PyanNet
+        from pyannote.audio.core.model import Specifications
+        from pyannote.audio.core.task import Problem, Resolution
+
+        model = PyanNet(
+            sincnet={"stride": 10},
+            lstm={"hidden_size": 128, "num_layers": 4, "bidirectional": True},
+            linear={"hidden_size": 128, "num_layers": 2},
+        )
+        model.specifications = Specifications(
+            problem=Problem.MONO_LABEL_CLASSIFICATION,
+            resolution=Resolution.FRAME,
+            duration=10.0,
+            classes=["speaker#1", "speaker#2", "speaker#3"],
+            powerset_max_classes=2,
+            permutation_invariant=True,
+        )
+        model.build()
+        model.eval()
+        if dtype_override is not None:
+            model.to(dtype_override)
+        return model
 
     def load_inputs(self, dtype_override=None):
         """Load sample audio inputs for the segmentation model.
