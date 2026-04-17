@@ -131,7 +131,11 @@ class ModelLoader(ForgeModel):
                 tok_path = os.path.join(tmp, "tokenizer.json")
                 with open(tok_path, "w") as f:
                     f.write(tokenizer_json)
-                self.tokenizer = PreTrainedTokenizerFast(tokenizer_file=tok_path)
+                self.tokenizer = PreTrainedTokenizerFast(
+                    tokenizer_file=tok_path,
+                    eos_token="<|endoftext|>",
+                    pad_token="<|endoftext|>",
+                )
         else:
             tokenizer_kwargs = {}
             if dtype_override is not None:
