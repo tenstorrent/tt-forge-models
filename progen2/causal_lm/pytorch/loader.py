@@ -5,6 +5,8 @@
 ProGen2 model loader implementation for causal language modeling.
 """
 
+import functools
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -19,6 +21,32 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _apply_compatibility_patches():
+    """Apply runtime patches needed for ProGen2 with transformers 5.x.
+
+    ProGen2's HuggingFace custom code calls ``self.init_weights()`` directly
+    inside ``__init__`` (old API) rather than ``self.post_init()`` (current
+    API). ``post_init()`` is what normally sets ``all_tied_weights_keys``
+    before ``tie_weights`` reads it, so without this patch the call raises
+    ``AttributeError``.
+    """
+    from transformers.modeling_utils import PreTrainedModel
+
+    if getattr(PreTrainedModel.tie_weights, "_tt_forge_patched", False):
+        return
+
+    _orig_tie_weights = PreTrainedModel.tie_weights
+
+    @functools.wraps(_orig_tie_weights)
+    def _patched_tie_weights(self, *args, **kwargs):
+        if not hasattr(self, "all_tied_weights_keys"):
+            self.all_tied_weights_keys = {}
+        return _orig_tie_weights(self, *args, **kwargs)
+
+    _patched_tie_weights._tt_forge_patched = True
+    PreTrainedModel.tie_weights = _patched_tie_weights
 
 
 class ModelVariant(StrEnum):
@@ -72,6 +100,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _apply_compatibility_patches()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
