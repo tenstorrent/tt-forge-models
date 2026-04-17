@@ -4,8 +4,11 @@
 """
 Qwen 2.5 Omni model loader implementation for multimodal tasks.
 """
+import os
+
 import torch
 from transformers import (
+    AutoConfig,
     AwqConfig,
     Qwen2_5OmniThinkerForConditionalGeneration,
     Qwen2_5OmniProcessor,
@@ -97,8 +100,9 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"low_cpu_mem_usage": True}
 
         if pretrained_model_name == "Qwen/Qwen2.5-Omni-7B-AWQ":
-            quantization_config = AwqConfig(version="ipex")
-            model_kwargs["quantization_config"] = quantization_config
+            if not os.environ.get("TT_RANDOM_WEIGHTS"):
+                quantization_config = AwqConfig(version="gemm")
+                model_kwargs["quantization_config"] = quantization_config
             model_kwargs["device_map"] = "cpu"
 
         if dtype_override is not None:
@@ -106,6 +110,12 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
+
+        # AutoConfig returns Qwen2_5OmniConfig but the Thinker model expects
+        # its thinker_config sub-config for correct initialization.
+        full_config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(full_config, "thinker_config"):
+            model_kwargs["config"] = full_config.thinker_config
 
         model = Qwen2_5OmniThinkerForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
