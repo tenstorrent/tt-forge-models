@@ -66,6 +66,7 @@ class ModelLoader(ForgeModel):
         model_name = self._variant_config.pretrained_model_name
 
         framework_model = Sam2Model.from_pretrained(model_name, **kwargs).to("cpu")
+        framework_model.config.return_dict = False
 
         self.processor = Sam2Processor.from_pretrained(model_name, **kwargs)
 
