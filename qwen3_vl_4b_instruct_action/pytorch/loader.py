@@ -3,64 +3,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Qwen3-VL-4B-Instruct-action model loader implementation for image to text.
+
+The Qwen3-VL vision encoder has extensive data-dependent control flow
+(grid_thw values determine loop counts and tensor shapes). In compile-only
+mode, all tensor values on XLA are zero-initialized, making the vision encoder
+unusable. This loader precomputes inputs_embeds (with vision features) on CPU
+so that only the language model portion is compiled for TT XLA.
 """
 
-import importlib
-
-
-def _patch_qwen3_vl_source():
-    """Patch the installed transformers Qwen3VL source for TT XLA compatibility.
-
-    Two fixes:
-    1. Guard repeat(t, 1) with t > 1 to avoid empty concatenation.
-    2. Cast grid_thw to long at vision model entry. This allows load_inputs
-       to pass grid_thw as float so values survive XLA device transfer
-       (integer tensors get zero-initialized in compile-only mode).
-    """
-    import transformers.models.qwen3_vl.modeling_qwen3_vl as mod
-    import inspect
-
-    src_file = inspect.getfile(mod)
-    with open(src_file, "r") as f:
-        src = f.read()
-
-    modified = False
-
-    # Fix 1: Guard repeat(1, 1) which fails on TT XLA backend
-    old_repeat = "            pos_embed = pos_embed.repeat(t, 1)\n"
-    new_repeat = (
-        "            if t > 1:\n                pos_embed = pos_embed.repeat(t, 1)\n"
-    )
-    if old_repeat in src and new_repeat not in src:
-        src = src.replace(old_repeat, new_repeat)
-        modified = True
-
-    # Fix 2: Cast image_grid_thw to long at conditional generation forward entry.
-    # load_inputs passes grid_thw as float so values survive XLA device transfer.
-    old_forward_entry = '        """\n\n        outputs = self.model(\n'
-    new_forward_entry = (
-        '        """\n'
-        "        if image_grid_thw is not None:\n"
-        "            image_grid_thw = image_grid_thw.long()\n"
-        "\n        outputs = self.model(\n"
-    )
-    if old_forward_entry in src and "image_grid_thw = image_grid_thw.long()" not in src:
-        src = src.replace(old_forward_entry, new_forward_entry, 1)
-        modified = True
-
-    if modified:
-        with open(src_file, "w") as f:
-            f.write(src)
-        importlib.reload(mod)
-
-
-_patch_qwen3_vl_source()
-
 import torch
-from transformers.models.qwen3_vl.modeling_qwen3_vl import (
+from transformers import (
     Qwen3VLForConditionalGeneration,
+    AutoProcessor,
 )
-from transformers import AutoProcessor
 from typing import Optional
 
 from ...base import ForgeModel
@@ -110,6 +65,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+        self._model_ref = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -138,19 +94,56 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, dtype="auto", device_map="auto", **model_kwargs
         )
         model.eval()
+        self._model_ref = model
 
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        inputs = self.processor.apply_chat_template(
+        raw_inputs = self.processor.apply_chat_template(
             SAMPLE_MESSAGES,
             tokenize=True,
             add_generation_prompt=True,
             return_dict=True,
             return_tensors="pt",
         )
-        # Convert integer grid_thw to float so values survive XLA device transfer.
-        # In compile-only mode, integer tensors are zero-initialized on XLA.
-        # The patched vision model forward converts back to long.
-        inputs["image_grid_thw"] = inputs["image_grid_thw"].float()
-        return inputs
+
+        # Precompute inputs_embeds with vision features on CPU.
+        # This bypasses the vision encoder on XLA where integer tensor
+        # values (grid_thw) are zero-initialized in compile-only mode.
+        model = self._model_ref
+        inner = model.model
+
+        with torch.no_grad():
+            input_ids = raw_inputs["input_ids"]
+            pixel_values = raw_inputs["pixel_values"]
+            image_grid_thw = raw_inputs["image_grid_thw"]
+            attention_mask = raw_inputs["attention_mask"]
+
+            inputs_embeds = inner.get_input_embeddings()(input_ids)
+
+            image_outputs = inner.get_image_features(
+                pixel_values, image_grid_thw, return_dict=True
+            )
+            image_embeds = image_outputs.pooler_output
+            image_embeds = torch.cat(image_embeds, dim=0).to(
+                inputs_embeds.device, inputs_embeds.dtype
+            )
+            image_mask, _ = inner.get_placeholder_mask(
+                input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds
+            )
+            inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+            position_ids = inner.compute_3d_position_ids(
+                input_ids=input_ids,
+                image_grid_thw=image_grid_thw,
+                video_grid_thw=None,
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                past_key_values=None,
+            )
+
+        return {
+            "inputs_embeds": inputs_embeds,
+            "attention_mask": attention_mask,
+            "position_ids": position_ids,
+        }
