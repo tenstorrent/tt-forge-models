@@ -17,6 +17,7 @@ Available variants:
 - Q8_0: 8-bit quantization (~2.32 GB)
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -85,53 +86,54 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _ensure_gguf_available(self):
+        import importlib
+        import importlib.metadata
+        import sys
+
+        import diffusers.utils.import_utils as _diu
+
+        if not _diu._gguf_available:
+            _diu._gguf_available = True
+            _diu._gguf_version = importlib.metadata.version("gguf")
+            mod = "diffusers.quantizers.gguf.gguf_quantizer"
+            if mod in sys.modules:
+                importlib.reload(sys.modules[mod])
+
     def load_model(
         self,
         *,
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized UNet and build the SD-Turbo pipeline.
-
-        Uses diffusers GGUFQuantizationConfig to load the quantized UNet,
-        then constructs the StableDiffusionPipeline with the base model's
-        other components.
-        """
-        from diffusers import (
-            GGUFQuantizationConfig,
-            StableDiffusionPipeline,
-            UNet2DConditionModel,
-        )
-        from huggingface_hub import hf_hub_download
+        from diffusers import UNet2DConditionModel
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        gguf_file = _GGUF_FILES[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+            config = UNet2DConditionModel.load_config(BASE_PIPELINE, subfolder="unet")
+            unet = UNet2DConditionModel.from_config(config).to(compute_dtype)
+        else:
+            self._ensure_gguf_available()
+            from diffusers import GGUFQuantizationConfig
+            from huggingface_hub import hf_hub_download
 
-        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
-        unet = UNet2DConditionModel.from_single_file(
-            gguf_path,
-            config=BASE_PIPELINE,
-            subfolder="unet",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-            cross_attention_dim=1088,
-            use_linear_projection=False,
-        )
+            gguf_file = _GGUF_FILES[self._variant]
+            quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+            gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
+            unet = UNet2DConditionModel.from_single_file(
+                gguf_path,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
-        self.pipeline = StableDiffusionPipeline.from_pretrained(
-            BASE_PIPELINE,
-            unet=unet,
-            torch_dtype=compute_dtype,
-        )
-
-        return self.pipeline.unet
+        self._unet = unet
+        return unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        unet = self.pipeline.unet
+        unet = self._unet
         in_channels = unet.config.in_channels
         cross_attention_dim = unet.config.cross_attention_dim
 
