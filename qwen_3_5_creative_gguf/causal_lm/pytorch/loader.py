@@ -20,6 +20,18 @@ from ....config import (
 )
 
 
+class Wrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, **kwargs):
+        outputs = self.model(**kwargs)
+        if hasattr(outputs, "logits"):
+            return outputs.logits
+        return outputs[0]
+
+
 class ModelVariant(StrEnum):
     """Available Qwen 3.5 Creative GGUF model variants for causal language modeling."""
 
@@ -105,10 +117,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
         model.config.use_cache = False
+        model._supports_cache_class = False
 
         self.config = model.config
         self.model = model
-        return model
+        return Wrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
