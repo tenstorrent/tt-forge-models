@@ -163,6 +163,11 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
+        # The bundled modeling_sailvl.py calls torch.distributed.get_rank() in
+        # forward (for a debug print). Stub it out to avoid requiring a process
+        # group and to avoid graph breaks / CPU fallback during XLA tracing.
+        torch.distributed.get_rank = lambda group=None: 0
+
         # The bundled modeling_qwen2.py looks up ROPE_INIT_FUNCTIONS["default"],
         # but modern transformers dropped that key. Re-register a default impl
         # equivalent to transformers' own Qwen2RotaryEmbedding.
