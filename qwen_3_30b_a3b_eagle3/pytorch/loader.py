@@ -34,21 +34,27 @@ class Eagle3SingleStep(nn.Module):
         self.layers = eagle3_model.layers
         self.lm_head = eagle3_model.lm_head
         self.embed_tokens = eagle3_model.embed_tokens
+        self.norm = eagle3_model.norm
+        self.rotary_emb = eagle3_model.rotary_emb
         self.config = eagle3_model.config
 
     def forward(self, hidden_states, input_ids):
         hidden_states = self.fc(hidden_states)
         input_embeds = self.embed_tokens(input_ids)
-        hidden_states = hidden_states + input_embeds
+        hidden_states = torch.cat([input_embeds, hidden_states], dim=-1)
+
+        seq_len = input_ids.shape[1]
+        position_ids = torch.arange(seq_len, device=input_ids.device).unsqueeze(0)
+        position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         for layer in self.layers:
-            layer_out = layer(hidden_states)
+            layer_out = layer(hidden_states, position_embeddings=position_embeddings)
             if isinstance(layer_out, tuple):
                 hidden_states = layer_out[0]
             else:
                 hidden_states = layer_out
 
-        logits = self.lm_head(hidden_states)
+        logits = self.lm_head(self.norm(hidden_states))
         return CausalLMOutput(logits=logits)
 
 
