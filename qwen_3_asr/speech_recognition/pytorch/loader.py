@@ -104,7 +104,6 @@ class ModelLoader(ForgeModel):
 
         thinker = self._model_wrapper.model.thinker
         model = Qwen3ASRWrapper(thinker)
-        model.float()
         model.eval()
 
         return model
@@ -123,9 +122,13 @@ class ModelLoader(ForgeModel):
             text=[text], audio=[audio], return_tensors="pt", padding=True
         )
 
+        input_features = inputs["input_features"]
+        if dtype_override is not None:
+            input_features = input_features.to(dtype_override)
+
         return [
             inputs["input_ids"],
             inputs["attention_mask"],
-            inputs["input_features"],
+            input_features,
             inputs["feature_attention_mask"],
         ]
