@@ -6,6 +6,7 @@ SpatialTrackerV2 (VGGT4Track) model loader for 3D point tracking and depth estim
 """
 
 import torch
+import torch.nn as nn
 from typing import Optional
 
 from ...config import (
@@ -59,6 +60,12 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model = VGGT4Track.from_pretrained(pretrained_model_name)
+
+        from .src.layers.attention import Attention
+
+        for module in model.modules():
+            if isinstance(module, Attention):
+                module.fused_attn = False
 
         if dtype_override is not None:
             model = model.to(dtype_override)
