@@ -162,6 +162,18 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
+        # The remote SailVLConfig has a buggy default constructor that raises
+        # on its fallback InternLM2ForCausalLM architecture; transformers
+        # exercises this path via __repr__/to_diff_dict during from_pretrained.
+        # Preload the class and set has_no_defaults_at_init to skip it.
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        config_class = get_class_from_dynamic_module(
+            "configuration_sailvl.SailVLConfig",
+            pretrained_model_name,
+        )
+        config_class.has_no_defaults_at_init = True
+
         model_kwargs = {
             "trust_remote_code": True,
             "attn_implementation": "eager",
