@@ -4,18 +4,19 @@
 """
 Qwen 3.5 9B GPTQ INT8 model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -102,6 +103,11 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # Qwen3.5 returns a Qwen3_5DynamicCache that doesn't inherit from
+        # transformers.Cache, so the comparison evaluator can't unwrap it into
+        # tensors. Disable caching so the forward output is just logits.
+        model.config.use_cache = False
 
         self.config = model.config
         self.model = model
