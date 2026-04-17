@@ -35,7 +35,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.REACT_NATIVE_EXECUTORCH_LLAMA_3_2: LLMModelConfig(
-            pretrained_model_name="software-mansion/react-native-executorch-llama-3.2",
+            pretrained_model_name="unsloth/Llama-3.2-1B",
             max_length=128,
         ),
     }
