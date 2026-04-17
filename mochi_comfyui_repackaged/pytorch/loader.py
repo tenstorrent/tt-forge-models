@@ -30,14 +30,12 @@ from ...config import (
 
 REPO_ID = "genmo/mochi-1-preview"
 
-# Mochi VAE uses 12 latent channels
-LATENT_CHANNELS = 12
-
-# Small test dimensions for VAE inputs
-# Mochi VAE compression: 6x temporal, 8x spatial
-LATENT_HEIGHT = 8
-LATENT_WIDTH = 8
-LATENT_DEPTH = 2  # temporal latent frames
+# Small test dimensions for raw video inputs
+# The VAE forward() does encode->decode, so input is raw RGB video [B, C, T, H, W]
+NUM_CHANNELS = 3
+NUM_FRAMES = 7
+FRAME_HEIGHT = 32
+FRAME_WIDTH = 32
 
 
 class ModelVariant(StrEnum):
@@ -97,31 +95,17 @@ class ModelLoader(ForgeModel):
         return self._vae
 
     def load_inputs(self, **kwargs) -> Any:
-        """Prepare inputs for the VAE.
+        """Prepare raw video inputs for the VAE.
 
-        Pass vae_type="decoder" or vae_type="encoder" to select input type.
-        Defaults to decoder inputs.
+        The VAE forward() runs encode->decode, so input is raw RGB video
+        with shape [batch, channels, frames, height, width].
         """
         dtype = kwargs.get("dtype_override", torch.float32)
-        vae_type = kwargs.get("vae_type", "decoder")
-
-        if vae_type == "decoder":
-            # [batch, channels, time, height, width]
-            return torch.randn(
-                1,
-                LATENT_CHANNELS,
-                LATENT_DEPTH,
-                LATENT_HEIGHT,
-                LATENT_WIDTH,
-                dtype=dtype,
-            )
-        elif vae_type == "encoder":
-            # Mochi temporal compression is 6x
-            num_frames = LATENT_DEPTH * 6  # 12 frames
-            return torch.randn(
-                1, 3, num_frames, LATENT_HEIGHT * 8, LATENT_WIDTH * 8, dtype=dtype
-            )
-        else:
-            raise ValueError(
-                f"Unknown vae_type: {vae_type}. Expected 'decoder' or 'encoder'."
-            )
+        return torch.randn(
+            1,
+            NUM_CHANNELS,
+            NUM_FRAMES,
+            FRAME_HEIGHT,
+            FRAME_WIDTH,
+            dtype=dtype,
+        )
