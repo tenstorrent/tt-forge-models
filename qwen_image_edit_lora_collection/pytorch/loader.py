@@ -112,7 +112,7 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         self.pipeline = load_qwen_image_edit_plus_pipeline(
             self._variant_config.pretrained_model_name,
