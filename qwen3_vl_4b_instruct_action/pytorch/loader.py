@@ -5,26 +5,21 @@
 Qwen3-VL-4B-Instruct-action model loader implementation for image to text.
 """
 
-import torch
-import transformers.models.qwen3_vl.modeling_qwen3_vl as _qwen3_vl_module
-from transformers import (
-    Qwen3VLForConditionalGeneration,
-    AutoProcessor,
-)
-from typing import Optional
+import importlib
 
 
-def _patch_fast_pos_embed_interpolate():
+def _patch_qwen3_vl_source():
     """Patch the installed transformers source to guard repeat(1, 1).
 
     The TT XLA backend's repeat implementation uses concatenate, which fails
     when repeat factors are all 1 (no-op produces zero concatenation args).
-    This patches the source file to skip repeat when t <= 1.
+    Must be called BEFORE importing any Qwen3VL classes.
     """
-    import importlib
+    import transformers.models.qwen3_vl.modeling_qwen3_vl as mod
+
     import inspect
 
-    src_file = inspect.getfile(_qwen3_vl_module)
+    src_file = inspect.getfile(mod)
     with open(src_file, "r") as f:
         src = f.read()
 
@@ -34,10 +29,17 @@ def _patch_fast_pos_embed_interpolate():
         src = src.replace(old, new)
         with open(src_file, "w") as f:
             f.write(src)
-        importlib.reload(_qwen3_vl_module)
+        importlib.reload(mod)
 
 
-_patch_fast_pos_embed_interpolate()
+_patch_qwen3_vl_source()
+
+import torch
+from transformers.models.qwen3_vl.modeling_qwen3_vl import (
+    Qwen3VLForConditionalGeneration,
+)
+from transformers import AutoProcessor
+from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
@@ -96,7 +98,6 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Qwen3-VL-4B-Instruct-action model loader for image to text tasks."""
 
-    # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.QWEN3_VL_4B_INSTRUCT_ACTION: LLMModelConfig(
             pretrained_model_name="229nagibator229/Qwen3-VL-4B-Instruct-action",
@@ -104,7 +105,6 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    # Default variant to use
     DEFAULT_VARIANT = ModelVariant.QWEN3_VL_4B_INSTRUCT_ACTION
 
     def __init__(self, variant: Optional[ModelVariant] = None):
