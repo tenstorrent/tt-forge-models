@@ -40,6 +40,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.QWEN_2_5_CODER_0_5B_INSTRUCT_GENSYN_SWARM
 
+    TOKENIZER_NAME = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
+
     sample_text = "write a quick sort algorithm."
 
     def __init__(
@@ -67,7 +69,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self.TOKENIZER_NAME, **tokenizer_kwargs
         )
 
         return self.tokenizer
@@ -102,17 +104,7 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "system",
-                "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.",
-            },
-            {"role": "user", "content": self.sample_text},
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        prompts = [text]
+        prompts = [self.sample_text]
 
         inputs = self.tokenizer(
             prompts,
