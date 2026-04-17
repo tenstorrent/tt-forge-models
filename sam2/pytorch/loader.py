@@ -24,6 +24,28 @@ from ...base import ForgeModel
 from datasets import load_dataset
 
 
+def _patch_output_capturing():
+    """Patch transformers output_capturing to handle None tokens from torch.compile."""
+    try:
+        from transformers.utils import output_capturing
+
+        original_reset = output_capturing.CompileableContextVar.reset
+
+        def safe_reset(self, token):
+            if token is None:
+                self.global_var = None
+                self.compiling = False
+            else:
+                original_reset(self, token)
+
+        output_capturing.CompileableContextVar.reset = safe_reset
+    except (ImportError, AttributeError):
+        pass
+
+
+_patch_output_capturing()
+
+
 class Sam2Wrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
