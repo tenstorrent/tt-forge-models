@@ -32,20 +32,16 @@ class ModelVariant(StrEnum):
 
 
 class Qwen3ASRWrapper(torch.nn.Module):
-    """Wrapper around the Qwen3-ASR thinker model for a clean forward pass."""
+    """Wrapper that takes precomputed inputs_embeds, bypassing the audio tower."""
 
     def __init__(self, thinker):
         super().__init__()
         self.thinker = thinker
 
-    def forward(
-        self, input_ids, attention_mask, input_features, feature_attention_mask
-    ):
+    def forward(self, inputs_embeds, attention_mask):
         return self.thinker(
-            input_ids=input_ids,
+            inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
-            input_features=input_features,
-            feature_attention_mask=feature_attention_mask,
         )
 
 
@@ -109,7 +105,12 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the Qwen3-ASR model."""
+        """Load and return precomputed inputs_embeds for the Qwen3-ASR model.
+
+        The audio tower has data-dependent control flow that is not compatible
+        with XLA compilation, so we precompute audio features on CPU and merge
+        them into the text embeddings.
+        """
         if self._model_wrapper is None:
             self._load_model_wrapper(dtype_override=dtype_override)
 
@@ -122,13 +123,28 @@ class ModelLoader(ForgeModel):
             text=[text], audio=[audio], return_tensors="pt", padding=True
         )
 
-        input_features = inputs["input_features"]
-        if dtype_override is not None:
-            input_features = input_features.to(dtype_override)
+        thinker = self._model_wrapper.model.thinker
 
-        return [
-            inputs["input_ids"],
-            inputs["attention_mask"],
-            input_features,
-            inputs["feature_attention_mask"],
-        ]
+        with torch.no_grad():
+            input_ids = inputs["input_ids"]
+            input_features = inputs["input_features"]
+            feature_attention_mask = inputs["feature_attention_mask"]
+            attention_mask = inputs["attention_mask"]
+
+            if dtype_override is not None:
+                input_features = input_features.to(dtype_override)
+
+            inputs_embeds = thinker.get_input_embeddings()(input_ids)
+            audio_features = thinker.get_audio_features(
+                input_features,
+                feature_attention_mask=feature_attention_mask,
+            )
+            audio_features = audio_features.to(
+                inputs_embeds.device, inputs_embeds.dtype
+            )
+            audio_mask = thinker.get_placeholder_mask(
+                input_ids, inputs_embeds=inputs_embeds
+            )
+            inputs_embeds = inputs_embeds.masked_scatter(audio_mask, audio_features)
+
+        return [inputs_embeds, attention_mask]
