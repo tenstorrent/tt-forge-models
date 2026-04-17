@@ -21,6 +21,9 @@ from ...config import (
 )
 
 
+BASE_TOKENIZER_NAME = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
+
+
 class ModelVariant(StrEnum):
     """Available Qwen 2.5 Coder 0.5B Instruct Gensyn Swarm model variants."""
 
@@ -65,7 +68,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            BASE_TOKENIZER_NAME, **tokenizer_kwargs
         )
 
         return self.tokenizer
@@ -103,12 +106,9 @@ class ModelLoader(ForgeModel):
             },
             {"role": "user", "content": self.sample_text},
         ]
-        if getattr(self.tokenizer, "chat_template", None) is not None:
-            text = self.tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
-        else:
-            text = "\n".join(f"{msg['role']}: {msg['content']}" for msg in messages)
+        text = self.tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
         prompts = [text]
 
         inputs = self.tokenizer(
