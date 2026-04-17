@@ -9,5 +9,6 @@ torch==2.9.1+cpu
 
 # Model-specific dependencies
 minicpmo>=0.1.2
+onnx
 vector_quantize_pytorch>=1.18.5
 vocos>=0.1.0
