@@ -16,7 +16,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import QwenImageTransformer2DModel
+from diffusers import GGUFQuantizationConfig, QwenImageTransformer2DModel
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -99,6 +99,7 @@ class ModelLoader(ForgeModel):
 
         self._transformer = QwenImageTransformer2DModel.from_single_file(
             model_path,
+            quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             config=CONFIG_REPO,
             subfolder="transformer",
             torch_dtype=dtype,
@@ -119,13 +120,18 @@ class ModelLoader(ForgeModel):
             self._transformer = self._transformer.to(dtype=dtype_override)
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self,
+        *,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+        **kwargs,
+    ) -> Any:
         """Prepare sample inputs for the diffusion transformer.
 
         Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        batch_size = kwargs.get("batch_size", 1)
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         # From model config: in_channels=64 (img_in linear input dimension)
         img_dim = 64
