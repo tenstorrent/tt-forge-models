@@ -93,6 +93,7 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
+        model_kwargs["experts_implementation"] = "eager"
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
