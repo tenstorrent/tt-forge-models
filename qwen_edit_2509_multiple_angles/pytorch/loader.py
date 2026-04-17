@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
         """Load the Qwen-Image-Edit-2509 pipeline with Multiple-angles LoRA.
 
         Returns:
-            QwenImageEditPlusPipeline with LoRA weights loaded.
+            torch.nn.Module: The transformer model from the pipeline.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -86,7 +86,10 @@ class ModelLoader(ForgeModel):
 
         self.pipeline.load_lora_weights(LORA_REPO)
 
-        return self.pipeline
+        if dtype_override is not None:
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
+
+        return self.pipeline.transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
         """Prepare inputs for image editing with camera angle control.
