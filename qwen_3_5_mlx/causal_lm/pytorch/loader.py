@@ -27,6 +27,17 @@ class ModelVariant(StrEnum):
     QWEN_3_5_397B_A17B_MLX_9BIT = "397B_A17B_MLX_9bit"
 
 
+class CausalLMWrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.config = model.config
+
+    def forward(self, *args, **kwargs):
+        outputs = self.model(*args, **kwargs)
+        return outputs.logits if hasattr(outputs, "logits") else outputs[0]
+
+
 class ModelLoader(ForgeModel):
     """Qwen 3.5 MLX model loader implementation for causal language modeling tasks."""
 
@@ -88,24 +99,21 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        config = AutoConfig.from_pretrained(pretrained_model_name)
         if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
             else:
                 config.num_hidden_layers = self.num_layers
-        if hasattr(config, "text_config"):
-            config.text_config.use_cache = False
-        else:
-            config.use_cache = False
+            model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, config=config, **model_kwargs
+            pretrained_model_name, **model_kwargs
         ).eval()
 
         self.config = model.config
         self.model = model
-        return model
+        return CausalLMWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
