@@ -32,7 +32,7 @@ def load_sdxl_instructpix2pix_pipe(pretrained_model_name):
         pretrained_model_name, torch_dtype=torch.float32
     )
 
-    pipe.to("cpu")
+    pipe.to("cpu", dtype=torch.float32)
 
     modules = [pipe.text_encoder, pipe.unet, pipe.text_encoder_2, pipe.vae]
     for module in modules:
@@ -124,7 +124,6 @@ def sdxl_instructpix2pix_preprocessing(
         do_classifier_free_guidance=do_classifier_free_guidance,
         device=device,
         num_images_per_prompt=num_images_per_prompt,
-        clip_skip=clip_skip,
     )
 
     # 2. Prepare timesteps
