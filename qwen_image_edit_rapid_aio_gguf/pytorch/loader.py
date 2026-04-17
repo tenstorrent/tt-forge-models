@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 import torch
 from diffusers import GGUFQuantizationConfig, QwenImageTransformer2DModel
+from diffusers.quantizers.gguf.utils import GGUFParameter, dequantize_gguf_tensor
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -105,7 +106,17 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
         )
         self._transformer.eval()
+        self._dequantize_parameters(dtype)
         return self._transformer
+
+    def _dequantize_parameters(self, dtype: torch.dtype) -> None:
+        """Replace GGUFParameter weights with dequantized tensors for torch.compile."""
+        for name, module in self._transformer.named_modules():
+            for param_name, param in list(module.named_parameters(recurse=False)):
+                if isinstance(param, GGUFParameter):
+                    dequantized = dequantize_gguf_tensor(param).to(dtype)
+                    new_param = torch.nn.Parameter(dequantized, requires_grad=False)
+                    setattr(module, param_name, new_param)
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Load and return the Qwen-Image-Edit-Rapid-AIO diffusion transformer.
