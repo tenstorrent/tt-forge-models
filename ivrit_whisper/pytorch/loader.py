@@ -13,6 +13,7 @@ WhisperForConditionalGeneration.
 
 from typing import Optional
 
+import numpy as np
 import torch
 
 from ...base import ForgeModel
@@ -25,7 +26,6 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -121,41 +121,35 @@ class ModelLoader(ForgeModel):
             inputs: Input tensors that can be fed to the model.
         """
 
-        from transformers import AutoProcessor, WhisperConfig
+        from transformers import WhisperConfig
 
         if self.model is None or self.processor is None:
-            self.load_model()
+            self.load_model(dtype_override=dtype_override)
 
         whisper_config = WhisperConfig.from_pretrained(self._model_name)
 
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
+        sampling_rate = 16000
+        duration_seconds = 30
+        audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
+            np.float32
+        )
+
         model_param = next(self.model.parameters())
-        device, dtype = model_param.device, dtype_override or model_param.dtype
+        device = model_param.device
+        dtype = dtype_override or model_param.dtype
 
-        # Preprocess audio using v3 turbo processor
-        processor = AutoProcessor.from_pretrained(self._model_name)
-        features = processor.feature_extractor(
-            sample_audio,
-            sampling_rate=processor.feature_extractor.sampling_rate,
+        inputs = self.processor(
+            audio_array,
+            sampling_rate=sampling_rate,
             return_tensors="pt",
-            return_token_timestamps=True,
-            return_attention_mask=True,
         )
-        input_features = features["input_features"].to(device=device, dtype=dtype)
-        attention_mask = features.get("attention_mask")
-        if attention_mask is not None:
-            attention_mask = attention_mask.to(device)
 
-        # Build decoder input IDs for Hebrew transcription
-        decoder_prompt_ids = self.processor.get_decoder_prompt_ids(
-            task="transcribe", language="he", no_timestamps=True
+        input_features = inputs.input_features.to(device=device, dtype=dtype)
+        decoder_input_ids = torch.full(
+            (1, 2),
+            whisper_config.decoder_start_token_id,
+            dtype=torch.long,
+            device=device,
         )
-        init_tokens = [self.model.generation_config.decoder_start_token_id]
-        if decoder_prompt_ids:
-            init_tokens += [tok for _, tok in decoder_prompt_ids]
 
-        decoder_input_ids = torch.tensor([init_tokens], dtype=torch.long, device=device)
-        return [input_features, attention_mask, decoder_input_ids]
+        return [input_features, decoder_input_ids]
