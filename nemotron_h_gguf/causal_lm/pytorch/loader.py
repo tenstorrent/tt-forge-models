@@ -3,6 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Nemotron-H GGUF model loader implementation for causal language modeling.
+
+Nemotron-H is a hybrid Mamba/Transformer architecture that requires custom
+code (trust_remote_code) and is not natively supported by transformers' GGUF
+loader. We load config, tokenizer, and model from the original NVIDIA repo
+instead of parsing the GGUF file directly.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -18,6 +23,8 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+_ORIGINAL_MODEL_REPO = "nvidia/Nemotron-H-8B-Reasoning-128K"
 
 
 class ModelVariant(StrEnum):
@@ -37,8 +44,6 @@ class ModelLoader(ForgeModel):
     }
 
     DEFAULT_VARIANT = ModelVariant.NEMOTRON_H_8B_REASONING_128K_GGUF
-
-    GGUF_FILE = "nvidia_Nemotron-H-8B-Reasoning-128K-Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
@@ -62,13 +67,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            _ORIGINAL_MODEL_REPO,
+            trust_remote_code=True,
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -76,8 +77,6 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
@@ -85,17 +84,19 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                _ORIGINAL_MODEL_REPO,
+                trust_remote_code=True,
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            _ORIGINAL_MODEL_REPO,
+            trust_remote_code=True,
+            **model_kwargs,
         ).eval()
 
         self.config = model.config
@@ -137,6 +138,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            _ORIGINAL_MODEL_REPO,
+            trust_remote_code=True,
         )
         return self.config
