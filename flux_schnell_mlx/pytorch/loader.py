@@ -26,7 +26,7 @@ from ...config import (
 from .src.model_utils import load_flux_mlx_pipe, flux_schnell_preprocessing
 
 REPO_ID = "argmaxinc/mlx-FLUX.1-schnell"
-BASE_MODEL = "black-forest-labs/FLUX.1-schnell"
+BASE_MODEL = "lzyvegetable/FLUX.1-schnell"
 
 
 class ModelVariant(StrEnum):

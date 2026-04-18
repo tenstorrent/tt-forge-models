@@ -6,7 +6,7 @@ Helper functions for loading MLX-quantized FLUX.1-schnell models.
 """
 
 import torch
-from diffusers import FluxPipeline, FluxTransformer2DModel
+from diffusers import FluxPipeline
 
 
 def load_flux_mlx_pipe(repo_id: str, base_model: str):
@@ -19,16 +19,8 @@ def load_flux_mlx_pipe(repo_id: str, base_model: str):
     Returns:
         FluxPipeline: Loaded pipeline with MLX-quantized transformer.
     """
-    transformer = FluxTransformer2DModel.from_pretrained(
-        repo_id,
-        subfolder="transformer",
-        torch_dtype=torch.bfloat16,
-        use_safetensors=True,
-    )
-
     pipe = FluxPipeline.from_pretrained(
         base_model,
-        transformer=transformer,
         torch_dtype=torch.bfloat16,
     )
 
