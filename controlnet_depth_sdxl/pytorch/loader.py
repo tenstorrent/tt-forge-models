@@ -77,10 +77,12 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, self.base_model
         )
 
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+        unet = self.pipeline.unet
 
-        return self.pipeline
+        if dtype_override is not None:
+            unet = unet.to(dtype_override)
+
+        return unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the ControlNet Depth SDXL model.
