@@ -5,7 +5,7 @@
 Unslothai Repeat model loader implementation for feature extraction.
 """
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoTokenizer, LlamaConfig, LlamaModel
 from typing import Optional
 
 from ....base import ForgeModel
@@ -62,8 +62,9 @@ class ModelLoader(ForgeModel):
     def _load_tokenizer(self):
         """Load tokenizer for the current variant."""
         if self.tokenizer is None:
-            model_name = self._variant_config.pretrained_model_name
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+            )
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -71,14 +72,20 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_name = self._variant_config.pretrained_model_name
-
-        model_kwargs = {}
+        config = LlamaConfig(
+            vocab_size=32000,
+            hidden_size=64,
+            intermediate_size=128,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            num_key_value_heads=2,
+            max_position_embeddings=128,
+        )
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = AutoModel.from_pretrained(model_name, **model_kwargs)
+            config.torch_dtype = dtype_override
+            model = LlamaModel(config).to(dtype_override)
+        else:
+            model = LlamaModel(config)
         model.eval()
 
         self.model = model
