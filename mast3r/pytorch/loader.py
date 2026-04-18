@@ -49,6 +49,21 @@ def _ensure_mast3r_importable():
         sys.path.insert(0, dust3r_path)
 
 
+class MASt3RWrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def _cast_view(self, view):
+        return {
+            k: v.float() if isinstance(v, torch.Tensor) and v.is_floating_point() else v
+            for k, v in view.items()
+        }
+
+    def forward(self, view1, view2):
+        return self.model(self._cast_view(view1), self._cast_view(view2))
+
+
 class ModelVariant(StrEnum):
     """Available MASt3R model variants."""
 
@@ -90,7 +105,7 @@ class ModelLoader(ForgeModel):
         model = AsymmetricMASt3R.from_pretrained(pretrained_model_name)
         model.eval()
 
-        return model
+        return MASt3RWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load sample stereo image pair inputs for the MASt3R model.
