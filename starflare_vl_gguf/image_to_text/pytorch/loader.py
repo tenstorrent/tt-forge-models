@@ -3,20 +3,83 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Starflare VL 8B i1 GGUF model loader implementation for image to text.
+
+The GGUF checkpoint declares architecture ``qwen3vl``, which transformers
+does not recognise for GGUF. We alias it to ``qwen3`` during GGUF loading
+and rewrite the resulting model_type to ``qwen3_vl_text`` so it slots into
+the full ``Qwen3VLConfig`` (whose vision backbone we pull from the
+corresponding non-GGUF base model).
 """
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+import importlib.metadata
+
+import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers import (
+    AutoConfig,
+    AutoModelForImageTextToText,
+    AutoProcessor,
+    Qwen3VLConfig,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
 from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+
+def _patch_qwen3vl_support():
+    """Register ``qwen3vl`` as an alias of ``qwen3`` for GGUF loading."""
+    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        mapping = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]
+        if "qwen3" in mapping:
+            mapping["qwen3vl"] = mapping["qwen3"]
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Wrap load_gguf_checkpoint to accept qwen3vl and relabel its model_type."""
+    _patch_qwen3vl_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "qwen3vl":
+        result["config"]["model_type"] = "qwen3_vl_text"
+    return result
+
+
+_patch_qwen3vl_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+def _refresh_gguf_detection():
+    """Refresh transformers' gguf package detection if installed after import."""
+    from transformers.utils import import_utils
+
+    if "gguf" not in import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
+        import_utils.is_gguf_available.cache_clear()
 
 
 class ModelVariant(StrEnum):
@@ -41,6 +104,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.STARFLARE_VL_8B_I1_GGUF: "Starflare-VL-8B.i1-Q4_K_M.gguf",
     }
 
+    _BASE_PROCESSOR_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
+
     sample_image = (
         "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
     )
@@ -52,13 +117,6 @@ class ModelLoader(ForgeModel):
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-            num_layers: Optional number of hidden layers to use.
-        """
         super().__init__(variant)
         self.processor = None
         self.config = None
@@ -66,15 +124,6 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Implementation method for getting model info with validated variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
@@ -86,16 +135,23 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _build_full_config(self):
+        """Combine the text config pulled from GGUF with the base model's vision config."""
+        _refresh_gguf_detection()
+        text_config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
+        )
+        base_config = AutoConfig.from_pretrained(self._BASE_PROCESSOR_MODEL)
+        return Qwen3VLConfig(
+            text_config=text_config.to_dict(),
+            vision_config=base_config.vision_config.to_dict(),
+        )
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Starflare VL GGUF model instance.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            torch.nn.Module: The Starflare VL GGUF model instance for image to text.
-        """
+        _refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        self.processor = AutoProcessor.from_pretrained(self._BASE_PROCESSOR_MODEL)
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -103,14 +159,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self._gguf_file
 
+        config = self._build_full_config()
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self._gguf_file
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+            config.text_config.num_hidden_layers = self.num_layers
+        model_kwargs["config"] = config
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -120,15 +172,9 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Starflare VL GGUF model.
+        if self.processor is None:
+            self.processor = AutoProcessor.from_pretrained(self._BASE_PROCESSOR_MODEL)
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-            batch_size: Batch size for the inputs.
-
-        Returns:
-            dict: Input tensors that can be fed to the model.
-        """
         messages = [
             {
                 "role": "user",
@@ -149,10 +195,11 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
-        )
+        self.config = self._build_full_config()
         return self.config
