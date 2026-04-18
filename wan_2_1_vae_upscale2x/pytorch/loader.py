@@ -88,6 +88,7 @@ class ModelLoader(ForgeModel):
                 subfolder=SUBFOLDER,
                 torch_dtype=dtype,
             )
+            self._vae = self._vae.to(dtype=dtype)
             self._vae.eval()
         elif dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
