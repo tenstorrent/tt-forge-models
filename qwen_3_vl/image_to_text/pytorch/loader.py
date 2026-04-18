@@ -289,6 +289,7 @@ class ModelLoader(ForgeModel):
                 video_grid_thw=inputs.get("video_grid_thw", None),
                 inputs_embeds=inputs_embeds,
                 attention_mask=attention_mask,
+                mm_token_type_ids=inputs.get("mm_token_type_ids", None),
             )
 
         return {
