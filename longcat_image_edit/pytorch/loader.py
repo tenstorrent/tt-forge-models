@@ -32,7 +32,6 @@ REPO_ID = "meituan-longcat/LongCat-Image-Edit-Turbo"
 # From transformer/config.json
 IN_CHANNELS = 64
 JOINT_ATTENTION_DIM = 3584
-POOLED_PROJECTION_DIM = 3584
 
 
 class ModelVariant(StrEnum):
@@ -92,35 +91,23 @@ class ModelLoader(ForgeModel):
         return self._pipe.transformer
 
     def load_inputs(self, **kwargs) -> Any:
-        """Prepare sample inputs for the LongCat diffusion transformer.
-
-        Returns a dict matching LongCatImageTransformer2DModel.forward() signature.
-        The transformer uses a FLUX-like architecture with joint and single attention
-        layers, so the input format follows the same hidden_states / encoder_hidden_states
-        pattern with positional IDs.
-        """
+        """Prepare sample inputs for the LongCat diffusion transformer."""
         dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = kwargs.get("batch_size", 1)
 
         txt_seq_len = 32
-        # Image latent grid: patch_size=1, so latent pixels = spatial tokens
         latent_h = 16
         latent_w = 16
         img_seq_len = latent_h * latent_w
 
-        # Hidden states: packed latents in sequence format (batch, img_seq, in_channels)
         hidden_states = torch.randn(batch_size, img_seq_len, IN_CHANNELS, dtype=dtype)
 
-        # Text encoder outputs
         encoder_hidden_states = torch.randn(
             batch_size, txt_seq_len, JOINT_ATTENTION_DIM, dtype=dtype
         )
-        pooled_projections = torch.randn(batch_size, POOLED_PROJECTION_DIM, dtype=dtype)
 
-        # Timestep for diffusion
         timestep = torch.tensor([0.5] * batch_size, dtype=dtype)
 
-        # Positional IDs: text IDs are zeros, image IDs encode spatial position
         txt_ids = torch.zeros(txt_seq_len, 3, dtype=dtype)
         img_ids = torch.zeros(latent_h, latent_w, 3, dtype=dtype)
         img_ids[..., 1] = img_ids[..., 1] + torch.arange(latent_h)[:, None]
@@ -131,7 +118,6 @@ class ModelLoader(ForgeModel):
             "hidden_states": hidden_states,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
-            "pooled_projections": pooled_projections,
             "txt_ids": txt_ids,
             "img_ids": img_ids,
         }
