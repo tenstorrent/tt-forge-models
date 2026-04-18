@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.STARCODER2_7B_Q4_K_M
 
-    GGUF_FILE = "StarCoder2-7B-Q4_K_M.gguf"
+    GGUF_FILE = "starcoder2-7b-Q4_K_M.gguf"
 
     sample_text = "Write a Python function that checks if a number is prime."
 
