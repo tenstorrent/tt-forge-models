@@ -5,6 +5,7 @@
 Qwen 3 model loader implementation for image to text.
 """
 
+import torch
 from transformers import (
     Qwen3VLForConditionalGeneration,
     Qwen3VLMoeForConditionalGeneration,
@@ -208,6 +209,11 @@ class ModelLoader(ForgeModel):
         )
         model = model_cls.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
+
+        if hasattr(model, "model") and hasattr(model.model, "visual"):
+            model.model.visual.forward = torch.compiler.disable(
+                model.model.visual.forward
+            )
 
         return model
 
