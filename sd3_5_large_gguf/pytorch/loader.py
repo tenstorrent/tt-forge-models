@@ -16,6 +16,11 @@ from typing import Any, Optional
 
 import torch
 from diffusers import GGUFQuantizationConfig, SD3Transformer2DModel
+from diffusers.quantizers.gguf.utils import (
+    GGUFParameter,
+    _dequantize_gguf_and_restore_linear,
+    dequantize_gguf_tensor,
+)
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -96,6 +101,23 @@ class ModelLoader(ForgeModel):
                 quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
                 torch_dtype=dtype,
             )
+
+            _dequantize_gguf_and_restore_linear(self._transformer)
+            for name, param in list(self._transformer.named_parameters()):
+                if isinstance(param, GGUFParameter):
+                    parts = name.split(".")
+                    mod = self._transformer
+                    for p in parts[:-1]:
+                        mod = getattr(mod, p)
+                    setattr(
+                        mod,
+                        parts[-1],
+                        torch.nn.Parameter(dequantize_gguf_tensor(param).to(dtype)),
+                    )
+
+            self._transformer.hf_quantizer = None
+            self._transformer.is_quantized = False
+            self._transformer.to(dtype)
             self._transformer.eval()
         elif dtype_override is not None:
             self._transformer = self._transformer.to(dtype=dtype_override)
