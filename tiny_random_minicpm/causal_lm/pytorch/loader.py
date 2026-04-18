@@ -75,6 +75,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, trust_remote_code=True, **tokenizer_kwargs
         )
 
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
         return self.tokenizer
 
     @staticmethod
