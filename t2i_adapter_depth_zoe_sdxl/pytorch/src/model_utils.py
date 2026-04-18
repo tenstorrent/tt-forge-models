@@ -33,7 +33,7 @@ def load_t2i_adapter_depth_zoe_sdxl_pipe(adapter_model_name, base_model_name):
         base_model_name, adapter=adapter, torch_dtype=torch.float32
     )
 
-    pipe.to("cpu")
+    pipe.to("cpu", dtype=torch.float32)
 
     modules = [
         pipe.text_encoder,
