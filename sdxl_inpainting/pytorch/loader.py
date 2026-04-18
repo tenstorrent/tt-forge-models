@@ -62,13 +62,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SDXL Inpainting pipeline.
+        """Load and return the SDXL Inpainting UNet model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionXLInpaintPipeline: The pipeline instance.
+            UNet2DConditionModel: The UNet component of the pipeline.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -77,7 +77,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the SDXL Inpainting model.
