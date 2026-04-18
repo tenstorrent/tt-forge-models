@@ -106,14 +106,16 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, input_image, mask_image
         )
 
+        timestep = timesteps[:1]
+
         if dtype_override:
             scaled_latent_model_input = scaled_latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
         return [
             scaled_latent_model_input,
-            timesteps,
+            timestep,
             prompt_embeds,
             added_cond_kwargs,
         ]
