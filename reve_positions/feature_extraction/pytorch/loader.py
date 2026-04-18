@@ -6,6 +6,8 @@ REVE Positions model loader for EEG electrode position feature extraction.
 """
 from typing import Optional
 
+import torch
+
 from ....config import (
     ModelConfig,
     ModelInfo,
@@ -16,6 +18,17 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
+
+
+class RevePositionBankWrapper(torch.nn.Module):
+    """Wrapper that takes one-hot encoded indices for XLA traceability."""
+
+    def __init__(self, embedding):
+        super().__init__()
+        self.register_buffer("weight", embedding)
+
+    def forward(self, one_hot: torch.Tensor):
+        return one_hot @ self.weight
 
 
 class ModelVariant(StrEnum):
@@ -38,6 +51,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.model = None
+        self._original_model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -63,19 +77,41 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(
+        original_model = AutoModel.from_pretrained(
             model_name, trust_remote_code=True, **model_kwargs
         )
-        model.eval()
+        original_model.eval()
+        self._original_model = original_model
 
-        self.model = model
+        wrapper = RevePositionBankWrapper(original_model.embedding)
+        wrapper.eval()
+        self.model = wrapper
 
-        return model
+        return wrapper
 
     def load_inputs(self, dtype_override=None):
-        # Sample EEG electrode names from the 10-20 system
-        electrode_names = ["Fp1", "Fp2", "F3", "F4", "C3", "C4", "P3", "P4", "O1", "O2"]
-        return electrode_names
+        electrode_names = [
+            "Fp1",
+            "Fp2",
+            "F3",
+            "F4",
+            "C3",
+            "C4",
+            "P3",
+            "P4",
+            "O1",
+            "O2",
+        ]
+        indices = [
+            self._original_model.mapping[name]
+            for name in electrode_names
+            if name in self._original_model.mapping
+        ]
+        num_positions = len(self._original_model.position_names)
+        one_hot = torch.zeros(len(indices), num_positions)
+        for i, idx in enumerate(indices):
+            one_hot[i, idx] = 1.0
+        return (one_hot,)
 
     def output_postprocess(self, output, inputs=None):
         if isinstance(output, (tuple, list)):
