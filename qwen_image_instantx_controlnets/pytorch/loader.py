@@ -135,6 +135,6 @@ class ModelLoader(ForgeModel):
         # Union variant requires controlnet_mode
         if self._variant == ModelVariant.UNION:
             # Use mode 0 (canny) as default
-            inputs["controlnet_mode"] = torch.zeros(batch_size, dtype=torch.long)
+            inputs["controlnet_mode"] = torch.zeros(batch_size, 1, dtype=torch.long)
 
         return inputs
