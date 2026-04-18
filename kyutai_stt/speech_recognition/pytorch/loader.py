@@ -37,10 +37,6 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.STT_2_6B_EN
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
-        super().__init__(variant)
-        self._processor = None
-
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
@@ -54,19 +50,6 @@ class ModelLoader(ForgeModel):
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
-
-    def _load_processor(self, dtype_override=None):
-        from transformers import KyutaiSpeechToTextProcessor
-
-        processor_kwargs = {}
-        if dtype_override is not None:
-            processor_kwargs["dtype"] = dtype_override
-
-        self._processor = KyutaiSpeechToTextProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
-        )
-
-        return self._processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
         from transformers import KyutaiSpeechToTextForConditionalGeneration
@@ -86,21 +69,20 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        import numpy as np
+        import torch
 
-        if self._processor is None:
-            self._load_processor(dtype_override=dtype_override)
+        config = self._variant_config
+        from transformers import AutoConfig
 
-        # Generate a synthetic 3-second audio waveform at 24kHz
-        sampling_rate = 24000
-        duration_seconds = 3
-        audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
-            np.float32
-        )
+        model_config = AutoConfig.from_pretrained(config.pretrained_model_name)
 
-        inputs = self._processor(
-            audio_array,
-            return_tensors="pt",
-        )
+        seq_len = model_config.sliding_window
+        num_channels = model_config.num_codebooks + 1
+        input_ids = torch.zeros(1, seq_len, num_channels, dtype=torch.long)
+        input_ids[:, :, 0] = torch.randint(0, model_config.vocab_size, (1, seq_len))
+        for i in range(1, num_channels):
+            input_ids[:, :, i] = torch.randint(
+                0, model_config.codebook_vocab_size, (1, seq_len)
+            )
 
-        return inputs
+        return {"input_ids": input_ids}
