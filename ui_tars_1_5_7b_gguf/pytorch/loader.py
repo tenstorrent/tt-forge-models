@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
     }
 
     _GGUF_FILES = {
-        ModelVariant.Q4_K: "UI-TARS-1.5-7B-q4_k.gguf",
+        ModelVariant.Q4_K: "UI-TARS-1.5-7B-q4_k_m.gguf",
         ModelVariant.Q8_0: "UI-TARS-1.5-7B-q8_0.gguf",
     }
 
