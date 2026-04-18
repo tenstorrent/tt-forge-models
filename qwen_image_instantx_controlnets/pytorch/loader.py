@@ -125,6 +125,7 @@ class ModelLoader(ForgeModel):
             "timestep": timestep,
             "img_ids": img_ids,
             "txt_ids": txt_ids,
+            "return_dict": False,
         }
 
         if self._controlnet.config.get("guidance_embeds", False):
