@@ -4,6 +4,7 @@
 """
 SigLIP2 model loader implementation for image-text similarity using OpenCLIP (timm).
 """
+
 import torch
 import torch.nn.functional as F
 from typing import Optional
@@ -105,8 +106,17 @@ class ModelLoader(ForgeModel):
         # Preprocess image
         pixel_values = self.preprocess(image).unsqueeze(0)
 
-        # Tokenize text
-        text_tokens = self.tokenizer(self.text_prompts)
+        # Tokenize text — call underlying HF tokenizer directly to avoid
+        # open_clip's batch_encode_plus which is removed in transformers 5.x
+        hf_tokenizer = self.tokenizer.tokenizer
+        context_length = self.tokenizer.context_length
+        text_tokens = hf_tokenizer(
+            [self.tokenizer.clean_fn(t) for t in self.text_prompts],
+            return_tensors="pt",
+            max_length=context_length,
+            padding="max_length",
+            truncation=True,
+        ).input_ids
 
         # Replicate for batch size
         if batch_size > 1:
