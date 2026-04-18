@@ -6,7 +6,7 @@ XVERSE model loader implementation for causal language modeling.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -84,9 +84,17 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {"trust_remote_code": True, "use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
+
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
