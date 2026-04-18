@@ -74,7 +74,8 @@ class ModelLoader(ForgeModel):
 
         model.eval()
 
-        if dtype_override is not None:
+        # torch.fft.rfft in patch_embedding does not support bfloat16
+        if dtype_override is not None and dtype_override != torch.bfloat16:
             model = model.to(dtype_override)
 
         return model
@@ -85,6 +86,9 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Synthetic EEG tensor of shape (batch, n_channels, n_times).
         """
+        # torch.fft.rfft in patch_embedding does not support bfloat16
+        if dtype_override == torch.bfloat16:
+            dtype_override = None
         dtype = dtype_override or torch.float32
 
         torch.manual_seed(42)
