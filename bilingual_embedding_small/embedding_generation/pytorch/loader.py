@@ -5,7 +5,7 @@
 Bilingual-Embedding-Small model loader implementation for embedding generation.
 """
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -73,7 +73,18 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False, "trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        config.is_decoder = False
+        config.add_cross_attention = False
+        config.chunk_size_feed_forward = 0
+
+        model_kwargs = {
+            "return_dict": False,
+            "trust_remote_code": True,
+            "config": config,
+        }
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
