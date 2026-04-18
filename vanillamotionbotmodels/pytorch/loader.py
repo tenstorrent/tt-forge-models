@@ -121,8 +121,37 @@ class ModelLoader(ForgeModel):
         model.hf_quantizer = hf_quantizer
         model.eval()
 
+        self._dequantize_gguf_params(model, compute_dtype)
+
         self.transformer = model
         return self.transformer
+
+    @staticmethod
+    def _dequantize_gguf_params(model, dtype):
+        from diffusers.quantizers.gguf.utils import (
+            GGUFParameter,
+            dequantize_gguf_tensor,
+        )
+
+        for name, module in model.named_modules():
+            for attr_name in list(vars(module).keys()):
+                param = getattr(module, attr_name, None)
+                if isinstance(param, (torch.nn.Parameter, torch.Tensor)) and isinstance(
+                    param, GGUFParameter
+                ):
+                    dequantized = dequantize_gguf_tensor(param).to(dtype)
+                    new_param = torch.nn.Parameter(dequantized, requires_grad=False)
+                    setattr(module, attr_name, new_param)
+
+        for name, param in list(model.named_parameters()):
+            if isinstance(param, GGUFParameter):
+                parts = name.split(".")
+                parent = model
+                for part in parts[:-1]:
+                    parent = getattr(parent, part)
+                dequantized = dequantize_gguf_tensor(param).to(dtype)
+                new_param = torch.nn.Parameter(dequantized, requires_grad=False)
+                setattr(parent, parts[-1], new_param)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.transformer is None:
