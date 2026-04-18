@@ -5,8 +5,6 @@
 Nemotron-H model loader implementation for causal language modeling.
 """
 
-from contextlib import nullcontext
-
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
@@ -23,12 +21,13 @@ from ....config import (
 )
 
 
-def _patch_cuda_stream(model):
-    """Replace torch.cuda.stream usage in NemotronHBlock with nullcontext.
+def _patch_model_for_cpu(model):
+    """Apply patches to run Nemotron-H on non-CUDA devices.
 
-    The upstream model wraps its forward pass in torch.cuda.stream() to avoid
-    NaN issues on multi-GPU setups. This fails on non-CUDA devices, so we
-    replace the context manager with nullcontext.
+    1. Replace torch.cuda.stream in NemotronHBlock.forward with plain code.
+    2. Stub _update_causal_mask to return None, avoiding a Dynamo shape
+       mismatch during tracing. The attention blocks already fall back to
+       is_causal=True when no mask is provided.
     """
     for module in model.modules():
         if type(module).__name__ == "NemotronHBlock":
@@ -36,8 +35,6 @@ def _patch_cuda_stream(model):
             break
     else:
         return
-
-    orig_forward = block_cls.forward
 
     def patched_forward(self, hidden_states, **kwargs):
         residual = hidden_states
@@ -65,6 +62,10 @@ def _patch_cuda_stream(model):
         return hidden_states
 
     block_cls.forward = patched_forward
+
+    backbone = model.backbone if hasattr(model, "backbone") else model.model
+    backbone_cls = type(backbone)
+    backbone_cls._update_causal_mask = lambda self, *args, **kwargs: None
 
 
 class ModelVariant(StrEnum):
@@ -141,7 +142,7 @@ class ModelLoader(ForgeModel):
         model.eval()
         self.config = model.config
 
-        _patch_cuda_stream(model)
+        _patch_model_for_cpu(model)
 
         return model
 
