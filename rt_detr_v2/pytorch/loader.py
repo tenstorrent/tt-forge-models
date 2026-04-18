@@ -6,8 +6,11 @@ RT-DETRv2 (Real-Time DETR v2) model loader implementation for object detection.
 """
 import torch
 from transformers import RTDetrV2ForObjectDetection, RTDetrImageProcessor
+import transformers.models.rt_detr_v2.modeling_rt_detr_v2 as _rt_detr_v2_mod
 from datasets import load_dataset
 from typing import Optional
+
+_rt_detr_v2_mod.torch_compilable_check = lambda *args, **kwargs: None
 
 from ...base import ForgeModel
 from ...config import (
@@ -70,16 +73,8 @@ class ModelLoader(ForgeModel):
         )
         return self.processor
 
-    @staticmethod
-    def _patch_torch_compilable_check():
-        import transformers.models.rt_detr_v2.modeling_rt_detr_v2 as mod
-
-        mod.torch_compilable_check = lambda *args, **kwargs: None
-
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
-
-        self._patch_torch_compilable_check()
 
         if self.processor is None:
             self._load_processor()
