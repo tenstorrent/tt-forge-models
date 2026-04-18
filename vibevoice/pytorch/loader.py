@@ -88,6 +88,9 @@ class ModelLoader(ForgeModel):
             modeling_mod = importlib.import_module(
                 "vibevoice.modular.modeling_vibevoice_inference"
             )
+            config_mod = importlib.import_module(
+                "vibevoice.modular.configuration_vibevoice"
+            )
         finally:
             sys.path[:] = saved
 
@@ -95,8 +98,15 @@ class ModelLoader(ForgeModel):
             modeling_mod.VibeVoiceForConditionalGenerationInference
         )
 
+        config = config_mod.VibeVoiceConfig.from_pretrained(
+            self._variant_config.pretrained_model_name,
+        )
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
+
         full_model = VibeVoiceForConditionalGenerationInference.from_pretrained(
             self._variant_config.pretrained_model_name,
+            config=config,
             device_map="cpu",
             torch_dtype=dtype_override or torch.bfloat16,
         )
