@@ -18,7 +18,7 @@ Available variants:
 - WAN22_T2V_5B_BF16: Text-to-Video 5B, bf16 precision
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import torch
 
@@ -36,6 +36,13 @@ from ...config import (
 SINGLE_FILE_REPO = "DeepBeepMeep/Wan2.2"
 BASE_PIPELINE_14B = "Wan-AI/Wan2.2-T2V-A14B-Diffusers"
 BASE_PIPELINE_5B = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
+
+# Small test dimensions for the transformer forward pass.
+# Must be divisible by the transformer's patch_size (1, 2, 2).
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -72,7 +79,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -93,59 +100,47 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load a single-file Wan 2.2 T2V transformer and build the pipeline.
-
-        Uses diffusers WanTransformer3DModel.from_single_file to load the
-        single-file safetensors checkpoint, then constructs the full
-        WanPipeline with the base model's scheduler, text encoder, and VAE.
-        """
-        from diffusers import (
-            AutoencoderKLWan,
-            WanPipeline,
-            WanTransformer3DModel,
-        )
+        """Load the single-file Wan 2.2 T2V transformer module."""
+        from diffusers import WanTransformer3DModel
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         variant_info = _SINGLE_FILES[self._variant]
         single_file_url = (
             f"https://huggingface.co/{SINGLE_FILE_REPO}"
-            f"/resolve/main/{variant_info['file']}"
+            f"/blob/main/{variant_info['file']}"
         )
 
-        transformer = WanTransformer3DModel.from_single_file(
+        self._transformer = WanTransformer3DModel.from_single_file(
             single_file_url,
             torch_dtype=compute_dtype,
         )
+        self._transformer.eval()
+        return self._transformer
 
-        vae = AutoencoderKLWan.from_pretrained(
-            variant_info["base_pipeline"],
-            subfolder="vae",
-            torch_dtype=torch.float32,
-        )
-
-        self.pipeline = WanPipeline.from_pretrained(
-            variant_info["base_pipeline"],
-            transformer=transformer,
-            vae=vae,
-            torch_dtype=compute_dtype,
-        )
-
-        return self.pipeline
-
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation."""
-        if prompt is None:
-            prompt = (
-                "Astronaut in a jungle, cold color palette, "
-                "muted colors, detailed, 8k"
-            )
-
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Dict[str, Any]:
+        """Prepare inputs for the WanTransformer3DModel forward pass."""
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        if self._transformer is None:
+            self.load_model(dtype_override=dtype)
+        config = self._transformer.config
         return {
-            "prompt": prompt,
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }
