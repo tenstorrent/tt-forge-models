@@ -30,6 +30,35 @@ from ...config import (
     StrEnum,
 )
 
+
+def _convert_fp8_state_dict(state_dict):
+    """Convert old-format FP8 checkpoint keys to current diffusers naming."""
+    new_state_dict = {}
+    for key, value in state_dict.items():
+        new_key = key
+
+        if key.startswith("x_embedder."):
+            new_key = key.replace("x_embedder.", "all_x_embedder.2-1.", 1)
+        elif key.startswith("final_layer."):
+            new_key = key.replace("final_layer.", "all_final_layer.2-1.", 1)
+        elif ".attention.qkv.weight" in key:
+            prefix = key.rsplit(".attention.qkv.weight", 1)[0]
+            q, k, v = value.chunk(3, dim=0)
+            new_state_dict[f"{prefix}.attention.to_q.weight"] = q
+            new_state_dict[f"{prefix}.attention.to_k.weight"] = k
+            new_state_dict[f"{prefix}.attention.to_v.weight"] = v
+            continue
+        elif ".attention.q_norm." in key:
+            new_key = key.replace(".attention.q_norm.", ".attention.norm_q.")
+        elif ".attention.k_norm." in key:
+            new_key = key.replace(".attention.k_norm.", ".attention.norm_k.")
+        elif ".attention.out." in key:
+            new_key = key.replace(".attention.out.", ".attention.to_out.0.")
+
+        new_state_dict[new_key] = value
+    return new_state_dict
+
+
 REPO_ID = "drbaph/Z-Image-Turbo-FP8"
 BASE_REPO_ID = "Tongyi-MAI/Z-Image-Turbo"
 
@@ -90,6 +119,7 @@ class ModelLoader(ForgeModel):
         filename = VARIANT_FILENAMES[self._variant]
         fp8_path = hf_hub_download(repo_id=REPO_ID, filename=filename)
         state_dict = load_file(fp8_path)
+        state_dict = _convert_fp8_state_dict(state_dict)
         self._pipe.transformer.load_state_dict(state_dict)
         self._pipe.transformer.eval()
         return self._pipe
