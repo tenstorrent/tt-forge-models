@@ -67,6 +67,12 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
+        # The upstream modeling file calls F.linear with keyword-only args,
+        # which breaks TTPJRT's torch_function_override that indexes into args
+        # positionally. Swap F in the dynamic module with a proxy that forces
+        # positional calls for linear.
+        self._patch_dynamic_module_linear(type(model).__module__)
+
         if dtype_override:
             model = model.to(dtype_override)
 
@@ -74,6 +80,26 @@ class ModelLoader(ForgeModel):
             self.processor = VideoMAEImageProcessor.from_pretrained(model_name)
 
         return model
+
+    @staticmethod
+    def _patch_dynamic_module_linear(model_module_name: str) -> None:
+        import sys
+        import torch.nn.functional as F_mod
+
+        class _FProxy:
+            def __getattr__(self, name):
+                return getattr(F_mod, name)
+
+            @staticmethod
+            def linear(input=None, weight=None, bias=None):
+                return F_mod.linear(input, weight, bias)
+
+        root = model_module_name.rsplit(".", 1)[0]
+        for name, mod in list(sys.modules.items()):
+            if (name == root or name.startswith(root + ".")) and getattr(
+                mod, "F", None
+            ) is F_mod:
+                mod.F = _FProxy()
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return input tensors for VideoMAEv2.
