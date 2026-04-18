@@ -51,20 +51,12 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT
 
-    # NLI sample inputs for MNLI/XNLI variants
-    _NLI_PREMISE = (
-        "Angela Merkel ist eine Politikerin in Deutschland und Vorsitzende der CDU"
-    )
-    _NLI_HYPOTHESIS = "Angela Merkel ist eine Politikerin."
-
     def __init__(self, variant=None):
         super().__init__(variant)
         self.model_name = self._variant_config.pretrained_model_name
         self.max_length = self._variant_config.max_length
         self.tokenizer = None
-        self.text = _VARIANT_SAMPLE_TEXTS.get(
-            self._variant, "Great road trip views! @ Shartlesville, Pennsylvania"
-        )
+        self.text = "Great road trip views! @ Shartlesville, Pennsylvania"
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -82,15 +74,10 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _is_nli_variant(self):
-        """Check if the current variant is an NLI model."""
-        return self._variant == ModelVariant.MULTILINGUAL_MINILMV2_L6_MNLI_XNLI
-
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load XLM-RoBERTa model for sequence classification from Hugging Face."""
 
-        tokenizer_name = self._TOKENIZER_OVERRIDES.get(self._variant, self.model_name)
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -109,17 +96,6 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self.load_model(dtype_override=dtype_override)
 
-        if self._is_nli_variant():
-            inputs = self.tokenizer(
-                self._NLI_PREMISE,
-                self._NLI_HYPOTHESIS,
-                max_length=self.max_length,
-                padding="max_length",
-                truncation=True,
-                return_tensors="pt",
-            )
-            return [inputs["input_ids"], inputs["attention_mask"]]
-
         inputs = self.tokenizer(
             self.text,
             max_length=self.max_length,
@@ -136,9 +112,7 @@ class ModelLoader(ForgeModel):
         model = framework_model if framework_model is not None else self.model
         if model and hasattr(model, "config") and hasattr(model.config, "id2label"):
             predicted_category = model.config.id2label[predicted_class_id]
-            if self._is_nli_variant():
-                print(f"Predicted Label: {predicted_category}")
-            elif self._variant == ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT:
+            if self._variant == ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT:
                 print(f"Predicted Sentiment: {predicted_category}")
             else:
                 print(f"Predicted Category: {predicted_category}")
