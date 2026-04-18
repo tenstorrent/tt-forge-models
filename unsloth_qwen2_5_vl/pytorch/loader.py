@@ -4,6 +4,7 @@
 """
 unsloth/Qwen2.5-VL-3B-Instruct model loader implementation for vision-language tasks.
 """
+import torch
 from transformers import AutoModelForImageTextToText, AutoProcessor
 from typing import Optional
 
@@ -72,6 +73,11 @@ class ModelLoader(ForgeModel):
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        if hasattr(model, "model") and hasattr(model.model, "visual"):
+            model.model.visual.forward = torch.compiler.disable(
+                model.model.visual.forward
+            )
 
         return model
 
