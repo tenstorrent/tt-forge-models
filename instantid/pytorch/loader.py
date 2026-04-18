@@ -76,9 +76,9 @@ class ModelLoader(ForgeModel):
         self.pipeline = load_instantid_pipe(pretrained_model_name, self.base_model)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the InstantID model.
@@ -102,7 +102,7 @@ class ModelLoader(ForgeModel):
 
         (
             latent_model_input,
-            timesteps,
+            timestep,
             prompt_embeds,
             added_cond_kwargs,
             down_block_additional_residuals,
@@ -111,14 +111,23 @@ class ModelLoader(ForgeModel):
 
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
+            added_cond_kwargs = {
+                k: v.to(dtype_override) if isinstance(v, torch.Tensor) else v
+                for k, v in added_cond_kwargs.items()
+            }
+            down_block_additional_residuals = tuple(
+                r.to(dtype_override) for r in down_block_additional_residuals
+            )
+            mid_block_additional_residual = mid_block_additional_residual.to(
+                dtype_override
+            )
 
-        return [
-            latent_model_input,
-            timesteps,
-            prompt_embeds,
-            added_cond_kwargs,
-            down_block_additional_residuals,
-            mid_block_additional_residual,
-        ]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+            "down_block_additional_residuals": down_block_additional_residuals,
+            "mid_block_additional_residual": mid_block_additional_residual,
+        }

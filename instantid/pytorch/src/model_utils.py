@@ -34,7 +34,7 @@ def load_instantid_pipe(controlnet_repo, base_model_name):
         base_model_name, controlnet=controlnet, torch_dtype=torch.float32
     )
 
-    pipe.to("cpu")
+    pipe.to(device="cpu", dtype=torch.float32)
 
     modules = [
         pipe.text_encoder,
@@ -233,7 +233,7 @@ def instantid_preprocessing(
 
     return (
         latent_model_input,
-        timesteps,
+        timesteps[0],
         prompt_embeds,
         added_cond_kwargs,
         down_block_additional_residuals,
