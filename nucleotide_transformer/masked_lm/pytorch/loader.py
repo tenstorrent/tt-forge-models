@@ -6,7 +6,7 @@ Nucleotide Transformer v2 model loader implementation for masked language modeli
 """
 
 import torch
-from transformers import AutoTokenizer, AutoModelForMaskedLM, AutoConfig
+from transformers import AutoTokenizer, EsmForMaskedLM, EsmConfig
 from typing import Optional
 
 from third_party.tt_forge_models.config import (
@@ -70,15 +70,14 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer()
 
         model_name = self._variant_config.pretrained_model_name
+        config = self.load_config()
 
-        model_kwargs = {}
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForMaskedLM.from_pretrained(
-            model_name, trust_remote_code=True, **model_kwargs
-        )
+        model = EsmForMaskedLM.from_pretrained(model_name, **model_kwargs)
         model.eval()
         return model
 
@@ -117,8 +116,7 @@ class ModelLoader(ForgeModel):
         return predicted_tokens
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
+        self.config = EsmConfig.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
         )
         return self.config
