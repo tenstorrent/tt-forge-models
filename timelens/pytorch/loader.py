@@ -22,6 +22,10 @@ from ...config import (
 )
 from ...tools.utils import cast_input_to_type
 
+_VISUAL_INPUT_KEYS = frozenset(
+    {"pixel_values", "pixel_values_videos", "image_grid_thw", "video_grid_thw"}
+)
+
 
 class ModelVariant(StrEnum):
     """Available TimeLens model variants."""
@@ -45,6 +49,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+        self._cached_inputs = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -83,14 +88,12 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
+        self._cached_inputs = self._compute_inputs()
+
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return input tensors for TimeLens."""
-        if self.processor is None:
-            self._load_processor()
-
-        # Create a small synthetic video (8 frames of 64x64 RGB)
+    def _compute_inputs(self):
+        """Compute raw input tensors for TimeLens."""
         video = np.random.randint(0, 255, (8, 64, 64, 3), dtype=np.uint8)
 
         messages = [
@@ -116,10 +119,26 @@ class ModelLoader(ForgeModel):
             padding=True,
             return_tensors="pt",
         )
+        return dict(inputs)
+
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        """Load and return input tensors for TimeLens."""
+        if self._cached_inputs is not None:
+            inputs = self._cached_inputs
+            self._cached_inputs = None
+        else:
+            if self.processor is None:
+                self._load_processor()
+            inputs = self._compute_inputs()
+
+        # The vision encoder uses data-dependent shapes from grid_thw that are
+        # incompatible with compilation (all-zero XLA tensors produce zero-dim
+        # shapes). Strip visual inputs so the language model compiles standalone.
+        inputs = {k: v for k, v in inputs.items() if k not in _VISUAL_INPUT_KEYS}
 
         if dtype_override is not None:
             inputs = {
                 k: cast_input_to_type(v, dtype_override) for k, v in inputs.items()
             }
 
-        return dict(inputs)
+        return inputs
