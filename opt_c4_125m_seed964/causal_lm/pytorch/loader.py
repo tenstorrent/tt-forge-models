@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.OPT_C4_125M_SEED964: LLMModelConfig(
-            pretrained_model_name="znhoughton/opt-c4-125m-seed964",
+            pretrained_model_name="znhoughton/opt-babylm-125m-20eps-seed964",
             max_length=256,
         ),
     }
