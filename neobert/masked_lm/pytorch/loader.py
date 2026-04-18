@@ -5,6 +5,74 @@
 NeoBERT model loader implementation for masked language modeling.
 """
 
+import sys
+import types
+from typing import Optional, Tuple
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class _SwiGLU(nn.Module):
+    """Pure-PyTorch re-implementation of xformers.ops.SwiGLU.
+
+    Weight layout matches the xformers version so that HuggingFace
+    ``from_pretrained`` can load the original checkpoint unchanged.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        out_features: Optional[int] = None,
+        bias: bool = True,
+        *,
+        _pack_weights: bool = True,
+    ) -> None:
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+
+        self.w12: Optional[nn.Linear]
+        if _pack_weights:
+            self.w12 = nn.Linear(in_features, 2 * hidden_features, bias=bias)
+        else:
+            self.w12 = None
+            self.w1 = nn.Linear(in_features, hidden_features, bias=bias)
+            self.w2 = nn.Linear(in_features, hidden_features, bias=bias)
+        self.w3 = nn.Linear(hidden_features, out_features, bias=bias)
+
+        self.hidden_features = hidden_features
+        self.out_features = out_features
+        self.in_features = in_features
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.w12 is not None:
+            x12 = self.w12(x)
+            x1, x2 = x12.chunk(2, dim=-1)
+        else:
+            x1 = self.w1(x)
+            x2 = self.w2(x)
+        return self.w3(F.silu(x1) * x2)
+
+
+def _install_xformers_stub():
+    """Register a minimal xformers stub so the NeoBERT remote code can import SwiGLU."""
+    if "xformers" not in sys.modules:
+        xformers_mod = types.ModuleType("xformers")
+        sys.modules["xformers"] = xformers_mod
+    else:
+        xformers_mod = sys.modules["xformers"]
+
+    ops_mod = types.ModuleType("xformers.ops")
+    ops_mod.SwiGLU = _SwiGLU
+    sys.modules["xformers.ops"] = ops_mod
+    xformers_mod.ops = ops_mod
+
+
+_install_xformers_stub()
+
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 from third_party.tt_forge_models.config import (
     ModelInfo,
