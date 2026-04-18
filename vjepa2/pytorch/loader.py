@@ -30,14 +30,19 @@ class ModelVariant(StrEnum):
 
 
 class VJEPA2EncoderWrapper(torch.nn.Module):
-    """Wraps VJEPA2Model to call the encoder directly, bypassing mask/predictor logic that breaks dynamo."""
+    """Wraps VJEPA2Model encoder internals to bypass decorators that break dynamo guards."""
 
     def __init__(self, model):
         super().__init__()
-        self.encoder = model.encoder
+        self.embeddings = model.encoder.embeddings
+        self.layer = model.encoder.layer
+        self.layernorm = model.encoder.layernorm
 
     def forward(self, pixel_values_videos: torch.Tensor) -> torch.Tensor:
-        return self.encoder(pixel_values_videos=pixel_values_videos).last_hidden_state
+        hidden_states = self.embeddings(pixel_values_videos)
+        for layer_module in self.layer:
+            hidden_states = layer_module(hidden_states, None, False)[0]
+        return self.layernorm(hidden_states)
 
 
 class ModelLoader(ForgeModel):
