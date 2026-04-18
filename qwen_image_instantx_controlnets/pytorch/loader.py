@@ -154,24 +154,30 @@ class ModelLoader(ForgeModel):
             self._controlnet = self._controlnet.to(dtype=dtype_override)
         return self._controlnet
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+        **kwargs,
+    ) -> Any:
         """Prepare sample inputs for the ControlNet.
 
         Returns a dict matching FluxControlNetModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        batch_size = kwargs.get("batch_size", 1)
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         in_channels = 64
         joint_attention_dim = 3584
         pooled_projection_dim = 768
+        cond_channels = self._controlnet.controlnet_x_embedder.in_features
 
-        # Sequence lengths for image and text tokens
-        img_seq_len = 64  # e.g. 8x8 patch grid
+        img_seq_len = 64
         txt_seq_len = 32
 
         hidden_states = torch.randn(batch_size, img_seq_len, in_channels, dtype=dtype)
-        controlnet_cond = torch.randn(batch_size, img_seq_len, in_channels, dtype=dtype)
+        controlnet_cond = torch.randn(
+            batch_size, img_seq_len, cond_channels, dtype=dtype
+        )
         encoder_hidden_states = torch.randn(
             batch_size, txt_seq_len, joint_attention_dim, dtype=dtype
         )
