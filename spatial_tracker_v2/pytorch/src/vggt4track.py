@@ -111,7 +111,15 @@ class VGGT4Track(nn.Module, PyTorchModelHubMixin):
         poses[:, :, :3, :4], intrs = pose_encoding_to_extri_intri(
             predictions["pose_enc_list"][-1], images_proc.shape[-2:]
         )
-        predictions["poses_pred"] = torch.inverse(poses)
+        R = poses[:, :, :3, :3]
+        t = poses[:, :, :3, 3:]
+        R_inv = R.transpose(-1, -2)
+        t_inv = -R_inv @ t
+        bottom = torch.zeros_like(poses[:, :, 3:4, :])
+        bottom[:, :, :, 3] = 1.0
+        predictions["poses_pred"] = torch.cat(
+            [torch.cat([R_inv, t_inv], dim=-1), bottom], dim=-2
+        )
         predictions["intrs"] = intrs
 
         # Compute 3D point maps
