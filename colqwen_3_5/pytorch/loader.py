@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from .src.model_utils import apply_patches
+        from .src.model_utils import Wrapper, apply_patches
         from colpali_engine.models import ColQwen3_5
 
         apply_patches()
@@ -85,6 +85,7 @@ class ModelLoader(ForgeModel):
             **model_kwargs,
         )
         model.eval()
+        model = Wrapper(model)
 
         return model
 
