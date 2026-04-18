@@ -89,6 +89,9 @@ class ModelLoader(ForgeModel):
             config.attention_other_setting["num_attention_heads"] = 16
             config.attention_other_setting["num_attention_groups"] = 4
 
+        if not hasattr(config, "pad_token_id"):
+            config.pad_token_id = None
+
         model_kwargs = {
             "attn_implementation": "eager",
             "trust_remote_code": True,
