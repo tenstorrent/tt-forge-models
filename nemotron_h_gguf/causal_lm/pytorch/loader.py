@@ -52,6 +52,20 @@ def _patch_cuda_stream_for_cpu():
 _patch_cuda_stream_for_cpu()
 
 
+def _patch_causal_mask(model):
+    """Replace _update_causal_mask with a no-op that returns None.
+
+    The custom NemotronH code uses dynamic shape computations in its
+    causal mask builder that cause TorchDynamo graph breaks and
+    FakeTensor shape mismatches on XLA. Returning None disables
+    explicit masking and lets the attention layers use implicit
+    causal masking instead.
+    """
+    backbone = getattr(model, "backbone", model)
+    if hasattr(backbone, "_update_causal_mask"):
+        backbone._update_causal_mask = lambda *args, **kwargs: None
+
+
 class ModelVariant(StrEnum):
     """Available Nemotron-H GGUF model variants for causal language modeling."""
 
@@ -123,6 +137,9 @@ class ModelLoader(ForgeModel):
             trust_remote_code=True,
             **model_kwargs,
         ).eval()
+
+        model.config.use_cache = False
+        _patch_causal_mask(model)
 
         self.config = model.config
         self.model = model
