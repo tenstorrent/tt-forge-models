@@ -5,23 +5,24 @@
 ControlNet IP2P SD1.5 model loader implementation
 """
 
+from typing import Any, Optional
+
 import torch
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 from .src.model_utils import (
-    load_controlnet_ip2p_sd15_pipe,
-    create_ip2p_conditioning_image,
     controlnet_ip2p_sd15_preprocessing,
+    create_ip2p_conditioning_image,
+    load_controlnet_ip2p_sd15_pipe,
 )
 
 
@@ -63,14 +64,6 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the ControlNet IP2P SD1.5 pipeline.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            StableDiffusionControlNetPipeline: The pipeline instance.
-        """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.pipeline = load_controlnet_ip2p_sd15_pipe(
@@ -80,22 +73,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the ControlNet IP2P SD1.5 model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-
-        Returns:
-            List: Input tensors for the UNet with ControlNet residuals:
-                - latent_model_input (torch.Tensor)
-                - timestep (torch.Tensor)
-                - prompt_embeds (torch.Tensor)
-                - down_block_additional_residuals (tuple of torch.Tensor)
-                - mid_block_additional_residual (torch.Tensor)
-        """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
 
@@ -116,10 +96,17 @@ class ModelLoader(ForgeModel):
             timesteps = timesteps.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [
-            latent_model_input,
-            timesteps,
-            prompt_embeds,
-            down_block_additional_residuals,
-            mid_block_additional_residual,
-        ]
+        return {
+            "sample": latent_model_input,
+            "timestep": timesteps[0],
+            "encoder_hidden_states": prompt_embeds,
+            "down_block_additional_residuals": down_block_additional_residuals,
+            "mid_block_additional_residual": mid_block_additional_residual,
+        }
+
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        if hasattr(fwd_output, "sample"):
+            return fwd_output.sample
+        return fwd_output
