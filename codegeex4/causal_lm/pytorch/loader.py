@@ -10,7 +10,6 @@ from typing import Optional
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    GenerationConfig,
     AutoConfig,
 )
 from ....config import (
@@ -172,18 +171,12 @@ class ModelLoader(ForgeModel):
             max_length=max_length,
             truncation=True,
         )
-        generation_config = GenerationConfig(
-            max_length=100, do_sample=True, temperature=0.9
-        )
         inputs = {
             "input_ids": tokenized_inputs.input_ids,
             "attention_mask": tokenized_inputs.attention_mask,
-            "generation_config": generation_config,
         }
 
         for key in inputs:
-            if key == "generation_config":
-                continue
             inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
