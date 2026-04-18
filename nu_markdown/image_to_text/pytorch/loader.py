@@ -21,6 +21,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
+from .src.model import Wrapper
 
 
 class ModelVariant(StrEnum):
@@ -32,7 +33,6 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """NuMarkdown model loader implementation for image to text tasks."""
 
-    # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.NUMARKDOWN_8B_THINKING: LLMModelConfig(
             pretrained_model_name="numind/NuMarkdown-8B-Thinking",
@@ -40,30 +40,30 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    # Default variant to use
     DEFAULT_VARIANT = ModelVariant.NUMARKDOWN_8B_THINKING
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
+                },
+                {"type": "text", "text": "Convert this image to markdown."},
+            ],
+        }
+    ]
 
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
+    min_pixels = 56 * 56
+    max_pixels = 13 * 28 * 1280
+
+    def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Implementation method for getting model info with validated variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
@@ -75,15 +75,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_processor(self):
+        processor_kwargs = {
+            "min_pixels": self.min_pixels,
+            "max_pixels": self.max_pixels,
+        }
+        self.processor = AutoProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name, **processor_kwargs
+        )
+        return self.processor
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the NuMarkdown model instance for this instance's variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            torch.nn.Module: The NuMarkdown model instance for image to text.
-        """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
@@ -91,42 +93,37 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        self._load_processor()
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        model = Wrapper(model)
 
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the NuMarkdown model.
+        if self.processor is None:
+            self._load_processor()
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-            batch_size: Batch size for the inputs.
+        text = self.processor.apply_chat_template(
+            self.messages, tokenize=False, add_generation_prompt=True
+        )
 
-        Returns:
-            dict: Input tensors that can be fed to the model.
-        """
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                    },
-                ],
-            }
-        ]
+        from qwen_vl_utils import process_vision_info
 
-        inputs = self.processor.apply_chat_template(
-            messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
+        image_inputs, video_inputs = process_vision_info(self.messages)
+
+        inputs = self.processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+
         return inputs
