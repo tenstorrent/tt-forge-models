@@ -12,8 +12,6 @@ import torch
 from typing import Optional
 from dataclasses import dataclass
 
-from transformers import AutoModel
-
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -24,6 +22,7 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+from .src.model import KronosTokenizer
 
 
 @dataclass
@@ -77,13 +76,12 @@ class ModelLoader(ForgeModel):
         """
         cfg = self._variant_config
 
-        model = AutoModel.from_pretrained(
-            cfg.pretrained_model_name,
-            trust_remote_code=True,
-            torch_dtype=dtype_override or torch.float32,
-        )
-        model.eval()
+        model = KronosTokenizer.from_pretrained(cfg.pretrained_model_name)
 
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
+        model.eval()
         return model
 
     def load_inputs(self, dtype_override=None):
