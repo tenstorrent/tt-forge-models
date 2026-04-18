@@ -8,7 +8,7 @@ VideoMAE model loader implementation for video feature extraction.
 from typing import Optional
 
 import numpy as np
-from transformers import VideoMAEForPreTraining, VideoMAEImageProcessor
+from transformers import VideoMAEForVideoClassification, VideoMAEImageProcessor
 
 from ...base import ForgeModel
 from ...config import (
@@ -30,11 +30,11 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """VideoMAE model loader for video self-supervised pre-training."""
+    """VideoMAE model loader for video classification."""
 
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
-            pretrained_model_name="MCG-NJU/videomae-base",
+            pretrained_model_name="MCG-NJU/videomae-base-finetuned-kinetics",
         ),
     }
 
@@ -66,7 +66,9 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the VideoMAE model instance."""
         model_name = self._variant_config.pretrained_model_name
-        model = VideoMAEForPreTraining.from_pretrained(str(model_name), **kwargs)
+        model = VideoMAEForVideoClassification.from_pretrained(
+            str(model_name), **kwargs
+        )
         model.eval()
 
         if dtype_override:
