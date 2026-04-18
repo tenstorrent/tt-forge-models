@@ -72,7 +72,16 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from diffusers import WanTransformer3DModel
+        from accelerate import init_empty_weights
+        from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
+        from diffusers.loaders.single_file_utils import (
+            convert_wan_transformer_to_diffusers,
+        )
+        from diffusers.models.model_loading_utils import (
+            load_gguf_checkpoint,
+            load_model_dict_into_meta,
+        )
+        from diffusers.quantizers import DiffusersAutoQuantizer
         from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
@@ -80,13 +89,39 @@ class ModelLoader(ForgeModel):
 
         model_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
 
-        self.transformer = WanTransformer3DModel.from_single_file(
-            model_path,
-            config=BASE_PIPELINE,
-            subfolder="transformer",
-            torch_dtype=compute_dtype,
+        checkpoint = load_gguf_checkpoint(model_path)
+        converted = convert_wan_transformer_to_diffusers(checkpoint)
+
+        qconfig = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        hf_quantizer = DiffusersAutoQuantizer.from_config(qconfig)
+        hf_quantizer.validate_environment()
+        torch_dtype = hf_quantizer.update_torch_dtype(compute_dtype)
+
+        config = WanTransformer3DModel.load_config(
+            BASE_PIPELINE, subfolder="transformer"
+        )
+        with init_empty_weights():
+            model = WanTransformer3DModel.from_config(config)
+
+        hf_quantizer.preprocess_model(
+            model=model, device_map=None, state_dict=converted, keep_in_fp32_modules=[]
         )
 
+        load_model_dict_into_meta(
+            model,
+            converted,
+            dtype=torch_dtype,
+            device_map={"": torch.device("cpu")},
+            hf_quantizer=hf_quantizer,
+            keep_in_fp32_modules=[],
+            unexpected_keys=[],
+        )
+
+        hf_quantizer.postprocess_model(model)
+        model.hf_quantizer = hf_quantizer
+        model.eval()
+
+        self.transformer = model
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
