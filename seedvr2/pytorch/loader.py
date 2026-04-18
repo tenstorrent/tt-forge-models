@@ -13,6 +13,7 @@ Available variants:
 - SEEDVR2_7B_SHARP: Sharper variant (seedvr2_ema_7b_sharp.pth)
 """
 
+import os
 import sys
 from typing import Optional
 
@@ -31,6 +32,27 @@ from ...config import (
 )
 
 REPO_ID = "ByteDance-Seed/SeedVR2-7B"
+SEEDVR_REPO_PATH = "/tmp/seedvr_repo"
+
+
+def _ensure_seedvr_importable():
+    """Clone the SeedVR GitHub repo for model code and make it importable."""
+    if not os.path.isdir(SEEDVR_REPO_PATH):
+        import subprocess
+
+        subprocess.check_call(
+            [
+                "git",
+                "clone",
+                "--filter=blob:none",
+                "https://github.com/ByteDance-Seed/SeedVR.git",
+                SEEDVR_REPO_PATH,
+            ]
+        )
+
+    if SEEDVR_REPO_PATH not in sys.path:
+        sys.path.insert(0, SEEDVR_REPO_PATH)
+
 
 # NaDiT model input dimensions for testing
 # The model operates in latent space: patch_size [1, 2, 2],
@@ -91,32 +113,27 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SeedVR2-7B NaDiT model.
 
-        Downloads the model repository, imports the custom NaDiT architecture,
-        and loads the pretrained weights.
+        Clones the SeedVR GitHub repo for model code, downloads weights from
+        HuggingFace, and instantiates the NaDiT model.
 
         Returns:
             torch.nn.Module: The NaDiT diffusion transformer model.
         """
         from omegaconf import OmegaConf
 
-        repo_path = self._get_repo_path()
-
-        # Add repo to path for custom module imports
-        if repo_path not in sys.path:
-            sys.path.insert(0, repo_path)
+        _ensure_seedvr_importable()
 
         from utils.utils import instantiate_from_config
 
-        config = OmegaConf.load(f"{repo_path}/configs_7b/main.yaml")
+        config = OmegaConf.load(f"{SEEDVR_REPO_PATH}/configs_7b/main.yaml")
 
-        # Instantiate the NaDiT model from config
         model = instantiate_from_config(config.model.dit)
 
-        # Load pretrained weights
+        weights_path = self._get_repo_path()
         if self._variant == ModelVariant.SEEDVR2_7B_SHARP:
-            ckpt_path = f"{repo_path}/seedvr2_ema_7b_sharp.pth"
+            ckpt_path = f"{weights_path}/seedvr2_ema_7b_sharp.pth"
         else:
-            ckpt_path = f"{repo_path}/seedvr2_ema_7b.pth"
+            ckpt_path = f"{weights_path}/seedvr2_ema_7b.pth"
 
         state_dict = torch.load(ckpt_path, map_location="cpu", weights_only=True)
         model.load_state_dict(state_dict)
