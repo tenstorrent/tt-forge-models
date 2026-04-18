@@ -4,6 +4,7 @@
 """
 ViT-SigLIP model loader implementation for image-text similarity using OpenCLIP.
 """
+
 import torch
 import torch.nn.functional as F
 from typing import Optional
@@ -33,6 +34,13 @@ _TOKENIZER_NAME = {
     ModelVariant.VIT_B_16: "ViT-B-16-SigLIP",
     ModelVariant.VIT_L_16_384: "ViT-L-16-SigLIP-384",
 }
+
+
+def _patch_hf_tokenizer(tokenizer):
+    """Restore batch_encode_plus for transformers 5.x compatibility with open_clip."""
+    hf_tok = getattr(tokenizer, "tokenizer", None)
+    if hf_tok is not None and not hasattr(hf_tok, "batch_encode_plus"):
+        hf_tok.batch_encode_plus = hf_tok.__call__
 
 
 class ModelLoader(ForgeModel):
@@ -81,6 +89,7 @@ class ModelLoader(ForgeModel):
 
         model, self.preprocess = create_model_from_pretrained(pretrained_model_name)
         self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
+        _patch_hf_tokenizer(self.tokenizer)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -107,6 +116,7 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
             self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
+            _patch_hf_tokenizer(self.tokenizer)
 
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
