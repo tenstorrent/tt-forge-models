@@ -4,6 +4,7 @@
 """
 WeDLM model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -28,6 +29,72 @@ class ModelVariant(StrEnum):
 
 class ModelLoader(ForgeModel):
     """WeDLM model loader implementation for causal language modeling tasks."""
+
+    @staticmethod
+    def _patch_transformers_compat():
+        """Patch transformers 5.x for WeDLM dynamic module compatibility."""
+        from functools import wraps
+
+        import transformers.utils.generic as generic_utils
+
+        if not hasattr(generic_utils, "check_model_inputs"):
+
+            def check_model_inputs(func=None, *, tie_last_hidden_states=True):
+                def decorator(fn):
+                    @wraps(fn)
+                    def wrapper(self, *args, **kwargs):
+                        return fn(self, *args, **kwargs)
+
+                    return wrapper
+
+                if func is not None:
+                    return decorator(func)
+                return decorator
+
+            generic_utils.check_model_inputs = check_model_inputs
+
+        from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
+        if "default" not in ROPE_INIT_FUNCTIONS:
+
+            def _compute_default_rope_parameters(
+                config=None, device=None, seq_len=None
+            ):
+                base = config.rope_theta
+                partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+                head_dim = getattr(config, "head_dim", None) or (
+                    config.hidden_size // config.num_attention_heads
+                )
+                dim = int(head_dim * partial_rotary_factor)
+                inv_freq = 1.0 / (
+                    base
+                    ** (
+                        torch.arange(0, dim, 2, dtype=torch.int64).to(
+                            device=device, dtype=torch.float
+                        )
+                        / dim
+                    )
+                )
+                return inv_freq, 1.0
+
+            ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
+
+        import transformers.modeling_utils as _mu
+
+        _orig_init_weights = _mu.PreTrainedModel._init_weights
+
+        def _patched_init_weights(self, module):
+            if (
+                "RotaryEmbedding" in module.__class__.__name__
+                and hasattr(module, "_compute_default_rope_parameters")
+                and not hasattr(module, "compute_default_rope_parameters")
+            ):
+                module.compute_default_rope_parameters = (
+                    module._compute_default_rope_parameters
+                )
+            return _orig_init_weights(self, module)
+
+        _mu.PreTrainedModel._init_weights = _patched_init_weights
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
@@ -130,6 +197,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        self._patch_transformers_compat()
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
