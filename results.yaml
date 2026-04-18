@@ -7,3 +7,7 @@ results:
   status: "MAX_FAILED_ATTEMPTS"
   date: "20260418_071951"
   branch: "ip-172-31-17-155-tt-xla-dev/ubuntu/hf-bringup-range-500-1000-1"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[mradermacher_sex_roleplay_3_2_1b_i1_gguf/causal_lm/pytorch-3_2_1B_I1_Q4_K_M_GGUF-single_device-inference]"
+  status: "PASS"
+  date: "20260418_074509"
+  branch: "ip-172-31-17-155-tt-xla-dev/ubuntu/hf-bringup-range-500-1000-1"
