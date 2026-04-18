@@ -5,19 +5,21 @@
 JujoHotaru LoRA Stable Diffusion model loader implementation
 """
 
+from typing import Any, Optional
+
 import torch
+from diffusers import StableDiffusionPipeline
+
+from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
-from ...base import ForgeModel
-from diffusers import StableDiffusionPipeline
-from typing import Optional
 
 
 class ModelVariant(StrEnum):
@@ -45,9 +47,12 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.pipeline: Optional[StableDiffusionPipeline] = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
             model="JujoHotaru LoRA",
             variant=variant,
@@ -58,18 +63,55 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionPipeline.from_pretrained(
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
+        self.pipeline = StableDiffusionPipeline.from_pretrained(
             self._BASE_MODEL, torch_dtype=dtype, **kwargs
         )
-        pipe.load_lora_weights(
+        self.pipeline.load_lora_weights(
             self._variant_config.pretrained_model_name,
             weight_name=self._LORA_WEIGHT_NAMES[self._variant],
         )
-        return pipe
+        self.pipeline.fuse_lora()
+
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        prompt = [
-            "1girl, achillea eyes, looking at viewer, upper body",
-        ] * batch_size
-        return prompt
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        dtype = self.pipeline.unet.dtype
+        prompt = "1girl, achillea eyes, looking at viewer, upper body"
+
+        text_inputs = self.pipeline.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            encoder_hidden_states = self.pipeline.text_encoder(text_inputs.input_ids)[
+                0
+            ].to(dtype)
+
+        in_channels = self.pipeline.unet.config.in_channels
+        sample_size = self.pipeline.unet.config.sample_size
+        latent_sample = torch.randn(
+            batch_size, in_channels, sample_size, sample_size, dtype=dtype
+        )
+        timestep = torch.tensor([1.0], dtype=dtype)
+
+        if dtype_override:
+            latent_sample = latent_sample.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            encoder_hidden_states = encoder_hidden_states.to(dtype_override)
+
+        return [latent_sample, timestep, encoder_hidden_states]
+
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        if hasattr(fwd_output, "sample"):
+            return fwd_output.sample
+        return fwd_output
