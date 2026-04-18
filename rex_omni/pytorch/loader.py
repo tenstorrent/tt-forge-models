@@ -102,7 +102,10 @@ class ModelLoader(ForgeModel):
         )
         if self.processor is None:
             self._load_processor()
-        model.resize_token_embeddings(len(self.processor.tokenizer))
+        tokenizer = self.processor.tokenizer
+        model.resize_token_embeddings(len(tokenizer))
+        model.config.image_token_id = tokenizer.convert_tokens_to_ids("<|image_pad|>")
+        model.config.video_token_id = tokenizer.convert_tokens_to_ids("<|video_pad|>")
         model.config.use_cache = False
         model.eval()
         model = Wrapper(model)
