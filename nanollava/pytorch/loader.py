@@ -8,7 +8,7 @@ NanoLLaVA model loader implementation for multimodal visual question answering.
 from typing import Optional
 
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 
 from ...base import ForgeModel
 from ...config import (
@@ -68,7 +68,11 @@ class ModelLoader(ForgeModel):
         """Load and return the NanoLLaVA model instance."""
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+        if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
+            config.pad_token_id = config.eos_token_id
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -86,19 +90,15 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        # Build prompt
         conversation = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": "What is shown in this image?"},
-                ],
+                "content": "<image>\nWhat is shown in this image?",
             }
         ]
 
         text_prompt = self.processor.apply_chat_template(
-            conversation, padding=True, add_generation_prompt=True
+            conversation, tokenize=False, add_generation_prompt=True
         )
 
         # Load sample image
