@@ -115,3 +115,7 @@ results:
   status: "COMPILE_FAILED: Error code 13 during XLA compilation"
   date: "20260418_115629"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-1"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[stable_code_instruct_3b_gguf/causal_lm/pytorch-3B_Q4_K_M-single_device-inference]"
+  status: "COMPILE_FAILED"
+  date: "20260418_120358"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-1"
