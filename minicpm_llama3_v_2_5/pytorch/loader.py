@@ -6,9 +6,12 @@ MiniCPM-Llama3-V-2.5 model loader implementation for multimodal visual question 
 """
 
 import builtins
+from copy import deepcopy
+
 import torch
+from torch import nn
 from PIL import Image
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoProcessor, AutoTokenizer
 from typing import Optional
 
 from ...base import ForgeModel
@@ -22,6 +25,24 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import get_file
+
+
+class MiniCPMVWrapper(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, input_ids, pixel_values, image_bound, tgt_sizes):
+        seq_len = input_ids.shape[1]
+        position_ids = torch.arange(seq_len, device=input_ids.device).unsqueeze(0)
+        data = {
+            "input_ids": input_ids,
+            "position_ids": position_ids,
+            "pixel_values": pixel_values,
+            "image_bound": image_bound,
+            "tgt_sizes": tgt_sizes,
+        }
+        return self.model(data)
 
 
 class ModelVariant(StrEnum):
@@ -47,6 +68,7 @@ class ModelLoader(ForgeModel):
         """Initialize MiniCPM-Llama3-V-2.5 model loader."""
         super().__init__(variant)
         self.tokenizer = None
+        self.processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -92,7 +114,12 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        return model
+        self.processor = AutoProcessor.from_pretrained(
+            str(model_name),
+            trust_remote_code=True,
+        )
+
+        return MiniCPMVWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return input tensors for MiniCPM-Llama3-V-2.5."""
@@ -103,8 +130,32 @@ class ModelLoader(ForgeModel):
         image = Image.open(image_file).convert("RGB")
 
         msgs = [{"role": "user", "content": self.sample_text}]
+        copy_msgs = deepcopy(msgs)
+        copy_msgs[0]["content"] = [image, copy_msgs[0]["content"]]
 
-        return {"image": image, "msgs": msgs}
+        for msg in copy_msgs:
+            content = msg["content"]
+            if isinstance(content, str):
+                content = [content]
+            parts = []
+            for c in content:
+                if isinstance(c, Image.Image):
+                    parts.append("(<image>./</image>)")
+                elif isinstance(c, str):
+                    parts.append(c)
+            msg["content"] = "\n".join(parts)
+
+        prompt = self.processor.tokenizer.apply_chat_template(
+            copy_msgs, tokenize=False, add_generation_prompt=True
+        )
+        inputs = self.processor(prompt, [image], return_tensors="pt", max_length=2048)
+
+        return {
+            "input_ids": inputs["input_ids"],
+            "pixel_values": inputs["pixel_values"],
+            "image_bound": inputs["image_bound"],
+            "tgt_sizes": inputs["tgt_sizes"],
+        }
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
