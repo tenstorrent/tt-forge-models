@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 RetriBERT model loader for text retrieval feature extraction.
+
+RetriBERT was removed from transformers v5, so this loader manually
+reconstructs the model from BertModel + projection layers.
 """
 import torch
 import torch.nn as nn
@@ -20,20 +23,27 @@ from third_party.tt_forge_models.config import (
 from third_party.tt_forge_models.base import ForgeModel
 
 
-class RetriBertEmbedWrapper(nn.Module):
-    """Wrapper around RetriBertModel that calls embed_questions for inference.
+class RetriBertModel(nn.Module):
+    """RetriBERT: BERT encoder with query/doc projection heads.
 
-    The native RetriBertModel.forward computes a contrastive loss, which is not
-    useful for feature extraction. This wrapper exposes embed_questions as the
-    forward pass so the model produces query embeddings (projected to 128-dim).
+    Reimplemented here because transformers v5 removed RetriBertModel.
+    Architecture: shared BertModel (8 layers) + two linear projections.
     """
 
-    def __init__(self, model):
+    def __init__(self, bert, project_query, project_doc):
         super().__init__()
-        self.model = model
+        self.bert_query = bert
+        self.project_query = project_query
+        self.project_doc = project_doc
+
+    def embed_questions(self, input_ids, attention_mask=None):
+        cls_output = self.bert_query(input_ids, attention_mask=attention_mask)[0][
+            :, 0, :
+        ]
+        return self.project_query(cls_output)
 
     def forward(self, input_ids, attention_mask=None, **kwargs):
-        return self.model.embed_questions(input_ids, attention_mask=attention_mask)
+        return self.embed_questions(input_ids, attention_mask=attention_mask)
 
 
 class ModelVariant(StrEnum):
@@ -79,31 +89,75 @@ class ModelLoader(ForgeModel):
 
             model_name = self._variant_config.pretrained_model_name
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token or "[PAD]"
 
         return self.tokenizer
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoModel
+    @staticmethod
+    def _build_retribert(model_name, dtype_override=None):
+        from transformers import BertConfig, BertModel
+        from huggingface_hub import hf_hub_download
 
+        config_path = hf_hub_download(model_name, "config.json")
+        import json
+
+        with open(config_path) as f:
+            raw_config = json.load(f)
+
+        bert_config = BertConfig(
+            vocab_size=raw_config["vocab_size"],
+            hidden_size=raw_config["hidden_size"],
+            num_hidden_layers=raw_config["num_hidden_layers"],
+            num_attention_heads=raw_config["num_attention_heads"],
+            intermediate_size=raw_config["intermediate_size"],
+            hidden_act=raw_config["hidden_act"],
+            hidden_dropout_prob=raw_config["hidden_dropout_prob"],
+            attention_probs_dropout_prob=raw_config["attention_probs_dropout_prob"],
+            max_position_embeddings=raw_config["max_position_embeddings"],
+            type_vocab_size=raw_config["type_vocab_size"],
+            layer_norm_eps=raw_config["layer_norm_eps"],
+            pad_token_id=raw_config["pad_token_id"],
+        )
+        if dtype_override is not None:
+            bert_config.torch_dtype = dtype_override
+
+        hidden_size = raw_config["hidden_size"]
+        projection_dim = raw_config["projection_dim"]
+
+        bert = BertModel(bert_config)
+        project_query = nn.Linear(hidden_size, projection_dim, bias=False)
+        project_doc = nn.Linear(hidden_size, projection_dim, bias=False)
+
+        weights_path = hf_hub_download(model_name, "pytorch_model.bin")
+        state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
+
+        bert_sd = {
+            k.replace("bert_query.", ""): v
+            for k, v in state_dict.items()
+            if k.startswith("bert_query.")
+        }
+        bert.load_state_dict(bert_sd)
+        project_query.weight = nn.Parameter(state_dict["project_query.weight"])
+        project_doc.weight = nn.Parameter(state_dict["project_doc.weight"])
+
+        model = RetriBertModel(bert, project_query, project_doc)
+
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
+        return model
+
+    def load_model(self, *, dtype_override=None, **kwargs):
         if self.tokenizer is None:
             self._load_tokenizer()
 
         model_name = self._variant_config.pretrained_model_name
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = AutoModel.from_pretrained(model_name, **model_kwargs)
+        model = self._build_retribert(model_name, dtype_override=dtype_override)
         model.eval()
 
-        wrapped = RetriBertEmbedWrapper(model)
-        wrapped.eval()
-
-        self.model = wrapped
-
-        return wrapped
+        self.model = model
+        return model
 
     def load_inputs(self, dtype_override=None, sentence=None):
         if self.tokenizer is None:
