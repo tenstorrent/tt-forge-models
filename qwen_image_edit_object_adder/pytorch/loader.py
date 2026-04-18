@@ -98,16 +98,21 @@ class ModelLoader(ForgeModel):
 
         config = self.pipeline.transformer.config
         in_channels = config.in_channels
-        hidden_states = torch.randn(1, in_channels, 8, 8, dtype=dtype)
+        img_h, img_w = 4, 4
+        img_seq_len = img_h * img_w
+        hidden_states = torch.randn(1, img_seq_len, in_channels, dtype=dtype)
 
-        seq_len = 16
+        text_seq_len = 16
         hidden_dim = config.joint_attention_dim
-        encoder_hidden_states = torch.randn(1, seq_len, hidden_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(1, text_seq_len, hidden_dim, dtype=dtype)
 
         timestep = torch.tensor([1.0], dtype=dtype)
+
+        img_shapes = [((1, img_h, img_w),)]
 
         return {
             "hidden_states": hidden_states,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
+            "img_shapes": img_shapes,
         }
