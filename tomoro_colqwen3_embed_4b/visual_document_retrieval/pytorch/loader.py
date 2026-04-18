@@ -121,7 +121,6 @@ class ModelLoader(ForgeModel):
 
         inputs = self.processor.process_texts(
             texts=self.sample_queries,
-            return_tensors="pt",
         )
 
         if dtype_override is not None:
