@@ -98,6 +98,7 @@ class MASt3RWrapper(torch.nn.Module):
         self.height = height
         self.width = width
 
+    @torch.compiler.disable
     def forward(self, img1, img2):
         view1 = {
             "img": img1.float(),
