@@ -5,6 +5,7 @@
 Tema Q-X3 Thinking GGUF model loader implementation for causal language modeling.
 """
 import importlib
+import importlib.metadata
 import sys
 
 import torch
@@ -24,11 +25,10 @@ def _is_gguf_available(min_version: str = _import_utils.GGUF_MIN_VERSION) -> boo
         gguf = importlib.import_module("gguf")
         ver = getattr(gguf, "__version__", None)
         if ver is None:
-            import importlib.metadata
-
             ver = importlib.metadata.version("gguf")
         return Version(ver) >= Version(min_version)
-    except Exception:
+    except Exception as e:
+        print(f"[DEBUG _is_gguf_available] failed: {type(e).__name__}: {e}", flush=True)
         return False
 
 
