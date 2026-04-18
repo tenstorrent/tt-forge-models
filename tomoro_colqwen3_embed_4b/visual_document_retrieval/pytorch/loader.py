@@ -4,9 +4,9 @@
 """
 Tomoro ColQwen3 Embed 4B model loader implementation for visual document retrieval.
 """
-import importlib
+import sys
 import torch
-from transformers import AutoConfig, AutoModel, AutoProcessor
+from transformers import AutoModel, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -70,19 +70,17 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     @staticmethod
-    def _patch_tie_weights(pretrained_model_name):
-        config = AutoConfig.from_pretrained(
-            pretrained_model_name, trust_remote_code=True
-        )
-        base_module = config.__class__.__module__.rsplit(".", 1)[0]
-        modeling_module = importlib.import_module(base_module + ".modeling_colqwen3")
-        cls = modeling_module.ColQwen3
-        original = cls.tie_weights
+    def _patch_colqwen3_tie_weights():
+        for mod in sys.modules.values():
+            cls = getattr(mod, "ColQwen3", None)
+            if cls is None:
+                continue
+            original = cls.tie_weights
 
-        def tie_weights(self, **kwargs):
-            return original(self)
+            def _tie_weights(self, **kwargs):
+                return original(self)
 
-        cls.tie_weights = tie_weights
+            cls.tie_weights = _tie_weights
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -90,17 +88,22 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        self._patch_tie_weights(pretrained_model_name)
-
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(
-            pretrained_model_name,
-            **model_kwargs,
-        )
+        try:
+            model = AutoModel.from_pretrained(
+                pretrained_model_name,
+                **model_kwargs,
+            )
+        except TypeError:
+            self._patch_colqwen3_tie_weights()
+            model = AutoModel.from_pretrained(
+                pretrained_model_name,
+                **model_kwargs,
+            )
         model.eval()
 
         return model
