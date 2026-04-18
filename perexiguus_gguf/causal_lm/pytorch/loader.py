@@ -39,7 +39,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.PEREXIGUUS_0_6B_IQ4_XS
 
-    GGUF_FILE = "Perexiguus-0.6B.IQ4_XS.gguf"
+    GGUF_FILE = "Perexiguus-0.6B.i1-IQ4_XS.gguf"
 
     sample_text = "Tell me a short story about a traveler."
 
