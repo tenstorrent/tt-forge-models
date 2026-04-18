@@ -112,7 +112,7 @@ class ModelLoader(ForgeModel):
         )
         self.pipeline.fuse_lora()
 
-        self._transformer = self.pipeline.transformer
+        self._transformer = self.pipeline.transformer.to(dtype)
         self._transformer.eval()
         return self._transformer
 
