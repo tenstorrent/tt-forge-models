@@ -4,6 +4,8 @@
 """
 FLUX.2 Klein 9B KV FP8 model loader implementation for text-to-image generation.
 """
+from pathlib import Path
+
 import torch
 from diffusers.models import Flux2Transformer2DModel
 from typing import Optional
@@ -37,6 +39,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.KLEIN_9B_KV_FP8
 
+    SAFETENSORS_FILE = "flux-2-klein-9b-kv-fp8.safetensors"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.transformer = None
@@ -57,18 +61,11 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"use_safetensors": True}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        self.transformer = Flux2Transformer2DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            subfolder="transformer",
-            **load_kwargs,
-        )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+        config_path = Path(__file__).parent / "transformer" / "config.json"
+        config = Flux2Transformer2DModel.load_config(str(config_path.parent))
+        self.transformer = Flux2Transformer2DModel.from_config(config).to(compute_dtype)
 
         return self.transformer
 
