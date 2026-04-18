@@ -11,10 +11,13 @@ Available variants:
 - NSFW_MASTER_Z_IMAGE_TURBO: Z-Image-Turbo with NSFW-MASTER LoRA weights applied
 """
 
+import re
 from typing import Any, Optional
 
 import torch
 from diffusers import ZImagePipeline
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -64,6 +67,43 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _convert_lora_state_dict(state_dict):
+        """Convert non-diffusers Z-Image LoRA state dict to diffusers format.
+
+        Works around a diffusers bug where normalize_out_key only handles
+        lora_down/lora_up key suffixes but not lora_A/lora_B, causing a
+        KeyError when alpha keys get renamed but weight keys do not.
+        """
+        state_dict = {
+            k.removeprefix("diffusion_model."): v for k, v in state_dict.items()
+        }
+
+        def normalize_out(k):
+            return re.sub(
+                r"\.out(?=\.(?:lora_A|lora_B|lora_down|lora_up)\.weight$|\.alpha$)",
+                ".to_out.0",
+                k,
+            )
+
+        state_dict = {normalize_out(k): v for k, v in state_dict.items()}
+
+        converted = {}
+        for k in list(state_dict.keys()):
+            if not k.endswith(".lora_A.weight"):
+                continue
+            base = k[: -len(".lora_A.weight")]
+            alpha_key = f"{base}.alpha"
+            b_key = f"{base}.lora_B.weight"
+            down = state_dict[k]
+            up = state_dict[b_key]
+            rank = down.shape[0]
+            alpha = state_dict[alpha_key].item()
+            scale = alpha / rank
+            converted[f"transformer.{k}"] = down * scale
+            converted[f"transformer.{b_key}"] = up
+        return converted
+
     def load_model(
         self,
         *,
@@ -83,7 +123,12 @@ class ModelLoader(ForgeModel):
             low_cpu_mem_usage=False,
         )
 
-        self.pipeline.load_lora_weights(LORA_REPO)
+        lora_path = hf_hub_download(
+            LORA_REPO, filename="NSFW_master_ZIT_000008766.safetensors"
+        )
+        raw_sd = load_file(lora_path)
+        converted_sd = self._convert_lora_state_dict(raw_sd)
+        self.pipeline.load_lora_weights(converted_sd)
 
         return self.pipeline.transformer
 
