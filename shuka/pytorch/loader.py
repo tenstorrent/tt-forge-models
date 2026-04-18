@@ -83,11 +83,27 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        self.model = transformers.AutoModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            **model_kwargs,
-        )
+        _orig_init_weights = transformers.PreTrainedModel.init_weights
+
+        def _safe_init_weights(mdl_self):
+            try:
+                _orig_init_weights(mdl_self)
+            except TypeError as e:
+                if "recompute_mapping" in str(e):
+                    mdl_self.initialize_weights()
+                    mdl_self.tie_weights()
+                else:
+                    raise
+
+        transformers.PreTrainedModel.init_weights = _safe_init_weights
+        try:
+            self.model = transformers.AutoModel.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                trust_remote_code=True,
+                **model_kwargs,
+            )
+        finally:
+            transformers.PreTrainedModel.init_weights = _orig_init_weights
         self.model.eval()
 
         return self.model
@@ -122,7 +138,8 @@ class ModelLoader(ForgeModel):
             {"role": "user", "content": "<|audio|>"},
         ]
 
-        text = self.processor.tokenizer.apply_chat_template(
+        tokenizer = getattr(self.processor, "tokenizer", self.processor)
+        text = tokenizer.apply_chat_template(
             turns, add_generation_prompt=True, tokenize=False
         )
 
