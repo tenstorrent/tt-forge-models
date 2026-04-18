@@ -96,6 +96,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        if getattr(model.config, "attention_chunk_size", None) is None:
+            model.config.attention_chunk_size = 8192
+
         self.config = model.config
         self.model = model
         return model
