@@ -4,9 +4,23 @@
 """
 Koishi 1.5 model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.tokenization_utils_tokenizers as _tut
 from typing import Optional
+
+# Workaround for transformers 5.2.0 bug where fix_mistral_regex is passed both
+# as an explicit kwarg and via **kwargs to _patch_mistral_regex.
+_orig_tokenizers_backend_init = _tut.TokenizersBackend.__init__
+
+
+def _patched_tokenizers_backend_init(self, *args, **kwargs):
+    kwargs.pop("fix_mistral_regex", None)
+    return _orig_tokenizers_backend_init(self, *args, **kwargs)
+
+
+_tut.TokenizersBackend.__init__ = _patched_tokenizers_backend_init
 
 from ....base import ForgeModel
 from ....config import (
@@ -60,12 +74,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name,
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
