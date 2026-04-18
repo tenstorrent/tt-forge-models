@@ -4,6 +4,8 @@
 """
 FLUX.1 Krea Dev GGUF model loader implementation for text-to-image generation
 """
+import os
+
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
@@ -21,6 +23,7 @@ from ...config import (
 )
 
 GGUF_REPO = "QuantStack/FLUX.1-Krea-dev-GGUF"
+CONFIG_DIR = os.path.join(os.path.dirname(__file__), "flux_transformer_config")
 
 
 class ModelVariant(StrEnum):
@@ -67,6 +70,7 @@ class ModelLoader(ForgeModel):
 
         self.transformer = FluxTransformer2DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{self.GGUF_FILE}",
+            config=CONFIG_DIR,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
