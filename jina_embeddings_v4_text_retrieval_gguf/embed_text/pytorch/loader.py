@@ -64,6 +64,14 @@ def _patch_transformers_qwen2vl_gguf():
         config = result.get("config", {})
         if config.get("model_type") == "qwen2vl":
             config["model_type"] = "qwen2_vl"
+            if "rope_parameters" not in config:
+                rope_theta = config.get("rope_theta", 1000000.0)
+                config["rope_parameters"] = {
+                    "type": "mrope",
+                    "mrope_section": [16, 24, 24],
+                    "rope_theta": rope_theta,
+                    "rope_type": "default",
+                }
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
