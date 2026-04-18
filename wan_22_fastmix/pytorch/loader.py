@@ -16,6 +16,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
+import torch.nn as nn
 from diffusers import AutoencoderKLWan  # type: ignore[import]
 
 from ...base import ForgeModel
@@ -29,19 +30,49 @@ from ...config import (
     StrEnum,
 )
 
+
+class WanVAEWrapper(nn.Module):
+    """Wrapper that encodes and decodes without chunked temporal caching.
+
+    The default AutoencoderKLWan._encode splits input into 1-frame chunks and
+    uses feat_cache, which produces ``x[:, :, -2:]`` slices on tensors with
+    temporal dim 1.  XLA rejects the out-of-range negative index.  This wrapper
+    feeds all frames at once through encoder/decoder (feat_cache=None) so the
+    problematic slice is never reached.
+    """
+
+    def __init__(self, vae: AutoencoderKLWan):
+        super().__init__()
+        self.encoder = vae.encoder
+        self.decoder = vae.decoder
+        self.quant_conv = vae.quant_conv
+        self.post_quant_conv = vae.post_quant_conv
+        self.z_dim = vae.config.z_dim
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.encoder(x)
+        h = self.quant_conv(h)
+        # quant_conv output has 2*z_dim channels (mean + logvar); take the mean
+        mean = h[:, : self.z_dim, :, :, :]
+        z = self.post_quant_conv(mean)
+        dec = self.decoder(z)
+        return dec
+
+
 REPO_ID = "Zuntan/Wan22-FastMix"
 
 # VAE config source (Wan 2.2 FastMix uses the same VAE as Wan 2.1 I2V)
 _VAE_CONFIG = "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers"
 
-# Wan 2.x VAE uses 16 latent channels (z_dim=16)
-LATENT_CHANNELS = 16
+# RGB input channels
+RGB_CHANNELS = 3
 
-# Small test dimensions for VAE inputs
-# Wan VAE compression: 4x temporal, 8x spatial
-LATENT_HEIGHT = 8
-LATENT_WIDTH = 8
-LATENT_DEPTH = 2  # temporal latent frames
+# Small test spatial dimensions (must be divisible by 8 for Wan VAE spatial compression)
+SPATIAL_SIZE = 64
+
+# Wan temporal constraint: T = 1 + 4*N; use N=1 for minimal test
+NUM_TEMPORAL_CHUNKS = 1
+NUM_FRAMES = 1 + 4 * NUM_TEMPORAL_CHUNKS  # 5 frames
 
 
 class ModelVariant(StrEnum):
@@ -63,6 +94,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self._vae = None
+        self._dtype = torch.float32
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -84,48 +116,32 @@ class ModelLoader(ForgeModel):
             subfolder="vae",
             torch_dtype=dtype,
         )
+        self._vae = self._vae.to(dtype=dtype)
         self._vae.eval()
         return self._vae
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the Wan VAE model.
+        """Load and return a wrapped Wan VAE model.
 
         Returns:
-            AutoencoderKLWan instance.
+            WanVAEWrapper that encodes/decodes without temporal chunking.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
+        self._dtype = dtype
         if self._vae is None:
-            return self._load_vae(dtype)
-        if dtype_override is not None:
+            self._load_vae(dtype)
+        elif dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
-        return self._vae
+        wrapper = WanVAEWrapper(self._vae)
+        wrapper.eval()
+        return wrapper
 
     def load_inputs(self, **kwargs) -> Any:
-        """Prepare inputs for the VAE.
+        """Prepare RGB video inputs for the VAE encode-decode forward pass.
 
-        Pass vae_type="decoder" or vae_type="encoder" to select input type.
-        Defaults to decoder inputs.
+        Returns [batch, 3, T, H, W] tensor matching Wan temporal constraint T = 1 + 4*N.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        vae_type = kwargs.get("vae_type", "decoder")
-
-        if vae_type == "decoder":
-            # [batch, channels, time, height, width]
-            return torch.randn(
-                1,
-                LATENT_CHANNELS,
-                LATENT_DEPTH,
-                LATENT_HEIGHT,
-                LATENT_WIDTH,
-                dtype=dtype,
-            )
-        elif vae_type == "encoder":
-            # T must satisfy T = 1 + 4*N (Wan temporal constraint)
-            num_frames = 1 + 4 * LATENT_DEPTH  # 9 frames
-            return torch.randn(
-                1, 3, num_frames, LATENT_HEIGHT * 8, LATENT_WIDTH * 8, dtype=dtype
-            )
-        else:
-            raise ValueError(
-                f"Unknown vae_type: {vae_type}. Expected 'decoder' or 'encoder'."
-            )
+        dtype = kwargs.get("dtype_override", self._dtype)
+        return torch.randn(
+            1, RGB_CHANNELS, NUM_FRAMES, SPATIAL_SIZE, SPATIAL_SIZE, dtype=dtype
+        )
