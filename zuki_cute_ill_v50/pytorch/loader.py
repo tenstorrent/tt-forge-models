@@ -11,7 +11,6 @@ Available variants:
 - ZUKI_CUTE_ILL_V50: John6666/zuki-cute-ill-v50-sdxl text-to-image generation
 """
 
-import torch
 from typing import Optional
 
 from ...base import ForgeModel
@@ -79,36 +78,23 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Zuki Cute Ill v50 pipeline.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
+        """Load and return the UNet from the Zuki Cute Ill v50 SDXL pipeline.
 
         Returns:
-            DiffusionPipeline: The Zuki Cute Ill v50 pipeline instance.
+            torch.nn.Module: The UNet model used for denoising.
         """
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        self.pipeline = load_pipe(pretrained_model_name)
+        self.pipeline = load_pipe(self._variant_config.pretrained_model_name)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
-    def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the Zuki Cute Ill v50 model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        """Load and return sample inputs for the UNet model.
 
         Returns:
-            List : Input tensors that can be fed to the model:
-                - latent_model_input (torch.Tensor): Latent input for the UNet
-                - timestep (torch.Tensor): Timestep tensor
-                - prompt_embeds (torch.Tensor): Encoded prompt embeddings
-                - added_cond_kwargs (dict): Additional conditioning inputs
+            dict: Keyword arguments for the UNet forward method.
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -122,9 +108,16 @@ class ModelLoader(ForgeModel):
             add_time_ids,
         ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
 
+        timestep = timesteps[0]
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
