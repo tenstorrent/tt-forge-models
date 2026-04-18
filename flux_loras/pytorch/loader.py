@@ -213,6 +213,7 @@ class ModelLoader(ForgeModel):
             "txt_ids": text_ids,
             "img_ids": latent_image_ids,
             "joint_attention_kwargs": {},
+            "return_dict": False,
         }
 
         return inputs
