@@ -1,0 +1,5 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[poolformer/feature_extraction/pytorch-Tiny_Random-single_device-inference]"
+  status: "MAX_FAILED_ATTEMPTS"
+  date: "20260418_194004"
+  branch: "ip-172-31-30-232-tt-xla-dev/ubuntu/hf-bringup-range-1500-500-7"
