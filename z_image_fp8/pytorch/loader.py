@@ -24,6 +24,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from .src.model_utils import patch_transformer_complex_ops
 
 FP8_REPO_ID = "drbaph/Z-Image-fp8"
 PIPELINE_REPO_ID = "Tongyi-MAI/Z-Image"
@@ -92,6 +93,7 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         if self._pipe is None:
             self._load_pipeline(dtype)
+        patch_transformer_complex_ops(self._pipe.transformer)
         return self._pipe.transformer
 
     def load_inputs(self, **kwargs) -> Any:
