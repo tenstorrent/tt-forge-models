@@ -3,6 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Mozilla AI WizardCoder Python 34B V1.0 llamafile model loader implementation for causal language modeling.
+
+Uses the standard-format WizardLM/WizardCoder-Python-34B-V1.0 model since the
+llamafile format (.llamafile) prepends an executable header that is incompatible
+with the GGUF reader.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -31,14 +35,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.WIZARDCODER_PYTHON_34B_V1_0_LLAMAFILE: LLMModelConfig(
-            pretrained_model_name="mozilla-ai/WizardCoder-Python-34B-V1.0-llamafile",
+            pretrained_model_name="WizardLM/WizardCoder-Python-34B-V1.0",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.WIZARDCODER_PYTHON_34B_V1_0_LLAMAFILE
-
-    GGUF_FILE = "wizardcoder-python-34b-v1.0.Q4_K_M.llamafile"
 
     sample_text = "def fibonacci(n):"
 
@@ -65,7 +67,6 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,12 +86,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -144,6 +142,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name,
         )
         return self.config
