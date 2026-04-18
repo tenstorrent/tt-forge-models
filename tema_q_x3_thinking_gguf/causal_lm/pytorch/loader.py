@@ -27,8 +27,24 @@ def _is_gguf_available(min_version: str = _import_utils.GGUF_MIN_VERSION) -> boo
         return False
 
 
-_import_utils.is_gguf_available = _is_gguf_available
-_gguf_utils.is_gguf_available = _is_gguf_available
+def _patch_all_gguf_refs():
+    _import_utils.is_gguf_available = _is_gguf_available
+    _gguf_utils.is_gguf_available = _is_gguf_available
+    for mod_name in list(sys.modules):
+        mod = sys.modules.get(mod_name)
+        if mod is None:
+            continue
+        if getattr(mod, "is_gguf_available", None) is not _is_gguf_available:
+            if hasattr(mod, "is_gguf_available") and callable(
+                getattr(mod, "is_gguf_available")
+            ):
+                try:
+                    mod.is_gguf_available = _is_gguf_available
+                except (AttributeError, TypeError):
+                    pass
+
+
+_patch_all_gguf_refs()
 
 from ....base import ForgeModel
 from ....config import (
@@ -84,6 +100,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _patch_all_gguf_refs()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -98,6 +115,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _patch_all_gguf_refs()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -159,6 +177,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        _patch_all_gguf_refs()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
