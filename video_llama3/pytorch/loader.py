@@ -116,7 +116,10 @@ class ModelLoader(ForgeModel):
 
         if dtype_override:
             inputs = {
-                k: cast_input_to_type(v, dtype_override) for k, v in inputs.items()
+                k: cast_input_to_type(v, dtype_override)
+                if isinstance(v, torch.Tensor)
+                else v
+                for k, v in inputs.items()
             }
 
         return inputs
