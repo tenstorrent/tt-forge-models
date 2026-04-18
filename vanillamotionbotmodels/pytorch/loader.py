@@ -2,10 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-VanillaMotionBotModels Wan 2.2 I2V GGUF model loader implementation for video generation.
+VanillaMotionBotModels Wan 2.2 I2V model loader implementation for video generation.
 
-Loads GGUF-quantized Wan 2.2 I2V transformers from
-bullerwins/Wan2.2-I2V-A14B-GGUF.
+Loads the Wan 2.2 I2V A14B transformer from
+Wan-AI/Wan2.2-I2V-A14B-Diffusers.
 """
 
 from typing import Any, Optional
@@ -23,7 +23,7 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_REPO = "bullerwins/Wan2.2-I2V-A14B-GGUF"
+BASE_REPO = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
 
 TRANSFORMER_NUM_FRAMES = 2
 TRANSFORMER_HEIGHT = 4
@@ -38,21 +38,15 @@ class ModelVariant(StrEnum):
     I2V_14B_LOWNOISE_Q8_0 = "I2V_14B_LowNoise_Q8_0"
 
 
-_GGUF_FILES = {
-    ModelVariant.I2V_14B_HIGHNOISE_Q8_0: "wan2.2_i2v_high_noise_14B_Q8_0.gguf",
-    ModelVariant.I2V_14B_LOWNOISE_Q8_0: "wan2.2_i2v_low_noise_14B_Q8_0.gguf",
-}
-
-
 class ModelLoader(ForgeModel):
-    """VanillaMotionBotModels Wan 2.2 I2V GGUF model loader for video generation tasks."""
+    """VanillaMotionBotModels Wan 2.2 I2V model loader for video generation tasks."""
 
     _VARIANTS = {
         ModelVariant.I2V_14B_HIGHNOISE_Q8_0: ModelConfig(
-            pretrained_model_name=GGUF_REPO,
+            pretrained_model_name=BASE_REPO,
         ),
         ModelVariant.I2V_14B_LOWNOISE_Q8_0: ModelConfig(
-            pretrained_model_name=GGUF_REPO,
+            pretrained_model_name=BASE_REPO,
         ),
     }
 
@@ -77,24 +71,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        import diffusers.utils.import_utils as _diffusers_import_utils
-
-        if not _diffusers_import_utils._gguf_available:
-            import importlib.util
-
-            if importlib.util.find_spec("gguf") is not None:
-                _diffusers_import_utils._gguf_available = True
-
-        from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
+        from diffusers import WanTransformer3DModel
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        gguf_file = _GGUF_FILES[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
-
-        self._transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
-            quantization_config=quantization_config,
+        self._transformer = WanTransformer3DModel.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            subfolder="transformer",
             torch_dtype=compute_dtype,
         )
 
