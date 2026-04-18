@@ -4,6 +4,7 @@
 """
 SpeechJudge-GRM model loader implementation for speech naturalness evaluation.
 """
+
 import torch
 from transformers import (
     Qwen2_5OmniThinkerForConditionalGeneration,
@@ -89,6 +90,11 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
+
+        from transformers import AutoConfig
+
+        full_config = AutoConfig.from_pretrained(pretrained_model_name)
+        model_kwargs["config"] = full_config.thinker_config
 
         model = Qwen2_5OmniThinkerForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
