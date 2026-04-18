@@ -127,19 +127,23 @@ class ModelLoader(ForgeModel):
             self._pipe.transformer = self._pipe.transformer.to(dtype_override)
         return self._pipe.transformer
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare inputs for the selected variant.
 
         For Z_IMAGE_TURBO_VAE: pass vae_type="decoder" or vae_type="encoder".
         For Z_IMAGE_TURBO: returns transformer inputs (latents, timestep, prompt_embeds).
         """
         if self._variant == ModelVariant.Z_IMAGE_TURBO_VAE:
-            return self._load_vae_inputs(**kwargs)
-        return self._load_pipeline_inputs(**kwargs)
+            return self._load_vae_inputs(dtype_override=dtype_override, **kwargs)
+        return self._load_pipeline_inputs(dtype_override=dtype_override, **kwargs)
 
-    def _load_vae_inputs(self, **kwargs) -> Any:
+    def _load_vae_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare inputs for the VAE variant."""
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = dtype_override if dtype_override is not None else torch.float32
         vae_type = kwargs.get("vae_type", "decoder")
 
         if vae_type == "decoder":
@@ -157,9 +161,11 @@ class ModelLoader(ForgeModel):
                 f"Unknown vae_type: {vae_type}. Expected 'decoder' or 'encoder'."
             )
 
-    def _load_pipeline_inputs(self, **kwargs) -> Any:
+    def _load_pipeline_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare inputs for the full pipeline transformer variant."""
-        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         height = 128
         width = 128
         prompt = "A photo of an astronaut riding a horse on mars"
