@@ -17,7 +17,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import WanImageToVideoPipeline  # type: ignore[import]
-from PIL import Image  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -33,11 +32,17 @@ from ...config import (
 BASE_MODEL = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
 LORA_REPO = "lightx2v/Wan2.2-Distill-Loras"
 
-# LoRA weight filenames
 LORA_HIGH_NOISE = (
     "wan2.2_i2v_A14b_high_noise_lora_rank64_lightx2v_4step_1022.safetensors"
 )
 LORA_LOW_NOISE = "wan2.2_i2v_A14b_low_noise_lora_rank64_lightx2v_4step_1022.safetensors"
+
+IN_CHANNELS = 36
+TEXT_DIM = 4096
+LATENT_FRAMES = 1
+LATENT_HEIGHT = 4
+LATENT_WIDTH = 4
+TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -91,8 +96,7 @@ class ModelLoader(ForgeModel):
     ):
         """Load the Wan 2.2 I2V pipeline with distilled LoRA weights applied.
 
-        Returns:
-            WanImageToVideoPipeline with LoRA weights merged.
+        Returns the transformer component (torch.nn.Module) for compilation.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -107,24 +111,24 @@ class ModelLoader(ForgeModel):
             weight_name=lora_file,
         )
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for image-to-video generation.
+    def load_inputs(self, dtype_override=None, **kwargs) -> Any:
+        """Prepare pre-processed tensor inputs for the transformer.
 
         Returns:
-            dict with prompt and image keys.
+            dict matching WanTransformer3DModel.forward() signature.
         """
-        if prompt is None:
-            prompt = (
-                "A cat walking gracefully across a sunlit garden, "
-                "detailed fur texture, cinematic lighting"
-            )
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
-        # Create a small test image (RGB)
-        image = Image.new("RGB", (256, 256), color=(128, 128, 200))
+        hidden_states = torch.randn(
+            1, IN_CHANNELS, LATENT_FRAMES, LATENT_HEIGHT, LATENT_WIDTH, dtype=dtype
+        )
+        timestep = torch.randint(0, 1000, (1,))
+        encoder_hidden_states = torch.randn(1, TEXT_SEQ_LEN, TEXT_DIM, dtype=dtype)
 
         return {
-            "prompt": prompt,
-            "image": image,
+            "hidden_states": hidden_states,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
         }
