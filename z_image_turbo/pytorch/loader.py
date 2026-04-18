@@ -144,7 +144,7 @@ class ModelLoader(ForgeModel):
     ) -> Any:
         """Prepare inputs for the VAE variant."""
         dtype = dtype_override if dtype_override is not None else torch.float32
-        vae_type = kwargs.get("vae_type", "decoder")
+        vae_type = kwargs.get("vae_type", "encoder")
 
         if vae_type == "decoder":
             return torch.randn(
