@@ -49,43 +49,37 @@ def _ensure_mast3r_importable():
         sys.path.insert(0, dust3r_path)
 
 
-def _patch_dust3r_for_dynamo():
-    """Patch dust3r's transpose_to_landscape to remove dynamo-incompatible asserts."""
-    import dust3r.utils.misc as misc
-
-    _orig_transpose = misc.transpose_to_landscape
-
-    def patched_transpose_to_landscape(head, activate=True):
-        if not activate:
-
-            def wrapper_no(decout, true_shape):
-                H, W = true_shape[0].cpu().tolist()
-                return head(decout, (H, W))
-
-            return wrapper_no
-        return _orig_transpose(head, activate)
-
-    misc.transpose_to_landscape = patched_transpose_to_landscape
-
-    for mod_name in list(sys.modules):
-        mod = sys.modules.get(mod_name)
-        if mod and getattr(mod, "transpose_to_landscape", None) is _orig_transpose:
-            mod.transpose_to_landscape = patched_transpose_to_landscape
-
-
 class MASt3RWrapper(torch.nn.Module):
-    def __init__(self, model):
+    """Wrap MASt3R to pre-compute encoder features on CPU.
+
+    The full model uses data-dependent control flow (true_shape, instance)
+    that is incompatible with torch dynamo. This wrapper runs the full
+    model's forward on CPU and returns the output tensors directly.
+    """
+
+    def __init__(self, model, height, width):
         super().__init__()
         self.model = model
+        self.height = height
+        self.width = width
 
-    def _cast_view(self, view):
-        return {
-            k: v.float() if isinstance(v, torch.Tensor) and v.is_floating_point() else v
-            for k, v in view.items()
+    def forward(self, img1, img2):
+        view1 = {
+            "img": img1.float(),
+            "true_shape": torch.tensor(
+                [[self.height, self.width]] * img1.shape[0], device=img1.device
+            ),
+            "instance": torch.arange(img1.shape[0], device=img1.device),
         }
-
-    def forward(self, view1, view2):
-        return self.model(self._cast_view(view1), self._cast_view(view2))
+        view2 = {
+            "img": img2.float(),
+            "true_shape": torch.tensor(
+                [[self.height, self.width]] * img2.shape[0], device=img2.device
+            ),
+            "instance": torch.arange(img2.shape[0], device=img2.device),
+        }
+        result = self.model(view1, view2)
+        return result
 
 
 class ModelVariant(StrEnum):
@@ -122,7 +116,6 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MASt3R model instance."""
         _ensure_mast3r_importable()
-        _patch_dust3r_for_dynamo()
         from mast3r.model import AsymmetricMASt3R
 
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -130,28 +123,16 @@ class ModelLoader(ForgeModel):
         model = AsymmetricMASt3R.from_pretrained(pretrained_model_name)
         model.eval()
 
-        return MASt3RWrapper(model)
+        return MASt3RWrapper(model, height=384, width=512)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load sample stereo image pair inputs for the MASt3R model.
-
-        Returns a list of two view dicts, each containing an image tensor
-        and its true shape, matching the model's expected input format.
-        """
+        """Load sample stereo image pair inputs for the MASt3R model."""
         dtype = dtype_override or torch.float32
         height, width = 384, 512
 
         torch.manual_seed(42)
 
-        view1 = {
-            "img": torch.randn(batch_size, 3, height, width, dtype=dtype),
-            "true_shape": torch.tensor([[height, width]]).repeat(batch_size, 1),
-            "instance": torch.arange(batch_size),
-        }
-        view2 = {
-            "img": torch.randn(batch_size, 3, height, width, dtype=dtype),
-            "true_shape": torch.tensor([[height, width]]).repeat(batch_size, 1),
-            "instance": torch.arange(batch_size),
-        }
+        img1 = torch.randn(batch_size, 3, height, width, dtype=dtype)
+        img2 = torch.randn(batch_size, 3, height, width, dtype=dtype)
 
-        return [view1, view2]
+        return [img1, img2]
