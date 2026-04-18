@@ -4,19 +4,18 @@
 """
 Stable Diffusion x4 Upscaler model loader implementation.
 
-Loads the stabilityai/stable-diffusion-x4-upscaler pipeline, a text-guided
-latent upscaling diffusion model that produces 4x upscaled images conditioned
-on a low-resolution input image and a text prompt.
+Loads the stabilityai/stable-diffusion-x4-upscaler pipeline and extracts
+the UNet2DConditionModel for compilation. The UNet performs latent upscaling
+conditioned on text embeddings, with 7 input channels (4 latent + 3 low-res).
 
 Available variants:
 - BASE: stabilityai/stable-diffusion-x4-upscaler
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 from diffusers import StableDiffusionUpscalePipeline
-from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -48,6 +47,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -63,29 +63,44 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Diffusion x4 Upscaler pipeline.
-
-        Returns:
-            StableDiffusionUpscalePipeline: The pre-trained upscaling pipeline.
-        """
         dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionUpscalePipeline.from_pretrained(
+        self.pipeline = StableDiffusionUpscalePipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
             **kwargs,
         )
-        return pipe
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load sample inputs for the upscaler model.
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        Returns:
-            dict: Dictionary with 'prompt' (list of strings) and 'image'
-                  (low-resolution PIL Image).
-        """
-        # Create a small low-resolution test image (128x128)
-        low_res_image = Image.new("RGB", (128, 128), color=(128, 128, 128))
+        in_channels = 7
+        sample_size = 128
+        cross_attention_dim = 1024
+        seq_len = 77
 
-        prompt = ["a high quality, detailed photograph"] * batch_size
+        sample = torch.randn(
+            (batch_size, in_channels, sample_size, sample_size),
+            dtype=dtype,
+        )
+        timestep = torch.randint(0, 1000, (1,))
+        encoder_hidden_states = torch.randn(
+            (batch_size, seq_len, cross_attention_dim),
+            dtype=dtype,
+        )
 
-        return {"prompt": prompt, "image": low_res_image}
+        class_labels = torch.tensor([20] * batch_size, dtype=torch.long)
+
+        return {
+            "sample": sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+            "class_labels": class_labels,
+        }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if hasattr(output, "sample"):
+            return output.sample
+        elif isinstance(output, tuple):
+            return output[0]
+        return output
