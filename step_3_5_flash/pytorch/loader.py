@@ -59,6 +59,7 @@ class ModelLoader(ForgeModel):
         config.moe_top_k = 2
         config.moe_intermediate_size = 512
         config.num_nextn_predict_layers = 0
+        config.head_dim = config.hidden_size // config.num_attention_heads
 
         # Trim per-layer config lists to match reduced layer count
         total_layers = num_layers + config.num_nextn_predict_layers
@@ -73,6 +74,11 @@ class ModelLoader(ForgeModel):
                 value = getattr(config, attr)
                 if isinstance(value, list) and len(value) > total_layers:
                     setattr(config, attr, value[:total_layers])
+
+        # Use uniform partial_rotary_factors so _init_weights can reinitialize
+        # all RotaryEmbedding inv_freq buffers with the same size.
+        if hasattr(config, "partial_rotary_factors"):
+            config.partial_rotary_factors = [1.0] * total_layers
 
         # Update MoE layer indices to only include valid layers
         if hasattr(config, "moe_layers_enum") and isinstance(
@@ -91,6 +97,28 @@ class ModelLoader(ForgeModel):
 
         if not hasattr(config, "pad_token_id"):
             config.pad_token_id = None
+        if not hasattr(config, "use_cache"):
+            config.use_cache = True
+
+        # Flatten per-layer rope_theta to a scalar for transformers 5.x
+        # compatibility: standardize_rope_params caches rope_parameters with
+        # the list value, which rope init functions cannot handle.
+        if isinstance(getattr(config, "rope_theta", None), list):
+            config.rope_theta = config.rope_theta[0]
+        for rope_dict in [
+            getattr(config, "rope_scaling", None),
+            getattr(config, "rope_parameters", None),
+        ]:
+            if isinstance(rope_dict, dict) and isinstance(
+                rope_dict.get("rope_theta"), list
+            ):
+                rope_dict["rope_theta"] = rope_dict["rope_theta"][0]
+
+        # Remove yarn_only_types so all layers use the same rope type.
+        # The "default" rope type it would select for non-yarn layers was
+        # removed from transformers 5.x ROPE_INIT_FUNCTIONS.
+        if hasattr(config, "yarn_only_types"):
+            del config.yarn_only_types
 
         model_kwargs = {
             "attn_implementation": "eager",
