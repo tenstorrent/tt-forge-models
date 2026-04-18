@@ -100,8 +100,6 @@ class ModelLoader(ForgeModel):
             model = self._load_custom_emotion_model(**model_kwargs)
 
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
 
         return model
 
@@ -176,6 +174,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_custom_age_gender_model(self, **model_kwargs):
+        model_kwargs.pop("torch_dtype", None)
         import torch
         import torch.nn as nn
         from transformers import Wav2Vec2Config
@@ -211,10 +210,10 @@ class ModelLoader(ForgeModel):
                 self.wav2vec2 = Wav2Vec2Model(config)
                 self.age = ModelHead(config, 1)
                 self.gender = ModelHead(config, 3)
-                self.init_weights()
+                self.post_init()
 
-            def forward(self, input_values):
-                outputs = self.wav2vec2(input_values)
+            def forward(self, input_values, attention_mask=None):
+                outputs = self.wav2vec2(input_values, attention_mask=attention_mask)
                 hidden_states = outputs[0]
                 hidden_states = torch.mean(hidden_states, dim=1)
                 logits_age = self.age(hidden_states)
@@ -258,4 +257,5 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        inputs.pop("attention_mask", None)
         return inputs
