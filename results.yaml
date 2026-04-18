@@ -75,3 +75,7 @@ results:
   status: "COMPILE_FAILED"
   date: "20260418_101719"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-1"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[piiranha/token_classification/pytorch-iiiorg/piiranha-v1-detect-personal-information-single_device-inference]"
+  status: "COMPILE_FAILED"
+  date: "20260418_102534"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-1"
