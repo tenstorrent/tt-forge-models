@@ -66,9 +66,6 @@ class ModelLoader(ForgeModel):
         model = classifier.mods.embedding_model
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         self.model = model
         return model
 
