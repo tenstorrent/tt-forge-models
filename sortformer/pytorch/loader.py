@@ -81,13 +81,13 @@ class ModelLoader(ForgeModel):
             np.float32
         )
 
-        input_signal = torch.tensor(audio_array).unsqueeze(0)
-        input_signal_length = torch.tensor([len(audio_array)])
+        audio_signal = torch.tensor(audio_array).unsqueeze(0)
+        audio_signal_length = torch.tensor([len(audio_array)])
 
         if dtype_override is not None:
-            input_signal = input_signal.to(dtype_override)
+            audio_signal = audio_signal.to(dtype_override)
 
         return {
-            "input_signal": input_signal,
-            "input_signal_length": input_signal_length,
+            "audio_signal": audio_signal,
+            "audio_signal_length": audio_signal_length,
         }
