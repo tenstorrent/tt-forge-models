@@ -4,6 +4,9 @@
 """
 Tema Q-X3 Thinking GGUF model loader implementation for causal language modeling.
 """
+import importlib
+import sys
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 import transformers.utils.import_utils as _import_utils
@@ -14,8 +17,9 @@ from typing import Optional
 
 def _is_gguf_available(min_version: str = _import_utils.GGUF_MIN_VERSION) -> bool:
     try:
-        import gguf
-
+        sys.modules.pop("gguf", None)
+        importlib.invalidate_caches()
+        gguf = importlib.import_module("gguf")
         return Version(getattr(gguf, "__version__", "0.0.0")) >= Version(min_version)
     except (ImportError, Exception):
         return False
