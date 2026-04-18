@@ -12,6 +12,11 @@ from typing import Any, Optional
 
 import torch
 from diffusers import ZImagePipeline, ZImageTransformer2DModel, GGUFQuantizationConfig
+from diffusers.quantizers.gguf.utils import (
+    GGUFLinear,
+    GGUFParameter,
+    dequantize_gguf_tensor,
+)
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -66,6 +71,30 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _dequantize_model(model, dtype):
+        for name, module in list(model.named_modules()):
+            if not isinstance(module, GGUFLinear):
+                continue
+            linear = torch.nn.Linear(
+                module.in_features,
+                module.out_features,
+                bias=module.bias is not None,
+                dtype=dtype,
+            )
+            weight = dequantize_gguf_tensor(module.weight).to(dtype)
+            linear.weight = torch.nn.Parameter(weight, requires_grad=False)
+            if module.bias is not None:
+                linear.bias = torch.nn.Parameter(
+                    module.bias.data.to(dtype), requires_grad=False
+                )
+            parts = name.rsplit(".", 1)
+            if len(parts) == 2:
+                parent = model.get_submodule(parts[0])
+                setattr(parent, parts[1], linear)
+            else:
+                setattr(model, name, linear)
+
     def _load_transformer(self, dtype: torch.dtype = torch.bfloat16):
         """Load the GGUF-quantized transformer."""
         gguf_file = self.GGUF_FILES[self._variant]
@@ -75,6 +104,7 @@ class ModelLoader(ForgeModel):
             quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
         )
+        self._dequantize_model(transformer, dtype)
         return transformer
 
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
