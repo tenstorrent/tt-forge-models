@@ -53,6 +53,10 @@ def _patch_transformers_qwen3vl_gguf():
         config = result.get("config", {})
         if config.get("model_type") == "qwen3vl":
             config["model_type"] = "qwen3_vl"
+            text_hidden = config.get("hidden_size")
+            if text_hidden is not None:
+                config.setdefault("vision_config", {})
+                config["vision_config"]["out_hidden_size"] = text_hidden
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
