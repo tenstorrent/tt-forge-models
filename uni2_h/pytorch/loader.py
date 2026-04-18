@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.UNI2_H: ModelConfig(
-            pretrained_model_name="hf-hub:MahmoodLab/UNI2-h",
+            pretrained_model_name="vit_huge_patch14_224",
         ),
     }
 
