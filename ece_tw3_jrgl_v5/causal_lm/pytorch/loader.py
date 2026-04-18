@@ -84,15 +84,12 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, prompt: Optional[str] = None):
         self._ensure_tokenizer()
-        input_prompt = [
-            {
-                "role": "user",
-                "content": prompt or "What is the meaning of life?",
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            input_prompt, add_generation_prompt=True, tokenize=False
-        )
+        text = prompt or "What is the meaning of life?"
+        if self.tokenizer.chat_template is not None:
+            input_prompt = [{"role": "user", "content": text}]
+            text = self.tokenizer.apply_chat_template(
+                input_prompt, add_generation_prompt=True, tokenize=False
+            )
         inputs = self.tokenizer(
             [text],
             return_tensors="pt",
