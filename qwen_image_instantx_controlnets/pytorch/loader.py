@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
         self, dtype: torch.dtype = torch.float32
     ) -> FluxControlNetModel:
         """Load ControlNet using from_pretrained with proper diffusers config."""
-        repo_id = _VARIANT_REPO_IDS[self._variant.lower()]
+        repo_id = _VARIANT_REPO_IDS[self._variant.value.lower()]
         self._controlnet = FluxControlNetModel.from_pretrained(
             repo_id, torch_dtype=dtype
         )
