@@ -5,8 +5,12 @@
 Hulu-Med model loader implementation for medical image-to-text generation.
 """
 
+import functools
+import inspect
+
 import torch
 from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 
 from ....base import ForgeModel
@@ -76,14 +80,28 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        """Load processor for the current variant.
+        pretrained = self._variant_config.pretrained_model_name
+        try:
+            self.processor = AutoProcessor.from_pretrained(
+                pretrained, trust_remote_code=True
+            )
+        except TypeError:
+            processor_cls = get_class_from_dynamic_module(
+                "processing_hulumed.HulumedProcessor", pretrained
+            )
+            orig = processor_cls._get_arguments_from_pretrained
+            sig = inspect.signature(orig)
+            if "processor_dict" not in sig.parameters:
 
-        Returns:
-            The loaded processor instance
-        """
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
-        )
+                @classmethod
+                @functools.wraps(orig.__func__)
+                def _patched(cls, pretrained_name, processor_dict=None, **kw):
+                    return orig.__func__(cls, pretrained_name, **kw)
+
+                processor_cls._get_arguments_from_pretrained = _patched
+            self.processor = processor_cls.from_pretrained(
+                pretrained, trust_remote_code=True
+            )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -126,7 +144,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        image_file = get_file(self.sample_image)
+        image_file = str(get_file(self.sample_image))
 
         conversation = [
             {
