@@ -87,19 +87,13 @@ class ModelLoader(ForgeModel):
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the ControlNet OpenPose SDXL model.
+        """Load and return sample inputs for the ControlNet OpenPose SDXL UNet.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            List: Input tensors for the UNet with ControlNet residuals:
-                - latent_model_input (torch.Tensor)
-                - timestep (torch.Tensor)
-                - prompt_embeds (torch.Tensor)
-                - added_cond_kwargs (dict)
-                - down_block_additional_residuals (tuple of torch.Tensor)
-                - mid_block_additional_residual (torch.Tensor)
+            dict: Keyword arguments for the UNet forward method.
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -117,16 +111,18 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, control_image
         )
 
+        timestep = timesteps[0]
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [
-            latent_model_input,
-            timesteps,
-            prompt_embeds,
-            added_cond_kwargs,
-            down_block_additional_residuals,
-            mid_block_additional_residual,
-        ]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+            "down_block_additional_residuals": down_block_additional_residuals,
+            "mid_block_additional_residual": mid_block_additional_residual,
+        }
