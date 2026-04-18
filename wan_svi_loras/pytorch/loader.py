@@ -17,7 +17,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import WanImageToVideoPipeline  # type: ignore[import]
-from PIL import Image  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -29,6 +28,13 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+_TRANSFORMER_IN_CHANNELS = 36
+_LATENT_HEIGHT = 4
+_LATENT_WIDTH = 4
+_LATENT_DEPTH = 2
+_TEXT_HIDDEN_DIM = 4096
+_TEXT_SEQ_LEN = 8
 
 BASE_MODEL = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
 LORA_REPO = "Isi99999/Wan2.2BasedModels"
@@ -87,10 +93,10 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Wan 2.2 I2V pipeline with SVI v2 PRO LoRA weights applied.
+        """Load the Wan 2.2 I2V transformer with SVI v2 PRO LoRA weights applied.
 
         Returns:
-            WanImageToVideoPipeline with LoRA weights merged.
+            WanTransformer3DModel with LoRA weights fused.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -106,24 +112,39 @@ class ModelLoader(ForgeModel):
             weight_name=lora_file,
         )
 
-        return self.pipeline
+        transformer = self.pipeline.transformer
+        transformer.eval()
+        return transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for image-to-video generation.
+        """Prepare synthetic inputs for the WanTransformer3DModel forward pass.
 
         Returns:
-            dict with prompt and image keys.
+            dict with hidden_states, encoder_hidden_states, timestep, and
+            return_dict keys suitable for WanTransformer3DModel.
         """
-        if prompt is None:
-            prompt = (
-                "A cat walking gracefully across a sunlit garden, "
-                "detailed fur texture, cinematic lighting"
-            )
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        batch_size = 1
+        seq_len = _LATENT_DEPTH * _LATENT_HEIGHT * _LATENT_WIDTH
 
-        # Create a small test image (RGB)
-        image = Image.new("RGB", (256, 256), color=(128, 128, 200))
+        hidden_states = torch.randn(
+            batch_size, seq_len, _TRANSFORMER_IN_CHANNELS, dtype=dtype
+        )
+        encoder_hidden_states = torch.randn(
+            batch_size, _TEXT_SEQ_LEN, _TEXT_HIDDEN_DIM, dtype=dtype
+        )
+        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
 
         return {
-            "prompt": prompt,
-            "image": image,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "timestep": timestep,
+            "return_dict": False,
         }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if isinstance(output, tuple):
+            return output[0]
+        if hasattr(output, "sample"):
+            return output.sample
+        return output
