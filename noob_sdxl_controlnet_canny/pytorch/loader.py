@@ -63,16 +63,18 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._dtype_override = dtype_override
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.pipeline = load_controlnet_canny_sdxl_pipe(
             pretrained_model_name, self.base_model
         )
 
+        unet = self.pipeline.unet
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            unet = unet.to(dtype_override)
 
-        return self.pipeline.unet
+        return unet
 
     def load_inputs(self, dtype_override=None):
         if self.pipeline is None:
@@ -91,9 +93,20 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, control_image
         )
 
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
+        target_dtype = dtype_override or self._dtype_override
+        if target_dtype:
+            latent_model_input = latent_model_input.to(target_dtype)
+            prompt_embeds = prompt_embeds.to(target_dtype)
+            added_cond_kwargs = {
+                k: v.to(target_dtype) if isinstance(v, torch.Tensor) else v
+                for k, v in added_cond_kwargs.items()
+            }
+            down_block_additional_residuals = tuple(
+                r.to(target_dtype) for r in down_block_additional_residuals
+            )
+            mid_block_additional_residual = mid_block_additional_residual.to(
+                target_dtype
+            )
 
         return {
             "sample": latent_model_input,
