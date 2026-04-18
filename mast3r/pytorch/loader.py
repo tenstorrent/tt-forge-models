@@ -109,10 +109,12 @@ class ModelLoader(ForgeModel):
         view1 = {
             "img": torch.randn(batch_size, 3, height, width, dtype=dtype),
             "true_shape": torch.tensor([[height, width]]).repeat(batch_size, 1),
+            "instance": torch.arange(batch_size),
         }
         view2 = {
             "img": torch.randn(batch_size, 3, height, width, dtype=dtype),
             "true_shape": torch.tensor([[height, width]]).repeat(batch_size, 1),
+            "instance": torch.arange(batch_size),
         }
 
         return [view1, view2]
