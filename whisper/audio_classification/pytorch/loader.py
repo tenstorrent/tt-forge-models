@@ -55,15 +55,11 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_feature_extractor(self, dtype_override=None):
+    def _load_feature_extractor(self):
         from transformers import AutoFeatureExtractor
 
-        processor_kwargs = {}
-        if dtype_override is not None:
-            processor_kwargs["dtype"] = dtype_override
-
         self._feature_extractor = AutoFeatureExtractor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
+            self._variant_config.pretrained_model_name,
         )
 
         return self._feature_extractor
@@ -87,13 +83,13 @@ class ModelLoader(ForgeModel):
         self.model = model
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self, *, dtype_override=None):
+        import torch
         import numpy as np
 
         if self._feature_extractor is None:
-            self._load_feature_extractor(dtype_override=dtype_override)
+            self._load_feature_extractor()
 
-        # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
@@ -105,5 +101,11 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if isinstance(v, torch.Tensor) else v
+                for k, v in inputs.items()
+            }
 
         return inputs
