@@ -49,14 +49,12 @@ class MT5ForRegression(MT5PreTrainedModel):
         encoder_config = copy.deepcopy(config)
         encoder_config.is_decoder = False
         encoder_config.use_cache = False
-        encoder_config.is_encoder_decoder = False
-        self.encoder = MT5Stack(encoder_config, self.shared)
+        self.encoder = MT5Stack(encoder_config)
 
         decoder_config = copy.deepcopy(config)
         decoder_config.is_decoder = True
-        decoder_config.is_encoder_decoder = False
         decoder_config.num_layers = config.num_decoder_layers
-        self.decoder = MT5Stack(decoder_config, self.shared)
+        self.decoder = MT5Stack(decoder_config)
 
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
