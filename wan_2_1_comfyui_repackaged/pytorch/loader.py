@@ -31,14 +31,30 @@ from ...config import (
 
 REPO_ID = "Comfy-Org/Wan_2.1_ComfyUI_repackaged"
 
-# Wan 2.1 VAE uses 16 latent channels (z_dim=16)
-LATENT_CHANNELS = 16
+# Small test dimensions for encoder inputs (pixel space)
+# Using small spatial dims to keep test fast
+INPUT_HEIGHT = 64
+INPUT_WIDTH = 64
+NUM_FRAMES = 5
 
-# Small test dimensions for VAE inputs
-# Wan VAE compression: 4x temporal, 8x spatial
-LATENT_HEIGHT = 8
-LATENT_WIDTH = 8
-LATENT_DEPTH = 2  # temporal latent frames
+
+class WanVAEEncoderWrapper(torch.nn.Module):
+    """Wraps the Wan VAE encoder to bypass causal caching.
+
+    The full AutoencoderKLWan uses frame-by-frame causal caching that
+    produces out-of-range tensor slices during torch.compile tracing.
+    This wrapper calls the encoder without feat_cache to use the
+    simple (non-caching) forward path, then applies quant_conv.
+    """
+
+    def __init__(self, vae: AutoencoderKLWan):
+        super().__init__()
+        self.encoder = vae.encoder
+        self.quant_conv = vae.quant_conv
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.encoder(x)
+        return self.quant_conv(h)
 
 
 class ModelVariant(StrEnum):
@@ -87,48 +103,29 @@ class ModelLoader(ForgeModel):
             subfolder="vae",
             torch_dtype=dtype,
         )
+        self._vae = self._vae.to(dtype=dtype)
         self._vae.eval()
         return self._vae
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the Wan 2.1 VAE model.
+        """Load and return the Wan 2.1 VAE encoder (wrapped).
 
-        Returns:
-            AutoencoderKLWan instance.
+        Returns a WanVAEEncoderWrapper that runs the encoder without
+        causal caching, making it compatible with torch.compile.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._vae is None:
-            return self._load_vae(dtype)
+            self._load_vae(dtype)
         if dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
-        return self._vae
+        return WanVAEEncoderWrapper(self._vae)
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare inputs for the VAE.
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare pixel-space inputs for the VAE encoder.
 
-        Pass vae_type="decoder" or vae_type="encoder" to select input type.
-        Defaults to decoder inputs.
+        Returns [batch, 3, num_frames, height, width] tensor.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        vae_type = kwargs.get("vae_type", "decoder")
-
-        if vae_type == "decoder":
-            # [batch, channels, time, height, width]
-            return torch.randn(
-                1,
-                LATENT_CHANNELS,
-                LATENT_DEPTH,
-                LATENT_HEIGHT,
-                LATENT_WIDTH,
-                dtype=dtype,
-            )
-        elif vae_type == "encoder":
-            # T must satisfy T = 1 + 4*N (Wan temporal constraint)
-            num_frames = 1 + 4 * LATENT_DEPTH  # 9 frames
-            return torch.randn(
-                1, 3, num_frames, LATENT_HEIGHT * 8, LATENT_WIDTH * 8, dtype=dtype
-            )
-        else:
-            raise ValueError(
-                f"Unknown vae_type: {vae_type}. Expected 'decoder' or 'encoder'."
-            )
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        return torch.randn(1, 3, NUM_FRAMES, INPUT_HEIGHT, INPUT_WIDTH, dtype=dtype)
