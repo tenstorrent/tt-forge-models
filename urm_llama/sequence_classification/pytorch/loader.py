@@ -4,6 +4,7 @@
 """
 URM-LLaMa model loader implementation for sequence classification.
 """
+import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from typing import Optional
 
@@ -74,12 +75,13 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        else:
+            model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
         model = AutoModelForSequenceClassification.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
-        model.float()
         model.eval()
 
         model.config.pad_token_id = self.tokenizer.pad_token_id
