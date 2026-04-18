@@ -64,7 +64,7 @@ def hunyuan_video_preprocessing(
                 guidance)
     """
     # Encode prompt
-    prompt_embeds, _pooled_prompt_embeds, prompt_attention_mask = pipe.encode_prompt(
+    prompt_embeds, pooled_prompt_embeds, prompt_attention_mask = pipe.encode_prompt(
         prompt=prompt,
         device=device,
         num_videos_per_prompt=1,
@@ -96,4 +96,11 @@ def hunyuan_video_preprocessing(
     # Guidance scale
     guidance = torch.tensor([6.0], device=device, dtype=prompt_embeds.dtype)
 
-    return latents, timestep, prompt_embeds, prompt_attention_mask, guidance
+    return (
+        latents,
+        timestep,
+        prompt_embeds,
+        prompt_attention_mask,
+        pooled_prompt_embeds,
+        guidance,
+    )

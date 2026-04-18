@@ -95,6 +95,7 @@ class ModelLoader(ForgeModel):
             timestep,
             prompt_embeds,
             prompt_attention_mask,
+            pooled_prompt_embeds,
             guidance,
         ) = hunyuan_video_preprocessing(self.pipeline, self.prompt)
 
@@ -102,6 +103,14 @@ class ModelLoader(ForgeModel):
             latents = latents.to(dtype_override)
             timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
+            pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
             guidance = guidance.to(dtype_override)
 
-        return [latents, timestep, prompt_embeds, prompt_attention_mask, guidance]
+        return [
+            latents,
+            timestep,
+            prompt_embeds,
+            prompt_attention_mask,
+            pooled_prompt_embeds,
+            guidance,
+        ]
