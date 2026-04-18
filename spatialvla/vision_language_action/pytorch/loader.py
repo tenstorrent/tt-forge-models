@@ -23,21 +23,6 @@ from ....config import (
 )
 
 
-class SpatialVLAInferenceWrapper(torch.nn.Module):
-    """Wraps SpatialVLAForConditionalGeneration to use predict_action for inference.
-
-    SpatialVLA's forward() is for training; predict_action() is the inference entry point.
-    """
-
-    def __init__(self, model):
-        super().__init__()
-        self.model = model
-
-    def forward(self, **kwargs):
-        """Run inference via predict_action. Returns action predictions."""
-        return self.model.predict_action(**kwargs)
-
-
 class ModelVariant(StrEnum):
     """Available SpatialVLA model variants."""
 
@@ -96,7 +81,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        return SpatialVLAInferenceWrapper(model)
+        return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
