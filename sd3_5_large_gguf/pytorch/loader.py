@@ -39,10 +39,6 @@ REPO_ID = "calcuis/sd3.5-large-gguf"
 # GGUF filename for Q4_0 quantization
 Q4_0_FILENAME = "sd3.5_large-q4_0.gguf"
 
-# SD3.5 Large transformer config source
-TRANSFORMER_CONFIG = "stabilityai/stable-diffusion-3.5-large"
-TRANSFORMER_SUBFOLDER = "transformer"
-
 # SD3.5 Large transformer input dimensions
 LATENT_CHANNELS = 16
 LATENT_HEIGHT = 64
@@ -96,8 +92,6 @@ class ModelLoader(ForgeModel):
             gguf_path = hf_hub_download(REPO_ID, Q4_0_FILENAME)
             self._transformer = SD3Transformer2DModel.from_single_file(
                 gguf_path,
-                config=TRANSFORMER_CONFIG,
-                subfolder=TRANSFORMER_SUBFOLDER,
                 quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
                 torch_dtype=dtype,
             )
