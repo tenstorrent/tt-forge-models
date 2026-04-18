@@ -5,6 +5,7 @@
 FLUX.1 Krea Dev GGUF model loader implementation for text-to-image generation
 """
 import torch
+from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
 from typing import Optional
 
@@ -19,6 +20,8 @@ from ...config import (
     StrEnum,
 )
 
+GGUF_REPO = "QuantStack/FLUX.1-Krea-dev-GGUF"
+
 
 class ModelVariant(StrEnum):
     """Available FLUX.1 Krea Dev GGUF model variants."""
@@ -31,7 +34,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.DEV_Q4_K_M: ModelConfig(
-            pretrained_model_name="QuantStack/FLUX.1-Krea-dev-GGUF",
+            pretrained_model_name=GGUF_REPO,
         ),
     }
 
@@ -59,17 +62,14 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"gguf_file": self.GGUF_FILE}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        self.transformer = FluxTransformer2DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **load_kwargs,
+        self.transformer = FluxTransformer2DModel.from_single_file(
+            f"https://huggingface.co/{GGUF_REPO}/blob/main/{self.GGUF_FILE}",
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
