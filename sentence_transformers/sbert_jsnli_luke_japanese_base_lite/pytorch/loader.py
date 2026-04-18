@@ -9,6 +9,23 @@ import torch
 from transformers import AutoModel, AutoTokenizer
 from typing import Optional
 
+from transformers.models.mluke.tokenization_mluke import MLukeTokenizer
+
+_original_mluke_init = MLukeTokenizer.__init__
+
+
+def _patched_mluke_init(self, *args, **kwargs):
+    vocab = kwargs.get("vocab")
+    if isinstance(vocab, dict):
+        kwargs["vocab"] = sorted(
+            [(token, float(idx)) for token, idx in vocab.items()],
+            key=lambda x: x[1],
+        )
+    _original_mluke_init(self, *args, **kwargs)
+
+
+MLukeTokenizer.__init__ = _patched_mluke_init
+
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
