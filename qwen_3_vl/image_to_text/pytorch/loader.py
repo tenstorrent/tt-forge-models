@@ -26,6 +26,20 @@ from ....config import (
 )
 
 
+class Wrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, inputs_embeds, attention_mask, position_ids):
+        outputs = self.model(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+        )
+        return outputs.logits
+
+
 class ModelVariant(StrEnum):
     """Available Qwen 3 model variants for image to text."""
 
@@ -132,6 +146,7 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self.processor = None
+        self._full_model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -210,14 +225,9 @@ class ModelLoader(ForgeModel):
         model = model_cls.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
-        if hasattr(model, "model") and hasattr(model.model, "visual"):
-            visual = model.model.visual
-            if hasattr(visual, "fast_pos_embed_interpolate"):
-                visual.fast_pos_embed_interpolate = torch.compiler.disable(
-                    visual.fast_pos_embed_interpolate
-                )
+        self._full_model = model
 
-        return model
+        return Wrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Qwen 3 model with this instance's variant settings.
@@ -249,4 +259,40 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
-        return inputs
+
+        with torch.no_grad():
+            inner_model = self._full_model.model
+            input_ids = inputs["input_ids"]
+            attention_mask = inputs["attention_mask"]
+
+            inputs_embeds = inner_model.get_input_embeddings()(input_ids)
+
+            if "pixel_values" in inputs and inputs["pixel_values"] is not None:
+                image_grid_thw = inputs.get("image_grid_thw", None)
+                image_outputs = inner_model.get_image_features(
+                    inputs["pixel_values"], image_grid_thw, return_dict=True
+                )
+                image_embeds = image_outputs.pooler_output
+                image_embeds = torch.cat(image_embeds, dim=0).to(
+                    inputs_embeds.device, inputs_embeds.dtype
+                )
+                image_mask, _ = inner_model.get_placeholder_mask(
+                    input_ids,
+                    inputs_embeds=inputs_embeds,
+                    image_features=image_embeds,
+                )
+                inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+            position_ids = inner_model.compute_3d_position_ids(
+                input_ids=input_ids,
+                image_grid_thw=inputs.get("image_grid_thw", None),
+                video_grid_thw=inputs.get("video_grid_thw", None),
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+            )
+
+        return {
+            "inputs_embeds": inputs_embeds,
+            "attention_mask": attention_mask,
+            "position_ids": position_ids,
+        }
