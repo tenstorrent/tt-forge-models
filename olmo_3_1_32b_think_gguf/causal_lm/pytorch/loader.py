@@ -41,10 +41,10 @@ def _patch_olmo2_support():
             ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["llama"]
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add olmo2 support and fix model_type."""
     _patch_olmo2_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "olmo2":
         result["config"]["model_type"] = "olmo2"
     return result
