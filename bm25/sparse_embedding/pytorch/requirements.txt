@@ -1,0 +1,3 @@
+fastembed
+mmh3
+py_rust_stemmers
