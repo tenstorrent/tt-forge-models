@@ -4,7 +4,7 @@
 """
 FLUX.1-dev LoRA model loader implementation.
 
-Loads the black-forest-labs/FLUX.1-dev base pipeline and applies style LoRA
+Loads the camenduru/FLUX.1-dev-ungated base pipeline and applies style LoRA
 weights from alexrzem/flux-loras for stylized text-to-image generation.
 
 Available variants:
@@ -28,7 +28,7 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+BASE_MODEL = "camenduru/FLUX.1-dev-ungated"
 LORA_REPO = "alexrzem/flux-loras"
 
 # LoRA weight filenames (under dev/ subdirectory in the repo)
