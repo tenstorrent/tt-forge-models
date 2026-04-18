@@ -94,9 +94,9 @@ class ModelLoader(ForgeModel):
         }
 
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         else:
-            model_kwargs["torch_dtype"] = torch.bfloat16
+            model_kwargs["dtype"] = torch.bfloat16
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
