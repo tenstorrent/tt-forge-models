@@ -158,4 +158,10 @@ class ModelLoader(ForgeModel):
             max_length=max_length,
         )
 
+        # RWKV world tokenizer adds an extra leading dimension for list inputs;
+        # reshape to the expected [batch_size, seq_len].
+        for k in inputs:
+            if inputs[k].dim() == 3:
+                inputs[k] = inputs[k].view(batch_size, -1)
+
         return inputs
