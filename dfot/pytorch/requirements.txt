@@ -1,4 +1,5 @@
 einops
 huggingface_hub
+numpy
 timm
 torch
