@@ -91,6 +91,38 @@ class _SimpleVJEPA2Layer(torch.nn.Module):
         return hidden_states
 
 
+def _patch_tt_backend_strip_guards():
+    """Patch the tt backend to strip _guards_fn nodes before torch.export.
+
+    Dynamo inserts _guards_fn submodules referencing local variable dicts
+    that become undefined during re-export inside the tt backend pipeline.
+    Since these guards have num_users=0, removing them is safe.
+    """
+    try:
+        import tt_torch.backend.backend as backend
+    except ImportError:
+        return
+
+    original = backend.torch_pass_pipeline
+    if getattr(original, "_guards_patched", False):
+        return
+
+    def patched_pipeline(gm, example_inputs, options):
+        for node in list(gm.graph.nodes):
+            if "_guards" in str(node.target):
+                gm.graph.erase_node(node)
+        gm.recompile()
+        for name in [n for n in dir(gm) if "_guards" in n]:
+            try:
+                delattr(gm, name)
+            except AttributeError:
+                pass
+        return original(gm, example_inputs, options)
+
+    patched_pipeline._guards_patched = True
+    backend.torch_pass_pipeline = patched_pipeline
+
+
 class VJEPA2EncoderWrapper(torch.nn.Module):
     """Wraps VJEPA2 encoder, patching attention to avoid dynamo guard failures."""
 
@@ -160,6 +192,7 @@ class ModelLoader(ForgeModel):
 
         self.processor = AutoVideoProcessor.from_pretrained(model_name)
 
+        _patch_tt_backend_strip_guards()
         return VJEPA2EncoderWrapper(model)
 
     def load_inputs(self, dtype_override=None, **kwargs):
@@ -176,9 +209,11 @@ class ModelLoader(ForgeModel):
 
         if dtype_override:
             inputs = {
-                k: v.to(dtype_override)
-                if isinstance(v, torch.Tensor) and v.is_floating_point()
-                else v
+                k: (
+                    v.to(dtype_override)
+                    if isinstance(v, torch.Tensor) and v.is_floating_point()
+                    else v
+                )
                 for k, v in inputs.items()
             }
 
