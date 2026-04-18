@@ -2,10 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""
-Typhoon OCR model wrapper for extracting logits from model outputs.
-"""
-
 import torch
 
 
@@ -15,12 +11,10 @@ class Wrapper(torch.nn.Module):
         super().__init__()
         self.model = model
 
-    def forward(self, input_ids, attention_mask, pixel_values, image_grid_thw):
-        inputs = {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "pixel_values": pixel_values,
-            "image_grid_thw": image_grid_thw,
-        }
-        outputs = self.model(**inputs)
+    def forward(self, inputs_embeds, attention_mask, position_ids):
+        outputs = self.model(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+        )
         return outputs.logits
