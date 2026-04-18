@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.AIRY_0_8B_Q3_K_M
 
-    GGUF_FILE = "Airy-0.8b-Q3_K_M.gguf"
+    GGUF_FILE = "gguf/Airy-0.8b-Q3_K_M.gguf"
 
     sample_text = "What is your favorite city?"
 
