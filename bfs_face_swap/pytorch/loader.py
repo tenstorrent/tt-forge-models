@@ -118,7 +118,10 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, **kwargs) -> Any:
         """Prepare sample inputs for the diffusion transformer."""
-        dtype = kwargs.get("dtype_override", torch.float32)
+        if self._transformer is not None:
+            dtype = next(self._transformer.parameters()).dtype
+        else:
+            dtype = kwargs.get("dtype_override", torch.float32)
         batch_size = kwargs.get("batch_size", 1)
 
         img_dim = 64
