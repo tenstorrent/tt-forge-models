@@ -86,10 +86,10 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            List: Input tensors for the UNet:
-                - scaled_latent_model_input (torch.Tensor): Noise latents concatenated with mask and masked image latents
+            dict: Keyword arguments for the UNet forward method:
+                - sample (torch.Tensor): Noise latents concatenated with mask and masked image latents
                 - timestep (torch.Tensor)
-                - prompt_embeds (torch.Tensor)
+                - encoder_hidden_states (torch.Tensor)
                 - added_cond_kwargs (dict)
         """
         if self.pipeline is None:
@@ -113,9 +113,9 @@ class ModelLoader(ForgeModel):
             timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [
-            scaled_latent_model_input,
-            timestep,
-            prompt_embeds,
-            added_cond_kwargs,
-        ]
+        return {
+            "sample": scaled_latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
