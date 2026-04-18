@@ -11,3 +11,7 @@ results:
   status: "MAX_FAILED_ATTEMPTS"
   date: "20260418_220307"
   branch: "ip-172-31-30-232-tt-xla-dev/ubuntu/hf-bringup-range-1500-500-7"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[marigold_iid_appearance/pytorch-v1.1-single_device-inference]"
+  status: "PASS"
+  date: "20260418_232030"
+  branch: "ip-172-31-30-232-tt-xla-dev/ubuntu/hf-bringup-range-1500-500-7"
