@@ -5,7 +5,6 @@
 VibeVoice model loader implementation for text-to-speech tasks.
 """
 
-import sys
 from typing import Optional
 
 import torch
@@ -71,46 +70,25 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        import importlib
-        import site
+        from huggingface_hub import hf_hub_download
+        from transformers import Qwen2Config, Qwen2Model
+        import json
 
-        # The local "vibevoice/" model directory shadows the pip-installed
-        # vibevoice package. Temporarily make site-packages the first
-        # search location so we import the correct third-party package.
-        site_dirs = site.getsitepackages()
-        saved = sys.path[:]
-        for d in reversed(site_dirs):
-            sys.path.insert(0, d)
-        try:
-            for key in list(sys.modules):
-                if key == "vibevoice" or key.startswith("vibevoice."):
-                    del sys.modules[key]
-            modeling_mod = importlib.import_module(
-                "vibevoice.modular.modeling_vibevoice_inference"
-            )
-            config_mod = importlib.import_module(
-                "vibevoice.modular.configuration_vibevoice"
-            )
-        finally:
-            sys.path[:] = saved
-
-        VibeVoiceForConditionalGenerationInference = (
-            modeling_mod.VibeVoiceForConditionalGenerationInference
+        # The checkpoint stores BnB 4-bit quantized weights that require
+        # bitsandbytes to deserialize. Since we only compile the Qwen2
+        # backbone, instantiate it directly from the decoder config.
+        config_path = hf_hub_download(
+            self._variant_config.pretrained_model_name, "config.json"
         )
+        with open(config_path) as f:
+            full_config = json.load(f)
 
-        config = config_mod.VibeVoiceConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-        )
-        if hasattr(config, "quantization_config"):
-            delattr(config, "quantization_config")
+        qwen2_config = Qwen2Config(**full_config["decoder_config"])
+        qwen2 = Qwen2Model(qwen2_config)
+        if dtype_override is not None:
+            qwen2 = qwen2.to(dtype_override)
 
-        full_model = VibeVoiceForConditionalGenerationInference.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            config=config,
-            device_map="cpu",
-            torch_dtype=dtype_override or torch.bfloat16,
-        )
-        model = VibeVoiceQwen2Wrapper(full_model.model)
+        model = VibeVoiceQwen2Wrapper(qwen2)
         model.eval()
         return model
 
