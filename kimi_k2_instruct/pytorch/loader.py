@@ -63,6 +63,20 @@ if not hasattr(DynamicCache, "to_legacy_cache"):
 
     DynamicCache.to_legacy_cache = _to_legacy_cache
 
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length: int, layer_idx: int = 0) -> int:
+        max_cache_length = self.get_max_cache_shape().get("max_cache_len")
+        previous_seq_length = self.get_seq_length(layer_idx)
+        if (
+            max_cache_length is not None
+            and previous_seq_length + new_seq_length > max_cache_length
+        ):
+            return max_cache_length - new_seq_length
+        return previous_seq_length
+
+    DynamicCache.get_usable_length = _get_usable_length
+
 import transformers.models.gpt2.tokenization_gpt2 as _gpt2_tok
 
 if not hasattr(_gpt2_tok, "bytes_to_unicode"):
