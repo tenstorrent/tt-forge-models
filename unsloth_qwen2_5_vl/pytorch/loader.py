@@ -5,7 +5,7 @@
 unsloth/Qwen2.5-VL-3B-Instruct model loader implementation for vision-language tasks.
 """
 import torch
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
 
@@ -19,6 +19,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from .src.model import Wrapper
 
 
 class ModelVariant(StrEnum):
@@ -38,9 +39,21 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.QWEN_2_5_VL_3B_INSTRUCT
 
-    sample_image = (
-        "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
-    )
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
+                },
+                {"type": "text", "text": "Describe this image."},
+            ],
+        }
+    ]
+
+    min_pixels = 56 * 56
+    max_pixels = 13 * 28 * 1280
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -60,46 +73,58 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_processor(self):
+        processor_kwargs = {
+            "min_pixels": self.min_pixels,
+            "max_pixels": self.max_pixels,
+        }
+
+        self.processor = AutoProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name, **processor_kwargs
+        )
+
+        return self.processor
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
+        model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
+
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        else:
+            model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
-
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
-
-        if hasattr(model, "model") and hasattr(model.model, "visual"):
-            model.model.visual.forward = torch.compiler.disable(
-                model.model.visual.forward
-            )
+        )
+        model.eval()
+        model = Wrapper(model)
 
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": self.sample_image,
-                    },
-                    {"type": "text", "text": "Describe this image."},
-                ],
-            }
-        ]
+    def load_inputs(self, dtype_override=None):
+        if self.processor is None:
+            self._load_processor()
 
-        inputs = self.processor.apply_chat_template(
-            messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
+        text = self.processor.apply_chat_template(
+            self.messages, tokenize=False, add_generation_prompt=True
+        )
+
+        from qwen_vl_utils import process_vision_info
+
+        image_inputs, video_inputs = process_vision_info(self.messages)
+
+        inputs = self.processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+
         return inputs
