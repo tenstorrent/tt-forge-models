@@ -142,18 +142,13 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.router.weight] = (None, "batch")
+            shard_specs[layer.mlp.gate.weight] = (None, "batch")
             shard_specs[layer.mlp.experts.gate_up_proj] = ("model", "batch", None)
-            shard_specs[layer.mlp.experts.gate_up_proj_bias] = ("model", None)
             shard_specs[layer.mlp.experts.down_proj] = ("model", None, "batch")
-            shard_specs[layer.mlp.experts.down_proj_bias] = ("model", "batch")
 
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         return shard_specs
 
