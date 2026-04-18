@@ -90,6 +90,7 @@ class ModelLoader(ForgeModel):
                     "rope_type", "default"
                 )
         config.tie_word_embeddings = False
+        config.use_cache = False
         return config
 
     def load_model(self, *, dtype_override=None, **kwargs):
