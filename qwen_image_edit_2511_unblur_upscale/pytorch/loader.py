@@ -6,17 +6,17 @@ Qwen-Image-Edit-2511-Unblur-Upscale LoRA model loader implementation.
 
 Loads the Qwen-Image-Edit-2511 base pipeline and applies the
 prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale LoRA weights for
-image unblurring and upscaling.
+image unblurring and upscaling. Returns the diffusion transformer
+component for testing.
 
 Available variants:
 - QWEN_IMAGE_EDIT_2511_UNBLUR_UPSCALE: Unblur and upscale LoRA
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import torch
-from diffusers import DiffusionPipeline  # type: ignore[import]
-from PIL import Image  # type: ignore[import]
+from diffusers import DiffusionPipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -51,7 +51,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[DiffusionPipeline] = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -72,34 +72,56 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Qwen-Image-Edit-2511 pipeline with Unblur-Upscale LoRA.
+        """Load the Qwen-Image-Edit-2511 transformer with Unblur-Upscale LoRA.
 
         Returns:
-            DiffusionPipeline with LoRA weights loaded.
+            QwenImageTransformer2DModel with LoRA weights fused.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
+        if self._transformer is None:
+            pipe = DiffusionPipeline.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=False,
+            )
+            pipe.load_lora_weights(LORA_REPO)
+            pipe.fuse_lora()
+            self._transformer = pipe.transformer
+            self._transformer.eval()
+            del pipe
+        elif dtype_override is not None:
+            self._transformer = self._transformer.to(dtype=dtype_override)
+
+        return self._transformer
+
+    def load_inputs(self, **kwargs) -> Dict[str, Any]:
+        """Prepare sample inputs for the diffusion transformer.
+
+        Returns a dict matching QwenImageTransformer2DModel.forward() signature.
+        """
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        batch_size = kwargs.get("batch_size", 1)
+
+        img_dim = 64
+        text_dim = 3584
+        txt_seq_len = 32
+
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
         )
-
-        self.pipeline.load_lora_weights(LORA_REPO)
-
-        return self.pipeline
-
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for image unblurring and upscaling.
-
-        Returns:
-            dict with prompt and image keys.
-        """
-        if prompt is None:
-            prompt = "unblur and upscale"
-
-        image = Image.new("RGB", (512, 512), color=(128, 128, 200))
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_shapes = [(frame, height, width)] * batch_size
 
         return {
-            "prompt": prompt,
-            "image": image,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
         }
