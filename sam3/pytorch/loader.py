@@ -9,7 +9,7 @@ import torch
 from typing import Optional
 from PIL import Image
 from loguru import logger
-from transformers import Sam3Model, Sam3Processor
+from transformers import Sam3Config, Sam3Model, Sam3Processor
 
 from ...config import (
     ModelConfig,
@@ -22,6 +22,15 @@ from ...config import (
 )
 from ...base import ForgeModel
 from datasets import load_dataset
+
+
+def _build_processor_locally():
+    """Build Sam3Processor from local components (facebook/sam3 is a gated repo)."""
+    from transformers import CLIPTokenizerFast, Sam3ImageProcessorFast
+
+    image_processor = Sam3ImageProcessorFast()
+    tokenizer = CLIPTokenizerFast.from_pretrained("openai/clip-vit-base-patch32")
+    return Sam3Processor(image_processor=image_processor, tokenizer=tokenizer)
 
 
 class ModelVariant(StrEnum):
@@ -58,12 +67,22 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _get_processor(self, model_name, **kwargs):
+        try:
+            return Sam3Processor.from_pretrained(model_name, **kwargs)
+        except OSError:
+            return _build_processor_locally()
+
     def load_model(self, *, dtype_override=None, **kwargs):
         model_name = self._variant_config.pretrained_model_name
 
+        if "config" not in kwargs:
+            kwargs["config"] = Sam3Config()
+        kwargs.setdefault("attn_implementation", "eager")
+
         framework_model = Sam3Model.from_pretrained(model_name, **kwargs).to("cpu")
 
-        self.processor = Sam3Processor.from_pretrained(model_name, **kwargs)
+        self.processor = self._get_processor(model_name)
 
         if dtype_override is not None:
             framework_model = framework_model.to(dtype_override)
@@ -73,7 +92,7 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
             model_name = self._variant_config.pretrained_model_name
-            self.processor = Sam3Processor.from_pretrained(model_name)
+            self.processor = self._get_processor(model_name)
 
         try:
             dataset = load_dataset("huggingface/cats-image")["test"]
