@@ -81,13 +81,8 @@ class ModelLoader(ForgeModel):
             REPO_ID, subfolder="unet", torch_dtype=dtype
         )
 
-    def load_inputs(self, **kwargs):
-        """Prepare sample inputs for the selected variant.
-
-        For UNET: returns (latents, timestep, encoder_hidden_states).
-        For VAE: returns latent tensor for decoding.
-        """
-        dtype = kwargs.get("dtype_override", torch.float16)
+    def load_inputs(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        dtype = dtype_override or torch.float16
 
         if self._variant == ModelVariant.VAE:
             return torch.randn(
