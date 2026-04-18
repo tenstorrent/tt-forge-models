@@ -119,11 +119,18 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The NaDiT diffusion transformer model.
         """
+        import importlib.util
+
         from omegaconf import OmegaConf
 
         _ensure_seedvr_importable()
 
-        from utils.utils import instantiate_from_config
+        spec = importlib.util.spec_from_file_location(
+            "seedvr_utils", os.path.join(SEEDVR_REPO_PATH, "utils", "utils.py")
+        )
+        seedvr_utils = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(seedvr_utils)
+        instantiate_from_config = seedvr_utils.instantiate_from_config
 
         config = OmegaConf.load(f"{SEEDVR_REPO_PATH}/configs_7b/main.yaml")
 
