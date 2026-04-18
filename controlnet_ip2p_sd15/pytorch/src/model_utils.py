@@ -169,11 +169,12 @@ def controlnet_ip2p_sd15_preprocessing(
         latent_model_input, timesteps[0]
     )
 
-    # 6. Run controlnet to get residuals
+    # 6. Cast to controlnet dtype and run controlnet to get residuals
+    cn_dtype = pipe.controlnet.dtype
     down_block_additional_residuals, mid_block_additional_residual = pipe.controlnet(
-        latent_model_input,
+        latent_model_input.to(cn_dtype),
         timesteps[0],
-        encoder_hidden_states=prompt_embeds,
+        encoder_hidden_states=prompt_embeds.to(cn_dtype),
         controlnet_cond=control_image,
         conditioning_scale=controlnet_conditioning_scale,
         return_dict=False,
