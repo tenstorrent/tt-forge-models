@@ -66,15 +66,11 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         return model
 
     def load_inputs(self, dtype_override=None):
         import numpy as np
 
-        # Generate a synthetic 1-second mono audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
@@ -83,9 +79,6 @@ class ModelLoader(ForgeModel):
 
         audio_signal = torch.tensor(audio_array).unsqueeze(0)
         audio_signal_length = torch.tensor([len(audio_array)])
-
-        if dtype_override is not None:
-            audio_signal = audio_signal.to(dtype_override)
 
         return {
             "audio_signal": audio_signal,
