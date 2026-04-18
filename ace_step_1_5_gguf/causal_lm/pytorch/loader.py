@@ -2,10 +2,18 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-ACE-Step 1.5 GGUF model loader implementation for causal language modeling.
+ACE-Step 1.5 GGUF model loader implementation.
+
+ACE-Step is a diffusion-based music generation model using a DiT architecture.
+The GGUF checkpoint's "acestep-dit" architecture is not supported by
+transformers' GGUF loader, so we load the model using trust_remote_code from
+a HuggingFace repo that ships the custom model classes.
+
+We test only the decoder (AceStepDiTModel) because the full model's forward
+uses @torch.no_grad and internal randomness that prevent graph tracing.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoConfig, AutoModel
 from typing import Optional
 
 from ....base import ForgeModel
@@ -19,34 +27,34 @@ from ....config import (
     StrEnum,
 )
 
+SOURCE_REPO = "ACE-Step/acestep-v15-turbo-shift3"
+
 
 class ModelVariant(StrEnum):
-    """Available ACE-Step 1.5 GGUF model variants for causal language modeling."""
+    """Available ACE-Step 1.5 GGUF model variants."""
 
     ACE_STEP_1_5_TURBO_GGUF = "TURBO_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """ACE-Step 1.5 GGUF model loader implementation for causal language modeling tasks."""
+    """ACE-Step 1.5 GGUF model loader.
+
+    Loads the DiT decoder sub-model for compilation testing.
+    """
 
     _VARIANTS = {
         ModelVariant.ACE_STEP_1_5_TURBO_GGUF: LLMModelConfig(
-            pretrained_model_name="Serveurperso/ACE-Step-1.5-GGUF",
+            pretrained_model_name=SOURCE_REPO,
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.ACE_STEP_1_5_TURBO_GGUF
 
-    GGUF_FILE = "acestep-v15-turbo-Q4_K_M.gguf"
-
-    sample_text = "A calm acoustic guitar melody with soft vocals"
-
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
         super().__init__(variant)
-        self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
 
@@ -61,71 +69,57 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        return self.tokenizer
-
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
-
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
-
-        self.config = model.config
-        self.model = model
-        return model
-
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        max_length = self._variant_config.max_length
-
-        prompts = [self.sample_text]
-
-        inputs = self.tokenizer(
-            prompts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=max_length,
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
         )
 
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
 
+        torch_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        full_model = AutoModel.from_config(
+            config, trust_remote_code=True, torch_dtype=torch_dtype
+        )
+
+        decoder = full_model.decoder.eval()
+        self.config = config
+        self.model = decoder
+        return decoder
+
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        if self.config is None:
+            self.load_config()
+
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        seq_len = self._variant_config.max_length
+        if seq_len % self.config.patch_size != 0:
+            seq_len = seq_len - (seq_len % self.config.patch_size)
+
+        hidden_dim = self.config.audio_acoustic_hidden_dim
+        context_dim = self.config.in_channels - hidden_dim
+        encoder_seq_len = 16
+
+        inputs = {
+            "hidden_states": torch.randn(batch_size, seq_len, hidden_dim, dtype=dtype),
+            "timestep": torch.full((batch_size,), 0.5, dtype=dtype),
+            "timestep_r": torch.full((batch_size,), 0.5, dtype=dtype),
+            "attention_mask": torch.ones(batch_size, seq_len, dtype=torch.long),
+            "encoder_hidden_states": torch.randn(
+                batch_size, encoder_seq_len, self.config.hidden_size, dtype=dtype
+            ),
+            "encoder_attention_mask": torch.ones(
+                batch_size, encoder_seq_len, dtype=torch.long
+            ),
+            "context_latents": torch.randn(
+                batch_size, seq_len, context_dim, dtype=dtype
+            ),
+        }
         return inputs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, trust_remote_code=True
         )
         return self.config
