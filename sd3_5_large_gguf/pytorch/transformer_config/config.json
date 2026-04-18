@@ -1,0 +1,17 @@
+{
+  "_class_name": "SD3Transformer2DModel",
+  "_diffusers_version": "0.30.0.dev0",
+  "attention_head_dim": 64,
+  "caption_projection_dim": 1536,
+  "dual_attention_layers": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  "in_channels": 16,
+  "joint_attention_dim": 4096,
+  "num_attention_heads": 24,
+  "num_layers": 38,
+  "out_channels": 16,
+  "patch_size": 2,
+  "pooled_projection_dim": 2048,
+  "pos_embed_max_size": 192,
+  "qk_norm": "rms_norm",
+  "sample_size": 128
+}

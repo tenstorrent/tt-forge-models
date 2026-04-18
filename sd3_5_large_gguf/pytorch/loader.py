@@ -12,6 +12,7 @@ Available variants:
 - Q4_0: 4-bit quantized SD3.5 Large transformer (4.77GB)
 """
 
+from pathlib import Path
 from typing import Any, Optional
 
 import torch
@@ -38,6 +39,9 @@ REPO_ID = "calcuis/sd3.5-large-gguf"
 
 # GGUF filename for Q4_0 quantization
 Q4_0_FILENAME = "sd3.5_large-q4_0.gguf"
+
+# Local config to avoid accessing gated stabilityai/stable-diffusion-3.5-large repo
+_LOCAL_CONFIG_DIR = str(Path(__file__).parent / "transformer_config")
 
 # SD3.5 Large transformer input dimensions
 LATENT_CHANNELS = 16
@@ -92,6 +96,7 @@ class ModelLoader(ForgeModel):
             gguf_path = hf_hub_download(REPO_ID, Q4_0_FILENAME)
             self._transformer = SD3Transformer2DModel.from_single_file(
                 gguf_path,
+                config=_LOCAL_CONFIG_DIR,
                 quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
                 torch_dtype=dtype,
             )
