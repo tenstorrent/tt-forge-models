@@ -10,6 +10,15 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.utils.import_utils as _import_utils
+
+
+def _ensure_gguf_detectable():
+    if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+    _import_utils.is_gguf_available.cache_clear()
+
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -64,6 +73,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _ensure_gguf_detectable()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -78,6 +88,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _ensure_gguf_detectable()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -156,6 +167,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _ensure_gguf_detectable()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
