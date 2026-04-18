@@ -4,6 +4,7 @@
 """
 Qwen 3.5 MLX model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -101,6 +102,8 @@ class ModelLoader(ForgeModel):
         ).eval()
 
         model.config.use_cache = False
+        if hasattr(model.config, "text_config"):
+            model.config.text_config.use_cache = False
         self.config = model.config
         self.model = model
         return model
