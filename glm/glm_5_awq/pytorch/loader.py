@@ -60,6 +60,8 @@ class ModelLoader(ForgeModel):
         config.num_experts_per_tok = 2
         config.q_lora_rank = 256
 
+        config._experts_implementation = "eager"
+
         model_kwargs = {
             "attn_implementation": "eager",
             "experts_implementation": "eager",
