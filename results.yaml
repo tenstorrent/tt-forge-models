@@ -1,0 +1,9 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[magistaroth_gguf/causal_lm/pytorch-24b_v1.1_Q4_K_M-single_device-inference]"
+  status: "PASS"
+  date: "20260418_055644"
+  branch: "ip-172-31-17-155-tt-xla-dev/ubuntu/hf-bringup-range-500-1000-1"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[llada_2_1/causal_lm/pytorch-llada_2_1_mini-single_device-inference]"
+  status: "MAX_FAILED_ATTEMPTS"
+  date: "20260418_071951"
+  branch: "ip-172-31-17-155-tt-xla-dev/ubuntu/hf-bringup-range-500-1000-1"
