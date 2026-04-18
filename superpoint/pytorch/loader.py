@@ -6,6 +6,7 @@ SuperPoint model loader implementation for keypoint detection.
 """
 
 import torch
+import torch.nn as nn
 from transformers import (
     AutoImageProcessor,
     SuperPointForKeypointDetection,
@@ -24,6 +25,23 @@ from ...config import (
     StrEnum,
 )
 from datasets import load_dataset
+
+
+class SuperPointWrapper(nn.Module):
+    """Wraps SuperPoint to return fixed-size tensors, avoiding dynamic NMS outputs."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, pixel_values):
+        pixel_values = self.model.extract_one_channel_pixel_values(pixel_values)
+        encoder_outputs = self.model.encoder(
+            pixel_values, output_hidden_states=False, return_dict=True
+        )
+        last_hidden_state = encoder_outputs[0]
+        scores = self.model.keypoint_decoder._get_pixel_scores(last_hidden_state)
+        return scores
 
 
 class ModelVariant(StrEnum):
@@ -79,7 +97,7 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        return model
+        return SuperPointWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
