@@ -98,6 +98,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        if len(self.tokenizer) > model.get_input_embeddings().weight.shape[0]:
+            model.resize_token_embeddings(len(self.tokenizer))
+
         self.config = model.config
         self.model = model
         return model
