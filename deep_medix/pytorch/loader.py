@@ -4,6 +4,7 @@
 """
 DeepMedix-R1 model loader implementation for medical vision-language tasks.
 """
+
 import torch
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from typing import Optional
@@ -118,12 +119,10 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Wrapped DeepMedix-R1 model instance for vision-language tasks.
         """
-        # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
 
-        # Load the model with dtype override if specified
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         else:
@@ -134,6 +133,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        self._raw_model = model
         model = Wrapper(model)
 
         return model
@@ -141,28 +141,27 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the DeepMedix-R1 model with this instance's variant settings.
 
+        Pre-computes inputs_embeds and position_ids eagerly so that the
+        Qwen2.5-VL vision encoder (which has data-dependent ops incompatible
+        with torch.compile tracing) is not part of the compiled graph.
+
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-                           If specified, converts pixel_values to the specified dtype.
 
         Returns:
-            dict: Input tensors that can be fed to the model.
+            dict: Input tensors (inputs_embeds, attention_mask, position_ids).
         """
-        # Ensure processor is initialized
         if self.processor is None:
             self._load_processor()
 
-        # Apply chat template to get text prompt
         text = self.processor.apply_chat_template(
             self.messages, tokenize=False, add_generation_prompt=True
         )
 
         from qwen_vl_utils import process_vision_info
 
-        # Process vision inputs
         image_inputs, video_inputs = process_vision_info(self.messages)
 
-        # Process all inputs together
         inputs = self.processor(
             text=[text],
             images=image_inputs,
@@ -171,8 +170,42 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        # Convert pixel_values to specified dtype if provided
         if dtype_override is not None:
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
-        return inputs
+        raw_model = self._raw_model
+        inner = raw_model.model
+
+        with torch.no_grad():
+            inputs_embeds = inner.get_input_embeddings()(inputs["input_ids"])
+
+            image_embeds = inner.get_image_features(
+                inputs["pixel_values"].to(raw_model.dtype),
+                inputs["image_grid_thw"],
+                return_dict=True,
+            ).pooler_output
+            image_embeds = torch.cat(image_embeds, dim=0).to(
+                inputs_embeds.device, inputs_embeds.dtype
+            )
+
+            image_mask, _ = inner.get_placeholder_mask(
+                inputs["input_ids"],
+                inputs_embeds=inputs_embeds,
+                image_features=image_embeds,
+            )
+            inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+            position_ids = inner.compute_3d_position_ids(
+                input_ids=inputs["input_ids"],
+                image_grid_thw=inputs["image_grid_thw"],
+                video_grid_thw=None,
+                inputs_embeds=inputs_embeds,
+                attention_mask=inputs["attention_mask"],
+                past_key_values=None,
+            )
+
+        return {
+            "inputs_embeds": inputs_embeds,
+            "attention_mask": inputs["attention_mask"],
+            "position_ids": position_ids,
+        }
