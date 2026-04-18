@@ -100,9 +100,10 @@ class ModelLoader(ForgeModel):
         model = Qwen3OmniMoeForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        model.config.use_cache = False
-        model.eval()
-        model = Wrapper(model)
+        thinker = model.thinker
+        thinker.config.use_cache = False
+        thinker.eval()
+        model = Wrapper(thinker)
 
         return model
 
