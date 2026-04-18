@@ -59,9 +59,7 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model = VGGT4Track.from_pretrained(pretrained_model_name)
-
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        model = model.to(dtype_override or torch.float32)
 
         model.eval()
         return model
