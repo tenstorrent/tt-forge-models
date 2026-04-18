@@ -171,7 +171,7 @@ def controlnet_mlsd_sd15_preprocessing(
 
     return (
         latent_model_input,
-        timesteps,
+        timesteps[0],
         prompt_embeds,
         down_block_additional_residuals,
         mid_block_additional_residual,
