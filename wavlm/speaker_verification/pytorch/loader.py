@@ -86,6 +86,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
+        import torch
         import numpy as np
 
         if self._feature_extractor is None:
@@ -103,5 +104,16 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            for key in list(inputs.keys()):
+                if (
+                    isinstance(inputs[key], torch.Tensor)
+                    and inputs[key].is_floating_point()
+                ):
+                    inputs[key] = inputs[key].to(dtype_override)
+
+        if "attention_mask" in inputs and inputs["attention_mask"].dtype == torch.int32:
+            inputs["attention_mask"] = inputs["attention_mask"].to(torch.int64)
 
         return inputs
