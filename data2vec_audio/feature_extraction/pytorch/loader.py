@@ -21,6 +21,39 @@ from ....config import (
 )
 
 
+def _patch_attention_mask_index_dtype(model):
+    """Patch _get_feature_vector_attention_mask to use consistent index dtypes.
+
+    The original uses torch.arange (int64) alongside output_lengths which may
+    lower to int32 in XLA, causing a 'Cannot concatenate S64 vs S32' error.
+    """
+
+    def _patched(feature_vector_length, attention_mask, add_adapter=None):
+        non_padded_lengths = attention_mask.cumsum(dim=-1)[:, -1]
+        output_lengths = model._get_feat_extract_output_lengths(
+            non_padded_lengths, add_adapter=add_adapter
+        )
+        output_lengths = output_lengths.to(torch.long)
+
+        batch_size = attention_mask.shape[0]
+        attention_mask = torch.zeros(
+            (batch_size, feature_vector_length),
+            dtype=attention_mask.dtype,
+            device=attention_mask.device,
+        )
+        idx = torch.arange(
+            attention_mask.shape[0],
+            device=attention_mask.device,
+            dtype=torch.int32,
+        )
+        col_idx = (output_lengths.to(torch.int32)) - 1
+        attention_mask[(idx, col_idx)] = 1
+        attention_mask = attention_mask.flip([-1]).cumsum(-1).flip([-1]).bool()
+        return attention_mask
+
+    model._get_feature_vector_attention_mask = _patched
+
+
 class ModelVariant(StrEnum):
     """Available Data2VecAudio feature extraction model variants."""
 
@@ -84,6 +117,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model.to(dtype_override)
 
+        _patch_attention_mask_index_dtype(model)
+
         return model
 
     def load_inputs(self, dtype_override=None):
@@ -104,5 +139,13 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override)
+                if isinstance(v, torch.Tensor) and v.is_floating_point()
+                else v
+                for k, v in inputs.items()
+            }
 
         return inputs
