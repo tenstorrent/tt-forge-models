@@ -37,9 +37,10 @@ class RetriBertModel(nn.Module):
         self.project_doc = project_doc
 
     def embed_questions(self, input_ids, attention_mask=None):
-        cls_output = self.bert_query(input_ids, attention_mask=attention_mask)[0][
-            :, 0, :
-        ]
+        token_type_ids = torch.zeros_like(input_ids)
+        cls_output = self.bert_query(
+            input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids
+        )[0][:, 0, :]
         return self.project_query(cls_output)
 
     def forward(self, input_ids, attention_mask=None, **kwargs):
