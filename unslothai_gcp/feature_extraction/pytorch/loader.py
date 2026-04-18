@@ -3,9 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Unslothai GCP model loader implementation for feature extraction.
+
+The unslothai/gcp HuggingFace repo is a health-check placeholder with
+zero-dimension config and no tokenizer files. We instantiate a minimal
+LlamaModel from config and generate dummy token inputs directly.
 """
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import LlamaConfig, LlamaModel
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +22,13 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+_VOCAB_SIZE = 32000
+_HIDDEN_SIZE = 64
+_NUM_HEADS = 2
+_NUM_LAYERS = 2
+_INTERMEDIATE_SIZE = 128
+_MAX_POSITION_EMBEDDINGS = 128
 
 
 class ModelVariant(StrEnum):
@@ -42,7 +53,6 @@ class ModelLoader(ForgeModel):
         """Initialize ModelLoader with specified variant."""
         super().__init__(variant)
         self.model = None
-        self.tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -59,50 +69,34 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self):
-        """Load tokenizer for the current variant."""
-        if self.tokenizer is None:
-            model_name = self._variant_config.pretrained_model_name
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        return self.tokenizer
-
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load Unslothai GCP model from Hugging Face."""
-        if self.tokenizer is None:
-            self._load_tokenizer()
-
-        model_name = self._variant_config.pretrained_model_name
-
-        model_kwargs = {}
+        """Create a minimal LlamaModel since the HF repo has zero-dim config."""
+        config = LlamaConfig(
+            vocab_size=_VOCAB_SIZE,
+            hidden_size=_HIDDEN_SIZE,
+            intermediate_size=_INTERMEDIATE_SIZE,
+            num_attention_heads=_NUM_HEADS,
+            num_hidden_layers=_NUM_LAYERS,
+            num_key_value_heads=_NUM_HEADS,
+            max_position_embeddings=_MAX_POSITION_EMBEDDINGS,
+        )
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+            config.torch_dtype = dtype_override
 
-        model = AutoModel.from_pretrained(model_name, **model_kwargs)
+        model = LlamaModel(config)
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
         model.eval()
 
         self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, query=None):
-        """Load and return sample inputs for the model."""
-        if self.tokenizer is None:
-            self._load_tokenizer()
-
-        if query is None:
-            query = "What is the capital of France?"
-
+        """Generate dummy token inputs (no tokenizer available in this repo)."""
         max_length = self._variant_config.max_length
-
-        inputs = self.tokenizer(
-            query,
-            padding="max_length",
-            truncation=True,
-            max_length=max_length,
-            return_tensors="pt",
-        )
-
-        return inputs
+        input_ids = torch.randint(0, _VOCAB_SIZE, (1, max_length))
+        attention_mask = torch.ones(1, max_length, dtype=torch.long)
+        return {"input_ids": input_ids, "attention_mask": attention_mask}
 
     def decode_output(self, outputs, inputs=None):
         """Decode the model output for feature extraction."""
