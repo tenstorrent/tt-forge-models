@@ -31,14 +31,10 @@ from ...config import (
 
 REPO_ID = "ai-toolkit/wan2.1-vae"
 
-# Wan 2.1 VAE uses 16 latent channels (z_dim=16)
-LATENT_CHANNELS = 16
-
-# Small test dimensions for VAE decoder inputs
-# Wan VAE compression: 4x temporal, 8x spatial
-LATENT_HEIGHT = 8
-LATENT_WIDTH = 8
-LATENT_DEPTH = 1  # single frame
+IN_CHANNELS = 3
+INPUT_HEIGHT = 64
+INPUT_WIDTH = 64
+INPUT_FRAMES = 1
 
 
 class ModelVariant(StrEnum):
@@ -80,7 +76,7 @@ class ModelLoader(ForgeModel):
         Returns:
             AutoencoderKLWan instance.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         if self._vae is None:
             self._vae = AutoencoderKLWan.from_pretrained(
                 REPO_ID,
@@ -91,19 +87,20 @@ class ModelLoader(ForgeModel):
             self._vae = self._vae.to(dtype=dtype_override)
         return self._vae
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare latent inputs for the VAE decoder.
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare video input for the VAE.
 
         Returns:
-            Latent tensor of shape [batch, 16, depth, height, width].
+            Tensor of shape [batch, 3, frames, height, width].
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        # [batch, channels, time, height, width]
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         return torch.randn(
             1,
-            LATENT_CHANNELS,
-            LATENT_DEPTH,
-            LATENT_HEIGHT,
-            LATENT_WIDTH,
+            IN_CHANNELS,
+            INPUT_FRAMES,
+            INPUT_HEIGHT,
+            INPUT_WIDTH,
             dtype=dtype,
         )
