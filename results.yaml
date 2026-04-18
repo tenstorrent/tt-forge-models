@@ -1,0 +1,13 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[whisper_large_v3_german/speech_recognition/pytorch-Whisper_Large_V3_German-single_device-inference]"
+  status: "MAX_FAILED_ATTEMPTS"
+  date: "20260418_031137"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-0"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[wan_svi_loras/pytorch-2.2_I2V_SVI_Low-single_device-inference]"
+  status: "PASS"
+  date: "20260418_033628"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-0"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[dictalm/causal_lm/pytorch-dictalm2_0-single_device-inference]"
+  status: "MAX_FAILED_ATTEMPTS"
+  date: "20260418_035911"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-0"
