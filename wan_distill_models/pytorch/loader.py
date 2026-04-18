@@ -21,7 +21,6 @@ from typing import Any, Optional
 import torch
 from diffusers import WanImageToVideoPipeline  # type: ignore[import]
 from huggingface_hub import hf_hub_download  # type: ignore[import]
-from PIL import Image  # type: ignore[import]
 from safetensors.torch import load_file  # type: ignore[import]
 
 from ...base import ForgeModel
@@ -92,14 +91,6 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Wan 2.2 I2V pipeline with distilled transformer weights.
-
-        Downloads the distilled safetensor weights from the HuggingFace repo
-        and loads them into the pipeline's transformer component.
-
-        Returns:
-            WanImageToVideoPipeline with distilled transformer weights.
-        """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
         self.pipeline = WanImageToVideoPipeline.from_pretrained(
@@ -116,24 +107,25 @@ class ModelLoader(ForgeModel):
         state_dict = load_file(weight_path)
         self.pipeline.transformer.load_state_dict(state_dict, strict=False)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for image-to-video generation.
+    def load_inputs(self, dtype_override=None, **kwargs) -> Any:
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
 
-        Returns:
-            dict with prompt and image keys.
-        """
-        if prompt is None:
-            prompt = (
-                "A cat walking gracefully across a sunlit garden, "
-                "detailed fur texture, cinematic lighting"
-            )
+        transformer = self.pipeline.transformer
+        dtype = transformer.dtype
+        config = transformer.config
+        in_channels = config.in_channels
+        p_t, p_h, p_w = config.patch_size
+        text_dim = config.text_dim
 
-        # Create a small test image (RGB)
-        image = Image.new("RGB", (256, 256), color=(128, 128, 200))
+        hidden_states = torch.randn(1, in_channels, p_t, p_h * 2, p_w * 2, dtype=dtype)
+        timestep = torch.tensor([1], dtype=torch.long)
+        encoder_hidden_states = torch.randn(1, 1, text_dim, dtype=dtype)
 
-        return {
-            "prompt": prompt,
-            "image": image,
-        }
+        if dtype_override:
+            hidden_states = hidden_states.to(dtype_override)
+            encoder_hidden_states = encoder_hidden_states.to(dtype_override)
+
+        return [hidden_states, timestep, encoder_hidden_states]
