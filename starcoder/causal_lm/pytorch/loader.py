@@ -33,7 +33,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.STARCODER_15B: LLMModelConfig(
-            pretrained_model_name="bigcode/starcoder",
+            pretrained_model_name="bigcode/starcoder2-15b",
             max_length=256,
         ),
     }
@@ -112,6 +112,12 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
+        if (
+            hasattr(self.model.config, "sliding_window")
+            and self.model.config.sliding_window is not None
+        ):
+            self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
         return inputs
 
