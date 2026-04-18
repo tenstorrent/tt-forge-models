@@ -68,7 +68,6 @@ def hunyuan_video_preprocessing(
         prompt=prompt,
         device=device,
         num_videos_per_prompt=1,
-        prompt_template=None,
     )
 
     # Create latent noise
