@@ -20,6 +20,7 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+from .src.model_utils import patch_moe_experts
 
 
 class ModelVariant(StrEnum):
@@ -97,6 +98,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        patch_moe_experts(model)
         self.config = model.config
         self.model = model
         return model
