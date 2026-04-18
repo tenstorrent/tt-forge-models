@@ -24,6 +24,7 @@ from ...config import (
     StrEnum,
 )
 from datasets import load_dataset
+from .src.model_utils import SuperPointEncoderWrapper
 
 
 class ModelVariant(StrEnum):
@@ -79,7 +80,7 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        return model
+        return SuperPointEncoderWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
