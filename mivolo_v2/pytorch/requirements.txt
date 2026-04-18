@@ -1,0 +1,3 @@
+git+https://github.com/WildChlamydia/MiVOLO.git
+git+https://github.com/huggingface/pytorch-image-models.git@v0.8.13dev0
+lapx>=0.5.2
