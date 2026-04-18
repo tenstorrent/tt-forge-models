@@ -29,6 +29,17 @@ class ModelVariant(StrEnum):
     VITL_FPC64_256 = "vitl_fpc64_256"
 
 
+class VJEPA2EncoderWrapper(torch.nn.Module):
+    """Wraps VJEPA2Model to call the encoder directly, bypassing mask/predictor logic that breaks dynamo."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.encoder = model.encoder
+
+    def forward(self, pixel_values_videos: torch.Tensor) -> torch.Tensor:
+        return self.encoder(pixel_values_videos=pixel_values_videos).last_hidden_state
+
+
 class ModelLoader(ForgeModel):
     """V-JEPA2 model loader for video classification."""
 
@@ -69,7 +80,7 @@ class ModelLoader(ForgeModel):
 
         self.processor = AutoVideoProcessor.from_pretrained(model_name)
 
-        return model
+        return VJEPA2EncoderWrapper(model)
 
     def load_inputs(self, dtype_override=None, **kwargs):
         """Load and return input tensors for V-JEPA2."""
