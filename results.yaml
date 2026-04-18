@@ -159,3 +159,7 @@ results:
   status: "SYSTEM_DESC_SCHEMA_MISMATCH"
   date: "20260418_231313"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-0"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[llama_3_1_nemotron_nano_4b/causal_lm/pytorch-3.1_Nemotron_Nano_4B_v1.1-single_device-inference]"
+  status: "SYSTEM_DESC_SCHEMA_MISMATCH"
+  date: "20260418_231720"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-0"
