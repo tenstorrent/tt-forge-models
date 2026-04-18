@@ -6,27 +6,24 @@ Aya Expanse 32B Heretic GGUF model loader implementation for causal language mod
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from transformers.utils import import_utils as _import_utils
 from typing import Optional
 
-if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
-    _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
-_import_utils.is_gguf_available.cache_clear()
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
 
 
-def _patch_transformers_command_r_gguf():
-    """Monkey-patch transformers to add command-r GGUF architecture support."""
-    from transformers.modeling_gguf_pytorch_utils import (
-        GGUF_SUPPORTED_ARCHITECTURES,
-        GGUF_TO_TRANSFORMERS_MAPPING,
-    )
-    import transformers.modeling_gguf_pytorch_utils as gguf_utils
-
+def _patch_command_r_support():
     if "command-r" in GGUF_SUPPORTED_ARCHITECTURES:
         return
-
     GGUF_SUPPORTED_ARCHITECTURES.append("command-r")
-
     GGUF_TO_TRANSFORMERS_MAPPING["config"]["command-r"] = {
         "context_length": "max_position_embeddings",
         "block_count": "num_hidden_layers",
@@ -39,38 +36,27 @@ def _patch_transformers_command_r_gguf():
         "logit_scale": "logit_scale",
         "vocab_size": "vocab_size",
     }
-
-    from transformers.integrations.ggml import (
-        GGUF_TO_FAST_CONVERTERS,
-        GGUFGPTConverter,
-    )
-
     if "command-r" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["command-r"] = GGUFGPTConverter
     if "cohere" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["cohere"] = GGUFGPTConverter
 
-    orig_load = gguf_utils.load_gguf_checkpoint
 
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
-        config = result.get("config", {})
-        if config.get("model_type") == "command-r":
-            config["model_type"] = "cohere"
-        return result
-
-    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    import transformers.models.auto.tokenization_auto as tok_auto
-    import transformers.configuration_utils as config_utils
-    import transformers.modeling_utils as modeling_utils
-
-    for mod in (tok_auto, config_utils, modeling_utils):
-        if hasattr(mod, "load_gguf_checkpoint"):
-            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    _patch_command_r_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "command-r":
+        result["config"]["model_type"] = "cohere"
+    return result
 
 
-_patch_transformers_command_r_gguf()
+_patch_command_r_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
