@@ -30,10 +30,9 @@ def load_sdxl_inpainting_pipe(pretrained_model_name):
         pretrained_model_name, torch_dtype=torch.float32
     )
 
-    pipe.to("cpu")
-
     modules = [pipe.text_encoder, pipe.unet, pipe.text_encoder_2, pipe.vae]
     for module in modules:
+        module.to(dtype=torch.float32)
         module.eval()
         for param in module.parameters():
             if param.requires_grad:
@@ -164,15 +163,22 @@ def sdxl_inpainting_preprocessing(
     )
     latents = latents * pipe.scheduler.init_noise_sigma
 
-    # 4. Prepare mask and masked image latents
+    # 4. Preprocess mask and image, then prepare mask latents
+    init_image = pipe.image_processor.preprocess(image, height=height, width=width)
+    init_image = init_image.to(dtype=torch.float32)
+    mask = pipe.mask_processor.preprocess(mask_image, height=height, width=width)
+    masked_image = init_image * (mask < 0.5)
+
+    generator = torch.Generator(device=device).manual_seed(42)
     mask, masked_image_latents = pipe.prepare_mask_latents(
-        mask=mask_image,
-        masked_image=image,
+        mask=mask,
+        masked_image=masked_image,
         batch_size=batch_size * num_images_per_prompt,
         height=height,
         width=width,
         dtype=prompt_embeds.dtype,
         device=device,
+        generator=generator,
         do_classifier_free_guidance=do_classifier_free_guidance,
     )
 
@@ -182,23 +188,25 @@ def sdxl_inpainting_preprocessing(
         text_encoder_projection_dim = int(pooled_prompt_embeds.shape[-1])
     else:
         text_encoder_projection_dim = pipe.text_encoder_2.config.projection_dim
-    add_time_ids = pipe._get_add_time_ids(
+    aesthetic_score = 6.0
+    negative_aesthetic_score = 2.5
+    if negative_original_size is None:
+        negative_original_size = original_size
+    if negative_target_size is None:
+        negative_target_size = target_size
+
+    add_time_ids, negative_add_time_ids = pipe._get_add_time_ids(
         original_size,
         crops_coords_top_left,
         target_size,
+        aesthetic_score,
+        negative_aesthetic_score,
+        negative_original_size,
+        negative_crops_coords_top_left,
+        negative_target_size,
         dtype=prompt_embeds.dtype,
         text_encoder_projection_dim=text_encoder_projection_dim,
     )
-    if negative_original_size is not None and negative_target_size is not None:
-        negative_add_time_ids = pipe._get_add_time_ids(
-            negative_original_size,
-            negative_crops_coords_top_left,
-            negative_target_size,
-            dtype=prompt_embeds.dtype,
-            text_encoder_projection_dim=text_encoder_projection_dim,
-        )
-    else:
-        negative_add_time_ids = add_time_ids
 
     if do_classifier_free_guidance:
         prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
@@ -225,7 +233,7 @@ def sdxl_inpainting_preprocessing(
 
     return (
         scaled_latent_model_input,
-        timesteps,
+        timesteps[0],
         prompt_embeds,
         added_cond_kwargs,
     )
