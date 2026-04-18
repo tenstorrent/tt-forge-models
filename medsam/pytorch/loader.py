@@ -6,6 +6,7 @@ MedSAM (Segment Anything in Medical Images) loader implementation
 """
 
 import torch
+import torch.nn as nn
 from typing import Optional
 from PIL import Image
 from loguru import logger
@@ -22,6 +23,40 @@ from ...config import (
 )
 from ...base import ForgeModel
 from datasets import load_dataset
+
+
+class MedSAMWrapper(nn.Module):
+    def __init__(self, model: SamModel):
+        super().__init__()
+        self.model = model
+
+    def forward(self, pixel_values, input_boxes):
+        model = self.model
+        image_positional_embeddings = model.get_image_wide_positional_embeddings()
+        batch_size = pixel_values.shape[0]
+        image_positional_embeddings = image_positional_embeddings.repeat(
+            batch_size, 1, 1, 1
+        )
+
+        vision_outputs = model.vision_encoder(pixel_values)
+        image_embeddings = vision_outputs.last_hidden_state
+
+        sparse_embeddings, dense_embeddings = model.prompt_encoder(
+            input_points=None,
+            input_labels=None,
+            input_boxes=input_boxes,
+            input_masks=None,
+        )
+
+        low_res_masks, iou_predictions = model.mask_decoder(
+            image_embeddings=image_embeddings,
+            image_positional_embeddings=image_positional_embeddings,
+            sparse_prompt_embeddings=sparse_embeddings,
+            dense_prompt_embeddings=dense_embeddings,
+            multimask_output=True,
+        )
+
+        return low_res_masks
 
 
 class ModelVariant(StrEnum):
@@ -60,8 +95,10 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         model_name = self._variant_config.pretrained_model_name
-        framework_model = SamModel.from_pretrained(model_name, **kwargs).to("cpu")
+        sam_model = SamModel.from_pretrained(model_name, **kwargs).to("cpu")
         self.processor = SamProcessor.from_pretrained(model_name, **kwargs)
+
+        framework_model = MedSAMWrapper(sam_model)
 
         if dtype_override is not None:
             framework_model = framework_model.to(dtype_override)
