@@ -39,7 +39,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.QWEN_3_4B_THINKING_2507_GGUF
 
     _GGUF_FILES = {
-        ModelVariant.QWEN_3_4B_THINKING_2507_GGUF: "Qwen3-4B-Thinking-2507-Claude-4.5-Opus-High-Reasoning-Distill-Q4_K_M.gguf",
+        ModelVariant.QWEN_3_4B_THINKING_2507_GGUF: "Qwen3-4B-Thinking-2507-Claude-4.5-Opus-High-Reasoning-Distill.q4_k_m.gguf",
     }
 
     @property
