@@ -67,13 +67,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the ControlNet OpenPose SDXL pipeline.
+        """Load and return the UNet from the ControlNet OpenPose SDXL pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionXLControlNetPipeline: The pipeline instance.
+            torch.nn.Module: The UNet model used for denoising.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -82,9 +82,9 @@ class ModelLoader(ForgeModel):
         )
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the ControlNet OpenPose SDXL model.
