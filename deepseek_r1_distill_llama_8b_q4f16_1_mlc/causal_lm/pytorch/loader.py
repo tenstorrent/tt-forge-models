@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.DISTILL_LLAMA_8B_Q4F16_1_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/DeepSeek-R1-Distill-Llama-8B-q4f16_1-MLC",
+            pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
             max_length=128,
         ),
     }
