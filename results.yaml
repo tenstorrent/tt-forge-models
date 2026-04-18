@@ -15,3 +15,7 @@ results:
   status: "PASS"
   date: "20260418_074818"
   branch: "ip-172-31-17-155-tt-xla-dev/ubuntu/hf-bringup-range-500-1000-1"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[spatiallm/causal_lm/pytorch-1.1_Qwen_0.5B-single_device-inference]"
+  status: "PASS"
+  date: "20260418_075815"
+  branch: "ip-172-31-17-155-tt-xla-dev/ubuntu/hf-bringup-range-500-1000-1"
