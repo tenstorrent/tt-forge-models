@@ -125,6 +125,17 @@ class ModelLoader(ForgeModel):
 
         state_dict = load_file(model_path)
         state_dict = self._remap_state_dict(state_dict)
+
+        # The checkpoint's controlnet_x_embedder has extra inpainting channels
+        # (68 vs 64), so replace the module before loading weights.
+        cxe_weight = state_dict.get("controlnet_x_embedder.weight")
+        if cxe_weight is not None:
+            in_features = cxe_weight.shape[1]
+            out_features = cxe_weight.shape[0]
+            self._controlnet.controlnet_x_embedder = torch.nn.Linear(
+                in_features, out_features
+            )
+
         self._controlnet.load_state_dict(state_dict, strict=False)
         self._controlnet.to(dtype=dtype)
         self._controlnet.eval()
