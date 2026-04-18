@@ -36,6 +36,8 @@ class ModelLoader(ForgeModel):
         ),
     }
 
+    _TOKENIZER_MODEL = "RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic"
+
     DEFAULT_VARIANT = ModelVariant.LLAMA3_1_8B_EAGLE3_QUANTIZED
 
     sample_text = "What is the capital of France?"
@@ -63,7 +65,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            self._TOKENIZER_MODEL,
             trust_remote_code=True,
             **tokenizer_kwargs,
         )
