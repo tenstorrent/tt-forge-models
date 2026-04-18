@@ -9,7 +9,7 @@ from typing import Optional
 from dataclasses import dataclass
 
 import torch
-from transformers import AutoModelForPreTraining, AutoImageProcessor
+from transformers import HieraModel, AutoImageProcessor
 
 from ...config import (
     ModelConfig,
@@ -69,20 +69,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         model_name = self._variant_config.pretrained_model_name
 
-        model = AutoModelForPreTraining.from_pretrained(
+        model = HieraModel.from_pretrained(
             model_name, torch_dtype=torch.float32, **kwargs
         )
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         if self._processor is None:
             self._processor = AutoImageProcessor.from_pretrained(
                 self._variant_config.pretrained_model_name
