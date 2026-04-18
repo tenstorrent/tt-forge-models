@@ -127,3 +127,7 @@ results:
   status: "PASS"
   date: "20260418_121712"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-3"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[bertweet/sentiment_analysis/pytorch-pysentimiento_BERTweet_PT_Sentiment-single_device-inference]"
+  status: "PASS"
+  date: "20260418_122419"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-3"
