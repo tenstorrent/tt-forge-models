@@ -16,8 +16,9 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from diffusers import StableDiffusionInpaintPipeline
 from typing import Optional
+
+from .src.model_utils import load_pipe, stable_diffusion_inpainting_preprocessing
 
 
 class ModelVariant(StrEnum):
@@ -29,7 +30,6 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Stable Diffusion 2 Inpainting model loader implementation."""
 
-    # Dictionary of available model variants
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="sd2-community/stable-diffusion-2-inpainting",
@@ -38,26 +38,14 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.BASE
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
+    prompt = "a photo of an astronaut riding a horse on mars"
 
-        Args:
-            variant: Optional string specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
+    def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
-        """Get model information for dashboard and metrics reporting.
-
-        Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
-
         return ModelInfo(
             model="Stable Diffusion 2 Inpainting",
             variant=variant,
@@ -68,49 +56,28 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Diffusion 2 Inpainting pipeline.
+        pretrained_model_name = self._variant_config.pretrained_model_name
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use torch.bfloat16.
+        self.pipeline = load_pipe(pretrained_model_name)
 
-        Returns:
-            StableDiffusionInpaintPipeline: The pre-trained inpainting pipeline object.
-        """
-        dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionInpaintPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
-        )
-        return pipe
+        if dtype_override is not None:
+            self.pipeline = self.pipeline.to(dtype_override)
+
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Stable Diffusion 2 Inpainting model.
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
 
-        Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the inputs.
+        (
+            latent_model_input,
+            timestep,
+            prompt_embeds,
+        ) = stable_diffusion_inpainting_preprocessing(self.pipeline, self.prompt)
 
-        Returns:
-            dict: Dictionary containing prompt, image, and mask_image inputs.
-        """
-        from PIL import Image
-        import numpy as np
+        if dtype_override:
+            latent_model_input = latent_model_input.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            prompt_embeds = prompt_embeds.to(dtype_override)
 
-        # Create a sample 512x512 image (solid color with some variation)
-        image = Image.fromarray(
-            np.random.randint(0, 255, (512, 512, 3), dtype=np.uint8)
-        )
-
-        # Create a sample mask (white region in center to inpaint)
-        mask = Image.new("L", (512, 512), 0)
-        mask.paste(255, (128, 128, 384, 384))
-
-        prompt = [
-            "a photo of an astronaut riding a horse on mars",
-        ] * batch_size
-
-        return {
-            "prompt": prompt,
-            "image": image,
-            "mask_image": mask,
-        }
+        return [latent_model_input, timestep, prompt_embeds]
