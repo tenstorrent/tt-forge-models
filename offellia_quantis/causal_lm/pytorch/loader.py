@@ -23,6 +23,16 @@ from ....config import (
 )
 
 
+def _register_lfm2_tokenizer_converter():
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
+
+    if "lfm2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["lfm2"] = GGUFGPTConverter
+
+
+_register_lfm2_tokenizer_converter()
+
+
 class ModelVariant(StrEnum):
     """Available OFFELLIA Quantis GGUF model variants for causal language modeling."""
 
