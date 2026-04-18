@@ -5,7 +5,7 @@
 ArmenianGPT model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import Mistral3ForConditionalGeneration, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -124,13 +124,13 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            from transformers import AutoConfig
+            from transformers import Mistral3Config
 
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
+            config = Mistral3Config.from_pretrained(pretrained_model_name)
+            config.text_config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
+        model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
 
