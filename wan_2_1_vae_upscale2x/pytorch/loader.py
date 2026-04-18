@@ -32,14 +32,11 @@ from ...config import (
 REPO_ID = "spacepxl/Wan2.1-VAE-upscale2x"
 SUBFOLDER = "diffusers/Wan2.1_VAE_upscale2x_imageonly_real_v1"
 
-# Wan 2.1 VAE uses 16 latent channels (z_dim=16)
-LATENT_CHANNELS = 16
-
-# Small test dimensions for VAE decoder inputs
-# Wan VAE compression: 4x temporal, 8x spatial
-LATENT_HEIGHT = 8
-LATENT_WIDTH = 8
-LATENT_DEPTH = 1  # single frame for image-only variant
+# AutoencoderKLWan.forward() runs encode→decode, so input is pixel-space RGB
+INPUT_CHANNELS = 3
+INPUT_HEIGHT = 64
+INPUT_WIDTH = 64
+INPUT_DEPTH = 1  # single frame for image-only variant
 
 
 class ModelVariant(StrEnum):
@@ -97,17 +94,17 @@ class ModelLoader(ForgeModel):
     def load_inputs(
         self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
     ) -> Any:
-        """Prepare latent inputs for the VAE decoder.
+        """Prepare pixel-space inputs for the VAE autoencoder.
 
         Returns:
-            Latent tensor of shape [batch, 16, depth, height, width].
+            RGB tensor of shape [batch, 3, depth, height, width].
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
         return torch.randn(
             1,
-            LATENT_CHANNELS,
-            LATENT_DEPTH,
-            LATENT_HEIGHT,
-            LATENT_WIDTH,
+            INPUT_CHANNELS,
+            INPUT_DEPTH,
+            INPUT_HEIGHT,
+            INPUT_WIDTH,
             dtype=dtype,
         )
