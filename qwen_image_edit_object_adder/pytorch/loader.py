@@ -108,7 +108,7 @@ class ModelLoader(ForgeModel):
 
         timestep = torch.tensor([1.0], dtype=dtype)
 
-        img_shapes = [((1, img_h, img_w),)]
+        img_shapes = [[(1, img_h, img_w)]]
 
         return {
             "hidden_states": hidden_states,
