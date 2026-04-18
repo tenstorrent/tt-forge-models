@@ -138,6 +138,8 @@ class ModelLoader(ForgeModel):
         )
         if not hasattr(config, "max_length"):
             config.max_length = config.seq_length
+        if not hasattr(config, "use_cache"):
+            config.use_cache = True
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
