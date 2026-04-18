@@ -4,6 +4,7 @@
 """
 TopicClassifier-NoURL model loader implementation for sequence classification.
 """
+
 from typing import Optional
 
 from ....config import (
@@ -82,7 +83,11 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         from transformers import AutoModelForSequenceClassification
 
+        from .src.model_utils import patch_sdpa_attention_source
+
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        patch_sdpa_attention_source(pretrained_model_name)
 
         model_kwargs = {
             "trust_remote_code": True,
