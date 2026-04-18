@@ -137,10 +137,13 @@ class ModelLoader(ForgeModel):
 
         with torch.no_grad():
             model = self.raw_model
+            if dtype_override is not None:
+                model = model.to(dtype_override)
             inner = model.model
+            model_dtype = next(model.parameters()).dtype
 
             input_ids = inputs["input_ids"]
-            pixel_values = inputs["pixel_values"]
+            pixel_values = inputs["pixel_values"].to(model_dtype)
             image_sizes = inputs["image_sizes"]
             batch_num_images = inputs.get("batch_num_images")
 
