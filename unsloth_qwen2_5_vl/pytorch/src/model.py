@@ -3,28 +3,22 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-unsloth/Qwen2.5-VL model wrapper for extracting logits from model outputs.
+unsloth/Qwen2.5-VL model wrapper that bypasses the visual encoder on XLA.
 """
 
 import torch
 
 
-# https://github.com/tenstorrent/tt-xla/issues/1661
 class Wrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
         self.model = model
-        if hasattr(model, "model") and hasattr(model.model, "visual"):
-            model.model.visual.forward = torch.compiler.disable(
-                model.model.visual.forward
-            )
 
-    def forward(self, input_ids, attention_mask, pixel_values, image_grid_thw):
-        inputs = {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "pixel_values": pixel_values,
-            "image_grid_thw": image_grid_thw,
-        }
-        outputs = self.model(**inputs)
+    def forward(self, inputs_embeds, attention_mask, position_ids):
+        outputs = self.model.language_model(
+            input_ids=None,
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+        )
         return outputs.logits
