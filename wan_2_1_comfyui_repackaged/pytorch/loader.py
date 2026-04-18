@@ -108,7 +108,7 @@ class ModelLoader(ForgeModel):
         self,
         *,
         dtype_override: Optional[torch.dtype] = None,
-        vae_type: str = "decoder",
+        vae_type: str = "encoder",
         **kwargs,
     ) -> Any:
         """Prepare inputs for the VAE."""
