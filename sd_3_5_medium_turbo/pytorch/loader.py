@@ -85,4 +85,9 @@ class ModelLoader(ForgeModel):
             prompt_embeds = prompt_embeds.to(dtype_override)
             pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+        return {
+            "hidden_states": latent_model_input,
+            "encoder_hidden_states": prompt_embeds,
+            "pooled_projections": pooled_prompt_embeds,
+            "timestep": timestep,
+        }
