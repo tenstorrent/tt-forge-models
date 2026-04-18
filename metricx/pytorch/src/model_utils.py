@@ -116,9 +116,9 @@ class MT5ForRegression(MT5PreTrainedModel):
             torch.cuda.set_device(self.decoder.first_device)
 
         batch_size = input_ids.size(0)
-        decoder_input_ids = torch.LongTensor([0]).repeat(batch_size).reshape(-1, 1)
-        if torch.cuda.is_available():
-            decoder_input_ids = decoder_input_ids.to(torch.device("cuda"))
+        decoder_input_ids = torch.zeros(
+            batch_size, 1, dtype=torch.long, device=input_ids.device
+        )
 
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
