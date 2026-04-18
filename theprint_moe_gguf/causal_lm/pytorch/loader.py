@@ -39,7 +39,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.THEPRINT_MOE_8X3_0126_Q4_K_M_GGUF
 
     _GGUF_FILES = {
-        ModelVariant.THEPRINT_MOE_8X3_0126_Q4_K_M_GGUF: "theprint-moe-8x3-0126.Q4_K_M.gguf",
+        ModelVariant.THEPRINT_MOE_8X3_0126_Q4_K_M_GGUF: "theprint-moe-8x3-0126-q4_k_m.gguf",
     }
 
     sample_text = "Give me a short introduction to large language models."
