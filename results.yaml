@@ -139,3 +139,7 @@ results:
   status: "PASS"
   date: "20260418_125322"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-3"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[melinoe_qwen3_omni_gguf/causal_lm/pytorch-30B_A3B_Thinking_i1-single_device-inference]"
+  status: "PASS"
+  date: "20260418_131117"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-3"
