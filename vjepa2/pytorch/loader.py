@@ -5,10 +5,12 @@
 V-JEPA2 model loader implementation for video classification.
 """
 
+import types
 from typing import Optional
 
 import numpy as np
 import torch
+import torch.nn as nn
 from transformers import AutoModel, AutoVideoProcessor
 
 from ...base import ForgeModel
@@ -29,16 +31,81 @@ class ModelVariant(StrEnum):
     VITL_FPC64_256 = "vitl_fpc64_256"
 
 
+def _eager_attention_forward(
+    self, hidden_states, position_mask=None, output_attentions=False
+):
+    batch_size, seq_length, _ = hidden_states.shape
+    query_layer = (
+        self.query(hidden_states)
+        .view(batch_size, -1, self.num_attention_heads, self.attention_head_size)
+        .transpose(1, 2)
+    )
+    key_layer = (
+        self.key(hidden_states)
+        .view(batch_size, -1, self.num_attention_heads, self.attention_head_size)
+        .transpose(1, 2)
+    )
+    value_layer = (
+        self.value(hidden_states)
+        .view(batch_size, -1, self.num_attention_heads, self.attention_head_size)
+        .transpose(1, 2)
+    )
+
+    pos_ids = self.get_position_ids(hidden_states, masks=position_mask)
+    key_layer = self.apply_rotary_embeddings(key_layer, pos_ids)
+    query_layer = self.apply_rotary_embeddings(query_layer, pos_ids)
+
+    attn_weights = torch.matmul(query_layer, key_layer.transpose(-1, -2)) * self.scaling
+    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
+        query_layer.dtype
+    )
+    attn_output = torch.matmul(attn_weights, value_layer)
+    attn_output = attn_output.transpose(1, 2).contiguous()
+
+    new_shape = attn_output.size()[:-2] + (self.all_head_size,)
+    context_layer = self.proj(attn_output.reshape(new_shape))
+
+    outputs = (context_layer, attn_weights) if output_attentions else (context_layer,)
+    return outputs
+
+
+class _SimpleVJEPA2Layer(torch.nn.Module):
+    """Plain nn.Module layer that bypasses GradientCheckpointingLayer.__call__."""
+
+    def __init__(self, layer):
+        super().__init__()
+        self.norm1 = layer.norm1
+        self.attention = layer.attention
+        self.norm2 = layer.norm2
+        self.mlp = layer.mlp
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        residual = hidden_states
+        hidden_states = self.norm1(hidden_states)
+        attention_output = self.attention(hidden_states)[0]
+        hidden_states = attention_output + residual
+        residual = hidden_states
+        hidden_states = self.norm2(hidden_states)
+        hidden_states = self.mlp(hidden_states)
+        hidden_states = hidden_states + residual
+        return hidden_states
+
+
 class VJEPA2EncoderWrapper(torch.nn.Module):
-    """Wraps VJEPA2Model encoder to avoid dynamo guard issues with config access in forward."""
+    """Wraps VJEPA2 encoder, patching attention to avoid dynamo guard failures."""
 
     def __init__(self, model):
         super().__init__()
         encoder = model.encoder
         self.patch_embeddings = encoder.embeddings.patch_embeddings
-        self.layers = encoder.layer
         self.layernorm = encoder.layernorm
-        self.tubelet_size = encoder.embeddings.config.tubelet_size
+
+        self.layers = nn.ModuleList()
+        for layer in encoder.layer:
+            layer.attention.forward = types.MethodType(
+                _eager_attention_forward, layer.attention
+            )
+            self.layers.append(_SimpleVJEPA2Layer(layer))
 
     def forward(self, pixel_values_videos: torch.Tensor) -> torch.Tensor:
         pixel_values_videos = pixel_values_videos.permute(0, 2, 1, 3, 4)
@@ -47,7 +114,7 @@ class VJEPA2EncoderWrapper(torch.nn.Module):
         )
         hidden_states = self.patch_embeddings(pixel_values_videos)
         for layer_module in self.layers:
-            hidden_states = layer_module(hidden_states, None, False)[0]
+            hidden_states = layer_module(hidden_states)
         return self.layernorm(hidden_states)
 
 
@@ -83,7 +150,9 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the V-JEPA2 model instance."""
         model_name = self._variant_config.pretrained_model_name
-        model = AutoModel.from_pretrained(model_name, **kwargs)
+        model = AutoModel.from_pretrained(
+            model_name, attn_implementation="eager", **kwargs
+        )
         model.eval()
 
         if dtype_override:
