@@ -7,6 +7,7 @@ MiniCPM-V-2 model loader implementation for multimodal visual question answering
 
 import torch
 import torch.nn as nn
+from contextlib import contextmanager
 from transformers import AutoModel, AutoTokenizer
 from transformers.integrations.tensor_parallel import ALL_PARALLEL_STYLES
 from PIL import Image
@@ -30,22 +31,26 @@ if ALL_PARALLEL_STYLES is None:
 
     mu.ALL_PARALLEL_STYLES = ["rowwise", "colwise", "headwise"]
 
-# Monkey patch Resampler for compatibility with torch 2.7.0
-original_getattr = nn.Module.__getattr__
 
+@contextmanager
+def _patch_resampler_getattr():
+    original_getattr = nn.Module.__getattr__
 
-def patched_getattr(self, name):
-    if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
+    def patched_getattr(self, name):
+        if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
 
-        def _initialize_weights(module_self):
-            if hasattr(module_self, "_init_weights"):
-                module_self._init_weights(module_self)
+            def _initialize_weights(module_self):
+                if hasattr(module_self, "_init_weights"):
+                    module_self._init_weights(module_self)
 
-        return _initialize_weights
-    return original_getattr(self, name)
+            return _initialize_weights
+        return original_getattr(self, name)
 
-
-nn.Module.__getattr__ = patched_getattr
+    nn.Module.__getattr__ = patched_getattr
+    try:
+        yield
+    finally:
+        nn.Module.__getattr__ = original_getattr
 
 
 class ModelVariant(StrEnum):
@@ -99,7 +104,8 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(model_name, **model_kwargs)
+        with _patch_resampler_getattr():
+            model = AutoModel.from_pretrained(model_name, **model_kwargs)
         model.eval()
 
         if self.tokenizer is None:
