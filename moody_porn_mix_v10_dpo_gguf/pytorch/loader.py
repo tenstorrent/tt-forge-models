@@ -4,16 +4,17 @@
 """
 Moody Porn Mix v10 DPO GGUF (Gthalmie1/moody-porn-mix-v10-dpo-gguf) model loader implementation.
 
-Moody Porn Mix v10 DPO is a text-to-image generation model in GGUF quantized format,
-based on Stable Diffusion XL architecture.
+Loads the quantized GGUF transformer from Gthalmie1/moody-porn-mix-v10-dpo-gguf for
+text-to-image generation using the Z-Image (Lumina2) architecture.
 
 Available variants:
 - MOODY_PORN_MIX_V10_DPO_Q4_K_M: Q4_K_M quantized variant
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 import torch
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -25,7 +26,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_gguf_pipe, stable_diffusion_preprocessing_xl
 
 REPO_ID = "Gthalmie1/moody-porn-mix-v10-dpo-gguf"
 
@@ -34,6 +34,11 @@ class ModelVariant(StrEnum):
     """Available Moody Porn Mix v10 DPO GGUF model variants."""
 
     MOODY_PORN_MIX_V10_DPO_Q4_K_M = "moodyPornMix_v10DPO_Q4_K_M"
+
+
+_GGUF_FILES = {
+    ModelVariant.MOODY_PORN_MIX_V10_DPO_Q4_K_M: "moodyPornMix_v10DPO_q4_k_m.gguf",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -47,13 +52,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.MOODY_PORN_MIX_V10_DPO_Q4_K_M
 
-    GGUF_FILE = "moodyPornMix_v10DPO_q4_k_m.gguf"
-
-    prompt = "An astronaut riding a green horse"
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -69,40 +70,61 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Moody Porn Mix v10 DPO pipeline from GGUF checkpoint.
+        """Load the GGUF-quantized Z-Image transformer."""
+        from diffusers import GGUFQuantizationConfig, ZImageTransformer2DModel
 
-        Returns:
-            DiffusionPipeline: The loaded pipeline instance.
-        """
-        if self.pipeline is None:
-            self.pipeline = load_gguf_pipe(REPO_ID, self.GGUF_FILE)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+        gguf_filename = _GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(
+            repo_id=REPO_ID,
+            filename=gguf_filename,
+        )
 
-        return self.pipeline
+        self._transformer = ZImageTransformer2DModel.from_single_file(
+            gguf_path,
+            quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
+            torch_dtype=dtype,
+        )
+        self._transformer.eval()
+        return self._transformer
 
-    def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the model.
+    def load_inputs(self, dtype_override=None, **kwargs) -> Any:
+        """Prepare synthetic transformer inputs."""
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        Returns:
-            list: Input tensors for the UNet model.
-        """
-        if self.pipeline is None:
-            self.load_model(dtype_override=dtype_override)
+        if self._transformer is None:
+            self.load_model(dtype_override=dtype)
 
-        (
-            latent_model_input,
-            timesteps,
-            prompt_embeds,
-            timestep_cond,
-            added_cond_kwargs,
-            add_time_ids,
-        ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
+        batch_size = 1
+        config = self._transformer.config
 
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
+        latent_height = 2
+        latent_width = 2
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        hidden_states = torch.randn(
+            batch_size,
+            config.in_channels,
+            1,
+            latent_height,
+            latent_width,
+            dtype=dtype,
+        )
+
+        encoder_hidden_states = torch.randn(
+            batch_size, 8, config.cap_feat_dim, dtype=dtype
+        )
+
+        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+
+        return {
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "timestep": timestep,
+            "return_dict": False,
+        }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if isinstance(output, tuple):
+            return output[0]
+        return output
