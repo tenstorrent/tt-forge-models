@@ -118,9 +118,14 @@ class ModelLoader(ForgeModel):
             self._controlnet = self._controlnet.to(dtype=dtype_override)
         return self._controlnet
 
-    def load_inputs(self, **kwargs) -> Any:
-        dtype = kwargs.get("dtype_override", torch.float32)
-        batch_size = kwargs.get("batch_size", 1)
+    def load_inputs(
+        self,
+        *,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+        **kwargs,
+    ) -> Any:
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         num_patches = (SAMPLE_SIZE // PATCH_SIZE) ** 2
         inner_dim = NUM_ATTENTION_HEADS * ATTENTION_HEAD_DIM
