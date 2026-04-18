@@ -71,9 +71,16 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_colqwen3_tie_weights():
+        import inspect
+
         for mod in sys.modules.values():
             cls = getattr(mod, "ColQwen3", None)
-            if cls is None:
+            if not inspect.isclass(cls):
+                continue
+            if not hasattr(cls, "tie_weights"):
+                continue
+            sig = inspect.signature(cls.tie_weights)
+            if "kwargs" in sig.parameters or "recompute_mapping" in sig.parameters:
                 continue
             original = cls.tie_weights
 
