@@ -70,6 +70,10 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+        if self.tokenizer.eos_token is None:
+            self.tokenizer.eos_token = "</s>"
+        if self.tokenizer.bos_token is None:
+            self.tokenizer.bos_token = "<s>"
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
