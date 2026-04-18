@@ -64,7 +64,7 @@ def hunyuan_video_preprocessing(
                 guidance)
     """
     # Encode prompt
-    prompt_embeds, prompt_attention_mask = pipe.encode_prompt(
+    prompt_embeds, _pooled_prompt_embeds, prompt_attention_mask = pipe.encode_prompt(
         prompt=prompt,
         device=device,
         num_videos_per_prompt=1,
