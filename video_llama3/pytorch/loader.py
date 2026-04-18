@@ -7,8 +7,8 @@ VideoLLaMA3-7B model loader implementation for multimodal video understanding.
 
 from typing import Optional
 
-import numpy as np
-from transformers import AutoModelForCausalLM, AutoProcessor
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ...base import ForgeModel
 from ...config import (
@@ -43,7 +43,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize VideoLLaMA3 model loader."""
         super().__init__(variant)
-        self.processor = None
+        self.model_config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -58,13 +58,6 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self):
-        model_name = self._variant_config.pretrained_model_name
-        self.processor = AutoProcessor.from_pretrained(
-            model_name, trust_remote_code=True
-        )
-        return self.processor
-
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the VideoLLaMA3 model instance."""
         model_name = self._variant_config.pretrained_model_name
@@ -75,41 +68,55 @@ class ModelLoader(ForgeModel):
         if dtype_override:
             model = model.to(dtype_override)
 
-        if self.processor is None:
-            self._load_processor()
-
+        self.model_config = model.config
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return input tensors for VideoLLaMA3."""
-        if self.processor is None:
-            self._load_processor()
+        """Load and return synthetic input tensors for VideoLLaMA3."""
+        model_name = self._variant_config.pretrained_model_name
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
-        conversation = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "video", "video": {"num_frames": 8}},
-                    {
-                        "type": "text",
-                        "text": "Describe what is happening in this video.",
-                    },
-                ],
-            },
-        ]
+        image_token_index = getattr(self.model_config, "image_token_index", 151652)
+        vision_cfg = getattr(self.model_config, "vision_encoder_config", None)
+        patch_size = getattr(vision_cfg, "patch_size", 16) if vision_cfg else 16
+        num_channels = getattr(vision_cfg, "num_channels", 3) if vision_cfg else 3
 
-        text = self.processor.apply_chat_template(
-            conversation, tokenize=False, add_generation_prompt=True
+        prompt = "Describe what is happening in this video."
+        tokens = tokenizer(prompt, return_tensors="pt")
+        text_ids = tokens["input_ids"]
+
+        num_frames = 2
+        grid_h = 2
+        grid_w = 2
+        merge_size = 1
+        num_patches_per_frame = grid_h * grid_w
+        total_patches = num_frames * num_patches_per_frame
+        num_image_tokens = total_patches
+
+        image_token_ids = torch.full(
+            (1, num_image_tokens), image_token_index, dtype=torch.long
         )
+        input_ids = torch.cat([text_ids, image_token_ids], dim=1)
+        attention_mask = torch.ones_like(input_ids)
 
-        # Create a small synthetic video (8 frames of 32x32 RGB)
-        video = np.random.randint(0, 255, (8, 32, 32, 3), dtype=np.uint8)
+        pixel_dim = num_channels * patch_size * patch_size
+        pixel_values = torch.randn(total_patches, pixel_dim)
 
-        inputs = self.processor(text=text, videos=[video], return_tensors="pt")
+        grid_sizes = torch.tensor([[num_frames, grid_h, grid_w]], dtype=torch.long)
+        merge_sizes = torch.tensor([merge_size], dtype=torch.long)
+
+        inputs = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "pixel_values": pixel_values,
+            "grid_sizes": grid_sizes,
+            "merge_sizes": merge_sizes,
+            "modals": ["video"],
+        }
 
         if dtype_override:
             inputs = {
                 k: cast_input_to_type(v, dtype_override) for k, v in inputs.items()
             }
 
-        return dict(inputs)
+        return inputs
