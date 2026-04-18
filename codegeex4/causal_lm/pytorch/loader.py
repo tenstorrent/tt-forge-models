@@ -162,7 +162,6 @@ class ModelLoader(ForgeModel):
             prompt,
             return_tensors="pt",
             max_length=max_length,
-            padding=True,
             truncation=True,
         )
         generation_config = GenerationConfig(
