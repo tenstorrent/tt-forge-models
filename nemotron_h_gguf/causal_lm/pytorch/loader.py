@@ -9,6 +9,8 @@ code (trust_remote_code) and is not natively supported by transformers' GGUF
 loader. We load config, tokenizer, and model from the original NVIDIA repo
 instead of parsing the GGUF file directly.
 """
+import contextlib
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -25,6 +27,29 @@ from ....config import (
 )
 
 _ORIGINAL_MODEL_REPO = "nvidia/Nemotron-H-8B-Reasoning-128K"
+
+
+def _patch_cuda_stream_for_cpu():
+    """Stub out torch.cuda.stream/default_stream when CUDA is unavailable.
+
+    NemotronH's custom code unconditionally wraps forward passes in
+    torch.cuda.stream() for multi-GPU NaN prevention. This fails on
+    CPU-only PyTorch. We replace both APIs with no-ops so the model
+    can run on CPU / XLA devices.
+    """
+    if torch.cuda.is_available():
+        return
+
+    torch.cuda.default_stream = lambda device=None: None
+
+    @contextlib.contextmanager
+    def _noop_stream(stream=None):
+        yield
+
+    torch.cuda.stream = _noop_stream
+
+
+_patch_cuda_stream_for_cpu()
 
 
 class ModelVariant(StrEnum):
