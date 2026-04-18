@@ -122,17 +122,11 @@ class ModelLoader(ForgeModel):
             self._transformer = self._transformer.to(dtype=dtype_override)
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare synthetic inputs for the SD3.5 transformer.
-
-        Returns:
-            dict: Input tensors matching the SD3Transformer2DModel forward signature:
-                - hidden_states: Latent tensor [batch, channels, height, width]
-                - timestep: Scalar timestep tensor
-                - encoder_hidden_states: Text encoder outputs [batch, seq_len, dim]
-                - pooled_projections: Pooled text embeddings [batch, pooled_dim]
-        """
-        dtype = kwargs.get("dtype_override", torch.float32)
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare synthetic inputs for the SD3.5 transformer."""
+        dtype = dtype_override if dtype_override is not None else torch.float32
         return {
             "hidden_states": torch.randn(
                 1, LATENT_CHANNELS, LATENT_HEIGHT, LATENT_WIDTH, dtype=dtype
