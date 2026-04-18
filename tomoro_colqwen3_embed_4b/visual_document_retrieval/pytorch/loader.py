@@ -4,6 +4,9 @@
 """
 Tomoro ColQwen3 Embed 4B model loader implementation for visual document retrieval.
 """
+
+import inspect
+
 import torch
 from transformers import AutoModel, AutoProcessor
 from typing import Optional
@@ -68,11 +71,31 @@ class ModelLoader(ForgeModel):
         )
         return self.processor
 
+    @staticmethod
+    def _patch_tie_weights_for_remote_model(pretrained_model_name):
+        """Patch tie_weights on remote model classes to accept **kwargs for transformers 5.x."""
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        cls = get_class_from_dynamic_module(
+            "modeling_colqwen3.ColQwen3",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+        original = cls.tie_weights
+        if "kwargs" not in inspect.signature(original).parameters:
+
+            def _patched_tie_weights(self, _orig=original, **kwargs):
+                return _orig(self)
+
+            cls.tie_weights = _patched_tie_weights
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.processor is None:
             self._load_processor()
+
+        self._patch_tie_weights_for_remote_model(pretrained_model_name)
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
@@ -93,7 +116,6 @@ class ModelLoader(ForgeModel):
 
         inputs = self.processor.process_texts(
             texts=self.sample_queries,
-            return_tensors="pt",
         )
 
         if dtype_override is not None:
