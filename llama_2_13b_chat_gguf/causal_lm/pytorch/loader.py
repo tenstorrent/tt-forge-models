@@ -72,6 +72,31 @@ class ModelLoader(ForgeModel):
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        if self.tokenizer.chat_template is None:
+            self.tokenizer.chat_template = (
+                "{% if messages[0]['role'] == 'system' %}"
+                "{% set loop_messages = messages[1:] %}"
+                "{% set system_message = messages[0]['content'] %}"
+                "{% else %}"
+                "{% set loop_messages = messages %}"
+                "{% set system_message = false %}"
+                "{% endif %}"
+                "{% for message in loop_messages %}"
+                "{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}"
+                "{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}"
+                "{% endif %}"
+                "{% if loop.index0 == 0 and system_message != false %}"
+                "{% set content = '<<SYS>>\\n' + system_message + '\\n<</SYS>>\\n\\n' + message['content'] %}"
+                "{% else %}"
+                "{% set content = message['content'] %}"
+                "{% endif %}"
+                "{% if message['role'] == 'user' %}"
+                "{{ bos_token + '[INST] ' + content.strip() + ' [/INST]' }}"
+                "{% elif message['role'] == 'assistant' %}"
+                "{{ ' ' + content.strip() + ' ' + eos_token }}"
+                "{% endif %}"
+                "{% endfor %}"
+            )
 
         return self.tokenizer
 
