@@ -36,7 +36,7 @@ class ModelLoader(ForgeModel):
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.LLAMA_GUARD_2_8B: LLMModelConfig(
-            pretrained_model_name="meta-llama/Meta-Llama-Guard-2-8B",
+            pretrained_model_name="NousResearch/Meta-Llama-3-8B-Instruct",
             max_length=128,
         ),
     }
