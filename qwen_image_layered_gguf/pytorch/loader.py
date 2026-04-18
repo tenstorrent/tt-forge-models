@@ -2,10 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-QuantStack/Qwen-Image-Layered-GGUF model loader implementation for conditional generation.
+vantagewithai/Qwen-Image-Layered-GGUF model loader implementation for conditional generation.
 
 Loads the GGUF-quantized Qwen-Image-Layered diffusion transformer from
-QuantStack/Qwen-Image-Layered-GGUF. This is a 20B parameter image generation
+vantagewithai/Qwen-Image-Layered-GGUF. This is a 20B parameter image generation
 model based on the Qwen-Image architecture.
 
 Available variants:
@@ -29,7 +29,7 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "QuantStack/Qwen-Image-Layered-GGUF"
+REPO_ID = "vantagewithai/Qwen-Image-Layered-GGUF"
 UPSTREAM_CONFIG = "Qwen/Qwen-Image-Layered"
 
 _GGUF_FILES = {
