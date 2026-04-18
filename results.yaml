@@ -43,3 +43,7 @@ results:
   status: "COMPILE_FAILED"
   date: "20260418_081807"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-1"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[deepseek_r1_distill_llama_8b_w8a8/causal_lm/pytorch-Distill_Llama_8B_W8A8-single_device-inference]"
+  status: "COMPILE_FAILED: system desc schema mismatch"
+  date: "20260418_082314"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-1"
