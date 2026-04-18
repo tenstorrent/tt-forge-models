@@ -118,6 +118,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
+        inputs.pop("attention_mask", None)
+
         return inputs
 
     def post_process(self, outputs):
