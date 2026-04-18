@@ -17,7 +17,6 @@ import os
 import sys
 import types
 from typing import Optional
-from unittest.mock import MagicMock
 
 import torch
 from huggingface_hub import snapshot_download
@@ -45,6 +44,11 @@ LATENT_W = 8
 TXT_SEQ_LEN = 77
 
 
+def _flash_attn_varlen_stub(q, k, v, *args, **kwargs):
+    """CPU stand-in for flash_attn_varlen_func (returns zeros matching q shape)."""
+    return torch.zeros_like(q)
+
+
 def _ensure_seedvr_importable():
     """Clone the SeedVR GitHub repo for model code and make it importable."""
     if not os.path.isdir(SEEDVR_REPO_PATH):
@@ -62,6 +66,11 @@ def _ensure_seedvr_importable():
 
     if SEEDVR_REPO_PATH not in sys.path:
         sys.path.insert(0, SEEDVR_REPO_PATH)
+
+    if "flash_attn" not in sys.modules:
+        flash_attn_mod = types.ModuleType("flash_attn")
+        flash_attn_mod.flash_attn_varlen_func = _flash_attn_varlen_stub
+        sys.modules["flash_attn"] = flash_attn_mod
 
 
 class ModelVariant(StrEnum):
@@ -111,11 +120,6 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SeedVR2-7B NaDiT model."""
         _ensure_seedvr_importable()
-
-        if "flash_attn" not in sys.modules:
-            flash_attn_mock = types.ModuleType("flash_attn")
-            flash_attn_mock.flash_attn_varlen_func = MagicMock()
-            sys.modules["flash_attn"] = flash_attn_mock
 
         from models.dit.nadit import NaDiT
 
