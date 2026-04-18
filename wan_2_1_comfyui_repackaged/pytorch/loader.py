@@ -36,9 +36,9 @@ LATENT_CHANNELS = 16
 
 # Small test dimensions for VAE inputs
 # Wan VAE compression: 4x temporal, 8x spatial
-LATENT_HEIGHT = 8
-LATENT_WIDTH = 8
-LATENT_DEPTH = 2  # temporal latent frames
+LATENT_HEIGHT = 1
+LATENT_WIDTH = 1
+LATENT_DEPTH = 1  # temporal latent frames
 
 
 class ModelVariant(StrEnum):
