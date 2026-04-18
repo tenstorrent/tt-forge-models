@@ -30,7 +30,10 @@ from ...config import (
 
 REPO_ID = "sudo-ai/zero123plus-v1.2"
 
-# Latent dimensions for sample inputs
+IMAGE_CHANNELS = 3
+IMAGE_HEIGHT = 96
+IMAGE_WIDTH = 96
+
 LATENT_CHANNELS = 4
 LATENT_HEIGHT = 12
 LATENT_WIDTH = 12
@@ -87,9 +90,9 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.VAE:
             return torch.randn(
                 1,
-                LATENT_CHANNELS,
-                LATENT_HEIGHT,
-                LATENT_WIDTH,
+                IMAGE_CHANNELS,
+                IMAGE_HEIGHT,
+                IMAGE_WIDTH,
                 dtype=dtype,
             )
 
