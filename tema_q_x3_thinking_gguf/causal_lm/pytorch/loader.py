@@ -4,9 +4,18 @@
 """
 Tema Q-X3 Thinking GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.utils.import_utils import is_gguf_available
 from typing import Optional
+
+is_gguf_available.cache_clear()
+try:
+    importlib.metadata.version("gguf")
+except importlib.metadata.PackageNotFoundError:
+    pass
 
 from ....base import ForgeModel
 from ....config import (
