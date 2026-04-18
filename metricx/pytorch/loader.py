@@ -70,12 +70,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the MetricX-24 MT5ForRegression model.
-
-        Requires the metricx24 package:
-            pip install git+https://github.com/google-research/metricx.git
-        """
-        from metricx24.models import MT5ForRegression
+        """Load and return the MetricX-24 MT5ForRegression model."""
+        from .src.model_utils import MT5ForRegression
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
