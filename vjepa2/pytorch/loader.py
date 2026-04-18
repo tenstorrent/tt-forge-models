@@ -91,8 +91,23 @@ class _SimpleVJEPA2Layer(torch.nn.Module):
         return hidden_states
 
 
-def _strip_guards_from_graph(gm):
-    """Remove _guards_fn nodes and submodules from an FX GraphModule."""
+class _NoOpGuard(torch.nn.Module):
+    """No-op replacement for dynamo _guards_fn submodules."""
+
+    def forward(self, *args, **kwargs):
+        return None
+
+
+def _neutralize_guards(gm):
+    """Replace _guards_fn submodules with no-ops and remove their graph nodes.
+
+    Dynamo inserts _guards_fn submodules that reference local variable dicts
+    which become undefined during re-export/decomposition. Since guards have
+    num_users=0, replacing them with no-ops and removing their nodes is safe.
+    This handles both the GraphModule and any ExportedProgram derived from it.
+    """
+    for name in [n for n in list(vars(gm).keys()) if "_guards" in n]:
+        setattr(gm, name, _NoOpGuard())
     changed = False
     for node in list(gm.graph.nodes):
         if "_guards" in str(node.target):
@@ -100,16 +115,13 @@ def _strip_guards_from_graph(gm):
             changed = True
     if changed:
         gm.recompile()
-    for name in [n for n in list(vars(gm).keys()) if "_guards" in n]:
-        delattr(gm, name)
 
 
 def _patch_tt_backend_strip_guards():
-    """Patch torch.export.export to strip _guards_fn nodes before exporting.
+    """Patch the tt backend to neutralize _guards_fn in all processed graphs.
 
-    Dynamo inserts _guards_fn submodules referencing local variable dicts
-    that become undefined during re-export inside the tt backend pipeline.
-    Since these guards have num_users=0, removing them is safe.
+    Patches both torch.export.export and ExportedProgram.run_decompositions
+    since guards can survive through the export→decomposition pipeline.
     """
     import torch.export
 
@@ -119,16 +131,25 @@ def _patch_tt_backend_strip_guards():
 
     def patched_export(mod, *args, **kwargs):
         if isinstance(mod, torch.fx.GraphModule):
-            _strip_guards_from_graph(mod)
-        print(
-            f"[VJEPA2_PATCH] torch.export.export called, mod type={type(mod).__name__}",
-            flush=True,
-        )
-        return original_export(mod, *args, **kwargs)
+            _neutralize_guards(mod)
+        result = original_export(mod, *args, **kwargs)
+        _neutralize_guards(result.graph_module)
+        return result
 
     patched_export._guards_patched = True
     torch.export.export = patched_export
-    print("[VJEPA2_PATCH] torch.export.export patched successfully", flush=True)
+
+    original_decomp = torch.export.ExportedProgram.run_decompositions
+    if not getattr(original_decomp, "_guards_patched", False):
+
+        def patched_decomp(self, *args, **kwargs):
+            _neutralize_guards(self.graph_module)
+            result = original_decomp(self, *args, **kwargs)
+            _neutralize_guards(result.graph_module)
+            return result
+
+        patched_decomp._guards_patched = True
+        torch.export.ExportedProgram.run_decompositions = patched_decomp
 
 
 class VJEPA2EncoderWrapper(torch.nn.Module):
