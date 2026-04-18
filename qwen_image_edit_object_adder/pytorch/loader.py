@@ -96,31 +96,18 @@ class ModelLoader(ForgeModel):
         if self.pipeline is None:
             self._load_pipeline(dtype)
 
-        prompt = (
-            "Add the specified objects to the image while preserving "
-            "the background lighting and surrounding elements"
-        )
-
-        text_inputs = self.pipeline.tokenizer(
-            prompt,
-            padding="max_length",
-            max_length=self.pipeline.tokenizer.model_max_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-        prompt_embeds = self.pipeline.text_encoder(
-            text_inputs.input_ids,
-            output_hidden_states=True,
-        ).hidden_states[-1]
-        prompt_embeds = prompt_embeds.to(dtype=dtype)
-
-        in_channels = self.pipeline.transformer.config.in_channels
+        config = self.pipeline.transformer.config
+        in_channels = config.in_channels
         hidden_states = torch.randn(1, in_channels, 8, 8, dtype=dtype)
+
+        seq_len = 16
+        hidden_dim = config.joint_attention_dim
+        encoder_hidden_states = torch.randn(1, seq_len, hidden_dim, dtype=dtype)
 
         timestep = torch.tensor([1.0], dtype=dtype)
 
         return {
             "hidden_states": hidden_states,
             "timestep": timestep,
-            "encoder_hidden_states": prompt_embeds,
+            "encoder_hidden_states": encoder_hidden_states,
         }
