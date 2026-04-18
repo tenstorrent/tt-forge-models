@@ -117,8 +117,15 @@ class ModelLoader(ForgeModel):
         # Preprocess image
         pixel_values = self.preprocess(image).unsqueeze(0)
 
-        # Tokenize text
-        text_tokens = self.tokenizer(self.text_prompts)
+        # Tokenize text (use underlying HF tokenizer for transformers v5 compat)
+        hf_tok = self.tokenizer.tokenizer
+        text_tokens = hf_tok(
+            self.text_prompts,
+            return_tensors="pt",
+            max_length=self.tokenizer.context_length,
+            padding="max_length",
+            truncation=True,
+        ).input_ids
 
         # Replicate for batch size
         if batch_size > 1:
