@@ -15,13 +15,9 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-import torch.nn as nn
 from diffusers import AutoencoderKLWan  # type: ignore[import]
-from diffusers.models.autoencoders.autoencoder_kl_wan import (  # type: ignore[import]
-    patchify,
-    unpatchify,
-)
 
+from .model_utils import patch_wan_vae_for_xla
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -33,6 +29,8 @@ from ...config import (
     StrEnum,
 )
 
+patch_wan_vae_for_xla()
+
 # Official Wan 2.2 diffusers repo containing the VAE
 _VAE_REPO = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
 
@@ -41,38 +39,6 @@ _VAE_REPO = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
 VIDEO_HEIGHT = 64
 VIDEO_WIDTH = 64
 VIDEO_FRAMES = 5  # must satisfy T = 1 + 4*N (N=1 → 5 frames)
-
-
-class WanVAEWrapper(nn.Module):
-    """Wrapper that encodes and decodes without chunked temporal caching.
-
-    The default AutoencoderKLWan._encode splits input into 1-frame chunks and
-    uses feat_cache, which produces x[:, :, -2:] slices on tensors with
-    temporal dim 1.  XLA rejects the out-of-range negative index.  This wrapper
-    feeds all frames at once through encoder/decoder (feat_cache=None) so the
-    problematic slice is never reached.
-    """
-
-    def __init__(self, vae: AutoencoderKLWan):
-        super().__init__()
-        self.encoder = vae.encoder
-        self.decoder = vae.decoder
-        self.quant_conv = vae.quant_conv
-        self.post_quant_conv = vae.post_quant_conv
-        self.z_dim = vae.config.z_dim
-        self.patch_size = vae.config.patch_size
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.patch_size is not None:
-            x = patchify(x, patch_size=self.patch_size)
-        h = self.encoder(x)
-        h = self.quant_conv(h)
-        mean = h[:, : self.z_dim, :, :, :]
-        z = self.post_quant_conv(mean)
-        dec = self.decoder(z)
-        if self.patch_size is not None:
-            dec = unpatchify(dec, patch_size=self.patch_size)
-        return dec
 
 
 class ModelVariant(StrEnum):
@@ -131,9 +97,7 @@ class ModelLoader(ForgeModel):
             self._load_vae(dtype)
         elif dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
-        wrapper = WanVAEWrapper(self._vae)
-        wrapper.eval()
-        return wrapper
+        return self._vae
 
     def load_inputs(
         self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
