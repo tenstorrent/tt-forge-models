@@ -23,3 +23,7 @@ results:
   status: "PASS"
   date: "20260418_055049"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-1"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[tiny_aya_global/causal_lm/pytorch-Tiny_Aya_Global-single_device-inference]"
+  status: "PASS"
+  date: "20260418_060811"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-1"
