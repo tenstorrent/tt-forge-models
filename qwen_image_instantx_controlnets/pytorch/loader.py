@@ -127,6 +127,9 @@ class ModelLoader(ForgeModel):
             "txt_ids": txt_ids,
         }
 
+        if self._controlnet.config.get("guidance_embeds", False):
+            inputs["guidance"] = torch.tensor([3.5] * batch_size, dtype=dtype)
+
         if self._variant == ModelVariant.UNION:
             inputs["controlnet_mode"] = torch.zeros(batch_size, dtype=torch.long)
 
