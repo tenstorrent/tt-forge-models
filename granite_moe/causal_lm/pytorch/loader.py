@@ -8,6 +8,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+from . import model_utils  # noqa: F401 - patches GraniteMoeMoE for dynamo compatibility
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
