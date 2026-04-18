@@ -19,7 +19,12 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from ...tools.utils import cast_input_to_type
 from .src.model import Wrapper
+
+_VISUAL_INPUT_KEYS = frozenset(
+    {"pixel_values", "pixel_values_videos", "image_grid_thw", "video_grid_thw"}
+)
 
 
 class ModelVariant(StrEnum):
@@ -152,21 +157,17 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        # Ensure processor is initialized
         if self.processor is None:
             self._load_processor()
 
-        # Apply chat template to get text prompt
         text = self.processor.apply_chat_template(
             self.messages, tokenize=False, add_generation_prompt=True
         )
 
         from qwen_vl_utils import process_vision_info
 
-        # Process vision inputs
         image_inputs, video_inputs = process_vision_info(self.messages)
 
-        # Process all inputs together
         inputs = self.processor(
             text=[text],
             images=image_inputs,
@@ -175,8 +176,11 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        # Convert pixel_values to specified dtype if provided
+        inputs = {k: v for k, v in inputs.items() if k not in _VISUAL_INPUT_KEYS}
+
         if dtype_override is not None:
-            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+            inputs = {
+                k: cast_input_to_type(v, dtype_override) for k, v in inputs.items()
+            }
 
         return inputs
