@@ -5,9 +5,10 @@
 DeciLM model loader implementation for causal language modeling.
 """
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
 from typing import Optional
 
+from .model_utils import load_decilm
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -78,17 +79,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
-        model.eval()
-
-        return model
+        return load_decilm(pretrained_model_name, dtype=dtype_override)
 
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
