@@ -108,18 +108,22 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        prompts = [text]
+        if getattr(self.tokenizer, "chat_template", None) is not None:
+            messages = [
+                {
+                    "role": "user",
+                    "content": self.sample_text,
+                }
+            ]
+            prompts = [
+                self.tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            ]
+        else:
+            prompts = [self.sample_text] * batch_size
 
         inputs = self.tokenizer(
             prompts,
@@ -129,9 +133,10 @@ class ModelLoader(ForgeModel):
             max_length=max_length,
         )
 
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        if len(prompts) == 1:
+            for key in inputs:
+                if torch.is_tensor(inputs[key]):
+                    inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
 
