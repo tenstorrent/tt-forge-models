@@ -77,6 +77,17 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _fix_rope_scaling(config):
+        if getattr(config, "rope_scaling", None) and "type" not in config.rope_scaling:
+            if config.rope_scaling.get("rope_type") == "default":
+                config.rope_scaling = None
+            else:
+                config.rope_scaling["type"] = config.rope_scaling.get(
+                    "rope_type", "default"
+                )
+        return config
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -88,12 +99,13 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        self._fix_rope_scaling(config)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
