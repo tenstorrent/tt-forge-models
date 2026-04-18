@@ -32,7 +32,7 @@ def load_controlnet_openpose_sdxl_pipe(controlnet_model_name, base_model_name):
         base_model_name, controlnet=controlnet, torch_dtype=torch.float32
     )
 
-    pipe.to("cpu")
+    pipe.to("cpu", torch.float32)
 
     modules = [
         pipe.text_encoder,
@@ -42,6 +42,7 @@ def load_controlnet_openpose_sdxl_pipe(controlnet_model_name, base_model_name):
         pipe.controlnet,
     ]
     for module in modules:
+        module.to(torch.float32)
         module.eval()
         for param in module.parameters():
             if param.requires_grad:
