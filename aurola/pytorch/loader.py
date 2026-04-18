@@ -10,6 +10,9 @@ from transformers import (
     Qwen2_5OmniThinkerForConditionalGeneration,
     Qwen2_5OmniProcessor,
 )
+from transformers.models.qwen2_5_omni.configuration_qwen2_5_omni import (
+    Qwen2_5OmniThinkerConfig,
+)
 from typing import Optional
 
 from ...base import ForgeModel
@@ -69,7 +72,9 @@ class ModelLoader(ForgeModel):
         """Load and return the AuroLA-3B model instance."""
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"low_cpu_mem_usage": True}
+        config = Qwen2_5OmniThinkerConfig.from_pretrained(pretrained_model_name)
+
+        model_kwargs = {"low_cpu_mem_usage": True, "config": config}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
