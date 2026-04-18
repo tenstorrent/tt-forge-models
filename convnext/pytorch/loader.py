@@ -109,51 +109,28 @@ class ModelLoader(ForgeModel):
             dataset = load_dataset("huggingface/cats-image", split="test")
             image = dataset[0]["image"]
 
-        source = self._variant_config.source
+        if self._preprocessor is None:
+            model_name = self._variant_config.pretrained_model_name
+            source = self._variant_config.source
 
-        if source == ModelSource.HUGGING_FACE:
-            if self._processor is None:
-                model_name = self._variant_config.pretrained_model_name
-                self._processor = AutoImageProcessor.from_pretrained(model_name)
+            self._preprocessor = VisionPreprocessor(
+                model_source=source,
+                model_name=model_name,
+            )
 
-            inputs = self._processor(images=image, return_tensors="pt")
+            if hasattr(self, "model") and self.model is not None:
+                self._preprocessor.set_cached_model(self.model)
 
         model_for_config = None
-        if self._variant_config.source == ModelSource.TIMM:
-            if hasattr(self, "model") and self.model is not None:
-                model_for_config = self.model
+        if hasattr(self, "model") and self.model is not None:
+            model_for_config = self.model
 
-            if dtype_override is not None:
-                for key in inputs:
-                    if (
-                        torch.is_tensor(inputs[key])
-                        and inputs[key].dtype.is_floating_point
-                    ):
-                        inputs[key] = inputs[key].to(dtype_override)
-
-            return inputs
-        else:
-            if self._preprocessor is None:
-                model_name = self._variant_config.pretrained_model_name
-
-                self._preprocessor = VisionPreprocessor(
-                    model_source=source,
-                    model_name=model_name,
-                )
-
-                if hasattr(self, "model") and self.model is not None:
-                    self._preprocessor.set_cached_model(self.model)
-
-            model_for_config = None
-            if hasattr(self, "model") and self.model is not None:
-                model_for_config = self.model
-
-            return self._preprocessor.preprocess(
-                image=image,
-                dtype_override=dtype_override,
-                batch_size=batch_size,
-                model_for_config=model_for_config,
-            )
+        return self._preprocessor.preprocess(
+            image=image,
+            dtype_override=dtype_override,
+            batch_size=batch_size,
+            model_for_config=model_for_config,
+        )
 
     def output_postprocess(self, output):
         if self._postprocessor is None:
