@@ -5,7 +5,13 @@
 BridgeTower model loader implementation for image-text matching.
 """
 import torch
-from transformers import BridgeTowerProcessor, BridgeTowerModel
+from transformers import (
+    BridgeTowerConfig,
+    BridgeTowerImageProcessor,
+    BridgeTowerModel,
+    BridgeTowerProcessor,
+    BertTokenizer,
+)
 from typing import Optional
 from PIL import Image
 
@@ -55,15 +61,22 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        self.processor = BridgeTowerProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
+        pretrained = self._variant_config.pretrained_model_name
+        image_processor = BridgeTowerImageProcessor.from_pretrained(pretrained)
+        tokenizer = BertTokenizer.from_pretrained(pretrained)
+        self.processor = BridgeTowerProcessor(
+            image_processor=image_processor, tokenizer=tokenizer
         )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False}
+        config = BridgeTowerConfig.from_pretrained(pretrained_model_name)
+        tokenizer = BertTokenizer.from_pretrained(pretrained_model_name)
+        config.text_config.vocab_size = len(tokenizer)
+
+        model_kwargs = {"config": config, "return_dict": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
