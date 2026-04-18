@@ -101,15 +101,14 @@ class ModelLoader(ForgeModel):
             dtype=dtype,
         )
 
-        # Image rotary embeddings (freqs_cis_img)
-        # HunyuanDiT uses rotary position embeddings for spatial dimensions
+        # Image rotary embeddings (cos, sin) with shape (seq_len, head_dim)
         head_dim = config.attention_head_dim  # 88
         latent_h = sample_size // config.patch_size  # 128 // 2 = 64
         latent_w = sample_size // config.patch_size  # 128 // 2 = 64
         seq_len = latent_h * latent_w
         image_rotary_emb = (
-            torch.randn(seq_len, head_dim // 2, dtype=dtype),
-            torch.randn(seq_len, head_dim // 2, dtype=dtype),
+            torch.randn(seq_len, head_dim, dtype=dtype),
+            torch.randn(seq_len, head_dim, dtype=dtype),
         )
 
         # Attention masks for text encoders
