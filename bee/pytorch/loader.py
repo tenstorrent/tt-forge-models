@@ -6,8 +6,9 @@ Bee model loader implementation for multimodal conditional generation.
 """
 
 import torch
+import torch.nn as nn
 from PIL import Image
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoProcessor
 from typing import Optional
 
 from ...base import ForgeModel
@@ -21,6 +22,28 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import cast_input_to_type, get_file
+
+
+class BeeLanguageModelWrapper(nn.Module):
+    """Wrapper that runs only the language model head of Bee.
+
+    Vision features are pre-computed on CPU and merged into inputs_embeds
+    before this wrapper is called, avoiding torch.compile issues with
+    the vision encoder's data-dependent control flow.
+    """
+
+    def __init__(self, bee_model):
+        super().__init__()
+        self.language_model = bee_model.model.language_model
+        self.lm_head = bee_model.lm_head
+
+    def forward(self, inputs_embeds, attention_mask=None):
+        outputs = self.language_model(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+        )
+        logits = self.lm_head(outputs.last_hidden_state)
+        return logits
 
 
 class ModelVariant(StrEnum):
@@ -46,6 +69,7 @@ class ModelLoader(ForgeModel):
         """Initialize Bee model loader."""
         super().__init__(variant)
         self.processor = None
+        self.raw_model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -68,22 +92,27 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Bee model instance."""
+        """Load Bee and return a language-model-only wrapper."""
         model_name = self._variant_config.pretrained_model_name
         kwargs.setdefault("trust_remote_code", True)
-        model = AutoModel.from_pretrained(str(model_name), **kwargs)
-        model.eval()
 
-        if dtype_override:
-            model = model.to(dtype_override)
+        if dtype_override is not None:
+            kwargs["torch_dtype"] = dtype_override
+
+        model = AutoModelForCausalLM.from_pretrained(str(model_name), **kwargs)
+        model.eval()
 
         if self.processor is None:
             self._load_processor()
 
-        return model
+        self.raw_model = model
+        return BeeLanguageModelWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return input tensors for Bee."""
+        """Pre-compute inputs_embeds with vision features merged on CPU."""
+        if self.raw_model is None:
+            self.load_model(dtype_override=dtype_override)
+
         if self.processor is None:
             self._load_processor()
 
@@ -106,8 +135,40 @@ class ModelLoader(ForgeModel):
 
         inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
 
-        if dtype_override:
-            for key in inputs:
-                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
+        with torch.no_grad():
+            model = self.raw_model
+            inner = model.model
 
-        return dict(inputs)
+            input_ids = inputs["input_ids"]
+            pixel_values = inputs["pixel_values"]
+            image_sizes = inputs["image_sizes"]
+            batch_num_images = inputs.get("batch_num_images")
+
+            inputs_embeds = inner.get_input_embeddings()(input_ids)
+
+            image_features = inner.get_image_features(
+                pixel_values,
+                image_sizes,
+                batch_num_images=batch_num_images,
+            )
+            image_features = torch.cat(image_features, dim=0)
+
+            special_image_mask = (input_ids == model.config.image_token_id).unsqueeze(
+                -1
+            )
+            special_image_mask = special_image_mask.expand_as(inputs_embeds)
+            image_features = image_features.to(inputs_embeds.dtype)
+            inputs_embeds = inputs_embeds.masked_scatter(
+                special_image_mask, image_features
+            )
+
+        result = {
+            "inputs_embeds": inputs_embeds,
+            "attention_mask": inputs["attention_mask"],
+        }
+
+        if dtype_override:
+            for key in result:
+                result[key] = cast_input_to_type(result[key], dtype_override)
+
+        return result
