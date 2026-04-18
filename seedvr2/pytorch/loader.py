@@ -34,6 +34,14 @@ from ...config import (
 REPO_ID = "ByteDance-Seed/SeedVR2-7B"
 SEEDVR_REPO_PATH = "/tmp/seedvr_repo"
 
+VID_IN_CHANNELS = 33
+VID_OUT_CHANNELS = 16
+TXT_IN_DIM = 5120
+LATENT_T = 4
+LATENT_H = 8
+LATENT_W = 8
+TXT_SEQ_LEN = 77
+
 
 def _ensure_seedvr_importable():
     """Clone the SeedVR GitHub repo for model code and make it importable."""
@@ -52,18 +60,6 @@ def _ensure_seedvr_importable():
 
     if SEEDVR_REPO_PATH not in sys.path:
         sys.path.insert(0, SEEDVR_REPO_PATH)
-
-
-# NaDiT model input dimensions for testing
-# The model operates in latent space: patch_size [1, 2, 2],
-# VAE compression 4x temporal / 8x spatial, 16 latent channels
-LATENT_CHANNELS = 16
-CONDITION_CHANNELS = 16
-MASK_CHANNELS = 1
-INPUT_CHANNELS = LATENT_CHANNELS + CONDITION_CHANNELS + MASK_CHANNELS  # 33
-LATENT_HEIGHT = 8
-LATENT_WIDTH = 8
-LATENT_DEPTH = 4  # temporal frames in latent space
 
 
 class ModelVariant(StrEnum):
@@ -89,7 +85,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._repo_path = None
+        self._weights_path = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -104,39 +100,48 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _get_repo_path(self):
-        """Download the SeedVR2 repository and return its local path."""
-        if self._repo_path is None:
-            self._repo_path = snapshot_download(repo_id=REPO_ID)
-        return self._repo_path
+    def _get_weights_path(self):
+        """Download SeedVR2 weights from HuggingFace and return local path."""
+        if self._weights_path is None:
+            self._weights_path = snapshot_download(repo_id=REPO_ID)
+        return self._weights_path
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SeedVR2-7B NaDiT model.
-
-        Clones the SeedVR GitHub repo for model code, downloads weights from
-        HuggingFace, and instantiates the NaDiT model.
-
-        Returns:
-            torch.nn.Module: The NaDiT diffusion transformer model.
-        """
-        import importlib.util
-
-        from omegaconf import OmegaConf
-
+        """Load and return the SeedVR2-7B NaDiT model."""
         _ensure_seedvr_importable()
 
-        spec = importlib.util.spec_from_file_location(
-            "seedvr_utils", os.path.join(SEEDVR_REPO_PATH, "utils", "utils.py")
+        from models.dit.nadit import NaDiT
+
+        num_layers = 36
+        vid_dim = 3072
+        model = NaDiT(
+            vid_in_channels=VID_IN_CHANNELS,
+            vid_out_channels=VID_OUT_CHANNELS,
+            vid_dim=vid_dim,
+            txt_in_dim=TXT_IN_DIM,
+            txt_dim=vid_dim,
+            emb_dim=6 * vid_dim,
+            heads=24,
+            head_dim=128,
+            expand_ratio=4,
+            norm="fusedrms",
+            norm_eps=1e-5,
+            ada="single",
+            qk_bias=False,
+            qk_rope=True,
+            qk_norm="fusedrms",
+            patch_size=[1, 2, 2],
+            num_layers=num_layers,
+            shared_mlp=False,
+            shared_qkv=False,
+            mlp_type="normal",
+            block_type=num_layers * ["mmdit_sr"],
+            window=num_layers * [(4, 3, 3)],
+            window_method=(num_layers // 2)
+            * ["720pwin_by_size_bysize", "720pswin_by_size_bysize"],
         )
-        seedvr_utils = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(seedvr_utils)
-        instantiate_from_config = seedvr_utils.instantiate_from_config
 
-        config = OmegaConf.load(f"{SEEDVR_REPO_PATH}/configs_7b/main.yaml")
-
-        model = instantiate_from_config(config.model.dit)
-
-        weights_path = self._get_repo_path()
+        weights_path = self._get_weights_path()
         if self._variant == ModelVariant.SEEDVR2_7B_SHARP:
             ckpt_path = f"{weights_path}/seedvr2_ema_7b_sharp.pth"
         else:
@@ -152,43 +157,28 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Load synthetic latent-space inputs for the SeedVR2 NaDiT model.
+        """Create synthetic inputs matching the NaDiT forward signature.
 
-        Creates synthetic inputs matching the model's expected format:
-        - x: noised latent tensor [batch, channels, depth, height, width]
-        - timestep: diffusion timestep
-        - context: text conditioning embeddings
-        - y: pooled text embeddings
-
-        Returns:
-            dict: Input tensors for the NaDiT forward pass.
+        NaDiT uses packed-sequence format:
+        - vid: (total_tokens, channels) flattened spatiotemporal tokens
+        - txt: (txt_tokens, txt_dim) text embeddings
+        - vid_shape: (batch, 3) with [T, H, W] per video
+        - txt_shape: (batch, 1) with text length per item
+        - timestep: (batch,) diffusion timestep
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
-        repo_path = self._get_repo_path()
 
-        # Load pre-computed text embeddings
-        pos_emb = torch.load(
-            f"{repo_path}/pos_emb.pt", map_location="cpu", weights_only=True
-        )
-
-        # x: concatenated [noise, condition_latents, mask] along channel dim
-        x = torch.randn(
-            1, INPUT_CHANNELS, LATENT_DEPTH, LATENT_HEIGHT, LATENT_WIDTH, dtype=dtype
-        )
-
-        # Single-step diffusion: timestep = 1.0
+        total_vid_tokens = LATENT_T * LATENT_H * LATENT_W
+        vid = torch.randn(total_vid_tokens, VID_IN_CHANNELS, dtype=dtype)
+        txt = torch.randn(TXT_SEQ_LEN, TXT_IN_DIM, dtype=dtype)
+        vid_shape = torch.tensor([[LATENT_T, LATENT_H, LATENT_W]], dtype=torch.long)
+        txt_shape = torch.tensor([[TXT_SEQ_LEN]], dtype=torch.long)
         timestep = torch.tensor([1.0], dtype=dtype)
 
-        # Text context from pre-computed embeddings (dim 5120)
-        if isinstance(pos_emb, dict):
-            context = pos_emb.get("context", torch.randn(1, 77, 5120, dtype=dtype))
-            y = pos_emb.get("y", torch.randn(1, 5120, dtype=dtype))
-        else:
-            context = pos_emb if pos_emb.dim() == 3 else pos_emb.unsqueeze(0)
-            y = torch.randn(1, 5120, dtype=dtype)
-
-        if dtype_override is not None:
-            context = context.to(dtype=dtype_override)
-            y = y.to(dtype=dtype_override)
-
-        return {"x": x, "timestep": timestep, "context": context, "y": y}
+        return {
+            "vid": vid,
+            "txt": txt,
+            "vid_shape": vid_shape,
+            "txt_shape": txt_shape,
+            "timestep": timestep,
+        }
