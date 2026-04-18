@@ -6,7 +6,7 @@ UMT5 model loader implementation
 """
 
 import torch
-from transformers import AutoTokenizer, UMT5ForConditionalGeneration, AutoConfig
+from transformers import AutoTokenizer, UMT5ForConditionalGeneration, UMT5Config
 from typing import Optional
 
 from ...base import ForgeModel
@@ -80,7 +80,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config = UMT5Config.from_pretrained(pretrained_model_name)
         config.use_cache = False
 
         if self.num_layers is not None:
