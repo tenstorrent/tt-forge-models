@@ -18,7 +18,10 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from diffusers import StableDiffusion3Pipeline
+from ...stable_diffusion.pytorch.src.model_utils import (
+    load_pipe,
+    stable_diffusion_preprocessing_v35,
+)
 
 
 class ModelVariant(StrEnum):
@@ -38,8 +41,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.BASE
 
+    prompt = "A beautiful landscape with mountains and a lake at sunset"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
@@ -53,31 +59,30 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SD 3.5 Medium Turbo pipeline.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            StableDiffusion3Pipeline: The pre-trained SD 3.5 Medium Turbo pipeline.
-        """
-        dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusion3Pipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
+        self.pipeline = load_pipe(
+            self._variant_config.pretrained_model_name,
         )
-        return pipe
+
+        if dtype_override is not None:
+            self.pipeline = self.pipeline.to(dtype_override)
+
+        return self.pipeline.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for SD 3.5 Medium Turbo.
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
 
-        Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+        (
+            latent_model_input,
+            timestep,
+            prompt_embeds,
+            pooled_prompt_embeds,
+        ) = stable_diffusion_preprocessing_v35(self.pipeline, self.prompt)
 
-        Returns:
-            list: A list of sample text prompts.
-        """
-        prompt = [
-            "A beautiful landscape with mountains and a lake at sunset",
-        ] * batch_size
-        return prompt
+        if dtype_override:
+            latent_model_input = latent_model_input.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            prompt_embeds = prompt_embeds.to(dtype_override)
+            pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
+
+        return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
