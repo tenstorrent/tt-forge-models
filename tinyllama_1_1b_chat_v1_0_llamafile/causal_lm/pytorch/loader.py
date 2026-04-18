@@ -38,6 +38,10 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.TINYLLAMA_1_1B_CHAT_V1_0_LLAMAFILE
 
+    # The llamafile repo only contains .llamafile artifacts (no HF config,
+    # weights, or tokenizer), so load from the upstream base model instead.
+    BASE_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+
     sample_text = "<|im_start|>user\nWhat is the capital of France?<|im_end|>\n<|im_start|>assistant\n"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
@@ -66,7 +70,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            self.BASE_MODEL,
             **tokenizer_kwargs,
         )
 
@@ -74,8 +78,6 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the model instance."""
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
@@ -86,7 +88,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name,
+            self.BASE_MODEL,
             **model_kwargs,
         ).eval()
 
