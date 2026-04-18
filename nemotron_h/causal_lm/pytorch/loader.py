@@ -5,6 +5,8 @@
 Nemotron-H model loader implementation for causal language modeling.
 """
 
+from contextlib import nullcontext
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
@@ -19,6 +21,50 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_cuda_stream(model):
+    """Replace torch.cuda.stream usage in NemotronHBlock with nullcontext.
+
+    The upstream model wraps its forward pass in torch.cuda.stream() to avoid
+    NaN issues on multi-GPU setups. This fails on non-CUDA devices, so we
+    replace the context manager with nullcontext.
+    """
+    for module in model.modules():
+        if type(module).__name__ == "NemotronHBlock":
+            block_cls = type(module)
+            break
+    else:
+        return
+
+    orig_forward = block_cls.forward
+
+    def patched_forward(self, hidden_states, **kwargs):
+        residual = hidden_states
+        hidden_states = self.norm(hidden_states.to(dtype=self.norm.weight.dtype))
+        if self.residual_in_fp32:
+            residual = residual.to(torch.float32)
+
+        if self.block_type == "mamba":
+            hidden_states = self.mixer(
+                hidden_states,
+                cache_params=kwargs.get("cache_params"),
+                cache_position=kwargs.get("cache_position"),
+            )
+        elif self.block_type == "attention":
+            hidden_states = self.mixer(
+                hidden_states, cache_position=kwargs.get("cache_position")
+            )
+            hidden_states = hidden_states[0]
+        elif self.block_type == "mlp":
+            hidden_states = self.mixer(hidden_states)
+        else:
+            raise ValueError(f"Invalid block_type: {self.block_type}")
+
+        hidden_states = residual + hidden_states
+        return hidden_states
+
+    block_cls.forward = patched_forward
 
 
 class ModelVariant(StrEnum):
@@ -94,6 +140,8 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
         self.config = model.config
+
+        _patch_cuda_stream(model)
 
         return model
 
