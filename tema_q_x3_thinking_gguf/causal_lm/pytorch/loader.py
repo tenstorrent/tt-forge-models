@@ -18,6 +18,8 @@ from typing import Optional
 def _is_gguf_available(min_version: str = _import_utils.GGUF_MIN_VERSION) -> bool:
     try:
         sys.modules.pop("gguf", None)
+        for key in list(sys.path_importer_cache):
+            sys.path_importer_cache.pop(key, None)
         importlib.invalidate_caches()
         gguf = importlib.import_module("gguf")
         return Version(getattr(gguf, "__version__", "0.0.0")) >= Version(min_version)
