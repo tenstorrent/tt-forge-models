@@ -145,6 +145,7 @@ class ModelLoader(ForgeModel):
                 input_ids=input_ids,
                 image_grid_thw=inputs.get("image_grid_thw", None),
                 video_grid_thw=inputs.get("video_grid_thw", None),
+                mm_token_type_ids=inputs.get("mm_token_type_ids", None),
                 inputs_embeds=inputs_embeds,
                 attention_mask=attention_mask,
             )
