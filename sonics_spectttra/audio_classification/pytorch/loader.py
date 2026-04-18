@@ -39,6 +39,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self._full_model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -55,27 +56,58 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import torch
+        import torch.nn as nn
+        import torch.nn.functional as F
         from sonics import HFAudioClassifier
+        from sonics.models.model import use_global_pool
 
-        model = HFAudioClassifier.from_pretrained(
+        full_model = HFAudioClassifier.from_pretrained(
             self._variant_config.pretrained_model_name,
         )
-        model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
+        full_model.eval()
+        self._full_model = full_model
 
-        return model
+        class SpecTTTraEncoder(nn.Module):
+            def __init__(self, model):
+                super().__init__()
+                self.input_shape = model.input_shape
+                self.encoder = model.encoder
+                self.classifier = model.classifier
+                self.model_name = model.model_name
+
+            def forward(self, spec):
+                spec = spec.unsqueeze(1)
+                spec = F.interpolate(
+                    spec, size=tuple(self.input_shape), mode="bilinear"
+                )
+                features = self.encoder(spec)
+                embeds = (
+                    features.mean(dim=1)
+                    if use_global_pool(self.model_name)
+                    else features
+                )
+                preds = self.classifier(embeds)
+                return preds
+
+        encoder = SpecTTTraEncoder(full_model)
+        encoder.eval()
+        if dtype_override is not None:
+            encoder.to(dtype_override)
+
+        return encoder
 
     def load_inputs(self, dtype_override=None):
         import torch
 
-        # Generate a synthetic 1-second audio waveform at 16kHz
-        # The model accepts raw waveforms and handles mel spectrogram conversion internally
         sampling_rate = 16000
         duration_seconds = 1
         waveform = torch.randn(1, sampling_rate * duration_seconds)
 
-        if dtype_override is not None:
-            waveform = waveform.to(dtype_override)
+        with torch.no_grad():
+            spec = self._full_model.ft_extractor(waveform)
 
-        return {"audio": waveform}
+        if dtype_override is not None:
+            spec = spec.to(dtype_override)
+
+        return {"spec": spec}
