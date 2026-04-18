@@ -26,16 +26,6 @@ from .src.model_utils import (
 )
 
 
-def _cast_tensors(obj, dtype):
-    if isinstance(obj, torch.Tensor) and obj.dtype.is_floating_point:
-        return obj.to(dtype)
-    if isinstance(obj, dict):
-        return {k: _cast_tensors(v, dtype) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return type(obj)(_cast_tensors(v, dtype) for v in obj)
-    return obj
-
-
 class ModelVariant(StrEnum):
     """Available ControlNet OpenPose SDXL model variants."""
 
@@ -89,9 +79,6 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, self.base_model
         )
 
-        if dtype_override is not None:
-            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
-
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
@@ -101,7 +88,7 @@ class ModelLoader(ForgeModel):
             dict: Keyword arguments for the UNet forward method.
         """
         if self.pipeline is None:
-            self.load_model(dtype_override=dtype_override)
+            self.load_model()
 
         control_image = create_openpose_conditioning_image()
 
@@ -118,7 +105,7 @@ class ModelLoader(ForgeModel):
 
         timestep = timesteps[0]
 
-        inputs = {
+        return {
             "sample": latent_model_input,
             "timestep": timestep,
             "encoder_hidden_states": prompt_embeds,
@@ -126,11 +113,6 @@ class ModelLoader(ForgeModel):
             "down_block_additional_residuals": down_block_additional_residuals,
             "mid_block_additional_residual": mid_block_additional_residual,
         }
-
-        if dtype_override:
-            inputs = _cast_tensors(inputs, dtype_override)
-
-        return inputs
 
     def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
         if isinstance(fwd_output, tuple):
