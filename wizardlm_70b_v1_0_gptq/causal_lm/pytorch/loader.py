@@ -125,7 +125,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def get_mesh_config(self, num_devices: int):
-        mesh_shape = (2, num_devices // 2)
+        mesh_shape = (1, num_devices)
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
