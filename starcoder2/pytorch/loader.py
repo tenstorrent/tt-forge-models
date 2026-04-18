@@ -111,6 +111,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
+        self.model = model
 
         return model
 
@@ -137,6 +138,12 @@ class ModelLoader(ForgeModel):
         # Replicate tensors for batch size
         for key in inputs:
             inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
+        if (
+            hasattr(self.model.config, "sliding_window")
+            and self.model.config.sliding_window is not None
+        ):
+            self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
         return inputs
 
