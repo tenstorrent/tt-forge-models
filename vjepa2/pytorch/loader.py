@@ -30,17 +30,23 @@ class ModelVariant(StrEnum):
 
 
 class VJEPA2EncoderWrapper(torch.nn.Module):
-    """Wraps VJEPA2Model encoder internals to bypass decorators that break dynamo guards."""
+    """Wraps VJEPA2Model encoder to avoid dynamo guard issues with config access in forward."""
 
     def __init__(self, model):
         super().__init__()
-        self.embeddings = model.encoder.embeddings
-        self.layer = model.encoder.layer
-        self.layernorm = model.encoder.layernorm
+        encoder = model.encoder
+        self.patch_embeddings = encoder.embeddings.patch_embeddings
+        self.layers = encoder.layer
+        self.layernorm = encoder.layernorm
+        self.tubelet_size = encoder.embeddings.config.tubelet_size
 
     def forward(self, pixel_values_videos: torch.Tensor) -> torch.Tensor:
-        hidden_states = self.embeddings(pixel_values_videos)
-        for layer_module in self.layer:
+        pixel_values_videos = pixel_values_videos.permute(0, 2, 1, 3, 4)
+        pixel_values_videos = pixel_values_videos.to(
+            dtype=self.patch_embeddings.proj.weight.dtype
+        )
+        hidden_states = self.patch_embeddings(pixel_values_videos)
+        for layer_module in self.layers:
             hidden_states = layer_module(hidden_states, None, False)[0]
         return self.layernorm(hidden_states)
 
