@@ -74,13 +74,13 @@ class ModelLoader(ForgeModel):
             self._load_processor()
 
         model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForVision2Seq.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
 
         return model
@@ -118,11 +118,7 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-                if (
-                    dtype_override is not None
-                    and inputs[key].is_floating_point()
-                    and key != "pixel_values"
-                ):
+                if dtype_override is not None and inputs[key].is_floating_point():
                     inputs[key] = inputs[key].to(dtype_override)
 
         return inputs
