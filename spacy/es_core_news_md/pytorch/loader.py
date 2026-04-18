@@ -2,9 +2,17 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-spaCy es_core_news_md model loader implementation
+spaCy es_core_news_md model loader implementation.
+
+es_core_news_md is a medium-sized Spanish spaCy pipeline with tok2vec, NER,
+POS tagging, dependency parsing, and lemmatization. This loader extracts the
+static word vectors and wraps them as a PyTorch embedding model for sentence
+embedding generation.
 """
 
+import torch
+import torch.nn as nn
+import spacy
 from typing import Optional
 
 from ....config import (
@@ -13,10 +21,36 @@ from ....config import (
     ModelTask,
     ModelSource,
     Framework,
-    ModelConfig,
     StrEnum,
+    LLMModelConfig,
 )
 from ....base import ForgeModel
+
+
+class SpacyEmbeddingModel(nn.Module):
+    """Wraps spaCy word vectors as a PyTorch module for sentence embedding generation."""
+
+    def __init__(self, nlp):
+        super().__init__()
+        vectors_np = nlp.vocab.vectors.data.copy()
+        vectors_tensor = torch.from_numpy(vectors_np).float()
+        oov = torch.zeros(1, vectors_tensor.shape[1])
+        all_vectors = torch.cat([oov, vectors_tensor], dim=0)
+        self.embedding = nn.Embedding.from_pretrained(
+            all_vectors, freeze=True, padding_idx=0
+        )
+
+    def forward(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+    ) -> torch.Tensor:
+        token_embeddings = self.embedding(input_ids)
+        mask_expanded = (
+            attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+        )
+        summed = torch.sum(token_embeddings * mask_expanded, dim=1)
+        counts = torch.clamp(mask_expanded.sum(dim=1), min=1e-9)
+        mean_pooled = summed / counts
+        return mean_pooled
 
 
 class ModelVariant(StrEnum):
@@ -27,18 +61,18 @@ class ModelLoader(ForgeModel):
     """spaCy es_core_news_md model loader implementation."""
 
     _VARIANTS = {
-        ModelVariant.ES_CORE_NEWS_MD: ModelConfig(
+        ModelVariant.ES_CORE_NEWS_MD: LLMModelConfig(
             pretrained_model_name="es_core_news_md",
+            max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.ES_CORE_NEWS_MD
 
     def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant."""
         super().__init__(variant)
-        self.model_name = self._variant_config.pretrained_model_name
         self.model = None
+        self._nlp = None
         self.sample_text = "El presidente del gobierno de España visitó la sede de las Naciones Unidas en Nueva York."
 
     @classmethod
@@ -54,31 +88,56 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, **kwargs):
-        """Load the spaCy es_core_news_md model."""
-        import spacy
+    def _load_nlp(self):
+        if self._nlp is None:
+            model_name = self._variant_config.pretrained_model_name
+            try:
+                self._nlp = spacy.load(model_name)
+            except OSError:
+                spacy.cli.download(model_name)
+                self._nlp = spacy.load(model_name)
+        return self._nlp
 
-        try:
-            nlp = spacy.load(self.model_name)
-        except OSError:
-            spacy.cli.download(self.model_name)
-            nlp = spacy.load(self.model_name)
-
-        self.model = nlp
-        return nlp
+    def load_model(self, *, dtype_override=None, **kwargs):
+        nlp = self._load_nlp()
+        model = SpacyEmbeddingModel(nlp)
+        model.eval()
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
+        self.model = model
+        return model
 
     def load_inputs(self, dtype_override=None):
-        """Prepare sample input for the NER model."""
-        return self.sample_text
+        nlp = self._load_nlp()
+        doc = nlp.make_doc(self.sample_text)
+        max_length = self._variant_config.max_length
 
-    def decode_output(self, co_out):
-        """Decode the model output for named entity recognition."""
-        if self.model is None:
-            self.load_model()
+        input_ids = []
+        for token in doc:
+            row = nlp.vocab.vectors.find(key=token.orth)
+            input_ids.append(row + 1 if row >= 0 else 0)
 
-        doc = self.model(self.sample_text)
-        entities = [(ent.text, ent.label_) for ent in doc.ents]
+        if len(input_ids) >= max_length:
+            input_ids = input_ids[:max_length]
+            attention_mask = [1] * max_length
+        else:
+            attention_mask = [1] * len(input_ids) + [0] * (max_length - len(input_ids))
+            input_ids = input_ids + [0] * (max_length - len(input_ids))
 
-        print(f"Context: {self.sample_text}")
-        print(f"Entities: {entities}")
-        return entities
+        return {
+            "input_ids": torch.tensor([input_ids], dtype=torch.long),
+            "attention_mask": torch.tensor([attention_mask], dtype=torch.long),
+        }
+
+    def output_postprocess(self, output, inputs=None):
+        if isinstance(output, (tuple, list)):
+            return output[0]
+        return output
+
+    def decode_output(self, outputs, inputs=None):
+        return self.output_postprocess(outputs, inputs=inputs)
+
+    def unpack_forward_output(self, fwd_output):
+        if isinstance(fwd_output, torch.Tensor):
+            return fwd_output.flatten()
+        return fwd_output
