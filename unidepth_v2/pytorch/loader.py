@@ -73,14 +73,20 @@ class UniDepthV2Wrapper(nn.Module):
     """Wrapper around UniDepthV2 that takes a preprocessed image tensor
     and returns depth prediction."""
 
-    def __init__(self, model):
+    def __init__(self, model, dtype_override=None):
         super().__init__()
         self.model = model
+        self.dtype_override = dtype_override
 
     def forward(self, image):
-        inputs = {"image": image, "camera": None}
+        # Run model in float32 to avoid internal dtype mismatches
+        image_f32 = image.float()
+        inputs = {"image": image_f32, "camera": None}
         _, outputs = self.model.encode_decode(inputs, image_metas=[])
-        return outputs["depth"]
+        depth = outputs["depth"]
+        if self.dtype_override is not None:
+            depth = depth.to(self.dtype_override)
+        return depth
 
 
 @dataclass
@@ -143,11 +149,8 @@ class ModelLoader(ForgeModel):
 
         self._shape_constraints = model.shape_constraints
 
-        wrapper = UniDepthV2Wrapper(model)
+        wrapper = UniDepthV2Wrapper(model, dtype_override=dtype_override)
         wrapper.eval()
-
-        if dtype_override is not None:
-            wrapper = wrapper.to(dtype_override)
 
         return wrapper
 
