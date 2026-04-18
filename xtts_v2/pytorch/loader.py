@@ -25,16 +25,34 @@ from ...config import (
 class XttsHifiganWrapper(nn.Module):
     """Wrapper around the XTTS-v2 HiFi-GAN decoder for audio synthesis.
 
-    Exposes the HiFi-GAN vocoder as a clean forward pass that takes
-    GPT latents and a speaker embedding to produce audio waveforms.
+    Inlines the HifiDecoder forward logic, replacing squeeze() with
+    reshape() to avoid prims::view_of alias issues during XLA tracing.
     """
 
     def __init__(self, hifigan_decoder):
         super().__init__()
-        self.hifigan_decoder = hifigan_decoder
+        self.waveform_decoder = hifigan_decoder.waveform_decoder
+        self.ar_mel_length_compression = hifigan_decoder.ar_mel_length_compression
+        self.output_hop_length = hifigan_decoder.output_hop_length
+        self.output_sample_rate = hifigan_decoder.output_sample_rate
+        self.input_sample_rate = hifigan_decoder.input_sample_rate
 
     def forward(self, latents, speaker_embedding):
-        return self.hifigan_decoder(latents, g=speaker_embedding)
+        z = torch.nn.functional.interpolate(
+            latents.transpose(1, 2),
+            scale_factor=[self.ar_mel_length_compression / self.output_hop_length],
+            mode="linear",
+        )
+        z = z.reshape(z.shape[0], z.shape[1], z.shape[2])
+        if self.output_sample_rate != self.input_sample_rate:
+            z = torch.nn.functional.interpolate(
+                z,
+                scale_factor=[self.output_sample_rate / self.input_sample_rate],
+                mode="linear",
+            )
+            z = z.reshape(z.shape[0], z.shape[1], z.shape[2])
+        o = self.waveform_decoder(z, g=speaker_embedding)
+        return o.clone()
 
 
 class ModelVariant(StrEnum):
@@ -70,6 +88,11 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers.pytorch_utils as _pu
+
+        if not hasattr(_pu, "isin_mps_friendly"):
+            _pu.isin_mps_friendly = torch.isin
+
         from TTS.tts.configs.xtts_config import XttsConfig
         from TTS.tts.models.xtts import Xtts
         from huggingface_hub import snapshot_download
@@ -86,6 +109,8 @@ class ModelLoader(ForgeModel):
 
         model = XttsHifiganWrapper(xtts_model.hifigan_decoder)
         model.eval()
+        if dtype_override:
+            model = model.to(dtype_override)
         return model
 
     def load_inputs(self, dtype_override=None):
