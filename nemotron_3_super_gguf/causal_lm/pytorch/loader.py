@@ -54,8 +54,15 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     """Wrap load_gguf_checkpoint to add nemotron_h_moe support."""
     _patch_nemotron_h_moe_support()
     result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
-    if result.get("config", {}).get("model_type") == "nemotron_h_moe":
-        result["config"]["model_type"] = "nemotron"
+    cfg = result.get("config", {})
+    if cfg.get("model_type") == "nemotron_h_moe":
+        cfg["model_type"] = "nemotron"
+        for key in ("num_key_value_heads", "num_attention_heads"):
+            val = cfg.get(key)
+            if isinstance(val, list):
+                cfg[key] = max(val) if val else cfg.get("num_attention_heads", 32)
+        if cfg.get("num_key_value_heads", 0) == 0:
+            cfg["num_key_value_heads"] = cfg.get("num_attention_heads", 32)
     return result
 
 
