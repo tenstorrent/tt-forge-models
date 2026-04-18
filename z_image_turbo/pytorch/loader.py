@@ -93,6 +93,7 @@ class ModelLoader(ForgeModel):
             low_cpu_mem_usage=False,
         )
         self._vae.eval()
+        self._vae = self._vae.to(dtype=dtype)
         return self._vae
 
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
