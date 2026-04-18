@@ -5,8 +5,11 @@
 TAPAS model loader implementation for table question answering.
 """
 
+import torch
+import torch.nn as nn
 import pandas as pd
-from transformers import TapasForQuestionAnswering, TapasTokenizer
+from transformers import TapasConfig, TapasForQuestionAnswering, TapasTokenizer
+from transformers.models.tapas.modeling_tapas import compute_token_logits
 from typing import Optional
 
 from third_party.tt_forge_models.base import ForgeModel
@@ -19,6 +22,51 @@ from third_party.tt_forge_models.config import (
     Framework,
     StrEnum,
 )
+
+
+class TapasCompilableWrapper(nn.Module):
+    """Wrapper that avoids data-dependent segment operations incompatible with torch.compile."""
+
+    def __init__(self, tapas_qa_model):
+        super().__init__()
+        self.tapas = tapas_qa_model.tapas
+        self.dropout = tapas_qa_model.dropout
+        self.output_weights = tapas_qa_model.output_weights
+        self.output_bias = tapas_qa_model.output_bias
+        self.config = tapas_qa_model.config
+        if hasattr(tapas_qa_model, "aggregation_classifier"):
+            self.aggregation_classifier = tapas_qa_model.aggregation_classifier
+
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+    ):
+        outputs = self.tapas(
+            input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            return_dict=False,
+        )
+        sequence_output = outputs[0]
+        pooled_output = outputs[1]
+
+        sequence_output = self.dropout(sequence_output)
+        logits = compute_token_logits(
+            sequence_output,
+            self.config.temperature,
+            self.output_weights,
+            self.output_bias,
+        )
+
+        logits_aggregation = None
+        if self.config.num_aggregation_labels > 0:
+            logits_aggregation = self.aggregation_classifier(pooled_output)
+
+        return logits, logits_aggregation
 
 
 class ModelVariant(StrEnum):
@@ -62,7 +110,7 @@ class ModelLoader(ForgeModel):
                 "Assists": ["303", "220", "240", "100"],
                 "Team": ["Inter Miami", "Al Nassr", "Al Hilal", "PSG"],
             }
-        ).astype(object)
+        )
         self.question = "How many goals did Cristiano Ronaldo score?"
 
     @classmethod
@@ -88,11 +136,50 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = TapasForQuestionAnswering.from_pretrained(
+        qa_model = TapasForQuestionAnswering.from_pretrained(
             self.model_name, **model_kwargs
         )
+        model = TapasCompilableWrapper(qa_model)
         model.eval()
         return model
+
+    def _precompute_position_ids(self, inputs, config):
+        """Pre-compute position_ids on CPU to avoid data-dependent ops at runtime.
+
+        Replicates the logic in TapasEmbeddings.forward that uses scatter_reduce
+        with dynamic shapes, which is incompatible with torch.compile backends.
+        """
+        from transformers.models.tapas.modeling_tapas import (
+            IndexMap,
+            ProductIndexMap,
+            reduce_min,
+            gather,
+        )
+
+        token_type_ids = inputs["token_type_ids"]
+        input_shape = inputs["input_ids"].size()
+        seq_length = input_shape[1]
+
+        position_ids = torch.arange(seq_length, dtype=torch.long)
+        position_ids = position_ids.unsqueeze(0).expand(input_shape)
+
+        if config.reset_position_index_per_cell:
+            col_index = IndexMap(
+                token_type_ids[:, :, 1], config.type_vocab_sizes[1], batch_dims=1
+            )
+            row_index = IndexMap(
+                token_type_ids[:, :, 2], config.type_vocab_sizes[2], batch_dims=1
+            )
+            full_index = ProductIndexMap(col_index, row_index)
+            first_position_per_segment = reduce_min(position_ids, full_index)[0]
+            first_position = gather(first_position_per_segment, full_index)
+            position = torch.arange(seq_length, dtype=torch.long).unsqueeze(0)
+            position_ids = torch.min(
+                torch.as_tensor(config.max_position_embeddings - 1),
+                position - first_position,
+            )
+
+        return position_ids
 
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
@@ -106,6 +193,9 @@ class ModelLoader(ForgeModel):
             truncation=True,
             return_tensors="pt",
         )
+
+        config = TapasConfig.from_pretrained(self.model_name)
+        inputs["position_ids"] = self._precompute_position_ids(inputs, config)
 
         return inputs
 
