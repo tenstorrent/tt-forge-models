@@ -138,35 +138,36 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        self._raw_model = model
         model = Wrapper(model)
 
         return model
 
+    @torch.no_grad()
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the UI-TARS model with this instance's variant settings.
 
+        Pre-computes vision embeddings on CPU so the compiled model only
+        receives inputs_embeds/position_ids (no dynamic vision encoder ops).
+
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-                           If specified, converts pixel_values to the specified dtype.
+                           If specified, converts inputs_embeds to the specified dtype.
 
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        # Ensure processor is initialized
         if self.processor is None:
             self._load_processor()
 
-        # Apply chat template to get text prompt
         text = self.processor.apply_chat_template(
             self.messages, tokenize=False, add_generation_prompt=True
         )
 
         from qwen_vl_utils import process_vision_info
 
-        # Process vision inputs
         image_inputs, video_inputs = process_vision_info(self.messages)
 
-        # Process all inputs together
         inputs = self.processor(
             text=[text],
             images=image_inputs,
@@ -175,8 +176,44 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        # Convert pixel_values to specified dtype if provided
-        if dtype_override is not None:
-            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+        model = self._raw_model
+        inner = model.model
 
-        return inputs
+        input_ids = inputs["input_ids"]
+        attention_mask = inputs["attention_mask"]
+        pixel_values = inputs["pixel_values"]
+        image_grid_thw = inputs["image_grid_thw"]
+
+        if dtype_override is not None:
+            pixel_values = pixel_values.to(dtype_override)
+
+        inputs_embeds = inner.get_input_embeddings()(input_ids)
+
+        image_embeds = inner.get_image_features(
+            pixel_values, image_grid_thw, return_dict=True
+        ).pooler_output
+        image_embeds = torch.cat(image_embeds, dim=0).to(
+            inputs_embeds.device, inputs_embeds.dtype
+        )
+        image_mask, _ = inner.get_placeholder_mask(
+            input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds
+        )
+        inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+        position_ids = inner.compute_3d_position_ids(
+            input_ids=input_ids,
+            image_grid_thw=image_grid_thw,
+            video_grid_thw=None,
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            past_key_values=None,
+        )
+
+        if dtype_override is not None:
+            inputs_embeds = inputs_embeds.to(dtype_override)
+
+        return {
+            "inputs_embeds": inputs_embeds,
+            "attention_mask": attention_mask,
+            "position_ids": position_ids,
+        }
