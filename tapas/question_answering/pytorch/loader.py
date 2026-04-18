@@ -68,7 +68,8 @@ class ModelLoader(ForgeModel):
                     "Al Hilal",
                     "Real Madrid",
                 ],
-            }
+            },
+            dtype=object,
         )
         self.queries = ["How many goals does Lionel Messi have?"]
 
