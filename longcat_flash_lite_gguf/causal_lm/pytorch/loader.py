@@ -4,6 +4,7 @@
 """
 InquiringMinds-AI LongCat-Flash-Lite GGUF model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -18,6 +19,80 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_transformers_longcat_flash_ngram_gguf():
+    """Monkey-patch transformers to add longcat-flash-ngram GGUF architecture support."""
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    arch = "longcat-flash-ngram"
+    if arch in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append(arch)
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"][arch] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "ffn_hidden_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "rope.dimension_count": "qk_rope_head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": None,
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": None,
+        "attention.value_length": None,
+        "attention.key_length_mla": "qk_nope_head_dim",
+        "attention.value_length_mla": "v_head_dim",
+        "attention.q_lora_rank": "q_lora_rank",
+        "attention.kv_lora_rank": "kv_lora_rank",
+        "vocab_size": "vocab_size",
+        "expert_count": "n_routed_experts",
+        "expert_used_count": "moe_topk",
+        "expert_shared_count": None,
+        "expert_weights_scale": "routed_scaling_factor",
+        "expert_feed_forward_length": "expert_ffn_hidden_size",
+        "expert_zero_count": "zero_expert_num",
+        "leading_dense_block_count": None,
+        "expert_weights_norm": None,
+    }
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if arch not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS[arch] = GGUFQwen2Converter
+    if "longcat_flash" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["longcat_flash"] = GGUFQwen2Converter
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "longcat-flash-ngram":
+            config["model_type"] = "longcat_flash"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_longcat_flash_ngram_gguf()
 
 
 class ModelVariant(StrEnum):
