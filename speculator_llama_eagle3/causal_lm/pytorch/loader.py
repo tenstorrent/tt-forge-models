@@ -113,4 +113,11 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
+        seq_len = inputs["input_ids"].shape[1]
+        hidden_size = 4096
+        hidden_dtype = dtype_override if dtype_override is not None else torch.float32
+        inputs["hidden_states"] = torch.randn(
+            batch_size, seq_len, hidden_size, dtype=hidden_dtype
+        )
+
         return inputs
