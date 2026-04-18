@@ -4,7 +4,8 @@
 """
 SoLU 1L512W C4 Code model loader implementation for causal language modeling.
 """
-from transformers import AutoModel, AutoTokenizer
+from transformer_lens import HookedTransformer
+from transformers import AutoTokenizer
 from typing import Optional
 
 from ...base import ForgeModel
@@ -54,44 +55,34 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
+    def _load_tokenizer(self):
         self.tokenizer = AutoTokenizer.from_pretrained(
-            "NeelNanda/gpt-neox-tokenizer-digits", **tokenizer_kwargs
+            "NeelNanda/gpt-neox-tokenizer-digits"
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
-
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        model_name = self._variant_config.pretrained_model_name
 
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        model_kwargs = {"use_cache": False}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
-        model.eval()
+        model = HookedTransformer.from_pretrained(model_name, **model_kwargs)
 
         return model
 
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         input_tokens = self.tokenizer(
             self.sample_text,
             max_length=self._variant_config.max_length,
-            padding=True,
             truncation=True,
             return_tensors="pt",
         )
 
-        return [input_tokens["input_ids"], input_tokens["attention_mask"]]
+        return {"input": input_tokens["input_ids"]}
