@@ -178,7 +178,7 @@ class ModelLoader(ForgeModel):
                 weighted = (hidden_states * norm_weights.view(-1, 1, 1, 1)).sum(dim=0)
 
                 # Conv1d expects (batch, channels, time)
-                features = weighted.to(self.model_seq[0].weight.dtype).transpose(1, 2)
+                features = weighted.transpose(1, 2)
                 features = self.model_seq(features)
                 features = features.mean(dim=2)
 
@@ -194,7 +194,6 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name,
         )
 
-        model = model.float()
         model.eval()
         if dtype_override is not None:
             model.to(dtype_override)
@@ -219,5 +218,11 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if v.is_floating_point() else v
+                for k, v in inputs.items()
+            }
 
         return inputs
