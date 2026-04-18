@@ -15,7 +15,9 @@ Available variants:
 
 import os
 import sys
+import types
 from typing import Optional
+from unittest.mock import MagicMock
 
 import torch
 from huggingface_hub import snapshot_download
@@ -109,6 +111,11 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SeedVR2-7B NaDiT model."""
         _ensure_seedvr_importable()
+
+        if "flash_attn" not in sys.modules:
+            flash_attn_mock = types.ModuleType("flash_attn")
+            flash_attn_mock.flash_attn_varlen_func = MagicMock()
+            sys.modules["flash_attn"] = flash_attn_mock
 
         from models.dit.nadit import NaDiT
 
