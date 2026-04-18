@@ -16,7 +16,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import DiffusionPipeline
-from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -66,44 +65,62 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_pipeline(self, dtype: torch.dtype = torch.float32):
+        self.pipeline = DiffusionPipeline.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            torch_dtype=dtype,
+        )
+        self.pipeline.load_lora_weights(LORA_REPO)
+        return self.pipeline
+
     def load_model(
         self,
         *,
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Qwen-Image-Edit pipeline with Object Adder LoRA weights.
-
-        Returns:
-            DiffusionPipeline with LoRA weights loaded.
-        """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-        )
+        if self.pipeline is None:
+            self._load_pipeline(dtype)
+        elif dtype_override is not None:
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
 
-        self.pipeline.load_lora_weights(LORA_REPO)
+        return self.pipeline.transformer
 
-        return self.pipeline
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare inputs for image editing with object addition.
+        if self.pipeline is None:
+            self._load_pipeline(dtype)
 
-        Returns:
-            dict with prompt and image keys.
-        """
         prompt = (
             "Add the specified objects to the image while preserving "
-            "the background lighting and surrounding elements maintaining "
-            "realism and original details."
+            "the background lighting and surrounding elements"
         )
 
-        # Create a small test image (RGB)
-        image = Image.new("RGB", (256, 256), color=(128, 180, 200))
+        text_inputs = self.pipeline.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        prompt_embeds = self.pipeline.text_encoder(
+            text_inputs.input_ids,
+            output_hidden_states=True,
+        ).hidden_states[-1]
+        prompt_embeds = prompt_embeds.to(dtype=dtype)
+
+        in_channels = self.pipeline.transformer.config.in_channels
+        hidden_states = torch.randn(1, in_channels, 8, 8, dtype=dtype)
+
+        timestep = torch.tensor([1.0], dtype=dtype)
 
         return {
-            "prompt": prompt,
-            "image": image,
+            "hidden_states": hidden_states,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
         }
