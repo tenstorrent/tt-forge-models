@@ -60,7 +60,7 @@ class PositionGetter:
             positions = torch.cartesian_prod(y_coords, x_coords)
             self.position_cache[height, width] = positions
 
-        cached_positions = self.position_cache[height, width]
+        cached_positions = self.position_cache[height, width].to(device)
         return (
             cached_positions.view(1, height * width, 2)
             .expand(batch_size, -1, -1)

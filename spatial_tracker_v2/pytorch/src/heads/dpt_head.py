@@ -261,7 +261,8 @@ class DPTHead(nn.Module):
 
             x = x.view(B * S, -1, x.shape[-1])
 
-            x = self.norm(x)
+            orig_dtype = x.dtype
+            x = self.norm(x).to(orig_dtype)
 
             x = x.permute(0, 2, 1).reshape((x.shape[0], x.shape[-1], patch_h, patch_w))
 
@@ -313,7 +314,7 @@ class DPTHead(nn.Module):
             patch_w, patch_h, aspect_ratio=W / H, dtype=x.dtype, device=x.device
         )
         pos_embed = position_grid_to_embed(pos_embed, x.shape[1])
-        pos_embed = pos_embed * ratio
+        pos_embed = pos_embed.to(x.dtype) * ratio
         pos_embed = pos_embed.permute(2, 0, 1)[None].expand(x.shape[0], -1, -1, -1)
         return x + pos_embed
 
