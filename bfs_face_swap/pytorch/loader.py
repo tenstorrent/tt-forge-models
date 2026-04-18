@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
         Returns:
             QwenImageTransformer2DModel with LoRA weights fused.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         pipe = QwenImageEditPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -113,7 +113,6 @@ class ModelLoader(ForgeModel):
         pipe.unload_lora_weights()
 
         self._transformer = pipe.transformer
-        self._transformer = self._transformer.to(dtype=dtype)
         self._transformer.eval()
         return self._transformer
 
@@ -122,7 +121,7 @@ class ModelLoader(ForgeModel):
 
         Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = kwargs.get("batch_size", 1)
 
         img_dim = 64
