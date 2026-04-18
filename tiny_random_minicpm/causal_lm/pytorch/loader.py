@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     @staticmethod
-    def _fix_rope_scaling(config):
+    def _fix_config_compat(config):
         if getattr(config, "rope_scaling", None) and "type" not in config.rope_scaling:
             if config.rope_scaling.get("rope_type") == "default":
                 config.rope_scaling = None
@@ -86,6 +86,7 @@ class ModelLoader(ForgeModel):
                 config.rope_scaling["type"] = config.rope_scaling.get(
                     "rope_type", "default"
                 )
+        config.tie_word_embeddings = False
         return config
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -102,7 +103,7 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
-        self._fix_rope_scaling(config)
+        self._fix_config_compat(config)
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
