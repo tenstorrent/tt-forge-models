@@ -29,7 +29,10 @@ class DA3Wrapper(nn.Module):
         self.model = da3_api.model
 
     def forward(self, pixel_values):
-        return self.model(pixel_values)
+        # Model expects (B, N, C, H, W); add N=1 view dimension
+        x = pixel_values.unsqueeze(1)
+        output = self.model(x)
+        return output["depth"]
 
 
 class ModelVariant(StrEnum):
@@ -71,17 +74,29 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import sys
+        import types
+
+        # The pip-installed 'evo' package is shadowed by the local 'evo/' model
+        # directory. Mock evo.core since depth_anything_3.api imports pose_align
+        # which requires evo.core.trajectory (unused for inference).
+        evo_core = types.ModuleType("evo.core")
+        evo_core_trajectory = types.ModuleType("evo.core.trajectory")
+        evo_core_trajectory.PosePath3D = type("PosePath3D", (), {})
+        evo_core.trajectory = evo_core_trajectory
+        sys.modules.setdefault("evo.core", evo_core)
+        sys.modules.setdefault("evo.core.trajectory", evo_core_trajectory)
+
         from depth_anything_3.api import DepthAnything3
+        from .src.model_utils import patch_da3_for_xla
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         da3 = DepthAnything3.from_pretrained(pretrained_model_name)
+        patch_da3_for_xla(da3.model)
 
         wrapper = DA3Wrapper(da3)
         wrapper.eval()
-
-        if dtype_override is not None:
-            wrapper = wrapper.to(dtype_override)
 
         return wrapper
 
@@ -98,8 +113,5 @@ class ModelLoader(ForgeModel):
 
         if batch_size > 1:
             pixel_values = pixel_values.expand(batch_size, -1, -1, -1)
-
-        if dtype_override is not None:
-            pixel_values = pixel_values.to(dtype_override)
 
         return pixel_values
