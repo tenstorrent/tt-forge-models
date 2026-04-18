@@ -91,36 +91,44 @@ class _SimpleVJEPA2Layer(torch.nn.Module):
         return hidden_states
 
 
+def _strip_guards_from_graph(gm):
+    """Remove _guards_fn nodes and submodules from an FX GraphModule."""
+    changed = False
+    for node in list(gm.graph.nodes):
+        if "_guards" in str(node.target):
+            gm.graph.erase_node(node)
+            changed = True
+    if changed:
+        gm.recompile()
+    for name in [n for n in list(vars(gm).keys()) if "_guards" in n]:
+        delattr(gm, name)
+
+
 def _patch_tt_backend_strip_guards():
-    """Patch the tt backend to strip _guards_fn nodes before torch.export.
+    """Patch torch.export.export to strip _guards_fn nodes before exporting.
 
     Dynamo inserts _guards_fn submodules referencing local variable dicts
     that become undefined during re-export inside the tt backend pipeline.
     Since these guards have num_users=0, removing them is safe.
     """
-    try:
-        import tt_torch.backend.backend as backend
-    except ImportError:
+    import torch.export
+
+    original_export = torch.export.export
+    if getattr(original_export, "_guards_patched", False):
         return
 
-    original = backend.torch_pass_pipeline
-    if getattr(original, "_guards_patched", False):
-        return
+    def patched_export(mod, *args, **kwargs):
+        if isinstance(mod, torch.fx.GraphModule):
+            _strip_guards_from_graph(mod)
+        print(
+            f"[VJEPA2_PATCH] torch.export.export called, mod type={type(mod).__name__}",
+            flush=True,
+        )
+        return original_export(mod, *args, **kwargs)
 
-    def patched_pipeline(gm, example_inputs, options):
-        for node in list(gm.graph.nodes):
-            if "_guards" in str(node.target):
-                gm.graph.erase_node(node)
-        gm.recompile()
-        for name in [n for n in dir(gm) if "_guards" in n]:
-            try:
-                delattr(gm, name)
-            except AttributeError:
-                pass
-        return original(gm, example_inputs, options)
-
-    patched_pipeline._guards_patched = True
-    backend.torch_pass_pipeline = patched_pipeline
+    patched_export._guards_patched = True
+    torch.export.export = patched_export
+    print("[VJEPA2_PATCH] torch.export.export patched successfully", flush=True)
 
 
 class VJEPA2EncoderWrapper(torch.nn.Module):
