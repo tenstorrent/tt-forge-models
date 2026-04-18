@@ -109,6 +109,12 @@ class ModelLoader(ForgeModel):
             truncation=True,
         )
 
+        if (
+            hasattr(self.model.config, "sliding_window")
+            and self.model.config.sliding_window is not None
+        ):
+            self.model.config.sliding_window = inputs["input_ids"].shape[1]
+
         return inputs
 
     def load_config(self):
