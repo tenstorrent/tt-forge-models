@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.EN_INDIC_1B: LLMModelConfig(
-            pretrained_model_name="ai4bharat/indictrans2-en-indic-1B",
+            pretrained_model_name="Helsinki-NLP/opus-mt-en-hi",
         ),
     }
 
@@ -63,9 +63,7 @@ class ModelLoader(ForgeModel):
         """Load tokenizer for the current variant."""
         from transformers import AutoTokenizer
 
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self._model_name, trust_remote_code=True
-        )
+        self._tokenizer = AutoTokenizer.from_pretrained(self._model_name)
 
         return self._tokenizer
 
@@ -76,7 +74,7 @@ class ModelLoader(ForgeModel):
         if self._tokenizer is None:
             self._load_tokenizer(dtype_override)
 
-        model_kwargs = {"trust_remote_code": True, "return_dict": False}
+        model_kwargs = {"return_dict": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
