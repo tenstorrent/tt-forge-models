@@ -22,7 +22,15 @@ MT5Config = transformers.models.mt5.modeling_mt5.MT5Config
 MT5PreTrainedModel = transformers.models.mt5.modeling_mt5.MT5PreTrainedModel
 MT5Stack = transformers.models.mt5.modeling_mt5.MT5Stack
 
-__HEAD_MASK_WARNING_MSG = transformers.models.mt5.modeling_mt5.__HEAD_MASK_WARNING_MSG
+__HEAD_MASK_WARNING_MSG = getattr(
+    transformers.models.mt5.modeling_mt5,
+    "__HEAD_MASK_WARNING_MSG",
+    "The input argument `head_mask` was split into two arguments `head_mask` and"
+    " `decoder_head_mask`. Currently, `decoder_head_mask` is set to copy `head_mask`,"
+    " but this feature is deprecated and will be removed in future versions."
+    " If you do not want to use any `decoder_head_mask` now, please set"
+    " `decoder_head_mask = torch.ones(num_layers, num_heads)`.",
+)
 
 
 @dataclasses.dataclass
