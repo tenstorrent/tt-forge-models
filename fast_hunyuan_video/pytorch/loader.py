@@ -56,22 +56,22 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the FastHunyuan video pipeline.
+        """Load and return the FastHunyuan video transformer.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            HunyuanVideoPipeline: The loaded pipeline instance.
+            torch.nn.Module: The HunyuanVideo transformer model.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.pipeline = load_pipe(pretrained_model_name)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the FastHunyuan video model.
