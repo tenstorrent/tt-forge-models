@@ -5,6 +5,7 @@
 MiniCPM-Llama3-V-2.5 model loader implementation for multimodal visual question answering.
 """
 
+import builtins
 import torch
 from PIL import Image
 from transformers import AutoModel, AutoTokenizer
@@ -70,12 +71,19 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MiniCPM-Llama3-V-2.5 model instance."""
         model_name = self._variant_config.pretrained_model_name
-        model = AutoModel.from_pretrained(
-            str(model_name),
-            trust_remote_code=True,
-            torch_dtype=torch.float16,
-            **kwargs,
-        )
+        # HF remote code uses List without importing it from typing
+        _had_list = hasattr(builtins, "List")
+        builtins.List = list
+        try:
+            model = AutoModel.from_pretrained(
+                str(model_name),
+                trust_remote_code=True,
+                torch_dtype=torch.float16,
+                **kwargs,
+            )
+        finally:
+            if not _had_list:
+                del builtins.List
         model.eval()
 
         if dtype_override:
