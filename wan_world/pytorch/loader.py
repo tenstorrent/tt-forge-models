@@ -15,6 +15,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
+import torch.nn as nn
 from diffusers import AutoencoderKLWan  # type: ignore[import]
 
 from ...base import ForgeModel
@@ -36,6 +37,34 @@ _VAE_REPO = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
 VIDEO_HEIGHT = 64
 VIDEO_WIDTH = 64
 VIDEO_FRAMES = 5  # must satisfy T = 1 + 4*N (N=1 → 5 frames)
+
+
+class WanVAEWrapper(nn.Module):
+    """Wrapper that encodes and decodes without chunked temporal caching.
+
+    The default AutoencoderKLWan._encode splits input into 1-frame chunks and
+    uses feat_cache, which produces x[:, :, -2:] slices on tensors with
+    temporal dim 1.  XLA rejects the out-of-range negative index.  This wrapper
+    feeds all frames at once through encoder/decoder (feat_cache=None) so the
+    problematic slice is never reached.
+    """
+
+    def __init__(self, vae: AutoencoderKLWan):
+        super().__init__()
+        self.encoder = vae.encoder
+        self.decoder = vae.decoder
+        self.quant_conv = vae.quant_conv
+        self.post_quant_conv = vae.post_quant_conv
+        self.z_dim = vae.config.z_dim
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.encoder(x)
+        h = self.quant_conv(h)
+        # quant_conv output has 2*z_dim channels (mean + logvar); take the mean
+        mean = h[:, : self.z_dim, :, :, :]
+        z = self.post_quant_conv(mean)
+        dec = self.decoder(z)
+        return dec
 
 
 class ModelVariant(StrEnum):
@@ -61,6 +90,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self._vae = None
+        self._dtype = torch.float32
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -82,19 +112,23 @@ class ModelLoader(ForgeModel):
             subfolder="vae",
             torch_dtype=dtype,
         )
+        self._vae = self._vae.to(dtype=dtype)
         self._vae.eval()
         return self._vae
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.float32
+        self._dtype = dtype
         if self._vae is None:
-            return self._load_vae(dtype)
-        if dtype_override is not None:
+            self._load_vae(dtype)
+        elif dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
-        return self._vae
+        wrapper = WanVAEWrapper(self._vae)
+        wrapper.eval()
+        return wrapper
 
     def load_inputs(
         self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
     ) -> Any:
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else self._dtype
         return torch.randn(1, 3, VIDEO_FRAMES, VIDEO_HEIGHT, VIDEO_WIDTH, dtype=dtype)
