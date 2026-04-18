@@ -3,7 +3,69 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 SaAMPLIFY model loader implementation for masked language modeling on protein sequences.
+
+The HuggingFace model's remote code imports xformers (CUDA-only), but only uses it
+when running on GPU. We install a pure-PyTorch stub so the import succeeds on CPU.
 """
+import importlib
+import importlib.machinery
+import math
+import sys
+import types
+
+import torch
+import torch.nn as nn
+
+
+def _ensure_xformers_available():
+    """Install a stub xformers package if the real one is unavailable.
+
+    The chandar-lab/SaAMPLIFY_350M model's remote code does
+    ``from xformers.ops import SwiGLU, memory_efficient_attention``.
+    xformers is CUDA-only, but memory_efficient_attention is only called when
+    ``x.is_cuda`` so a pure-PyTorch SwiGLU + a placeholder function suffice.
+    """
+    try:
+        importlib.import_module("xformers.ops")
+        return
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+    class SwiGLU(nn.Module):
+        def __init__(self, in_features, hidden_features, out_features, bias=True):
+            super().__init__()
+            self.w1 = nn.Linear(in_features, hidden_features, bias=bias)
+            self.w2 = nn.Linear(in_features, hidden_features, bias=bias)
+            self.w3 = nn.Linear(hidden_features, out_features, bias=bias)
+
+        def forward(self, x):
+            return self.w3(nn.functional.silu(self.w1(x)) * self.w2(x))
+
+    def memory_efficient_attention(query, key, value, attn_bias=None, p=0.0):
+        scale = 1.0 / math.sqrt(query.shape[-1])
+        attn = torch.matmul(query, key.transpose(-2, -1)) * scale
+        if attn_bias is not None:
+            attn = attn + attn_bias
+        attn = torch.softmax(attn, dim=-1)
+        if p > 0.0:
+            attn = torch.nn.functional.dropout(attn, p=p)
+        return torch.matmul(attn, value)
+
+    xformers = types.ModuleType("xformers")
+    xformers.__version__ = "0.0.0"
+    xformers.__spec__ = importlib.machinery.ModuleSpec("xformers", None)
+
+    ops = types.ModuleType("xformers.ops")
+    ops.SwiGLU = SwiGLU
+    ops.memory_efficient_attention = memory_efficient_attention
+    xformers.ops = ops
+
+    sys.modules["xformers"] = xformers
+    sys.modules["xformers.ops"] = ops
+
+
+_ensure_xformers_available()
+
 from transformers import AutoTokenizer, AutoModelForMaskedLM
 from typing import Optional
 
