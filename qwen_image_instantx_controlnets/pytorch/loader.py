@@ -4,20 +4,18 @@
 """
 Qwen-Image InstantX ControlNets model loader implementation.
 
-Loads FluxControlNetModel variants from the Comfy-Org/Qwen-Image-InstantX-ControlNets
-repository. Supports Inpainting and Union ControlNet variants.
+Loads FluxControlNetModel variants in diffusers format.
+Supports Inpainting and Union ControlNet variants.
 
 Available variants:
 - INPAINTING: ControlNet for image inpainting
-- UNION: ControlNet supporting multiple control modes (canny, tile, depth, blur, pose, gray, low-quality)
+- UNION: ControlNet supporting multiple control modes
 """
 
 from typing import Any, Optional
 
 import torch
 from diffusers import FluxControlNetModel
-from huggingface_hub import hf_hub_download
-from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -30,33 +28,24 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "Comfy-Org/Qwen-Image-InstantX-ControlNets"
-
-_CONTROLNET_FILES = {
-    "inpainting": "split_files/controlnet/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors",
-    "union": "split_files/controlnet/Qwen-Image-InstantX-ControlNet-Union.safetensors",
+_VARIANT_REPOS = {
+    "inpainting": "alimama-creative/FLUX.1-dev-Controlnet-Inpainting-Alpha",
+    "union": "InstantX/FLUX.1-dev-Controlnet-Union",
 }
-
-# Union ControlNet supports 7 modes: canny(0), tile(1), depth(2), blur(3), pose(4), gray(5), low-quality(6)
-_UNION_NUM_MODES = 7
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen-Image InstantX ControlNet model variants."""
-
     INPAINTING = "Inpainting"
     UNION = "Union"
 
 
 class ModelLoader(ForgeModel):
-    """Qwen-Image InstantX ControlNets model loader."""
-
     _VARIANTS = {
         ModelVariant.INPAINTING: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name=_VARIANT_REPOS["inpainting"],
         ),
         ModelVariant.UNION: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name=_VARIANT_REPOS["union"],
         ),
     }
     DEFAULT_VARIANT = ModelVariant.UNION
@@ -79,7 +68,6 @@ class ModelLoader(ForgeModel):
         )
 
     def _get_version_key(self) -> str:
-        """Map variant to version key for file lookup."""
         return {
             ModelVariant.INPAINTING: "inpainting",
             ModelVariant.UNION: "union",
@@ -88,33 +76,18 @@ class ModelLoader(ForgeModel):
     def _load_controlnet(
         self, dtype: torch.dtype = torch.float32
     ) -> FluxControlNetModel:
-        """Load ControlNet from single-file safetensors."""
         version = self._get_version_key()
+        repo_id = _VARIANT_REPOS[version]
 
-        model_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename=_CONTROLNET_FILES[version],
+        self._controlnet = FluxControlNetModel.from_pretrained(
+            repo_id,
+            torch_dtype=dtype,
+            ignore_mismatched_sizes=True,
         )
-
-        # Build config kwargs based on variant
-        config_kwargs = {}
-        if self._variant == ModelVariant.UNION:
-            config_kwargs["num_mode"] = _UNION_NUM_MODES
-
-        self._controlnet = FluxControlNetModel(**config_kwargs)
-
-        state_dict = load_file(model_path)
-        self._controlnet.load_state_dict(state_dict)
-        self._controlnet.to(dtype=dtype)
         self._controlnet.eval()
         return self._controlnet
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the ControlNet model.
-
-        Returns:
-            FluxControlNetModel instance.
-        """
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._controlnet is None:
             return self._load_controlnet(dtype)
@@ -123,20 +96,14 @@ class ModelLoader(ForgeModel):
         return self._controlnet
 
     def load_inputs(self, **kwargs) -> Any:
-        """Prepare sample inputs for the ControlNet.
-
-        Returns a dict matching FluxControlNetModel.forward() signature.
-        """
         dtype = kwargs.get("dtype_override", torch.float32)
         batch_size = kwargs.get("batch_size", 1)
 
-        # FluxControlNetModel default config values
-        in_channels = 64
-        joint_attention_dim = 4096
-        pooled_projection_dim = 768
+        in_channels = self._controlnet.config["in_channels"]
+        joint_attention_dim = self._controlnet.config["joint_attention_dim"]
+        pooled_projection_dim = self._controlnet.config["pooled_projection_dim"]
 
-        # Sequence lengths for image and text tokens
-        img_seq_len = 64  # e.g. 8x8 patch grid
+        img_seq_len = 64
         txt_seq_len = 32
 
         hidden_states = torch.randn(batch_size, img_seq_len, in_channels, dtype=dtype)
@@ -159,9 +126,7 @@ class ModelLoader(ForgeModel):
             "txt_ids": txt_ids,
         }
 
-        # Union variant requires controlnet_mode
         if self._variant == ModelVariant.UNION:
-            # Use mode 0 (canny) as default
             inputs["controlnet_mode"] = torch.zeros(batch_size, dtype=torch.long)
 
         return inputs
