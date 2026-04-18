@@ -5,7 +5,7 @@
 AfroLID model loader implementation for sequence classification (language identification).
 """
 
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoModelForSequenceClassification, PreTrainedTokenizerFast
 
 from ....config import (
     ModelInfo,
@@ -61,7 +61,7 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load AfroLID model for sequence classification from Hugging Face."""
 
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.tokenizer = PreTrainedTokenizerFast.from_pretrained(self.model_name)
 
         model_kwargs = {}
         if dtype_override is not None:
