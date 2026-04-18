@@ -133,20 +133,19 @@ class ModelLoader(ForgeModel):
         with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
             config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
 
-            # Use the text backbone config (DeepSeek V3 architecture)
-            text_config = config.text_config
+            # The config is already the DeepSeek V3 text backbone config
             if self.num_layers is not None:
-                text_config.num_hidden_layers = self.num_layers
+                config.num_hidden_layers = self.num_layers
             else:
-                text_config.num_hidden_layers = 2
-            text_config.num_attention_heads = 16
-            text_config.hidden_size = 1024
-            text_config.num_key_value_heads = 16
-            text_config.intermediate_size = 1024 * 4
-            text_config.num_experts_per_tok = 2
-            text_config.q_lora_rank = 256
-            text_config.use_flash_attention = False
-            text_config._attn_implementation = "eager"
+                config.num_hidden_layers = 2
+            config.num_attention_heads = 16
+            config.hidden_size = 1024
+            config.num_key_value_heads = 16
+            config.intermediate_size = 1024 * 4
+            config.num_experts_per_tok = 2
+            config.q_lora_rank = 256
+            config.use_flash_attention = False
+            config._attn_implementation = "eager"
 
             model_kwargs = {
                 "attn_implementation": "eager",
@@ -162,7 +161,7 @@ class ModelLoader(ForgeModel):
                 self.model_name,
                 trust_remote_code=True,
             )
-            model = model_class(text_config)
+            model = model_class(config)
             model.eval()
 
         self.tokenizer = AutoTokenizer.from_pretrained(
