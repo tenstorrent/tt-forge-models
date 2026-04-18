@@ -111,15 +111,17 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, sketch_image
         )
 
+        timestep = timesteps[0]
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [
-            latent_model_input,
-            timesteps,
-            prompt_embeds,
-            added_cond_kwargs,
-            down_intrablock_additional_residuals,
-        ]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+            "down_intrablock_additional_residuals": down_intrablock_additional_residuals,
+        }
