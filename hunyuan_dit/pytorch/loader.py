@@ -114,7 +114,7 @@ class ModelLoader(ForgeModel):
 
         # Attention masks for text encoders
         text_embedding_mask = torch.ones(batch_size, config.text_len, dtype=dtype)
-        encoder_attention_mask = torch.ones(batch_size, config.text_len_t5, dtype=dtype)
+        text_embedding_mask_t5 = torch.ones(batch_size, config.text_len_t5, dtype=dtype)
 
         # Style conditioning (optional, defaults to zeros)
         style = torch.zeros(batch_size, dtype=torch.long)
@@ -125,7 +125,7 @@ class ModelLoader(ForgeModel):
             "encoder_hidden_states": encoder_hidden_states,
             "text_embedding_mask": text_embedding_mask,
             "encoder_hidden_states_t5": encoder_hidden_states_t5,
-            "encoder_attention_mask": encoder_attention_mask,
+            "text_embedding_mask_t5": text_embedding_mask_t5,
             "image_rotary_emb": image_rotary_emb,
             "style": style,
         }
