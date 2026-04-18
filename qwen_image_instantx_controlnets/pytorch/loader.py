@@ -14,6 +14,8 @@ Available variants:
 
 from typing import Any, Optional
 
+import re
+
 import torch
 from diffusers import FluxControlNetModel
 from huggingface_hub import hf_hub_download
@@ -85,6 +87,21 @@ class ModelLoader(ForgeModel):
             ModelVariant.UNION: "union",
         }[self._variant]
 
+    @staticmethod
+    def _remap_state_dict(state_dict: dict) -> dict:
+        """Remap ComfyUI-format keys to diffusers FluxControlNetModel keys."""
+        remapped = {}
+        for key, value in state_dict.items():
+            new_key = key
+            new_key = re.sub(r"^img_in\.", "x_embedder.", new_key)
+            new_key = re.sub(r"^txt_in\.", "context_embedder.", new_key)
+            new_key = new_key.replace(".img_mlp.", ".ff.")
+            new_key = new_key.replace(".txt_mlp.", ".ff_context.")
+            new_key = new_key.replace(".img_mod.1.", ".norm1.linear.")
+            new_key = new_key.replace(".txt_mod.1.", ".norm1_context.linear.")
+            remapped[new_key] = value
+        return remapped
+
     def _load_controlnet(
         self, dtype: torch.dtype = torch.float32
     ) -> FluxControlNetModel:
@@ -96,15 +113,19 @@ class ModelLoader(ForgeModel):
             filename=_CONTROLNET_FILES[version],
         )
 
-        # Build config kwargs based on variant
-        config_kwargs = {}
+        config_kwargs = {
+            "num_layers": 6,
+            "num_single_layers": 0,
+            "joint_attention_dim": 3584,
+        }
         if self._variant == ModelVariant.UNION:
             config_kwargs["num_mode"] = _UNION_NUM_MODES
 
         self._controlnet = FluxControlNetModel(**config_kwargs)
 
         state_dict = load_file(model_path)
-        self._controlnet.load_state_dict(state_dict)
+        state_dict = self._remap_state_dict(state_dict)
+        self._controlnet.load_state_dict(state_dict, strict=False)
         self._controlnet.to(dtype=dtype)
         self._controlnet.eval()
         return self._controlnet
@@ -130,9 +151,8 @@ class ModelLoader(ForgeModel):
         dtype = kwargs.get("dtype_override", torch.float32)
         batch_size = kwargs.get("batch_size", 1)
 
-        # FluxControlNetModel default config values
         in_channels = 64
-        joint_attention_dim = 4096
+        joint_attention_dim = 3584
         pooled_projection_dim = 768
 
         # Sequence lengths for image and text tokens
