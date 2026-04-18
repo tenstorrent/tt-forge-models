@@ -17,6 +17,10 @@ from typing import Any, Optional
 import torch
 import torch.nn as nn
 from diffusers import AutoencoderKLWan  # type: ignore[import]
+from diffusers.models.autoencoders.autoencoder_kl_wan import (  # type: ignore[import]
+    patchify,
+    unpatchify,
+)
 
 from ...base import ForgeModel
 from ...config import (
@@ -56,14 +60,18 @@ class WanVAEWrapper(nn.Module):
         self.quant_conv = vae.quant_conv
         self.post_quant_conv = vae.post_quant_conv
         self.z_dim = vae.config.z_dim
+        self.patch_size = vae.config.patch_size
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.patch_size is not None:
+            x = patchify(x, patch_size=self.patch_size)
         h = self.encoder(x)
         h = self.quant_conv(h)
-        # quant_conv output has 2*z_dim channels (mean + logvar); take the mean
         mean = h[:, : self.z_dim, :, :, :]
         z = self.post_quant_conv(mean)
         dec = self.decoder(z)
+        if self.patch_size is not None:
+            dec = unpatchify(dec, patch_size=self.patch_size)
         return dec
 
 
