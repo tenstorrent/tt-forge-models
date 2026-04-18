@@ -82,6 +82,7 @@ class ModelLoader(ForgeModel):
         self._controlnet = FluxControlNetModel.from_pretrained(
             repo_id,
             torch_dtype=dtype,
+            low_cpu_mem_usage=False,
             ignore_mismatched_sizes=True,
         )
         self._controlnet.eval()
