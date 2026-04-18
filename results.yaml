@@ -31,3 +31,7 @@ results:
   status: "PASS"
   date: "20260418_070212"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-1"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[cbramod_pretrained/pytorch-Pretrained-single_device-inference]"
+  status: "PASS"
+  date: "20260418_072109"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-1"
