@@ -154,10 +154,8 @@ class ModelLoader(ForgeModel):
                     "model",
                 )
             if hasattr(layer.mlp, "experts"):
-                for expert in layer.mlp.experts:
-                    shard_specs[expert.up_proj.weight] = ("model", "batch")
-                    shard_specs[expert.gate_proj.weight] = ("model", "batch")
-                    shard_specs[expert.down_proj.weight] = ("batch", "model")
+                shard_specs[layer.mlp.experts.gate_up_proj] = (None, "model", "batch")
+                shard_specs[layer.mlp.experts.down_proj] = (None, "batch", "model")
             if hasattr(layer.mlp, "up_proj"):
                 shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
                 shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
