@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.PHI_3_5_MINI_INSTRUCT_Q4F16_1_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/Phi-3.5-mini-instruct-q4f16_1-MLC",
+            pretrained_model_name="microsoft/Phi-3.5-mini-instruct",
             max_length=128,
         ),
     }
