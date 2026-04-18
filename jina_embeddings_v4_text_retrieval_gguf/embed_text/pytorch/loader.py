@@ -54,6 +54,8 @@ def _patch_transformers_qwen2vl_gguf():
 
     if arch not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS[arch] = GGUFQwen2Converter
+    if "qwen2_vl" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen2_vl"] = GGUFQwen2Converter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
