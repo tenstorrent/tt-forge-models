@@ -12,6 +12,8 @@ Requires the TripoSR repository to be cloned at /tmp/triposr_repo.
 """
 import os
 import sys
+import types
+from unittest.mock import MagicMock
 
 from datasets import load_dataset
 from typing import Optional
@@ -47,6 +49,10 @@ def _ensure_triposr_importable():
 
     if TRIPOSR_REPO_PATH not in sys.path:
         sys.path.insert(0, TRIPOSR_REPO_PATH)
+
+    for mod in ("torchmcubes", "rembg"):
+        if mod not in sys.modules:
+            sys.modules[mod] = MagicMock()
 
 
 class ModelVariant(StrEnum):
@@ -102,16 +108,13 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load sample inputs for the TripoSR model.
+        import numpy as np
+        import torch
 
-        The TSR model forward pass expects a list of PIL images and a device string.
-
-        Returns:
-            dict: Input dict with 'image' (list of PIL Images) and 'device' keys.
-        """
         dataset = load_dataset("huggingface/cats-image")["test"]
         image = dataset[0]["image"].convert("RGB")
+        tensor = torch.from_numpy(np.array(image).astype(np.float32) / 255.0)
 
-        images = [image] * batch_size
+        images = [tensor] * batch_size
 
         return {"image": images, "device": "cpu"}
