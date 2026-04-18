@@ -16,7 +16,7 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
 from huggingface_hub import hf_hub_download
-from transformers import AutoConfig, CLIPTokenizer, T5TokenizerFast
+from transformers import AutoConfig, CLIPTextConfig, CLIPTokenizer, T5TokenizerFast
 
 REPO_ID = "Comfy-Org/stable-diffusion-3.5-fp8"
 
@@ -131,10 +131,16 @@ def _build_config_dir(transformer_config):
     for name, repo in [
         ("text_encoder", "openai/clip-vit-large-patch14"),
         ("text_encoder_2", "laion/CLIP-ViT-bigG-14-laion2B-39B-b160k"),
-        ("text_encoder_3", "google/t5-v1_1-xxl"),
     ]:
         os.makedirs(os.path.join(config_dir, name))
-        AutoConfig.from_pretrained(repo).save_pretrained(os.path.join(config_dir, name))
+        CLIPTextConfig.from_pretrained(repo).save_pretrained(
+            os.path.join(config_dir, name)
+        )
+
+    os.makedirs(os.path.join(config_dir, "text_encoder_3"))
+    AutoConfig.from_pretrained("google/t5-v1_1-xxl").save_pretrained(
+        os.path.join(config_dir, "text_encoder_3")
+    )
 
     CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14").save_pretrained(
         os.path.join(config_dir, "tokenizer")
@@ -171,7 +177,10 @@ def load_pipe(filename, dtype=torch.float32):
         config=config_dir,
         torch_dtype=dtype,
     )
-    pipe.to("cpu")
+    if pipe.text_encoder_3 is not None:
+        t5 = pipe.text_encoder_3
+        if t5.encoder.embed_tokens.weight.device.type == "meta":
+            t5.encoder.embed_tokens.weight = t5.shared.weight
 
     modules = [
         pipe.text_encoder,
@@ -179,7 +188,6 @@ def load_pipe(filename, dtype=torch.float32):
         pipe.text_encoder_2,
         pipe.vae,
     ]
-    # text_encoder_3 (T5) may not be present in all single-file checkpoints
     if pipe.text_encoder_3 is not None:
         modules.append(pipe.text_encoder_3)
 

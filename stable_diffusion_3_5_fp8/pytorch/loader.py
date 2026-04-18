@@ -97,9 +97,9 @@ class ModelLoader(ForgeModel):
         self.pipeline = load_pipe(filename)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the model.
@@ -130,4 +130,4 @@ class ModelLoader(ForgeModel):
             prompt_embeds = prompt_embeds.to(dtype_override)
             pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+        return [latent_model_input, prompt_embeds, pooled_prompt_embeds, timestep]
