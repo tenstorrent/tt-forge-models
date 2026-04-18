@@ -4,9 +4,12 @@
 """
 VibeVoice model loader implementation for text-to-speech tasks.
 """
+
+import sys
+from typing import Optional
+
 import torch
 import torch.nn as nn
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
@@ -68,8 +71,28 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from vibevoice.modular.modeling_vibevoice_inference import (
-            VibeVoiceForConditionalGenerationInference,
+        import importlib
+        import site
+
+        # The local "vibevoice/" model directory shadows the pip-installed
+        # vibevoice package. Temporarily make site-packages the first
+        # search location so we import the correct third-party package.
+        site_dirs = site.getsitepackages()
+        saved = sys.path[:]
+        for d in reversed(site_dirs):
+            sys.path.insert(0, d)
+        try:
+            for key in list(sys.modules):
+                if key == "vibevoice" or key.startswith("vibevoice."):
+                    del sys.modules[key]
+            modeling_mod = importlib.import_module(
+                "vibevoice.modular.modeling_vibevoice_inference"
+            )
+        finally:
+            sys.path[:] = saved
+
+        VibeVoiceForConditionalGenerationInference = (
+            modeling_mod.VibeVoiceForConditionalGenerationInference
         )
 
         full_model = VibeVoiceForConditionalGenerationInference.from_pretrained(
