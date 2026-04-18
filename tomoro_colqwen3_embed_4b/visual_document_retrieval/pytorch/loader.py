@@ -73,7 +73,7 @@ class ModelLoader(ForgeModel):
     def _patch_colqwen3_tie_weights():
         import inspect
 
-        for mod in sys.modules.values():
+        for mod in list(sys.modules.values()):
             cls = getattr(mod, "ColQwen3", None)
             if not inspect.isclass(cls):
                 continue
