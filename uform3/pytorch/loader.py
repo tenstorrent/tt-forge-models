@@ -76,6 +76,7 @@ class ModelLoader(ForgeModel):
 
         processors, models = get_model(
             self._variant_config.pretrained_model_name,
+            backend="torch",
             modalities=[Modality.TEXT_ENCODER, Modality.IMAGE_ENCODER],
         )
         self._text_processor = processors[Modality.TEXT_ENCODER]
