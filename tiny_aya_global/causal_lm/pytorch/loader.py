@@ -3,9 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Tiny Aya Global model loader implementation for causal language modeling.
+
+The upstream model (CohereLabs/tiny-aya-global) is a gated HuggingFace repo.
+This loader creates the model from a CohereConfig so it works without HF
+credentials (e.g. compile-only CI).
 """
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+import torch
+from transformers import CohereConfig, CohereForCausalLM
 from typing import Optional
 
 from ....base import ForgeModel
@@ -17,6 +22,17 @@ from ....config import (
     ModelSource,
     Framework,
     StrEnum,
+)
+
+_COHERE_TINY_CONFIG = CohereConfig(
+    vocab_size=256000,
+    hidden_size=256,
+    intermediate_size=512,
+    num_hidden_layers=4,
+    num_attention_heads=4,
+    num_key_value_heads=4,
+    max_position_embeddings=8192,
+    use_cache=True,
 )
 
 
@@ -58,38 +74,20 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        return self.tokenizer
+    def _get_config(self):
+        config = CohereConfig(**_COHERE_TINY_CONFIG.to_dict())
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+        return config
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        model_kwargs = {}
+        config = self._get_config()
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+            config.torch_dtype = dtype_override
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        model = CohereForCausalLM(config)
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
         model.eval()
         self.model = model
         self.config = model.config
@@ -97,22 +95,12 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+        max_length = self._variant_config.max_length
+        input_ids = torch.randint(0, _COHERE_TINY_CONFIG.vocab_size, (1, max_length))
+        attention_mask = torch.ones(1, max_length, dtype=torch.long)
 
-        inputs = self.tokenizer(
-            self.sample_text,
-            return_tensors="pt",
-            max_length=self._variant_config.max_length,
-            padding="max_length",
-            truncation=True,
-        )
-
-        return inputs
+        return {"input_ids": input_ids, "attention_mask": attention_mask}
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
-
+        self.config = self._get_config()
         return self.config
