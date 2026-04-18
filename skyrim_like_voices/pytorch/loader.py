@@ -8,9 +8,8 @@ This is a multi-speaker VITS2 model trained on Skyrim game character voices,
 supporting 123 distinct speaker identities. Uses the MeloTTS SynthesizerTrn
 architecture.
 """
+
 import json
-import os
-import sys
 
 import torch
 import torch.nn as nn
@@ -138,13 +137,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: Wrapped VITS2 synthesizer model.
         """
-        import melo
-
-        melo_dir = os.path.dirname(melo.__file__)
-        if melo_dir not in sys.path:
-            sys.path.insert(0, melo_dir)
-
-        from melo.models import SynthesizerTrn
+        from .src.models import SynthesizerTrn
 
         repo_id = self._variant_config.pretrained_model_name
 
@@ -197,8 +190,9 @@ class ModelLoader(ForgeModel):
         tone = torch.zeros(1, seq_len, dtype=torch.long)
         # Language IDs: [batch, seq_len]
         language = torch.zeros(1, seq_len, dtype=torch.long)
+        dtype = dtype_override if dtype_override is not None else torch.float32
         # BERT embeddings: [batch, bert_hidden_size, seq_len]
-        bert = torch.zeros(1, 1024, seq_len)
+        bert = torch.zeros(1, 1024, seq_len, dtype=dtype)
         # Japanese BERT embeddings: [batch, ja_bert_hidden_size, seq_len]
-        ja_bert = torch.zeros(1, 768, seq_len)
+        ja_bert = torch.zeros(1, 768, seq_len, dtype=dtype)
         return x, x_lengths, sid, tone, language, bert, ja_bert
