@@ -12,6 +12,7 @@ that a given audio chunk contains speech.
 from typing import Optional
 
 import torch
+import torch.nn as nn
 
 from ....base import ForgeModel
 from ....config import (
@@ -23,6 +24,24 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+
+class SileroVADWrapper(nn.Module):
+    """Wraps the Silero VAD JIT model for compatibility with nn.Module conventions.
+
+    The JIT ScriptModule has plain Tensor parameters (not nn.Parameter) and
+    mutable internal state, both incompatible with nn.Module._apply() in
+    PyTorch 2.9+. We store the JIT model outside the submodule registry
+    and skip device/dtype movement — torch.compile handles device placement
+    during tracing.
+    """
+
+    def __init__(self, jit_model):
+        super().__init__()
+        object.__setattr__(self, "_jit", jit_model)
+
+    def forward(self, x, sr):
+        return self._jit(x, sr)
 
 
 class ModelVariant(StrEnum):
@@ -60,26 +79,21 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        model, _ = torch.hub.load(
+        jit_model, _ = torch.hub.load(
             repo_or_dir=self._variant_config.pretrained_model_name,
             model="silero_vad",
             trust_repo=True,
         )
 
+        model = SileroVADWrapper(jit_model)
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
 
         return model
 
     def load_inputs(self, dtype_override=None):
-        # Silero VAD v5 expects 512 samples at 16kHz (32ms window)
         chunk_size = 512
         sampling_rate = 16000
 
         audio_chunk = torch.randn(1, chunk_size)
 
-        if dtype_override is not None:
-            audio_chunk = audio_chunk.to(dtype_override)
-
-        return [audio_chunk, torch.tensor(sampling_rate)]
+        return [audio_chunk, sampling_rate]
