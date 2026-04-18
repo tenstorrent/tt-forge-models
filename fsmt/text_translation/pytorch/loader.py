@@ -69,8 +69,39 @@ class ModelLoader(ForgeModel):
 
         return self._tokenizer
 
+    @staticmethod
+    def _patch_fsmt_source():
+        """Patch modeling_fsmt.py to create causal mask on the correct device."""
+        import transformers.models.fsmt.modeling_fsmt as fsmt_module
+        import inspect
+        import importlib
+        import pathlib
+
+        source_file = inspect.getfile(fsmt_module)
+        with open(source_file, "r") as f:
+            content = f.read()
+
+        old = (
+            "torch.zeros(tgt_len, tgt_len, dtype=causal_mask_dtype)), 1).to(\n"
+            "        device=decoder_input_ids.device\n"
+            "    )"
+        )
+        new = "torch.zeros(tgt_len, tgt_len, dtype=causal_mask_dtype, device=decoder_input_ids.device)), 1)"
+
+        if old in content:
+            content = content.replace(old, new)
+            with open(source_file, "w") as f:
+                f.write(content)
+            for pyc in pathlib.Path(source_file).parent.glob(
+                "__pycache__/modeling_fsmt*"
+            ):
+                pyc.unlink(missing_ok=True)
+            importlib.reload(fsmt_module)
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the FSMT model instance for this instance's variant."""
+        self._patch_fsmt_source()
+
         from transformers import FSMTForConditionalGeneration
 
         if self._tokenizer is None:
