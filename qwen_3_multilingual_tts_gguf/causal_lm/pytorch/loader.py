@@ -8,6 +8,30 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _fix_gguf_version_detection():
+    """Fix gguf version detection when gguf is installed after transformers import.
+
+    When transformers is imported before gguf is installed, its
+    PACKAGE_DISTRIBUTION_MAPPING won't include 'gguf'. A later runtime
+    pip-install makes the module importable, but version lookup falls back to
+    ``getattr(gguf, '__version__', 'N/A')`` which fails because the gguf
+    package does not define ``__version__``.  Populating the mapping and
+    clearing the lru_cache on ``is_gguf_available`` lets the standard code
+    path resolve the version via ``importlib.metadata``.
+    """
+    from transformers.utils.import_utils import (
+        PACKAGE_DISTRIBUTION_MAPPING,
+        is_gguf_available,
+    )
+
+    if "gguf" not in PACKAGE_DISTRIBUTION_MAPPING:
+        PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+    is_gguf_available.cache_clear()
+
+
+_fix_gguf_version_detection()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -76,6 +100,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _fix_gguf_version_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -154,6 +179,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _fix_gguf_version_detection()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
