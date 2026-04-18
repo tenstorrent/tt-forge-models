@@ -27,8 +27,7 @@ def _is_gguf_available(min_version: str = _import_utils.GGUF_MIN_VERSION) -> boo
         if ver is None:
             ver = importlib.metadata.version("gguf")
         return Version(ver) >= Version(min_version)
-    except Exception as e:
-        print(f"[DEBUG _is_gguf_available] failed: {type(e).__name__}: {e}", flush=True)
+    except Exception:
         return False
 
 
