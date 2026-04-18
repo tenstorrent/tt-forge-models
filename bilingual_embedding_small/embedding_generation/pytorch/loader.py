@@ -76,8 +76,14 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
-        if not hasattr(config, "is_decoder"):
-            config.is_decoder = False
+        defaults = {
+            "is_decoder": False,
+            "add_cross_attention": False,
+            "chunk_size_feed_forward": 0,
+        }
+        for attr, default in defaults.items():
+            if not hasattr(config, attr):
+                setattr(config, attr, default)
 
         model_kwargs = {
             "config": config,
