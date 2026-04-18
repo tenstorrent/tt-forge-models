@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SmolDocling model instance."""
-        from transformers import AutoModelForVision2Seq
+        from transformers import AutoModelForImageTextToText as AutoModelForVision2Seq
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
