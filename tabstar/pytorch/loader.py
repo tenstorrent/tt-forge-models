@@ -144,6 +144,11 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The wrapped TabSTAR model instance.
         """
         from tabstar.arch.arch import TabStarModel
+        from tabstar.arch.config import TabStarConfig
+
+        config = TabStarConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -151,7 +156,9 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         tabstar_model = TabStarModel.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
+            self._variant_config.pretrained_model_name,
+            config=config,
+            **model_kwargs,
         )
 
         self.tokenizer = tabstar_model.tokenizer
