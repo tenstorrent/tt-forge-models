@@ -107,4 +107,6 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             inputs["input_values"] = inputs["input_values"].to(dtype_override)
 
+        inputs.pop("attention_mask", None)
+
         return inputs
