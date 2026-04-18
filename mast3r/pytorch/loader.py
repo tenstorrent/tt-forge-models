@@ -3,7 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 MASt3R (Matching And Stereo 3D Reconstruction) model loader implementation.
+
+Requires the mast3r repository to be cloned at /tmp/mast3r_repo.
 """
+import os
+import sys
 
 import torch
 from typing import Optional
@@ -18,6 +22,31 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+
+MAST3R_REPO_PATH = "/tmp/mast3r_repo"
+
+
+def _ensure_mast3r_importable():
+    """Ensure the mast3r repo is cloned and importable."""
+    if not os.path.isdir(MAST3R_REPO_PATH):
+        import subprocess
+
+        subprocess.check_call(
+            [
+                "git",
+                "clone",
+                "--filter=blob:none",
+                "--recurse-submodules",
+                "https://github.com/naver/mast3r.git",
+                MAST3R_REPO_PATH,
+            ]
+        )
+
+    if MAST3R_REPO_PATH not in sys.path:
+        sys.path.insert(0, MAST3R_REPO_PATH)
+    dust3r_path = os.path.join(MAST3R_REPO_PATH, "dust3r")
+    if dust3r_path not in sys.path:
+        sys.path.insert(0, dust3r_path)
 
 
 class ModelVariant(StrEnum):
@@ -53,6 +82,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MASt3R model instance."""
+        _ensure_mast3r_importable()
         from mast3r.model import AsymmetricMASt3R
 
         pretrained_model_name = self._variant_config.pretrained_model_name
