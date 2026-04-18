@@ -41,14 +41,12 @@ def load_decilm(pretrained_model_name, *, dtype=None):
         rope_theta=raw.get("rope_theta", 10000.0),
     )
 
-    with torch.device("meta"):
-        model = LlamaForCausalLM(config)
+    model = LlamaForCausalLM(config)
 
     for i in range(config.num_hidden_layers):
         layer_config = copy.deepcopy(config)
         layer_config.num_key_value_heads = kv_per_layer[i]
-        with torch.device("meta"):
-            model.model.layers[i] = LlamaDecoderLayer(layer_config, layer_idx=i)
+        model.model.layers[i] = LlamaDecoderLayer(layer_config, layer_idx=i)
 
     index_path = hf_hub_download(pretrained_model_name, "model.safetensors.index.json")
     with open(index_path) as f:
