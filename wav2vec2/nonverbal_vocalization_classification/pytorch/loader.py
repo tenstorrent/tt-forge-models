@@ -105,6 +105,10 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        # Remove attention_mask — single-sample input has no padding, and the
+        # int32 mask triggers an XLA S64/S32 type mismatch in index_put.
+        inputs.pop("attention_mask", None)
+
         if dtype_override is not None:
             inputs = {
                 k: v.to(dtype_override) if v.is_floating_point() else v
