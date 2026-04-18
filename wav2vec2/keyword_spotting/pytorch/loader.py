@@ -55,44 +55,35 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self, dtype_override=None):
+    def _load_processor(self):
         from transformers import Wav2Vec2FeatureExtractor
 
-        processor_kwargs = {}
-        if dtype_override is not None:
-            processor_kwargs["dtype"] = dtype_override
-
         self._processor = Wav2Vec2FeatureExtractor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
+            self._variant_config.pretrained_model_name,
         )
 
         return self._processor
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
+        import torch
         from transformers import Wav2Vec2ForSequenceClassification
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
 
         model = Wav2Vec2ForSequenceClassification.from_pretrained(
             self._variant_config.pretrained_model_name,
-            **model_kwargs,
+            torch_dtype=torch.float32,
+            **kwargs,
         )
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
 
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         import numpy as np
+        import torch
 
         if self._processor is None:
-            self._load_processor(dtype_override=dtype_override)
+            self._load_processor()
 
-        # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
@@ -104,5 +95,8 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if "attention_mask" in inputs:
+            inputs["attention_mask"] = inputs["attention_mask"].to(torch.int64)
 
         return inputs
