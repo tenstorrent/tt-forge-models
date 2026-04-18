@@ -5,8 +5,10 @@
 Stella-EN-400M-v5 model loader implementation for sentence embedding generation.
 """
 
+import functools
+
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -72,13 +74,28 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        config.use_memory_efficient_attention = False
+        config.unpad_inputs = False
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
+
+        _orig = model.get_extended_attention_mask
+
+        @functools.wraps(_orig)
+        def _compat_get_extended_attention_mask(*args, **kwargs):
+            kwargs.pop("device", None)
+            return _orig(*args, **kwargs)
+
+        model.get_extended_attention_mask = _compat_get_extended_attention_mask
 
         return model
 
