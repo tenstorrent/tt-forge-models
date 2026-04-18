@@ -64,8 +64,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="beit_base_patch16_224.in22k_ft_in22k_in1k",
             source=ModelSource.TIMM,
         ),
-        ModelVariant.TINY_RANDOM: ModelConfig(
+        ModelVariant.TINY_RANDOM: BeitConfig(
             pretrained_model_name="optimum-intel-internal-testing/tiny-random-BeitForImageClassification",
+            source=ModelSource.HUGGING_FACE,
         ),
     }
 
