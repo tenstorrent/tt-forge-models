@@ -15,10 +15,11 @@ class Wrapper(torch.nn.Module):
         self.model = model
 
     def forward(self, inputs_embeds, attention_mask, position_ids):
-        outputs = self.model.language_model(
+        outputs = self.model(
             input_ids=None,
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             position_ids=position_ids,
+            pixel_values=None,
         )
         return outputs.logits

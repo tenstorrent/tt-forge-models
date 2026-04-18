@@ -115,20 +115,21 @@ class ModelLoader(ForgeModel):
         pixel_values = raw_inputs["pixel_values"]
         image_grid_thw = raw_inputs["image_grid_thw"]
 
-        inputs_embeds = model.get_input_embeddings()(input_ids)
+        inner = model.model
+        inputs_embeds = inner.get_input_embeddings()(input_ids)
 
-        image_embeds = model.get_image_features(
+        image_embeds = inner.get_image_features(
             pixel_values, image_grid_thw, return_dict=True
         ).pooler_output
         image_embeds = torch.cat(image_embeds, dim=0).to(
             inputs_embeds.device, inputs_embeds.dtype
         )
-        image_mask, _ = model.get_placeholder_mask(
+        image_mask, _ = inner.get_placeholder_mask(
             input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds
         )
         inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
-        position_ids = model.compute_3d_position_ids(
+        position_ids = inner.compute_3d_position_ids(
             input_ids=input_ids,
             image_grid_thw=image_grid_thw,
             video_grid_thw=None,
