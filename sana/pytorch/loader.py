@@ -140,10 +140,11 @@ class ModelLoader(ForgeModel):
         timestep = torch.tensor([1.0], dtype=dtype).expand(batch_size)
 
         # Encode prompt to get text embeddings
+        max_length = min(self.pipe.tokenizer.model_max_length, 300)
         text_inputs = self.pipe.tokenizer(
             self.prompt,
             padding="max_length",
-            max_length=self.pipe.tokenizer.model_max_length,
+            max_length=max_length,
             truncation=True,
             return_tensors="pt",
         )
