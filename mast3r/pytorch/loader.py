@@ -24,6 +24,8 @@ from ...config import (
 from ...base import ForgeModel
 
 MAST3R_REPO_PATH = "/tmp/mast3r_repo"
+IMG_HEIGHT = 384
+IMG_WIDTH = 512
 
 
 def _ensure_mast3r_importable():
@@ -50,10 +52,11 @@ def _ensure_mast3r_importable():
 
 
 def _patch_dust3r_for_dynamo():
-    """Patch dust3r functions to be compatible with torch dynamo.
+    """Patch dust3r functions for torch dynamo compatibility.
 
-    The original code uses data-dependent control flow (assert with allclose,
-    int() on tensors for shape computation) that breaks dynamo tracing.
+    The model uses data-dependent control flow (assert with allclose,
+    int() on tensors, is_symmetrized check) that breaks tracing.
+    We replace these with dynamo-friendly versions using fixed shapes.
     """
     import dust3r.utils.misc as misc
 
@@ -62,60 +65,50 @@ def _patch_dust3r_for_dynamo():
     def patched_transpose_to_landscape(head, activate=True):
         if not activate:
 
-            @torch.compiler.disable
             def wrapper_no(decout, true_shape):
-                H, W = int(true_shape[0][0]), int(true_shape[0][1])
-                return head(decout, (H, W))
+                return head(decout, (IMG_HEIGHT, IMG_WIDTH))
 
             return wrapper_no
         return _orig_transpose(head, activate)
 
+    def patched_is_symmetrized(gt1, gt2):
+        return False
+
     misc.transpose_to_landscape = patched_transpose_to_landscape
+    misc.is_symmetrized = patched_is_symmetrized
 
     for mod_name in list(sys.modules):
         mod = sys.modules.get(mod_name)
-        if mod and getattr(mod, "transpose_to_landscape", None) is _orig_transpose:
+        if not mod:
+            continue
+        if getattr(mod, "transpose_to_landscape", None) is _orig_transpose:
             mod.transpose_to_landscape = patched_transpose_to_landscape
-
-    misc.is_symmetrized = torch.compiler.disable(misc.is_symmetrized)
-    for mod_name in list(sys.modules):
-        mod = sys.modules.get(mod_name)
-        if mod and hasattr(mod, "is_symmetrized") and mod is not misc:
-            mod.is_symmetrized = misc.is_symmetrized
+        if (
+            hasattr(mod, "is_symmetrized")
+            and mod is not misc
+            and callable(getattr(mod, "is_symmetrized"))
+        ):
+            mod.is_symmetrized = patched_is_symmetrized
 
 
 class MASt3RWrapper(torch.nn.Module):
-    """Wrap MASt3R to pre-compute encoder features on CPU.
+    """Wrap MASt3R to use plain tensor inputs.
 
-    The full model uses data-dependent control flow (true_shape, instance)
-    that is incompatible with torch dynamo. This wrapper runs the full
-    model's forward on CPU and returns the output tensors directly.
+    Constructs the view dicts internally with fixed shapes so that
+    dynamo can trace through the model without data-dependent control flow.
     """
 
-    def __init__(self, model, height, width):
+    def __init__(self, model):
         super().__init__()
         self.model = model
-        self.height = height
-        self.width = width
 
-    @torch.compiler.disable
     def forward(self, img1, img2):
-        view1 = {
-            "img": img1.float(),
-            "true_shape": torch.tensor(
-                [[self.height, self.width]] * img1.shape[0], device=img1.device
-            ),
-            "instance": torch.arange(img1.shape[0], device=img1.device),
-        }
-        view2 = {
-            "img": img2.float(),
-            "true_shape": torch.tensor(
-                [[self.height, self.width]] * img2.shape[0], device=img2.device
-            ),
-            "instance": torch.arange(img2.shape[0], device=img2.device),
-        }
-        result = self.model(view1, view2)
-        return result
+        B = img1.shape[0]
+        shape = torch.tensor([[IMG_HEIGHT, IMG_WIDTH]]).expand(B, -1)
+        instance = torch.arange(B)
+        view1 = {"img": img1.float(), "true_shape": shape, "instance": instance}
+        view2 = {"img": img2.float(), "true_shape": shape, "instance": instance}
+        return self.model(view1, view2)
 
 
 class ModelVariant(StrEnum):
@@ -160,16 +153,15 @@ class ModelLoader(ForgeModel):
         model = AsymmetricMASt3R.from_pretrained(pretrained_model_name)
         model.eval()
 
-        return MASt3RWrapper(model, height=384, width=512)
+        return MASt3RWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load sample stereo image pair inputs for the MASt3R model."""
         dtype = dtype_override or torch.float32
-        height, width = 384, 512
 
         torch.manual_seed(42)
 
-        img1 = torch.randn(batch_size, 3, height, width, dtype=dtype)
-        img2 = torch.randn(batch_size, 3, height, width, dtype=dtype)
+        img1 = torch.randn(batch_size, 3, IMG_HEIGHT, IMG_WIDTH, dtype=dtype)
+        img2 = torch.randn(batch_size, 3, IMG_HEIGHT, IMG_WIDTH, dtype=dtype)
 
         return [img1, img2]
