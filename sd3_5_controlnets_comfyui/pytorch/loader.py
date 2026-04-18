@@ -38,9 +38,11 @@ _PRETRAINED_REPOS = {
 
 # SD3.5 Large transformer config dimensions
 SAMPLE_SIZE = 128
+PATCH_SIZE = 2
 IN_CHANNELS = 16
-JOINT_ATTENTION_DIM = 4096
-CONDITIONING_CHANNELS = 3
+NUM_ATTENTION_HEADS = 38
+ATTENTION_HEAD_DIM = 64
+POOLED_PROJECTION_DIM = 2048
 
 
 class ModelVariant(StrEnum):
@@ -117,34 +119,23 @@ class ModelLoader(ForgeModel):
         return self._controlnet
 
     def load_inputs(self, **kwargs) -> Any:
-        """Prepare sample inputs for the SD3.5 ControlNet.
-
-        Returns a dict matching SD3ControlNetModel.forward() signature.
-        """
         dtype = kwargs.get("dtype_override", torch.float32)
         batch_size = kwargs.get("batch_size", 1)
 
-        # Latent spatial dimensions (compressed from image)
-        latent_h = SAMPLE_SIZE // 8
-        latent_w = SAMPLE_SIZE // 8
+        num_patches = (SAMPLE_SIZE // PATCH_SIZE) ** 2
+        inner_dim = NUM_ATTENTION_HEADS * ATTENTION_HEAD_DIM
 
-        hidden_states = torch.randn(
-            batch_size, IN_CHANNELS, latent_h, latent_w, dtype=dtype
-        )
-        encoder_hidden_states = torch.randn(
-            batch_size, 154, JOINT_ATTENTION_DIM, dtype=dtype
-        )
-        pooled_projections = torch.randn(batch_size, 2048, dtype=dtype)
-        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        hidden_states = torch.randn(batch_size, num_patches, inner_dim, dtype=dtype)
         controlnet_cond = torch.randn(
-            batch_size, CONDITIONING_CHANNELS, SAMPLE_SIZE, SAMPLE_SIZE, dtype=dtype
+            batch_size, IN_CHANNELS, SAMPLE_SIZE, SAMPLE_SIZE, dtype=dtype
         )
+        pooled_projections = torch.randn(batch_size, POOLED_PROJECTION_DIM, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
 
         return {
             "hidden_states": hidden_states,
             "controlnet_cond": controlnet_cond,
             "conditioning_scale": 1.0,
-            "encoder_hidden_states": encoder_hidden_states,
             "pooled_projections": pooled_projections,
             "timestep": timestep,
         }
