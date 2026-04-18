@@ -97,6 +97,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        else:
+            model_kwargs["torch_dtype"] = torch.bfloat16
         model_kwargs |= kwargs
 
         self.model = WhisperForConditionalGeneration.from_pretrained(
