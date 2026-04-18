@@ -194,6 +194,7 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name,
         )
 
+        model = model.float()
         model.eval()
         if dtype_override is not None:
             model.to(dtype_override)
