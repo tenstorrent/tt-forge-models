@@ -5,7 +5,7 @@
 Jina Reranker v2 model loader implementation for passage ranking.
 """
 import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
 from typing import Optional
 
 import transformers.models.xlm_roberta.modeling_xlm_roberta as _xlm_roberta_module
@@ -91,7 +91,15 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False, "trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+
+        model_kwargs = {
+            "return_dict": False,
+            "trust_remote_code": True,
+            "config": config,
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
