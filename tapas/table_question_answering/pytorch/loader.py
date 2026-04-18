@@ -62,7 +62,7 @@ class ModelLoader(ForgeModel):
                 "Assists": ["303", "220", "240", "100"],
                 "Team": ["Inter Miami", "Al Nassr", "Al Hilal", "PSG"],
             }
-        )
+        ).astype(object)
         self.question = "How many goals did Cristiano Ronaldo score?"
 
     @classmethod
