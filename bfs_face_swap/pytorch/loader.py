@@ -17,7 +17,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import QwenImageEditPipeline
-from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -74,6 +73,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipeline: Optional[QwenImageEditPipeline] = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -94,10 +94,10 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Qwen-Image-Edit pipeline with BFS LoRA weights applied.
+        """Load the Qwen-Image-Edit transformer with BFS LoRA weights fused.
 
         Returns:
-            QwenImageEditPipeline with LoRA weights loaded.
+            QwenImageTransformer2DModel with LoRA weights merged.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -110,29 +110,36 @@ class ModelLoader(ForgeModel):
             LORA_REPO,
             weight_name=_LORA_FILES[self._variant],
         )
+        self.pipeline.fuse_lora()
 
-        return self.pipeline
+        self._transformer = self.pipeline.transformer
+        self._transformer.eval()
+        return self._transformer
 
     def load_inputs(self, **kwargs) -> Any:
-        """Prepare sample inputs for face swap inference.
+        """Prepare sample inputs for the diffusion transformer."""
+        dtype = kwargs.get("dtype_override", torch.float32)
+        batch_size = kwargs.get("batch_size", 1)
 
-        Returns:
-            dict with prompt, image, and control_image keys.
-        """
-        # Body/target image and face/source image (placeholders)
-        body_image = Image.new("RGB", (512, 512), color=(200, 180, 160))
-        face_image = Image.new("RGB", (512, 512), color=(160, 140, 120))
+        img_dim = 64
+        text_dim = 3584
+        txt_seq_len = 32
 
-        prompt = (
-            "head_swap: start with Picture 1 as the base image, keeping its "
-            "lighting, environment, and background. Remove the head from "
-            "Picture 1 completely and replace it with the head from Picture 2, "
-            "strictly preserving the hair, eye color, and nose structure of "
-            "Picture 2. High quality, sharp details, 4k"
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
         )
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_shapes = [(frame, height, width)] * batch_size
 
         return {
-            "prompt": prompt,
-            "image": body_image,
-            "control_image": face_image,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
         }
