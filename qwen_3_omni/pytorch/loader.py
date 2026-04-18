@@ -61,6 +61,7 @@ class ModelLoader(ForgeModel):
         """Initialize ModelLoader with specified variant."""
         super().__init__(variant)
         self.processor = None
+        self._cached_thinker = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -103,6 +104,11 @@ class ModelLoader(ForgeModel):
         thinker = model.thinker
         thinker.config.use_cache = False
         thinker.eval()
+        # Cache the thinker for use in load_inputs, where we precompute visual
+        # features on CPU and feed the Wrapper inputs_embeds directly. This
+        # avoids torch.compile graph breaks from data-dependent ops (`.tolist()`
+        # on `image_grid_thw`) inside the visual encoder.
+        self._cached_thinker = thinker
         model = Wrapper(thinker)
 
         return model
@@ -131,4 +137,29 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
-        return inputs
+        thinker = self._cached_thinker
+        assert (
+            thinker is not None
+        ), "load_model must be called before load_inputs to cache the thinker"
+
+        with torch.no_grad():
+            image_outputs = thinker.visual(
+                inputs["pixel_values"],
+                grid_thw=inputs["image_grid_thw"],
+            )
+            image_embeds = image_outputs.pooler_output
+            inputs_embeds = thinker.get_input_embeddings()(inputs["input_ids"])
+            image_embeds = image_embeds.to(
+                inputs_embeds.device, inputs_embeds.dtype
+            )
+            image_mask = (
+                (inputs["input_ids"] == thinker.config.image_token_id)
+                .unsqueeze(-1)
+                .expand_as(inputs_embeds)
+            )
+            inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+        return {
+            "attention_mask": inputs["attention_mask"],
+            "inputs_embeds": inputs_embeds,
+        }

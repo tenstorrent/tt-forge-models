@@ -14,11 +14,9 @@ class Wrapper(torch.nn.Module):
         super().__init__()
         self.model = model
 
-    def forward(self, input_ids, attention_mask, pixel_values, image_grid_thw):
+    def forward(self, attention_mask, inputs_embeds):
         outputs = self.model(
-            input_ids=input_ids,
             attention_mask=attention_mask,
-            pixel_values=pixel_values,
-            image_grid_thw=image_grid_thw,
+            inputs_embeds=inputs_embeds,
         )
         return outputs.logits
