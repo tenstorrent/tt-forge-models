@@ -49,16 +49,7 @@ def load_t2i_adapter_sketch_sd15v2_pipe(adapter_model_name, base_model_name):
 
 
 def create_sketch_conditioning_image(height=512, width=512):
-    """Create a dummy sketch conditioning image.
-
-    Args:
-        height: Image height
-        width: Image width
-
-    Returns:
-        PIL.Image: A dummy conditioning image
-    """
-    return Image.new("RGB", (width, height), color=(255, 255, 255))
+    return Image.new("L", (width, height), color=255)
 
 
 def t2i_adapter_sketch_sd15v2_preprocessing(
