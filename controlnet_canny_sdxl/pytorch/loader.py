@@ -77,22 +77,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, self.base_model
         )
 
-        if dtype_override is not None:
-            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
+        self.pipeline.to("cpu", dtype=torch.float32)
 
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the UNet model.
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-
         Returns:
             dict: Keyword arguments for the UNet forward method.
         """
         if self.pipeline is None:
-            self.load_model(dtype_override=dtype_override)
+            self.load_model()
 
         control_image = create_canny_conditioning_image()
 
@@ -107,16 +103,9 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, control_image
         )
 
-        timestep = timesteps[0]
-
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timestep = timestep.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
-
         return {
             "sample": latent_model_input,
-            "timestep": timestep,
+            "timestep": timesteps[0],
             "encoder_hidden_states": prompt_embeds,
             "added_cond_kwargs": added_cond_kwargs,
             "down_block_additional_residuals": down_block_additional_residuals,
