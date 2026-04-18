@@ -111,4 +111,4 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        return inputs
+        return {"input_values": inputs["input_values"]}
