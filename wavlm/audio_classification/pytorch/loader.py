@@ -170,7 +170,7 @@ class ModelLoader(ForgeModel):
                     nn.Linear(hidden_dim, output_class_num),
                 )
 
-            def forward(self, input_values):
+            def forward(self, input_values, attention_mask=None):
                 outputs = self.backbone_model(input_values, output_hidden_states=True)
                 hidden_states = torch.stack(outputs.hidden_states, dim=0)
 
