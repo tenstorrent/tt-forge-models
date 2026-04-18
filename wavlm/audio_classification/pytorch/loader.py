@@ -178,7 +178,7 @@ class ModelLoader(ForgeModel):
                 weighted = (hidden_states * norm_weights.view(-1, 1, 1, 1)).sum(dim=0)
 
                 # Conv1d expects (batch, channels, time)
-                features = weighted.transpose(1, 2)
+                features = weighted.to(self.model_seq[0].weight.dtype).transpose(1, 2)
                 features = self.model_seq(features)
                 features = features.mean(dim=2)
 
