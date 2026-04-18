@@ -10,6 +10,17 @@ from PIL import Image
 from transformers import AutoModelForCausalLM, AutoProcessor
 from typing import Optional
 
+import transformers.processing_utils as _pu
+
+if not hasattr(_pu, "_validate_images_text_input_order"):
+
+    def _validate_images_text_input_order(images, text):
+        if images is not None and not isinstance(images, str):
+            return images, text
+        return images, text
+
+    _pu._validate_images_text_input_order = _validate_images_text_input_order
+
 from ...tools.utils import get_file
 from ...base import ForgeModel
 from ...config import (
@@ -71,14 +82,16 @@ class ModelLoader(ForgeModel):
             "trust_remote_code": True,
             "attn_implementation": "eager",
         }
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
 
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
         model.eval()
 
         return model
