@@ -110,6 +110,7 @@ class ModelLoader(ForgeModel):
             weight_name=_LORA_FILES[self._variant],
         )
         pipe.fuse_lora()
+        pipe.unload_lora_weights()
 
         self._transformer = pipe.transformer
         self._transformer = self._transformer.to(dtype=dtype)
