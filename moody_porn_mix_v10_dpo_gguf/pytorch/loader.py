@@ -96,31 +96,29 @@ class ModelLoader(ForgeModel):
         if self._transformer is None:
             self.load_model(dtype_override=dtype)
 
-        batch_size = 1
         config = self._transformer.config
 
         latent_height = 2
         latent_width = 2
 
-        hidden_states = torch.randn(
-            batch_size,
-            config.in_channels,
-            1,
-            latent_height,
-            latent_width,
-            dtype=dtype,
-        )
+        x = [
+            torch.randn(
+                config.in_channels,
+                1,
+                latent_height,
+                latent_width,
+                dtype=dtype,
+            )
+        ]
 
-        encoder_hidden_states = torch.randn(
-            batch_size, 8, config.cap_feat_dim, dtype=dtype
-        )
+        cap_feats = [torch.randn(8, config.cap_feat_dim, dtype=dtype)]
 
-        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+        t = torch.tensor([0.5], dtype=dtype)
 
         return {
-            "hidden_states": hidden_states,
-            "encoder_hidden_states": encoder_hidden_states,
-            "timestep": timestep,
+            "x": x,
+            "t": t,
+            "cap_feats": cap_feats,
             "return_dict": False,
         }
 
