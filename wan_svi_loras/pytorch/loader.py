@@ -30,9 +30,9 @@ from ...config import (
 )
 
 _TRANSFORMER_IN_CHANNELS = 36
+_NUM_FRAMES = 2
 _LATENT_HEIGHT = 4
 _LATENT_WIDTH = 4
-_LATENT_DEPTH = 2
 _TEXT_HIDDEN_DIM = 4096
 _TEXT_SEQ_LEN = 8
 
@@ -125,10 +125,14 @@ class ModelLoader(ForgeModel):
         """
         dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = 1
-        seq_len = _LATENT_DEPTH * _LATENT_HEIGHT * _LATENT_WIDTH
 
         hidden_states = torch.randn(
-            batch_size, seq_len, _TRANSFORMER_IN_CHANNELS, dtype=dtype
+            batch_size,
+            _TRANSFORMER_IN_CHANNELS,
+            _NUM_FRAMES,
+            _LATENT_HEIGHT,
+            _LATENT_WIDTH,
+            dtype=dtype,
         )
         encoder_hidden_states = torch.randn(
             batch_size, _TEXT_SEQ_LEN, _TEXT_HIDDEN_DIM, dtype=dtype
