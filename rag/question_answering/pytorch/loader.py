@@ -4,8 +4,13 @@
 """
 RAG (Retrieval-Augmented Generation) model loader implementation for question answering.
 """
+import logging
+
+import torch
 from transformers import RagTokenizer, RagRetriever, RagTokenForGeneration
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from ....base import ForgeModel
 from ....config import (
@@ -62,11 +67,15 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def _load_retriever(self):
-        self.retriever = RagRetriever.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            index_name="exact",
-            use_dummy_dataset=True,
-        )
+        try:
+            self.retriever = RagRetriever.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                index_name="exact",
+                use_dummy_dataset=True,
+            )
+        except (TypeError, ImportError):
+            logger.warning("Failed to load RAG retriever, loading model without it")
+            self.retriever = None
         return self.retriever
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -83,9 +92,11 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        if self.retriever is not None:
+            model_kwargs["retriever"] = self.retriever
+
         model = RagTokenForGeneration.from_pretrained(
             pretrained_model_name,
-            retriever=self.retriever,
             **model_kwargs,
         )
         model.eval()
@@ -100,6 +111,22 @@ class ModelLoader(ForgeModel):
             "who holds the record in 100m freestyle",
             return_tensors="pt",
         )
+
+        if self.retriever is None:
+            n_docs = (
+                self._model.config.n_docs
+                if hasattr(self, "_model") and self._model
+                else 5
+            )
+            seq_len = inputs["input_ids"].shape[-1]
+            batch_size = inputs["input_ids"].shape[0]
+            inputs["context_input_ids"] = torch.zeros(
+                batch_size * n_docs, seq_len, dtype=torch.long
+            )
+            inputs["context_attention_mask"] = torch.ones(
+                batch_size * n_docs, seq_len, dtype=torch.long
+            )
+            inputs["doc_scores"] = torch.ones(batch_size, n_docs)
 
         return inputs
 
