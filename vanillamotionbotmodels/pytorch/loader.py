@@ -83,6 +83,8 @@ class ModelLoader(ForgeModel):
 
         self.transformer = WanTransformer3DModel.from_single_file(
             model_path,
+            config=BASE_PIPELINE,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
             low_cpu_mem_usage=False,
