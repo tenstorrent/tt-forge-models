@@ -4,8 +4,13 @@
 """
 FLUX.2 Klein GGUF model loader implementation for text-to-image generation
 """
+
+import os
+
 import torch
 from diffusers.models import Flux2Transformer2DModel
+from diffusers.quantizers.quantization_config import GGUFQuantizationConfig
+from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -59,17 +64,25 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"gguf_file": self.GGUF_FILE}
+        config_dir = os.path.join(os.path.dirname(__file__), "config", "transformer")
+        gguf_path = hf_hub_download(
+            self._variant_config.pretrained_model_name,
+            filename=self.GGUF_FILE,
+        )
+
+        load_kwargs = {
+            "config": config_dir,
+            "quantization_config": GGUFQuantizationConfig(
+                compute_dtype=dtype_override or torch.bfloat16
+            ),
+        }
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
-        self.transformer = Flux2Transformer2DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
+        self.transformer = Flux2Transformer2DModel.from_single_file(
+            gguf_path,
             **load_kwargs,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
@@ -125,16 +138,12 @@ class ModelLoader(ForgeModel):
         text_ids = torch.cartesian_prod(t, h, w, l)
         text_ids = text_ids.unsqueeze(0).expand(batch_size, -1, -1).to(dtype=dtype)
 
-        # Guidance
-        guidance = torch.full([batch_size], self.guidance_scale, dtype=dtype)
-
         # Timestep
         timestep = torch.tensor([1.0 / 1000], dtype=dtype).expand(batch_size)
 
         inputs = {
             "hidden_states": latents,
             "timestep": timestep,
-            "guidance": guidance,
             "encoder_hidden_states": prompt_embeds,
             "txt_ids": text_ids,
             "img_ids": latent_ids,
