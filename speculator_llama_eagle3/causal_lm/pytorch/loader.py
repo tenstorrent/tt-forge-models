@@ -7,7 +7,8 @@ SpeculatorLlama Eagle3 model loader implementation for causal language modeling.
 import torch
 from typing import Optional
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from speculators import SpeculatorModel
+from transformers import AutoTokenizer
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -86,8 +87,10 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+        model = SpeculatorModel.from_pretrained(
+            pretrained_model_name,
+            verifier_attachment_mode="detached",
+            **model_kwargs,
         )
         model.eval()
         return model
