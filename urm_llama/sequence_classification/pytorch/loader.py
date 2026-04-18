@@ -79,6 +79,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForSequenceClassification.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
+        model.float()
         model.eval()
 
         model.config.pad_token_id = self.tokenizer.pad_token_id
