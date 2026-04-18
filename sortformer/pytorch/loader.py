@@ -88,6 +88,6 @@ class ModelLoader(ForgeModel):
             input_signal = input_signal.to(dtype_override)
 
         return {
-            "input_signal": input_signal,
-            "input_signal_length": input_signal_length,
+            "audio_signal": input_signal,
+            "audio_signal_length": input_signal_length,
         }
