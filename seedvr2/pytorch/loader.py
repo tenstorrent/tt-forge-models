@@ -73,6 +73,24 @@ def _ensure_seedvr_importable():
         sys.modules["flash_attn"] = flash_attn_mod
 
 
+class NaDiTWrapper(torch.nn.Module):
+    """Wraps NaDiT to keep vid_shape/txt_shape on CPU.
+
+    NaDiT uses .tolist() on shape tensors for data-dependent control flow,
+    which fails when those tensors are on XLA device. This wrapper hardcodes
+    them as CPU tensors so only vid, txt, and timestep are traced.
+    """
+
+    def __init__(self, model, vid_shape, txt_shape):
+        super().__init__()
+        self.model = model
+        self._vid_shape = vid_shape
+        self._txt_shape = txt_shape
+
+    def forward(self, vid, txt, timestep):
+        return self.model(vid, txt, self._vid_shape, self._txt_shape, timestep)
+
+
 class ModelVariant(StrEnum):
     """Available SeedVR2 model variants."""
 
@@ -165,31 +183,22 @@ class ModelLoader(ForgeModel):
             model = model.to(dtype=dtype_override)
 
         model.eval()
-        return model
+
+        vid_shape = torch.tensor([[LATENT_T, LATENT_H, LATENT_W]], dtype=torch.long)
+        txt_shape = torch.tensor([[TXT_SEQ_LEN]], dtype=torch.long)
+        return NaDiTWrapper(model, vid_shape, txt_shape)
 
     def load_inputs(self, dtype_override=None):
-        """Create synthetic inputs matching the NaDiT forward signature.
+        """Create synthetic inputs for the wrapped NaDiT model.
 
-        NaDiT uses packed-sequence format:
-        - vid: (total_tokens, channels) flattened spatiotemporal tokens
-        - txt: (txt_tokens, txt_dim) text embeddings
-        - vid_shape: (batch, 3) with [T, H, W] per video
-        - txt_shape: (batch, 1) with text length per item
-        - timestep: (batch,) diffusion timestep
+        Returns vid, txt, and timestep tensors. The vid_shape and txt_shape
+        are hardcoded in the NaDiTWrapper to stay on CPU.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
         total_vid_tokens = LATENT_T * LATENT_H * LATENT_W
         vid = torch.randn(total_vid_tokens, VID_IN_CHANNELS, dtype=dtype)
         txt = torch.randn(TXT_SEQ_LEN, TXT_IN_DIM, dtype=dtype)
-        vid_shape = torch.tensor([[LATENT_T, LATENT_H, LATENT_W]], dtype=torch.long)
-        txt_shape = torch.tensor([[TXT_SEQ_LEN]], dtype=torch.long)
         timestep = torch.tensor([1.0], dtype=dtype)
 
-        return {
-            "vid": vid,
-            "txt": txt,
-            "vid_shape": vid_shape,
-            "txt_shape": txt_shape,
-            "timestep": timestep,
-        }
+        return {"vid": vid, "txt": txt, "timestep": timestep}
