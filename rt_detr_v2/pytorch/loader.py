@@ -72,19 +72,14 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_torch_compilable_check():
-        import transformers.utils.import_utils as import_utils_module
-        import transformers.utils as utils_module
-        import transformers.models.rt_detr_v2.modeling_rt_detr_v2 as rt_detr_v2_module
+        import transformers.models.rt_detr_v2.modeling_rt_detr_v2 as mod
 
-        def _noop_check(cond, msg="", error_type=ValueError):
-            pass
-
-        import_utils_module.torch_compilable_check = _noop_check
-        utils_module.torch_compilable_check = _noop_check
-        rt_detr_v2_module.torch_compilable_check = _noop_check
+        mod.torch_compilable_check = lambda *args, **kwargs: None
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        self._patch_torch_compilable_check()
 
         if self.processor is None:
             self._load_processor()
@@ -93,8 +88,6 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-
-        self._patch_torch_compilable_check()
 
         model = RTDetrV2ForObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
