@@ -10,6 +10,12 @@ from typing import Optional
 from dataclasses import dataclass
 
 from transformers import AutoModelForCausalLM
+from transformers import DynamicCache
+
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+    )
 
 from ...config import (
     ModelConfig,
