@@ -63,7 +63,10 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from .src.model_utils import apply_patches
         from colpali_engine.models import ColQwen3_5
+
+        apply_patches()
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
