@@ -33,8 +33,8 @@ from ...config import (
 REPO_ID = "Comfy-Org/Qwen-Image-InstantX-ControlNets"
 
 _CONTROLNET_FILES = {
-    "inpainting": "Qwen-Image-InstantX-ControlNet-Inpainting.safetensors",
-    "union": "Qwen-Image-InstantX-ControlNet-Union.safetensors",
+    "inpainting": "split_files/controlnet/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors",
+    "union": "split_files/controlnet/Qwen-Image-InstantX-ControlNet-Union.safetensors",
 }
 
 # Union ControlNet supports 7 modes: canny(0), tile(1), depth(2), blur(3), pose(4), gray(5), low-quality(6)
