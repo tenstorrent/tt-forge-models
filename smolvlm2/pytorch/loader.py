@@ -20,7 +20,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import get_file
+from ...tools.utils import cast_input_to_type, get_file
 
 
 class ModelVariant(StrEnum):
@@ -43,6 +43,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+        self._model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -73,11 +74,60 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForImageTextToText.from_pretrained(model_name, **model_kwargs)
         model.eval()
+        self._model = model
 
         if self.processor is None:
             self._load_processor()
 
         return model
+
+    def _precompute_merged_embeds(self, input_ids, pixel_values, pixel_attention_mask):
+        """Pre-compute inputs_embeds with image features merged in on CPU.
+
+        This avoids dynamo graph breaks from data-dependent indexing in
+        get_image_features and bf16 precision issues in inputs_merger
+        when running on TT/XLA devices."""
+        inner = self._model.model
+
+        with torch.no_grad():
+            inputs_embeds = inner.text_model.get_input_embeddings()(input_ids)
+
+            batch_size, num_images, num_channels, height, width = pixel_values.shape
+            pv = pixel_values.to(dtype=inner.dtype)
+            pv = pv.view(batch_size * num_images, *pixel_values.shape[2:])
+
+            if pixel_attention_mask is not None:
+                pam = pixel_attention_mask.view(
+                    batch_size * num_images, *pixel_attention_mask.shape[2:]
+                )
+            else:
+                pam = torch.ones(
+                    size=[pv.shape[i] for i in (0, 2, 3)],
+                    dtype=torch.bool,
+                    device=pv.device,
+                )
+
+            patch_size = inner.config.vision_config.patch_size
+            patches_subgrid = pam.unfold(dimension=1, size=patch_size, step=patch_size)
+            patches_subgrid = patches_subgrid.unfold(
+                dimension=2, size=patch_size, step=patch_size
+            )
+            patch_attention_mask = (patches_subgrid.sum(dim=(-1, -2)) > 0).bool()
+
+            image_outputs = inner.vision_model(
+                pixel_values=pv,
+                patch_attention_mask=patch_attention_mask,
+                return_dict=True,
+            )
+            image_hidden_states = inner.connector(image_outputs.last_hidden_state)
+
+            inputs_embeds = inner.inputs_merger(
+                input_ids=input_ids,
+                inputs_embeds=inputs_embeds,
+                image_hidden_states=image_hidden_states,
+            )
+
+        return inputs_embeds
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
@@ -109,19 +159,30 @@ class ModelLoader(ForgeModel):
             text=prompt,
             images=[image],
             return_tensors="pt",
+            do_image_splitting=False,
         )
 
+        inputs_embeds = self._precompute_merged_embeds(
+            inputs["input_ids"],
+            inputs["pixel_values"],
+            inputs.get("pixel_attention_mask"),
+        )
+        attention_mask = inputs["attention_mask"]
+
+        if dtype_override:
+            inputs_embeds = cast_input_to_type(inputs_embeds, dtype_override)
+
+        result = {
+            "inputs_embeds": inputs_embeds,
+            "attention_mask": attention_mask,
+        }
+
         if batch_size > 1:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]):
-                    inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+            for key in result:
+                if torch.is_tensor(result[key]):
+                    result[key] = result[key].repeat_interleave(batch_size, dim=0)
 
-        if dtype_override is not None:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]) and inputs[key].dtype == torch.float32:
-                    inputs[key] = inputs[key].to(dtype_override)
-
-        return inputs
+        return result
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
