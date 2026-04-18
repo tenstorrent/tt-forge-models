@@ -56,26 +56,54 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_torchaudio_compat():
+        import sys
+        import types
+
+        import torchaudio
+
+        if not hasattr(torchaudio, "set_audio_backend"):
+            torchaudio.set_audio_backend = lambda x: None
+
+        # s3prl expects torchaudio.sox_effects which was removed in torchaudio 2.1+
+        if "torchaudio.sox_effects" not in sys.modules:
+            stub = types.ModuleType("torchaudio.sox_effects")
+            stub.apply_effects_tensor = lambda *a, **kw: None
+            sys.modules["torchaudio.sox_effects"] = stub
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load the ESPnet ECAPA-TDNN WavLM joint speaker embedding model."""
+        self._patch_torchaudio_compat()
+
         from espnet2.bin.spk_inference import Speech2Embedding
 
         speech2embed = Speech2Embedding.from_pretrained(
             model_tag=self._variant_config.pretrained_model_name, **kwargs
         )
-        # The underlying model's forward() requires extract_embd=True for
-        # inference to return embeddings instead of computing training loss.
         spk_model = speech2embed.spk_model
 
-        class EmbeddingWrapper(torch.nn.Module):
-            def __init__(self, model):
+        # The s3prl/WavLM frontend uses list comprehensions and
+        # data-dependent shapes that are incompatible with torch.compile.
+        # Extract the downstream components (normalize, encoder, pooling,
+        # projector) into a compile-friendly wrapper that takes
+        # pre-extracted frontend features as input.
+        class PostFrontendWrapper(torch.nn.Module):
+            def __init__(self, spk):
                 super().__init__()
-                self.model = model
+                self.normalize = spk.normalize
+                self.encoder = spk.encoder
+                self.pooling = spk.pooling
+                self.projector = spk.projector
 
-            def forward(self, speech):
-                return self.model(speech=speech, extract_embd=True)
+            def forward(self, feats):
+                feats, _ = self.normalize(feats, None)
+                frame_feats = self.encoder(feats)
+                utt_feat = self.pooling(frame_feats, feat_lengths=None)
+                embd = self.projector(utt_feat)
+                return embd
 
-        model = EmbeddingWrapper(spk_model)
+        model = PostFrontendWrapper(spk_model)
         model.eval()
 
         if dtype_override is not None:
@@ -85,15 +113,14 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Generate sample audio input for the ECAPA-TDNN WavLM model.
+        """Generate sample frontend features for the ECAPA-TDNN encoder.
 
-        Returns a raw waveform tensor representing 1 second of 16kHz audio.
+        Returns a tensor matching the WavLM frontend output shape
+        for 1 second of 16kHz audio: (batch, 50 frames, 1024 features).
         """
-        # The ESPnet speaker model expects raw waveform input
-        # Shape: (batch, samples) - 1 second of 16kHz audio
-        waveform = torch.randn(1, 16000)
+        feats = torch.randn(1, 50, 1024)
 
         if dtype_override is not None:
-            waveform = waveform.to(dtype_override)
+            feats = feats.to(dtype_override)
 
-        return [waveform]
+        return [feats]
