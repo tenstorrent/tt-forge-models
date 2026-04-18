@@ -5,6 +5,8 @@
 CBraMod pre-trained EEG foundation model loader implementation.
 """
 
+import math
+
 import torch
 from typing import Optional
 
@@ -18,6 +20,69 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+
+
+def _build_dft_matrices(n):
+    """Build cos/sin DFT matrices for rfft with norm='forward'."""
+    k = torch.arange(n // 2 + 1).unsqueeze(0).float()
+    t = torch.arange(n).unsqueeze(1).float()
+    angle = 2.0 * math.pi * t * k / n
+    cos_mat = torch.cos(angle) / n
+    sin_mat = torch.sin(angle) / n
+    return cos_mat, sin_mat
+
+
+def _patch_embedding_forward_no_fft(self, x, mask=None):
+    """Replacement forward for _PatchEmbedding that avoids torch.fft.rfft."""
+    from einops import rearrange
+
+    bz, ch_num, patch_num, patch_size = x.shape
+    if mask is None:
+        mask_x = x
+    else:
+        mask_x = x.clone()
+        mask_x[mask == 1] = self.mask_encoding
+
+    mask_x = rearrange(mask_x, "b c n p -> b 1 (c n) p")
+    patch_emb = self.proj_in(mask_x)
+    patch_emb = rearrange(patch_emb, "b d (c n) p2 -> b c n (d p2)", c=ch_num)
+
+    mask_x = rearrange(mask_x, "b 1 (c n) p -> (b c n) p", c=ch_num)
+    real_part = mask_x @ self._dft_cos.to(mask_x.device, mask_x.dtype)
+    imag_part = mask_x @ self._dft_sin.to(mask_x.device, mask_x.dtype)
+    spectral = torch.sqrt(real_part * real_part + imag_part * imag_part)
+    spectral = rearrange(
+        spectral,
+        "(b c n) p -> b c n p",
+        b=bz,
+        c=ch_num,
+        p=patch_size // 2 + 1,
+    )
+    spectral_emb = self.spectral_proj(spectral)
+
+    patch_emb = patch_emb + spectral_emb
+
+    positional_embedding = self.positional_encoding(
+        rearrange(patch_emb, "b c n p -> b p c n", p=self.d_model)
+    )
+    positional_embedding = rearrange(positional_embedding, "b p c n -> b c n p")
+
+    patch_emb = patch_emb + positional_embedding
+
+    return patch_emb
+
+
+def _replace_fft_with_matmul(model):
+    """Replace FFT in PatchEmbedding with DFT matrix multiplication."""
+    patch_emb = model.patch_embedding
+    patch_size = patch_emb.patch_size
+    cos_mat, sin_mat = _build_dft_matrices(patch_size)
+    patch_emb.register_buffer("_dft_cos", cos_mat)
+    patch_emb.register_buffer("_dft_sin", sin_mat)
+    import types
+
+    patch_emb.forward = types.MethodType(_patch_embedding_forward_no_fft, patch_emb)
+    return model
 
 
 class ModelVariant(StrEnum):
@@ -60,11 +125,6 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the CBraMod pre-trained encoder.
-
-        Returns:
-            torch.nn.Module: CBraMod model instance configured for encoder output.
-        """
         from braindecode.models import CBraMod
 
         model = CBraMod.from_pretrained(
@@ -72,29 +132,22 @@ class ModelLoader(ForgeModel):
             return_encoder_output=True,
         )
 
+        _replace_fft_with_matmul(model)
+
         model.eval()
 
-        # torch.fft.rfft in patch_embedding does not support bfloat16
         if dtype_override is not None and dtype_override != torch.bfloat16:
             model = model.to(dtype_override)
 
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Load sample EEG inputs for the CBraMod model.
-
-        Returns:
-            torch.Tensor: Synthetic EEG tensor of shape (batch, n_channels, n_times).
-        """
-        # torch.fft.rfft in patch_embedding does not support bfloat16
         if dtype_override == torch.bfloat16:
             dtype_override = None
         dtype = dtype_override or torch.float32
 
         torch.manual_seed(42)
 
-        # 16 EEG channels, 2000 time steps (10 seconds at 200 Hz)
-        # n_times must be divisible by patch_size (200)
         n_channels = 16
         n_times = 2000
         inputs = torch.randn(1, n_channels, n_times, dtype=dtype)
