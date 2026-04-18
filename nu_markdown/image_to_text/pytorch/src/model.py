@@ -3,11 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import torch
+import torch._dynamo
 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
     Qwen2_5_VisionTransformerPretrainedModel,
 )
 
-Qwen2_5_VisionTransformerPretrainedModel.forward = torch.compiler.disable(
+Qwen2_5_VisionTransformerPretrainedModel.forward = torch._dynamo.disable(
     Qwen2_5_VisionTransformerPretrainedModel.forward
 )
 
