@@ -24,6 +24,25 @@ from ....config import (
 from ....base import ForgeModel
 
 
+class CodeGeeX4Wrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, input_ids, attention_mask, full_attention_mask, position_ids):
+        outputs = self.model.transformer(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            full_attention_mask=full_attention_mask,
+            position_ids=position_ids,
+            use_cache=False,
+            return_dict=False,
+        )
+        hidden_states = outputs[0]
+        lm_logits = self.model.transformer.output_layer(hidden_states)
+        return lm_logits
+
+
 class ModelVariant(StrEnum):
     """Available CodeGeeX4 model variants."""
 
@@ -148,7 +167,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
         model.eval()
-        return model
+        return CodeGeeX4Wrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the CodeGeeX4 model with this instance's variant settings.
@@ -173,15 +192,27 @@ class ModelLoader(ForgeModel):
             max_length=max_length,
             truncation=True,
         )
-        inputs = {
-            "input_ids": tokenized_inputs.input_ids,
-            "attention_mask": tokenized_inputs.attention_mask,
+        input_ids = tokenized_inputs.input_ids.repeat_interleave(batch_size, dim=0)
+        attention_mask = tokenized_inputs.attention_mask.repeat_interleave(
+            batch_size, dim=0
+        )
+
+        bs, seq_len = input_ids.shape
+        full_attention_mask = torch.ones(bs, seq_len, seq_len)
+        full_attention_mask.tril_()
+        full_attention_mask = full_attention_mask * attention_mask.unsqueeze(1).float()
+        full_attention_mask = (full_attention_mask < 0.5).bool().unsqueeze(1)
+
+        position_ids = (
+            torch.arange(seq_len, dtype=torch.long).unsqueeze(0).expand(bs, -1)
+        )
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "full_attention_mask": full_attention_mask,
+            "position_ids": position_ids,
         }
-
-        for key in inputs:
-            inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
-        return inputs
 
     def decode_output(self, outputs, dtype_override=None, inputs=None):
         """Helper method to decode model outputs into human-readable text.
