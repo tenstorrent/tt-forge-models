@@ -4,6 +4,11 @@
 """
 IQuest Coder model loader implementation for causal language modeling.
 """
+import transformers.utils.generic as _tug
+
+if not hasattr(_tug, "check_model_inputs"):
+    _tug.check_model_inputs = lambda fn: fn
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
