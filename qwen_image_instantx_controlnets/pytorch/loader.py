@@ -97,7 +97,7 @@ class ModelLoader(ForgeModel):
         return self._controlnet
 
     def load_inputs(self, **kwargs) -> Any:
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = kwargs.get("dtype_override", self._controlnet.dtype)
         batch_size = kwargs.get("batch_size", 1)
 
         in_channels = self._controlnet.config["in_channels"]
