@@ -9,6 +9,31 @@ import transformers.utils.generic as _tug
 if not hasattr(_tug, "check_model_inputs"):
     _tug.check_model_inputs = lambda fn: fn
 
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS as _rope_fns
+
+if "default" not in _rope_fns:
+
+    def _default_rope(config=None, device=None, seq_len=None, **kwargs):
+        import torch as _torch
+
+        base = config.rope_theta
+        head_dim = getattr(config, "head_dim", None) or (
+            config.hidden_size // config.num_attention_heads
+        )
+        dim = int(head_dim * getattr(config, "partial_rotary_factor", 1.0))
+        inv_freq = 1.0 / (
+            base
+            ** (
+                _torch.arange(0, dim, 2, dtype=_torch.int64).to(
+                    device=device, dtype=_torch.float
+                )
+                / dim
+            )
+        )
+        return inv_freq, 1.0
+
+    _rope_fns["default"] = _default_rope
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
