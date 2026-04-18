@@ -66,15 +66,15 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        # NeMo Sortformer has internal audio preprocessing that produces
+        # float32 tensors, causing mixed-dtype errors with layer_norm
+        # when the encoder weights are cast to bfloat16.
 
         return model
 
     def load_inputs(self, dtype_override=None):
         import numpy as np
 
-        # Generate a synthetic 1-second mono audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
@@ -83,9 +83,6 @@ class ModelLoader(ForgeModel):
 
         input_signal = torch.tensor(audio_array).unsqueeze(0)
         input_signal_length = torch.tensor([len(audio_array)])
-
-        if dtype_override is not None:
-            input_signal = input_signal.to(dtype_override)
 
         return {
             "audio_signal": input_signal,
