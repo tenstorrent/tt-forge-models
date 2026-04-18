@@ -9,7 +9,6 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-from PIL import Image
 from transformers import AutoModel, AutoTokenizer
 from transformers.integrations.tensor_parallel import ALL_PARALLEL_STYLES
 
@@ -23,15 +22,12 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import get_file
 
-# Fix parallel styles issue for torch 2.7.0+ compatibility
 if ALL_PARALLEL_STYLES is None:
     import transformers.modeling_utils as mu
 
     mu.ALL_PARALLEL_STYLES = ["rowwise", "colwise", "headwise"]
 
-# Monkey patch Resampler for compatibility - Fixes: Resampler doesn't have _initialize_weights method in torch 2.7.0
 original_getattr = nn.Module.__getattr__
 
 
@@ -47,6 +43,19 @@ def patched_getattr(self, name):
 
 
 nn.Module.__getattr__ = patched_getattr
+
+
+class MiniCPMVLLMWrapper(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.llm = model.llm
+
+    def forward(self, inputs_embeds, position_ids):
+        return self.llm(
+            input_ids=None,
+            position_ids=position_ids,
+            inputs_embeds=inputs_embeds,
+        )
 
 
 class ModelVariant(StrEnum):
@@ -85,7 +94,6 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, **kwargs):
-        """Load and return the MiniCPM-V 2.6 model instance."""
         config = self._variant_config
 
         self.model = AutoModel.from_pretrained(
@@ -97,23 +105,28 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             config.pretrained_model_name, trust_remote_code=True
         )
-
         self.model.eval()
-        return self.model
+        return MiniCPMVLLMWrapper(self.model)
 
     def load_inputs(self, **kwargs):
-        """Load and return sample inputs for the model."""
-        image_file = get_file(
-            "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
-        )
-        image = Image.open(image_file).convert("RGB")
-
         question = "Describe this image in detail."
+        input_ids = self.tokenizer.encode(question, return_tensors="pt")
 
-        return {"question": question, "image": image}
+        with torch.no_grad():
+            if hasattr(self.model.llm.config, "scale_emb"):
+                inputs_embeds = (
+                    self.model.llm.model.embed_tokens(input_ids)
+                    * self.model.llm.config.scale_emb
+                )
+            else:
+                inputs_embeds = self.model.llm.model.embed_tokens(input_ids)
+
+        seq_len = inputs_embeds.shape[1]
+        position_ids = torch.arange(seq_len, dtype=torch.long).unsqueeze(0)
+
+        return {"inputs_embeds": inputs_embeds, "position_ids": position_ids}
 
     def predict(self, inputs=None, **kwargs):
-        """Run inference on the loaded model."""
         if self.model is None:
             raise RuntimeError("Model not loaded. Call load_model() first.")
         if self.tokenizer is None:
@@ -144,7 +157,6 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def decode_output(cls, outputs, **kwargs):
-        """Decode model outputs into human-readable format."""
         return {
             "question": outputs.get("question", ""),
             "answer": outputs.get("response", ""),
