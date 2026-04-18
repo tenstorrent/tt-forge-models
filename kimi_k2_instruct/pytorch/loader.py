@@ -66,8 +66,11 @@ if not hasattr(DynamicCache, "to_legacy_cache"):
 if not hasattr(DynamicCache, "get_usable_length"):
 
     def _get_usable_length(self, new_seq_length: int, layer_idx: int = 0) -> int:
-        max_cache_length = getattr(self, "max_cache_len", None)
         previous_seq_length = self.get_seq_length(layer_idx)
+        try:
+            max_cache_length = self.max_cache_len
+        except (ValueError, AttributeError):
+            max_cache_length = None
         if (
             max_cache_length is not None
             and previous_seq_length + new_seq_length > max_cache_length
