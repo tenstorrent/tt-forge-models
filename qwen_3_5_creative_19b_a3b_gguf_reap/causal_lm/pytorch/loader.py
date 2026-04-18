@@ -117,7 +117,7 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        if getattr(self.tokenizer, "chat_template", None) is not None:
+        try:
             messages = [
                 {
                     "role": "user",
@@ -131,7 +131,7 @@ class ModelLoader(ForgeModel):
                 enable_thinking=True,
             )
             prompts = [text]
-        else:
+        except (ValueError, Exception):
             prompts = [self.sample_text]
 
         inputs = self.tokenizer(
