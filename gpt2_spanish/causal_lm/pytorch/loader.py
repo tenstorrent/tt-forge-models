@@ -5,7 +5,7 @@
 GPT-2 Spanish model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import GPT2LMHeadModel, AutoTokenizer, GPT2Config
 from typing import Optional
 
 from ....base import ForgeModel
@@ -40,12 +40,9 @@ class ModelLoader(ForgeModel):
 
     sample_text = "Este es un texto de ejemplo desde "
 
-    def __init__(
-        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
-    ):
+    def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
-        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -60,57 +57,46 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
+    def _load_tokenizer(self):
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **tokenizer_kwargs,
+            self._variant_config.pretrained_model_name
         )
-
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        model_name = self._variant_config.pretrained_model_name
 
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+        config = GPT2Config.from_pretrained(model_name)
+        config_dict = config.to_dict()
+        config_dict["use_cache"] = False
+        if dtype_override is not None:
+            config_dict["torch_dtype"] = dtype_override
+        config = GPT2Config(**config_dict)
 
         model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        model = GPT2LMHeadModel.from_pretrained(
+            model_name, config=config, **model_kwargs
         )
         model.eval()
 
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
-        max_length = self._variant_config.max_length
+        vocab_size = GPT2Config.from_pretrained(
+            self._variant_config.pretrained_model_name
+        ).vocab_size
 
-        inputs = self.tokenizer(
-            [self.sample_text],
-            return_tensors="pt",
-            padding="max_length",
-            truncation=True,
-            max_length=max_length,
-        )
+        input_ids = torch.cat(
+            [
+                torch.randint(1, vocab_size, (1, self._variant_config.max_length - 1)),
+                torch.zeros(1, 1, dtype=torch.int64),
+            ],
+            dim=-1,
+        ).to(torch.int64)
 
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
-        return inputs
+        return {"input_ids": input_ids}
