@@ -12,7 +12,6 @@ from typing import Optional
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
-from .src.model_utils import patch_moe_histc
 from ....base import ForgeModel
 from ....config import (
     Framework,
@@ -47,7 +46,6 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        patch_moe_histc()
         config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
 
         # Reduce model dimensions for testing
@@ -64,6 +62,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {
             "attn_implementation": "eager",
+            "experts_implementation": "eager",
             "trust_remote_code": True,
         }
         if dtype_override is not None:
