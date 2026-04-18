@@ -6,6 +6,7 @@ MiniCPM-V-2_6-int4 model loader implementation for multimodal inference
 """
 
 from typing import Optional, Dict, Any
+from contextlib import contextmanager
 from dataclasses import dataclass
 import torch
 import torch.nn as nn
@@ -33,22 +34,26 @@ if ALL_PARALLEL_STYLES is None:
 
     mu.ALL_PARALLEL_STYLES = ["rowwise", "colwise", "headwise"]
 
-# Monkey patch Resampler for compatibility - Fixes: Resampler doesn't have _initialize_weights method in torch 2.7.0
-original_getattr = nn.Module.__getattr__
 
+@contextmanager
+def _patch_resampler_getattr():
+    original_getattr = nn.Module.__getattr__
 
-def patched_getattr(self, name):
-    if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
+    def patched_getattr(self, name):
+        if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
 
-        def _initialize_weights(module_self):
-            if hasattr(module_self, "_init_weights"):
-                module_self._init_weights(module_self)
+            def _initialize_weights(module_self):
+                if hasattr(module_self, "_init_weights"):
+                    module_self._init_weights(module_self)
 
-        return _initialize_weights
-    return original_getattr(self, name)
+            return _initialize_weights
+        return original_getattr(self, name)
 
-
-nn.Module.__getattr__ = patched_getattr
+    nn.Module.__getattr__ = patched_getattr
+    try:
+        yield
+    finally:
+        nn.Module.__getattr__ = original_getattr
 
 
 @dataclass
@@ -112,13 +117,13 @@ class ModelLoader(ForgeModel):
         """
         config = self._variant_config
 
-        # Load model and tokenizer
-        self.model = AutoModel.from_pretrained(
-            config.pretrained_model_name,
-            trust_remote_code=True,
-            torch_dtype=torch.float32,
-            **kwargs,
-        )
+        with _patch_resampler_getattr():
+            self.model = AutoModel.from_pretrained(
+                config.pretrained_model_name,
+                trust_remote_code=True,
+                torch_dtype=torch.float32,
+                **kwargs,
+            )
         self.tokenizer = AutoTokenizer.from_pretrained(
             config.pretrained_model_name, trust_remote_code=True
         )
