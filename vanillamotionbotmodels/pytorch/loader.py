@@ -5,7 +5,7 @@
 VanillaMotionBotModels Wan 2.2 I2V GGUF model loader implementation for video generation.
 
 Loads GGUF-quantized Wan 2.2 I2V transformers from
-matadamovic/vanillamotionbotmodels.
+bullerwins/Wan2.2-I2V-A14B-GGUF.
 """
 
 from typing import Any, Optional
@@ -23,7 +23,7 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_REPO = "matadamovic/vanillamotionbotmodels"
+GGUF_REPO = "bullerwins/Wan2.2-I2V-A14B-GGUF"
 
 TRANSFORMER_NUM_FRAMES = 2
 TRANSFORMER_HEIGHT = 4
@@ -39,8 +39,8 @@ class ModelVariant(StrEnum):
 
 
 _GGUF_FILES = {
-    ModelVariant.I2V_14B_HIGHNOISE_Q8_0: "checkpoints_gguf/wan2.2_i2v_high_noise_14B_Q8_0.gguf",
-    ModelVariant.I2V_14B_LOWNOISE_Q8_0: "checkpoints_gguf/wan2.2_i2v_low_noise_14B_Q8_0.gguf",
+    ModelVariant.I2V_14B_HIGHNOISE_Q8_0: "wan2.2_i2v_high_noise_14B_Q8_0.gguf",
+    ModelVariant.I2V_14B_LOWNOISE_Q8_0: "wan2.2_i2v_low_noise_14B_Q8_0.gguf",
 }
 
 
