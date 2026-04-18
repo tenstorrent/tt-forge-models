@@ -6,7 +6,6 @@ Marigold IID Appearance model loader implementation for intrinsic image decompos
 """
 import torch
 from diffusers import MarigoldIntrinsicsPipeline
-from datasets import load_dataset
 from typing import Optional
 
 from ...config import (
@@ -75,15 +74,44 @@ class ModelLoader(ForgeModel):
         if self.pipeline is None:
             self._load_pipeline(dtype_override=dtype_override)
 
-        return self.pipeline
+        if dtype_override is not None:
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
+
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.pipeline is None:
             self._load_pipeline(dtype_override=dtype_override)
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
-        inputs = {"image": image, "num_inference_steps": 10, "batch_size": batch_size}
+        prompt = ""
+        text_inputs = self.pipeline.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        encoder_hidden_states = self.pipeline.text_encoder(text_inputs.input_ids)[0].to(
+            dtype=dtype
+        )
 
-        return inputs
+        latent_size = self.pipeline.unet.config.sample_size
+        num_channels = self.pipeline.unet.config.in_channels
+
+        sample = torch.randn(
+            batch_size,
+            num_channels,
+            latent_size,
+            latent_size,
+            dtype=dtype,
+        )
+
+        timestep = torch.tensor([1], dtype=dtype)
+
+        return {
+            "sample": sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+        }
