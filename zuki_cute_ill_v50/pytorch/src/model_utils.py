@@ -25,8 +25,7 @@ def load_pipe(variant):
     pipe = DiffusionPipeline.from_pretrained(variant, torch_dtype=torch.float32)
     modules = [pipe.text_encoder, pipe.unet, pipe.text_encoder_2, pipe.vae]
 
-    # Move the pipeline to CPU
-    pipe.to("cpu")
+    pipe.to("cpu", dtype=torch.float32)
 
     for module in modules:
         module.eval()
