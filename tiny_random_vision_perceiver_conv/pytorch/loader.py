@@ -19,6 +19,7 @@ from ...config import (
 )
 from ...base import ForgeModel
 from ...tools.utils import VisionPreprocessor, VisionPostprocessor
+from .src.model_utils import patch_perceiver_for_dynamo
 from datasets import load_dataset
 
 
@@ -61,6 +62,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Tiny Random Vision Perceiver Conv model instance."""
+        patch_perceiver_for_dynamo()
         model_name = self._variant_config.pretrained_model_name
         model = PerceiverForImageClassificationConvProcessing.from_pretrained(
             model_name, **kwargs
