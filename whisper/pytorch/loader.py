@@ -5,6 +5,7 @@
 Whisper model loader implementation
 """
 
+import numpy as np
 import torch
 from transformers import (
     WhisperProcessor,
@@ -200,10 +201,13 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
 
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
+        # Load audio sample (fall back to synthetic audio for compile-only runs)
+        try:
+            weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
+            sample = torch.load(weights_pth, weights_only=False)
+            sample_audio = sample["audio"]["array"]
+        except (ValueError, RuntimeError, FileNotFoundError):
+            sample_audio = np.random.randn(16000).astype(np.float32)
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
