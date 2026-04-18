@@ -183,3 +183,7 @@ results:
   status: "MAX_FAILED_ATTEMPTS"
   date: "20260418_202458"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-2"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[codebert/masked_lm/pytorch-microsoft/codebert-base-mlm-single_device-inference]"
+  status: "MAX_FAILED_ATTEMPTS"
+  date: "20260418_203009"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-2"
