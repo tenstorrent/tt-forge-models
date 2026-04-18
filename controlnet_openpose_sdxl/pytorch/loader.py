@@ -26,6 +26,16 @@ from .src.model_utils import (
 )
 
 
+def _cast_tensors(obj, dtype):
+    if isinstance(obj, torch.Tensor) and obj.dtype.is_floating_point:
+        return obj.to(dtype)
+    if isinstance(obj, dict):
+        return {k: _cast_tensors(v, dtype) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return type(obj)(_cast_tensors(v, dtype) for v in obj)
+    return obj
+
+
 class ModelVariant(StrEnum):
     """Available ControlNet OpenPose SDXL model variants."""
 
@@ -108,12 +118,7 @@ class ModelLoader(ForgeModel):
 
         timestep = timesteps[0]
 
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timestep = timestep.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
-
-        return {
+        inputs = {
             "sample": latent_model_input,
             "timestep": timestep,
             "encoder_hidden_states": prompt_embeds,
@@ -121,6 +126,11 @@ class ModelLoader(ForgeModel):
             "down_block_additional_residuals": down_block_additional_residuals,
             "mid_block_additional_residual": mid_block_additional_residual,
         }
+
+        if dtype_override:
+            inputs = _cast_tensors(inputs, dtype_override)
+
+        return inputs
 
     def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
         if isinstance(fwd_output, tuple):
