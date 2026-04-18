@@ -7,7 +7,6 @@ FLUX.1 Krea Dev GGUF model loader implementation for text-to-image generation
 import os
 
 import torch
-from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
 from typing import Optional
 
@@ -22,8 +21,7 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_REPO = "QuantStack/FLUX.1-Krea-dev-GGUF"
-CONFIG_DIR = os.path.join(os.path.dirname(__file__), "flux_transformer_config")
+GGUF_REPO = "InvokeAI/FLUX.1-Krea-dev-GGUF"
 
 
 class ModelVariant(StrEnum):
@@ -64,16 +62,34 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _create_random_model(self, dtype):
+        return FluxTransformer2DModel(
+            in_channels=64,
+            num_layers=19,
+            num_single_layers=38,
+            attention_head_dim=128,
+            num_attention_heads=24,
+            joint_attention_dim=4096,
+            pooled_projection_dim=768,
+            guidance_embeds=True,
+            axes_dims_rope=(16, 56, 56),
+        ).to(dtype)
+
     def load_model(self, *, dtype_override=None, **kwargs):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        self.transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/blob/main/{self.GGUF_FILE}",
-            config=CONFIG_DIR,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+            self.transformer = self._create_random_model(compute_dtype)
+        else:
+            from diffusers import GGUFQuantizationConfig
+
+            quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+            self.transformer = FluxTransformer2DModel.from_single_file(
+                f"https://huggingface.co/{GGUF_REPO}/blob/main/{self.GGUF_FILE}",
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+                token=os.environ.get("HF_TOKEN"),
+            )
 
         return self.transformer
 
@@ -84,29 +100,24 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         config = self.transformer.config
 
-        # Image dimensions
         height = 128
         width = 128
         vae_scale_factor = 8
         num_channels_latents = config.in_channels // 4
 
-        # Prepare latents: VAE compresses by vae_scale_factor, then pack 2x2 patches
         height_latent = 2 * (height // (vae_scale_factor * 2))
         width_latent = 2 * (width // (vae_scale_factor * 2))
         h_packed = height_latent // 2
         w_packed = width_latent // 2
 
-        # Create latent tensor (B, C, H, W) then pack to (B, H*W, C)
         latents = torch.randn(
             batch_size, num_channels_latents * 4, h_packed, w_packed, dtype=dtype
         )
 
-        # Pack latents: (B, C, H, W) -> (B, H*W, C)
         latents = latents.reshape(batch_size, num_channels_latents * 4, -1).permute(
             0, 2, 1
         )
 
-        # Prepare latent image IDs (h*w, 3) - FLUX.1 uses 3D position encoding
         latent_image_ids = torch.zeros(h_packed, w_packed, 3)
         latent_image_ids[..., 1] = (
             latent_image_ids[..., 1] + torch.arange(h_packed)[:, None]
@@ -116,25 +127,20 @@ class ModelLoader(ForgeModel):
         )
         latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
 
-        # Prompt embeddings: use random tensors matching joint_attention_dim
         max_sequence_length = 256
         joint_attention_dim = config.joint_attention_dim
         prompt_embeds = torch.randn(
             batch_size, max_sequence_length, joint_attention_dim, dtype=dtype
         )
 
-        # Text IDs (seq_len, 3) - FLUX.1 uses 3D position encoding
         text_ids = torch.zeros(max_sequence_length, 3).to(dtype=dtype)
 
-        # Pooled projections
         pooled_prompt_embeds = torch.randn(
             batch_size, config.pooled_projection_dim, dtype=dtype
         )
 
-        # Guidance
         guidance = torch.full([batch_size], self.guidance_scale, dtype=dtype)
 
-        # Timestep
         timestep = torch.tensor([1.0], dtype=dtype).expand(batch_size)
 
         inputs = {
