@@ -49,6 +49,30 @@ def _ensure_mast3r_importable():
         sys.path.insert(0, dust3r_path)
 
 
+def _patch_dust3r_for_dynamo():
+    """Patch dust3r's transpose_to_landscape to remove dynamo-incompatible asserts."""
+    import dust3r.utils.misc as misc
+
+    _orig_transpose = misc.transpose_to_landscape
+
+    def patched_transpose_to_landscape(head, activate=True):
+        if not activate:
+
+            def wrapper_no(decout, true_shape):
+                H, W = int(true_shape[0][0]), int(true_shape[0][1])
+                return head(decout, (H, W))
+
+            return wrapper_no
+        return _orig_transpose(head, activate)
+
+    misc.transpose_to_landscape = patched_transpose_to_landscape
+
+    for mod_name in list(sys.modules):
+        mod = sys.modules.get(mod_name)
+        if mod and getattr(mod, "transpose_to_landscape", None) is _orig_transpose:
+            mod.transpose_to_landscape = patched_transpose_to_landscape
+
+
 class MASt3RWrapper(torch.nn.Module):
     """Wrap MASt3R to pre-compute encoder features on CPU.
 
@@ -116,6 +140,7 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MASt3R model instance."""
         _ensure_mast3r_importable()
+        _patch_dust3r_for_dynamo()
         from mast3r.model import AsymmetricMASt3R
 
         pretrained_model_name = self._variant_config.pretrained_model_name
