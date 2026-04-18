@@ -117,6 +117,7 @@ class ModelLoader(ForgeModel):
         )
         pooled_projections = torch.randn(batch_size, pooled_projection_dim, dtype=dtype)
         timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        guidance = torch.tensor([3.5] * batch_size, dtype=dtype)
         img_ids = torch.zeros(img_seq_len, 3, dtype=dtype)
         txt_ids = torch.zeros(txt_seq_len, 3, dtype=dtype)
 
@@ -126,6 +127,7 @@ class ModelLoader(ForgeModel):
             "encoder_hidden_states": encoder_hidden_states,
             "pooled_projections": pooled_projections,
             "timestep": timestep,
+            "guidance": guidance,
             "img_ids": img_ids,
             "txt_ids": txt_ids,
         }
