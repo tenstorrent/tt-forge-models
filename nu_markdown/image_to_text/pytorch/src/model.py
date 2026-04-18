@@ -3,15 +3,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import torch
+from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
+    Qwen2_5_VisionTransformerPretrainedModel,
+)
+
+Qwen2_5_VisionTransformerPretrainedModel.forward = torch.compiler.disable(
+    Qwen2_5_VisionTransformerPretrainedModel.forward
+)
 
 
 class Wrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
         self.model = model
-        model.model.visual.forward = torch.compiler.disable(
-            model.model.visual.forward
-        )
 
     def forward(self, input_ids, attention_mask, pixel_values, image_grid_thw):
         inputs = {
