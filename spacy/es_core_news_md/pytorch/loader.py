@@ -10,10 +10,46 @@ static word vectors and wraps them as a PyTorch embedding model for sentence
 embedding generation.
 """
 
+import importlib
+import os
+import sys
+
 import torch
 import torch.nn as nn
-import spacy
 from typing import Optional
+
+
+def _import_real_spacy():
+    """Import the pip-installed spacy package, bypassing local directory shadowing.
+
+    The model directory 'spacy/' is an implicit namespace package that shadows
+    the real spacy pip package. Temporarily filter sys.path to find the real one.
+    """
+    if "spacy" in sys.modules and hasattr(sys.modules["spacy"], "load"):
+        return sys.modules["spacy"]
+
+    original_path = sys.path[:]
+    sys.path = [
+        p
+        for p in sys.path
+        if not (
+            os.path.isdir(os.path.join(p, "spacy"))
+            and not os.path.isfile(os.path.join(p, "spacy", "__init__.py"))
+        )
+    ]
+
+    for key in list(sys.modules):
+        if key == "spacy" or key.startswith("spacy."):
+            del sys.modules[key]
+
+    try:
+        real_spacy = importlib.import_module("spacy")
+        return real_spacy
+    finally:
+        sys.path = original_path
+
+
+spacy = _import_real_spacy()
 
 from ....config import (
     ModelInfo,
