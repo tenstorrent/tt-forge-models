@@ -57,10 +57,21 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     cfg = result.get("config", {})
     if cfg.get("model_type") == "nemotron_h_moe":
         cfg["model_type"] = "nemotron"
-        for key in ("num_key_value_heads", "num_attention_heads"):
+        for key in list(cfg.keys()):
+            val = cfg[key]
+            if isinstance(val, list) and len(val) == 1:
+                cfg[key] = val[0]
+        for key in (
+            "num_key_value_heads",
+            "num_attention_heads",
+            "num_hidden_layers",
+            "hidden_size",
+            "intermediate_size",
+            "vocab_size",
+        ):
             val = cfg.get(key)
             if isinstance(val, list):
-                cfg[key] = max(val) if val else cfg.get("num_attention_heads", 32)
+                cfg[key] = max(val) if val else 1
         if cfg.get("num_key_value_heads", 0) == 0:
             cfg["num_key_value_heads"] = cfg.get("num_attention_heads", 32)
     return result
