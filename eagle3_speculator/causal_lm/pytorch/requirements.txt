@@ -1,0 +1,2 @@
+speculators
+tiktoken

@@ -6,7 +6,8 @@ Eagle3 Speculator model loader implementation for speculative decoding.
 """
 
 import torch
-from transformers import AutoModel, AutoTokenizer
+from speculators import SpeculatorModel
+from transformers import AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -62,13 +63,31 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _get_tokenizer_model_name(self):
+        """Get the base model name for tokenizer from the speculator's verifier config."""
+        import json
+        from huggingface_hub import hf_hub_download
+
+        config_path = hf_hub_download(
+            self._variant_config.pretrained_model_name, "config.json"
+        )
+        with open(config_path) as f:
+            config = json.load(f)
+        speculators_config = config.get("speculators_config", {})
+        verifier = speculators_config.get("verifier", {})
+        if "name_or_path" in verifier:
+            return verifier["name_or_path"]
+        return self._variant_config.pretrained_model_name
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        tokenizer_model_name = self._get_tokenizer_model_name()
+
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            tokenizer_model_name,
             trust_remote_code=True,
             **tokenizer_kwargs,
         )
@@ -89,7 +108,11 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        model = SpeculatorModel.from_pretrained(
+            pretrained_model_name,
+            verifier_attachment_mode="detached",
+            **model_kwargs,
+        )
         model.eval()
         self.config = model.config
 
@@ -112,5 +135,11 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
+        target_hidden_size = self.config.transformer_layer_config.hidden_size
+        hidden_dtype = torch.bfloat16 if dtype_override is None else dtype_override
+        inputs["hidden_states"] = torch.randn(
+            batch_size, max_length, 3 * target_hidden_size, dtype=hidden_dtype
+        )
 
         return inputs
