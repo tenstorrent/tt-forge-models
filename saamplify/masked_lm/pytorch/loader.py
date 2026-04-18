@@ -66,7 +66,7 @@ def _ensure_xformers_available():
 
 _ensure_xformers_available()
 
-from transformers import AutoTokenizer, AutoModelForMaskedLM
+from transformers import AutoTokenizer, AutoModel
 from typing import Optional
 
 from ....base import ForgeModel
@@ -123,6 +123,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _ensure_xformers_available()
+
         if self.tokenizer is None:
             self._load_tokenizer()
 
@@ -131,7 +133,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForMaskedLM.from_pretrained(
+        model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
 
@@ -149,6 +151,10 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
             add_special_tokens=True,
         )
+
+        if "attention_mask" in inputs:
+            mask = inputs["attention_mask"].to(torch.float32)
+            inputs["attention_mask"] = (1.0 - mask) * torch.finfo(torch.float32).min
 
         return inputs
 
