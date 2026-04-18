@@ -193,7 +193,7 @@ class ModelLoader(ForgeModel):
             self.pipeline = load_i2v_pipeline(
                 self._variant_config.pretrained_model_name, dtype
             )
-            return self.pipeline
+            return self.pipeline.transformer
 
         if self._variant is not None and self._variant == ModelVariant.WAN21_VACE_1_3B:
             dtype = dtype_override if dtype_override is not None else torch.float32

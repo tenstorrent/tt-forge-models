@@ -152,28 +152,47 @@ def load_i2v_pipeline(pretrained_model_name: str, dtype: torch.dtype):
     return pipe
 
 
-def load_i2v_inputs(prompt: str, height: int = 480, width: int = 832) -> dict:
+def load_i2v_inputs(
+    prompt: str,
+    height: int = 480,
+    width: int = 832,
+    dtype: torch.dtype = torch.bfloat16,
+) -> dict:
     """
-    Prepare inputs for the I2V pipeline (image-to-video generation).
+    Prepare inputs for the WanTransformer3DModel (I2V variant).
 
-    Returns a dict suitable for passing to WanImageToVideoPipeline.__call__.
-    Uses a small synthetic image for testing.
+    Returns a dict of tensors matching WanTransformer3DModel.forward() signature.
+    Uses small synthetic tensors for compile-only testing.
 
-    Args:
-        prompt: Text prompt for generation
-        height: Output video height (default 480 for 480P, use 720 for 720P)
-        width: Output video width (default 832 for 480P, use 1280 for 720P)
+    Config reference (14B model):
+        in_channels=36, text_dim=4096, image_dim=1280,
+        patch_size=[1,2,2], num_attention_heads=40, attention_head_dim=128
     """
-    ref_image = Image.new("RGB", (width, height), color=(128, 128, 200))
+    in_channels = 36
+    text_dim = 4096
+    image_dim = 1280
+    batch_size = 1
+    num_frames = 1
+    latent_h = 4
+    latent_w = 4
+    text_seq_len = 512
+    image_seq_len = 1
+
+    hidden_states = torch.randn(
+        batch_size, in_channels, num_frames, latent_h, latent_w, dtype=dtype
+    )
+    timestep = torch.tensor([1000], dtype=torch.long)
+    encoder_hidden_states = torch.randn(batch_size, text_seq_len, text_dim, dtype=dtype)
+    encoder_hidden_states_image = torch.randn(
+        batch_size, image_seq_len, image_dim, dtype=dtype
+    )
 
     return {
-        "image": ref_image,
-        "prompt": prompt,
-        "height": height,
-        "width": width,
-        "num_frames": 9,
-        "num_inference_steps": 2,
-        "guidance_scale": 5.0,
+        "hidden_states": hidden_states,
+        "timestep": timestep,
+        "encoder_hidden_states": encoder_hidden_states,
+        "encoder_hidden_states_image": encoder_hidden_states_image,
+        "return_dict": False,
     }
 
 
