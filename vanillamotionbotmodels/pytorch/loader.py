@@ -85,6 +85,7 @@ class ModelLoader(ForgeModel):
             model_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
+            low_cpu_mem_usage=False,
         )
 
         return self.transformer
