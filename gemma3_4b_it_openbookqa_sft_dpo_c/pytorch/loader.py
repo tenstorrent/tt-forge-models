@@ -4,8 +4,13 @@
 """
 Gemma3 4B IT OpenbookQA SFT-DPO-C model loader implementation for causal language modeling.
 """
+
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    GemmaTokenizerFast,
+    Gemma3TextConfig,
+)
 from peft import PeftModel
 from typing import Optional
 
@@ -63,8 +68,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.BASE_MODEL_NAME, **tokenizer_kwargs
+        adapter_name = self._variant_config.pretrained_model_name
+        self.tokenizer = GemmaTokenizerFast.from_pretrained(
+            adapter_name, **tokenizer_kwargs
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
@@ -73,15 +79,15 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        config = Gemma3TextConfig()
+        config.use_cache = False
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
         base_model = AutoModelForCausalLM.from_pretrained(
             self.BASE_MODEL_NAME, **model_kwargs
