@@ -153,13 +153,11 @@ class ModelLoader(ForgeModel):
             encoder_hidden_states = encoder_output.last_hidden_state.to(dtype=dtype)
 
         encoder_hidden_states = encoder_hidden_states.expand(batch_size, -1, -1)
-        encoder_attention_mask = text_inputs.attention_mask.expand(batch_size, -1)
 
         inputs = {
             "hidden_states": hidden_states,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
-            "encoder_attention_mask": encoder_attention_mask,
         }
 
         return inputs
