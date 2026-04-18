@@ -66,11 +66,19 @@ class ModelLoader(ForgeModel):
         self.processor = None
         self.model = None
 
+    BASE_MODEL = "openai/whisper-large-v3"
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load an Oxide Lab Whisper GGUF model from Hugging Face."""
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"use_cache": False, "gguf_file": self.GGUF_FILE}
+        config = WhisperConfig.from_pretrained(self.BASE_MODEL)
+
+        model_kwargs = {
+            "use_cache": False,
+            "gguf_file": self.GGUF_FILE,
+            "config": config,
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -78,9 +86,7 @@ class ModelLoader(ForgeModel):
         self.model = WhisperForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        self.processor = WhisperProcessor.from_pretrained(
-            pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        self.processor = WhisperProcessor.from_pretrained(self.BASE_MODEL)
 
         self.model.eval()
         if dtype_override is not None:
@@ -92,14 +98,11 @@ class ModelLoader(ForgeModel):
         if self.model is None or self.processor is None:
             self.load_model()
 
-        model_config = WhisperConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        model_config = WhisperConfig.from_pretrained(self.BASE_MODEL)
 
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
-        # Generate synthetic audio and process through the feature extractor
         sample_audio = np.random.randn(16000 * 3).astype(np.float32)
         processor_output = self.processor(
             sample_audio, return_tensors="pt", sampling_rate=16000
@@ -112,4 +115,7 @@ class ModelLoader(ForgeModel):
             dtype=torch.long,
             device=device,
         )
-        return [input_features, decoder_input_ids]
+        return {
+            "input_features": input_features,
+            "decoder_input_ids": decoder_input_ids,
+        }
