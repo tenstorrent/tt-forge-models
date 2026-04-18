@@ -5,10 +5,9 @@
 Surya Layout model loader implementation for document layout detection.
 """
 
-from typing import Optional, List
+from typing import Optional
 
 import torch
-import torchvision.transforms as transforms
 from datasets import load_dataset
 from PIL import Image
 
@@ -49,9 +48,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant."""
         super().__init__(variant)
-        self._transform = transforms.Compose([transforms.ToTensor()])
-        self.image_tensor = None
-        self.images: List[Image.Image] = []
+        self._wrapper = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -71,7 +68,7 @@ class ModelLoader(ForgeModel):
         """Load Surya Layout wrapper model.
 
         Returns:
-            nn.Module: A wrapper module that calls Surya LayoutPredictor.
+            nn.Module: A wrapper module around the Surya vision encoder.
         """
         model = SuryaLayoutWrapper()
         model.eval()
@@ -79,6 +76,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model = model.to(dtype_override)
 
+        self._wrapper = model
         return model
 
     def load_inputs(
@@ -87,23 +85,17 @@ class ModelLoader(ForgeModel):
         """Generate sample inputs for Surya Layout.
 
         Returns:
-            torch.Tensor: Image tensor for layout detection.
+            torch.Tensor: Preprocessed image tiles for the vision encoder.
         """
         dataset = load_dataset("huggingface/cats-image")["test"]
         image = dataset[0]["image"].convert("RGB")
-        image_tensor = self._transform(image)
-        image_tensor = torch.stack([image_tensor])
 
-        self.images = [image]
-
-        if batch_size > 1:
-            image_tensor = image_tensor.repeat_interleave(batch_size, dim=0)
+        image_tiles = self._wrapper.preprocess_image(image)
 
         if dtype_override is not None:
-            image_tensor = image_tensor.to(dtype_override)
+            image_tiles = image_tiles.to(dtype_override)
 
-        self.image_tensor = image_tensor
-        return image_tensor
+        return image_tiles
 
     def post_process(self, co_out, result_path):
-        save_outputs_layout(co_out, self.images, result_path)
+        save_outputs_layout(co_out, [], result_path)
