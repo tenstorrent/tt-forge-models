@@ -50,7 +50,11 @@ def _ensure_mast3r_importable():
 
 
 def _patch_dust3r_for_dynamo():
-    """Patch dust3r's transpose_to_landscape to remove dynamo-incompatible asserts."""
+    """Patch dust3r functions to be compatible with torch dynamo.
+
+    The original code uses data-dependent control flow (assert with allclose,
+    int() on tensors for shape computation) that breaks dynamo tracing.
+    """
     import dust3r.utils.misc as misc
 
     _orig_transpose = misc.transpose_to_landscape
@@ -58,6 +62,7 @@ def _patch_dust3r_for_dynamo():
     def patched_transpose_to_landscape(head, activate=True):
         if not activate:
 
+            @torch.compiler.disable
             def wrapper_no(decout, true_shape):
                 H, W = int(true_shape[0][0]), int(true_shape[0][1])
                 return head(decout, (H, W))
@@ -71,6 +76,12 @@ def _patch_dust3r_for_dynamo():
         mod = sys.modules.get(mod_name)
         if mod and getattr(mod, "transpose_to_landscape", None) is _orig_transpose:
             mod.transpose_to_landscape = patched_transpose_to_landscape
+
+    misc.is_symmetrized = torch.compiler.disable(misc.is_symmetrized)
+    for mod_name in list(sys.modules):
+        mod = sys.modules.get(mod_name)
+        if mod and hasattr(mod, "is_symmetrized") and mod is not misc:
+            mod.is_symmetrized = misc.is_symmetrized
 
 
 class MASt3RWrapper(torch.nn.Module):
