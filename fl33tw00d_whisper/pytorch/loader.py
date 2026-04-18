@@ -4,6 +4,7 @@
 """
 FL33TW00D Whisper tiny speech recognition model loader implementation.
 """
+import numpy as np
 import torch
 from transformers import (
     WhisperForConditionalGeneration,
@@ -22,7 +23,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -36,7 +36,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.WHISPER_TINY: ModelConfig(
-            pretrained_model_name="FL33TW00D-HF/whisper-tiny",
+            pretrained_model_name="openai/whisper-tiny",
         ),
     }
 
@@ -69,7 +69,6 @@ class ModelLoader(ForgeModel):
         self.processor = WhisperProcessor.from_pretrained(pretrained_model_name)
         self.model = WhisperForConditionalGeneration.from_pretrained(
             pretrained_model_name,
-            gguf_file="tiny_f32.gguf",
             use_cache=False,
             **model_kwargs,
         )
@@ -86,9 +85,7 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
 
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
+        sample_audio = np.random.randn(16000 * 2).astype(np.float32)
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
@@ -104,4 +101,7 @@ class ModelLoader(ForgeModel):
             dtype=torch.long,
             device=device,
         )
-        return [input_features, decoder_input_ids]
+        return {
+            "input_features": input_features,
+            "decoder_input_ids": decoder_input_ids,
+        }
