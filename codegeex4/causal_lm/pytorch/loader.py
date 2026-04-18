@@ -104,6 +104,14 @@ class ModelLoader(ForgeModel):
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
+        _orig_pad = self.tokenizer._pad
+
+        def _pad_compat(*args, **kwargs):
+            kwargs.pop("padding_side", None)
+            return _orig_pad(*args, **kwargs)
+
+        self.tokenizer._pad = _pad_compat
+
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
