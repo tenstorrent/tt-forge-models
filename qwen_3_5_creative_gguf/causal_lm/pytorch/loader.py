@@ -118,8 +118,10 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
-        model.config.use_cache = False
-        model._supports_cache_class = False
+        if hasattr(model.config, "text_config"):
+            model.config.text_config.use_cache = False
+        else:
+            model.config.use_cache = False
 
         self.config = model.config
         self.model = model
