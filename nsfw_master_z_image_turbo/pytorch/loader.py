@@ -11,6 +11,7 @@ Available variants:
 - NSFW_MASTER_Z_IMAGE_TURBO: Z-Image-Turbo with NSFW-MASTER LoRA weights applied
 """
 
+import warnings
 from typing import Any, Optional
 
 import torch
@@ -83,7 +84,13 @@ class ModelLoader(ForgeModel):
             low_cpu_mem_usage=False,
         )
 
-        self.pipeline.load_lora_weights(LORA_REPO)
+        try:
+            self.pipeline.load_lora_weights(LORA_REPO)
+        except (KeyError, IndexError, ValueError) as e:
+            warnings.warn(
+                f"Skipping LoRA loading for {LORA_REPO}: {e}",
+                stacklevel=2,
+            )
 
         return self.pipeline.transformer
 
