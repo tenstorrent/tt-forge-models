@@ -100,6 +100,9 @@ class ModelLoader(ForgeModel):
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if self.processor is None:
+            self._load_processor()
+        model.resize_token_embeddings(len(self.processor.tokenizer))
         model.config.use_cache = False
         model.eval()
         model = Wrapper(model)
