@@ -81,7 +81,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForSeq2SeqLM.from_pretrained(
@@ -102,7 +102,11 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        decoder_start_token_id = self._model.config.decoder_start_token_id
+        decoder_start_token_id = getattr(
+            self._model.config,
+            "decoder_start_token_id",
+            None,
+        ) or self._model.config.eos_token_id
         decoder_input_ids = (
             torch.ones((1, 1), dtype=torch.long) * decoder_start_token_id
         )
