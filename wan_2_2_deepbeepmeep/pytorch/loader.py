@@ -116,6 +116,8 @@ class ModelLoader(ForgeModel):
 
         transformer = WanTransformer3DModel.from_single_file(
             local_path,
+            config=variant_info["base_pipeline"],
+            subfolder="transformer",
             torch_dtype=compute_dtype,
         )
 
