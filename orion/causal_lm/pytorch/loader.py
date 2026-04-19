@@ -121,11 +121,15 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
 
-        # Newer transformers renames rope_scaling "type" to "rope_type",
-        # but the custom Orion modeling code still reads ["type"].
-        if config.rope_scaling is not None:
-            if "type" not in config.rope_scaling and "rope_type" in config.rope_scaling:
-                config.rope_scaling["type"] = config.rope_scaling["rope_type"]
+        # Newer transformers populates rope_scaling with {"rope_type": "default"}
+        # even when no scaling is configured. The custom Orion modeling code
+        # expects rope_scaling to be None for the default (no-scaling) case.
+        if (
+            config.rope_scaling is not None
+            and config.rope_scaling.get("rope_type", config.rope_scaling.get("type"))
+            == "default"
+        ):
+            config.rope_scaling = None
 
         model_kwargs["config"] = config
 
