@@ -128,6 +128,7 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input arguments that can be fed to the text decoder.
         """
+        import soundfile as sf
         import torchaudio
 
         # Ensure processor and full model are loaded
@@ -141,7 +142,8 @@ class ModelLoader(ForgeModel):
         with urllib.request.urlopen(url) as response:
             audio_data = response.read()
         audio_buffer = io.BytesIO(audio_data)
-        audio, orig_freq = torchaudio.load(audio_buffer)
+        data, orig_freq = sf.read(audio_buffer)
+        audio = torch.tensor(data).unsqueeze(0).float()
 
         # Resample audio to 16kHz
         audio = torchaudio.functional.resample(
@@ -149,7 +151,7 @@ class ModelLoader(ForgeModel):
         )
 
         # Process audio
-        audio_inputs = self.processor(audios=audio, return_tensors="pt")
+        audio_inputs = self.processor(audio=audio, return_tensors="pt")
 
         # Run encoder to get encoder_hidden_states
         encoder_outputs = self.full_model.speech_encoder(
