@@ -4,6 +4,7 @@
 """
 Chroma GGUF model loader implementation for text-to-image generation
 """
+import os
 import torch
 from diffusers import FluxTransformer2DModel
 from typing import Optional
@@ -27,6 +28,7 @@ class ModelVariant(StrEnum):
 
 
 GGUF_BASE_URL = "https://huggingface.co/silveroxides/Chroma-GGUF/blob/main"
+FLUX_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "flux_config")
 
 
 class ModelLoader(ForgeModel):
@@ -73,6 +75,7 @@ class ModelLoader(ForgeModel):
 
         self.transformer = FluxTransformer2DModel.from_single_file(
             gguf_url,
+            config=FLUX_CONFIG_DIR,
             **load_kwargs,
         )
 
