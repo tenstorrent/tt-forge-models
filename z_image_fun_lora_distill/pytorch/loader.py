@@ -110,22 +110,22 @@ class ModelLoader(ForgeModel):
         *,
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
-    ):
-        """Load and return the Z-Image pipeline with distill LoRA.
+    ) -> torch.nn.Module:
+        """Load and return the Z-Image transformer with distill LoRA fused.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            DiffusionPipeline: The Z-Image pipeline with distill LoRA fused.
+            torch.nn.Module: The Z-Image transformer with distill LoRA fused.
         """
         if self.pipeline is None:
-            return self._load_pipeline(dtype_override=dtype_override)
+            self._load_pipeline(dtype_override=dtype_override)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, prompt: Optional[str] = None) -> Dict[str, Any]:
         """Load and return sample inputs for the Z-Image model.
