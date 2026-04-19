@@ -8,6 +8,8 @@ import torch
 import torch.nn.functional as F
 from typing import Optional
 
+from transformers import AutoTokenizer
+
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
@@ -26,9 +28,12 @@ class ModelVariant(StrEnum):
     VIT_SO400M_16_384 = "ViT_SO400M_16_384"
 
 
-# Mapping from variant to OpenCLIP tokenizer name
-_TOKENIZER_NAME = {
-    ModelVariant.VIT_SO400M_16_384: "hf-hub:timm/ViT-SO400M-16-SigLIP2-384",
+_HF_TOKENIZER_NAME = {
+    ModelVariant.VIT_SO400M_16_384: "timm/ViT-SO400M-16-SigLIP2-384",
+}
+
+_TOKENIZER_CONTEXT_LENGTH = {
+    ModelVariant.VIT_SO400M_16_384: 64,
 }
 
 
@@ -60,6 +65,16 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _tokenize(self, texts):
+        context_length = _TOKENIZER_CONTEXT_LENGTH[self._variant]
+        return self.tokenizer(
+            texts,
+            return_tensors="pt",
+            max_length=context_length,
+            padding="max_length",
+            truncation=True,
+        ).input_ids
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SigLIP2 CLIP model instance.
 
@@ -69,12 +84,14 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The SigLIP2 CLIP model instance.
         """
-        from open_clip import create_model_from_pretrained, get_tokenizer
+        from open_clip import create_model_from_pretrained
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model, self.preprocess = create_model_from_pretrained(pretrained_model_name)
-        self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            _HF_TOKENIZER_NAME[self._variant]
+        )
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -92,13 +109,15 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors containing image and text tokens.
         """
-        from open_clip import create_model_from_pretrained, get_tokenizer
+        from open_clip import create_model_from_pretrained
 
         if self.preprocess is None or self.tokenizer is None:
             _, self.preprocess = create_model_from_pretrained(
                 self._variant_config.pretrained_model_name
             )
-            self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                _HF_TOKENIZER_NAME[self._variant]
+            )
 
         # Load image from HuggingFace dataset
         from datasets import load_dataset
@@ -112,7 +131,7 @@ class ModelLoader(ForgeModel):
         pixel_values = self.preprocess(image).unsqueeze(0)
 
         # Tokenize text
-        text_tokens = self.tokenizer(self.text_prompts)
+        text_tokens = self._tokenize(self.text_prompts)
 
         # Replicate for batch size
         if batch_size > 1:
