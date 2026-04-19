@@ -6,6 +6,9 @@ SantaCoder model loader implementation
 """
 
 
+import sys
+import types
+
 from ...config import (
     ModelInfo,
     ModelGroup,
@@ -18,6 +21,14 @@ from ...config import (
 from ...base import ForgeModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+# bigcode/santacoder remote code imports OnnxConfigWithPast and PatchingSpec from
+# transformers.onnx, which was removed in transformers v5.
+if "transformers.onnx" not in sys.modules:
+    _onnx_stub = types.ModuleType("transformers.onnx")
+    _onnx_stub.OnnxConfigWithPast = type("OnnxConfigWithPast", (), {})
+    _onnx_stub.PatchingSpec = type("PatchingSpec", (), {})
+    sys.modules["transformers.onnx"] = _onnx_stub
 
 
 class ModelVariant(StrEnum):
