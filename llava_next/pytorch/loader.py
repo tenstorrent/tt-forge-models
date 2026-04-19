@@ -7,6 +7,7 @@ LLaVA-NeXT (v1.6) model loader implementation for multimodal conditional generat
 
 from typing import Optional
 
+import torch
 from PIL import Image
 from transformers import LlavaNextForConditionalGeneration, LlavaNextProcessor
 
@@ -21,6 +22,26 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import get_file, cast_input_to_type
+
+
+class LlavaNextWrapper(torch.nn.Module):
+    """Wrapper that bypasses image processing in the compiled graph.
+
+    LlavaNext's image processing pipeline uses numpy operations and
+    data-dependent control flow (image_sizes, np.prod, modulo on shapes)
+    that are incompatible with torch.compile/dynamo. This wrapper accepts
+    pre-computed inputs_embeds so only the language model runs compiled.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, inputs_embeds, attention_mask):
+        return self.model(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+        )
 
 
 class ModelVariant(StrEnum):
@@ -50,6 +71,7 @@ class ModelLoader(ForgeModel):
         """Initialize LLaVA-NeXT model loader."""
         super().__init__(variant)
         self.processor = None
+        self.wrapper = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -84,14 +106,19 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        return model
+        self.wrapper = LlavaNextWrapper(model)
+        return self.wrapper
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return input tensors for LLaVA-NeXT."""
+        """Load and return input tensors for LLaVA-NeXT.
+
+        Pre-computes inputs_embeds eagerly on CPU so that the image
+        processing pipeline (which uses numpy ops and data-dependent
+        control flow) is not traced by torch.compile.
+        """
         if self.processor is None:
             self._load_processor()
 
-        # Build prompt using chat template
         conversation = [
             {
                 "role": "user",
@@ -106,13 +133,11 @@ class ModelLoader(ForgeModel):
             conversation, padding=True, add_generation_prompt=True
         )
 
-        # Load sample image
         image_file = get_file(
             "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
         )
         image = Image.open(image_file)
 
-        # Preprocess
         inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
 
         input_ids = inputs["input_ids"]
@@ -121,14 +146,33 @@ class ModelLoader(ForgeModel):
         image_sizes = inputs["image_sizes"]
 
         if dtype_override:
-            input_ids = cast_input_to_type(input_ids, dtype_override)
-            attention_mask = cast_input_to_type(attention_mask, dtype_override)
             pixel_values = cast_input_to_type(pixel_values, dtype_override)
-            image_sizes = cast_input_to_type(image_sizes, dtype_override)
+
+        inner_model = self.wrapper.model.model
+        with torch.no_grad():
+            inputs_embeds = inner_model.get_input_embeddings()(input_ids)
+            if dtype_override:
+                inputs_embeds = inputs_embeds.to(dtype_override)
+
+            image_features = inner_model.get_image_features(
+                pixel_values,
+                image_sizes,
+                return_dict=True,
+            ).pooler_output
+            image_features = torch.cat(image_features, dim=0).to(
+                inputs_embeds.device, inputs_embeds.dtype
+            )
+
+            special_image_mask = inner_model.get_placeholder_mask(
+                input_ids,
+                inputs_embeds=inputs_embeds,
+                image_features=image_features,
+            )
+            inputs_embeds = inputs_embeds.masked_scatter(
+                special_image_mask, image_features
+            )
 
         return {
-            "input_ids": input_ids,
+            "inputs_embeds": inputs_embeds,
             "attention_mask": attention_mask,
-            "pixel_values": pixel_values,
-            "image_sizes": image_sizes,
         }
