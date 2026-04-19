@@ -8,6 +8,79 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_lfm2moe_support():
+    """Register lfm2moe GGUF architecture for LFM2 MoE models.
+
+    The GGUF file declares architecture as 'lfm2moe' but transformers only
+    recognises 'lfm2'. This extends the lfm2 config mapping with MoE-specific
+    fields and remaps the model_type to 'lfm2_moe'.
+    """
+    if "lfm2moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("lfm2moe")
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["lfm2moe"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "norm_eps",
+        "vocab_size": "vocab_size",
+        "shortconv.l_cache": "conv_L_cache",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "leading_dense_block_count": "num_dense_layers",
+    }
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["lfm2moe"] = GGUF_TO_FAST_CONVERTERS["llama"]
+        GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = GGUF_TO_FAST_CONVERTERS["llama"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Wrap load_gguf_checkpoint to add lfm2moe support and fix model_type."""
+    _patch_lfm2moe_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    config = result.get("config", {})
+    if config.get("model_type") == "lfm2moe":
+        config["model_type"] = "lfm2_moe"
+        # GGUF produces a per-layer list for num_key_value_heads (0 for conv, N
+        # for attention); the config expects a single int for attention layers.
+        kv_heads = config.get("num_key_value_heads")
+        if isinstance(kv_heads, list):
+            config["num_key_value_heads"] = max(kv_heads)
+        elif kv_heads == 0:
+            config["num_key_value_heads"] = 8
+        # GGUF doesn't store layer_types; construct from the architecture pattern:
+        # every 4th layer starting at index 2 is full_attention, rest are conv
+        if "layer_types" not in config or config["layer_types"] is None:
+            n_layers = config.get("num_hidden_layers", 40)
+            config["layer_types"] = [
+                "full_attention" if i % 4 == 2 else "conv" for i in range(n_layers)
+            ]
+    return result
+
+
+_patch_lfm2moe_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -98,6 +171,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        model.config.use_cache = False
         self.config = model.config
         self.model = model
         return model
