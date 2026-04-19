@@ -21,6 +21,7 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+from .model_utils import SamModelWrapper
 from datasets import load_dataset
 
 
@@ -115,7 +116,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             framework_model = framework_model.to(dtype_override)
 
-        return framework_model
+        return SamModelWrapper(framework_model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the SAM model with this instance's variant settings.
