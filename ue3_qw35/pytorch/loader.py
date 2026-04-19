@@ -89,11 +89,26 @@ class ModelLoader(ForgeModel):
             }
         ]
 
-        inputs = self.processor.apply_chat_template(
+        text = self.processor.apply_chat_template(
             messages,
-            tokenize=True,
+            tokenize=False,
             add_generation_prompt=True,
-            return_dict=True,
+        )
+
+        from qwen_vl_utils import process_vision_info
+
+        image_inputs, video_inputs = process_vision_info(messages)
+
+        inputs = self.processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            if "pixel_values" in inputs:
+                inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+
         return inputs
