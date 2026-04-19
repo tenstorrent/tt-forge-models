@@ -99,3 +99,7 @@ results:
   status: "MAX_FAILED_ATTEMPTS: system desc schema mismatch"
   date: "20260419_232100"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-1500-250-1"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[mxbai_embed_large_v1/embedding_generation/pytorch-mxbai-embed-large-v1-single_device-inference]"
+  status: "MAX_FAILED_ATTEMPTS: system desc schema mismatch"
+  date: "20260419_232700"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-1500-250-1"
