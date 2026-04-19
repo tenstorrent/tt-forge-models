@@ -63,14 +63,6 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Realistic Vision V1.4 Inpainting pipeline.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            StableDiffusionInpaintPipeline: The loaded inpainting pipeline.
-        """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.pipeline = load_inpainting_pipe(pretrained_model_name)
@@ -78,7 +70,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the inpainting model.
