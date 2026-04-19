@@ -5,8 +5,11 @@
 DDColor model loader implementation for image colorization tasks.
 """
 
+import json
+
+import torch
+from huggingface_hub import hf_hub_download
 from torchvision import transforms
-from transformers import AutoModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -56,18 +59,34 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        from .src import DDColor
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        repo_id = self._variant_config.pretrained_model_name
 
-        model = AutoModel.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+        config_path = hf_hub_download(repo_id=repo_id, filename="config.json")
+        with open(config_path) as f:
+            config = json.load(f)
+
+        model = DDColor(
+            encoder_name=config.get("encoder_name", "convnext-l"),
+            decoder_name=config.get("decoder_name", "MultiScaleColorDecoder"),
+            input_size=config.get("input_size", [512, 512]),
+            num_output_channels=config.get("num_output_channels", 2),
+            last_norm=config.get("last_norm", "Spectral"),
+            do_normalize=config.get("do_normalize", False),
+            num_queries=config.get("num_queries", 100),
+            num_scales=config.get("num_scales", 3),
+            dec_layers=config.get("dec_layers", 9),
         )
-        model.eval()
 
+        weights_path = hf_hub_download(repo_id=repo_id, filename="pytorch_model.bin")
+        state_dict = torch.load(weights_path, map_location="cpu", weights_only=False)
+        model.load_state_dict(state_dict)
+
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
+
+        model.eval()
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
