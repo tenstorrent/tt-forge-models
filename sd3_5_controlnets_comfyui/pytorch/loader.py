@@ -111,13 +111,17 @@ class ModelLoader(ForgeModel):
             self._controlnet = self._controlnet.to(dtype=dtype_override)
         return self._controlnet
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+        **kwargs,
+    ) -> Any:
         """Prepare sample inputs for the SD3.5 ControlNet.
 
         Returns a dict matching SD3ControlNetModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        batch_size = kwargs.get("batch_size", 1)
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         config = self._controlnet.config
         inner_dim = config.num_attention_heads * config.attention_head_dim
