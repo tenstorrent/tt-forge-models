@@ -76,10 +76,10 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from chatterbox.tts import ChatterboxTTS
+        from chatterbox.models.t3 import T3
 
-        tts = ChatterboxTTS.from_pretrained(device="cpu")
-        model = ChatterboxT3Wrapper(tts.t3)
+        t3 = T3()
+        model = ChatterboxT3Wrapper(t3)
         model.eval()
         return model
 
