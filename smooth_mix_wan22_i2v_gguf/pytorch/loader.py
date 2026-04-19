@@ -13,10 +13,11 @@ Available variants:
 - LOW_NOISE_Q4_K_M: LowNoise 4-bit quantization (medium)
 """
 
+import os
 from typing import Any, Optional
 
 import torch
-from diffusers import WanTransformer3DModel
+from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -87,17 +88,28 @@ class ModelLoader(ForgeModel):
         self, dtype: torch.dtype = torch.float32
     ) -> WanTransformer3DModel:
         """Load diffusion transformer from GGUF file."""
+        if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+            config = WanTransformer3DModel.load_config(
+                CONFIG_REPO, subfolder="transformer"
+            )
+            self._transformer = WanTransformer3DModel.from_config(config).to(
+                dtype=dtype
+            )
+            self._transformer.eval()
+            return self._transformer
+
         quant_key = self._get_quant_key()
+        gguf_file = _GGUF_FILES[quant_key]
+        quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
 
         model_path = hf_hub_download(
             repo_id=REPO_ID,
-            filename=_GGUF_FILES[quant_key],
+            filename=gguf_file,
         )
 
         self._transformer = WanTransformer3DModel.from_single_file(
             model_path,
-            config=CONFIG_REPO,
-            subfolder="transformer",
+            quantization_config=quantization_config,
             torch_dtype=dtype,
         )
         self._transformer.eval()
@@ -112,21 +124,23 @@ class ModelLoader(ForgeModel):
             self._transformer = self._transformer.to(dtype=dtype_override)
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+        **kwargs,
+    ) -> Any:
         """Prepare sample inputs for the Wan I2V diffusion transformer."""
-        dtype = kwargs.get("dtype_override", torch.float32)
-        batch_size = kwargs.get("batch_size", 1)
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
-        # Wan I2V 14B transformer config dimensions
-        in_channels = 36  # 16 latent + 16 latent + 4 mask channels for I2V
-        text_dim = 4096  # text_dim from Wan config
+        in_channels = 36
+        text_dim = 4096
         txt_seq_len = 32
+        num_frames, height, width = 2, 8, 8
 
-        # Spatial/temporal latent dimensions
-        frame, height, width = 2, 8, 8
-        seq_len = frame * height * width
-
-        hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
+        hidden_states = torch.randn(
+            batch_size, in_channels, num_frames, height, width, dtype=dtype
+        )
         encoder_hidden_states = torch.randn(
             batch_size, txt_seq_len, text_dim, dtype=dtype
         )
