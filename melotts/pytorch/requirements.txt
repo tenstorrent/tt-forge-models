@@ -1,0 +1,23 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torchaudio==2.9.1
+mecab-python3
+unidic-lite
+unidic
+fugashi
+txtsplit
+unidecode
+pypinyin
+cn2an
+jieba
+num2words
+anyascii
+jamo
+gruut[de,es,fr]
+g2pkk
+g2p_en
+pydub
+eng_to_ipa
+inflect
+langid
+pykakasi
+cached_path
