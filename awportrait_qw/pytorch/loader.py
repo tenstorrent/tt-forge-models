@@ -15,7 +15,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import QwenImagePipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -51,7 +51,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[DiffusionPipeline] = None
+        self.pipeline: Optional[QwenImagePipeline] = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -66,44 +66,75 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_pipeline(self, dtype):
+        self.pipeline = QwenImagePipeline.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            torch_dtype=dtype,
+        )
+        self.pipeline.load_lora_weights(
+            LORA_REPO,
+            weight_name=LORA_WEIGHT_NAME,
+        )
+
     def load_model(
         self,
         *,
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Qwen-Image pipeline with AWPortrait-QW LoRA weights.
-
-        Returns:
-            DiffusionPipeline with LoRA weights loaded.
-        """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-        )
+        if self.pipeline is None:
+            self._load_pipeline(dtype)
 
-        self.pipeline.load_lora_weights(
-            LORA_REPO,
-            weight_name=LORA_WEIGHT_NAME,
-        )
+        if dtype_override is not None:
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare inputs for portrait generation.
+    def load_inputs(self, dtype_override=None, batch_size=1, **kwargs) -> Any:
+        if self.pipeline is None:
+            self._load_pipeline(
+                dtype_override if dtype_override is not None else torch.float32
+            )
 
-        Returns:
-            dict with prompt and negative_prompt keys.
-        """
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        height = 128
+        width = 128
         prompt = "a professional portrait photo of a woman in a studio setting"
-        negative_prompt = (
-            "blurry, bad faces, bad hands, worst quality, "
-            "low quality, jpeg artifacts"
+
+        prompt_embeds, prompt_embeds_mask = self.pipeline.encode_prompt(
+            prompt=prompt,
+            device="cpu",
+            num_images_per_prompt=1,
+            max_sequence_length=512,
         )
+
+        num_channels_latents = self.pipeline.transformer.config.in_channels // 4
+        vae_scale_factor = self.pipeline.vae_scale_factor
+
+        latent_h = height // vae_scale_factor
+        latent_w = width // vae_scale_factor
+        latent_seq_len = (latent_h // 2) * (latent_w // 2)
+        latents = torch.randn(
+            batch_size, latent_seq_len, num_channels_latents * 4, dtype=dtype
+        )
+
+        img_shapes = [[(1, latent_h // 2, latent_w // 2)]] * batch_size
+
+        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+
+        guidance = None
+        if self.pipeline.transformer.config.guidance_embeds:
+            guidance = torch.full([batch_size], 3.5, dtype=torch.float32)
 
         return {
-            "prompt": prompt,
-            "negative_prompt": negative_prompt,
+            "hidden_states": latents,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds.to(dtype),
+            "encoder_hidden_states_mask": prompt_embeds_mask,
+            "img_shapes": img_shapes,
+            "guidance": guidance,
+            "attention_kwargs": {},
+            "return_dict": False,
         }
