@@ -6,3 +6,4 @@ torchcodec==0.9.1
 pyserial==3.5
 deepdiff==8.6.1
 av==15.0.0
+spacy

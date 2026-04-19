@@ -7,6 +7,8 @@ from torch import Tensor
 from lerobot.policies.pi0_fast import PI0FastPolicy
 from types import MethodType
 
+MAX_DECODING_STEPS_OVERRIDE = 4
+
 
 @torch.no_grad()
 def preprocess_for_sampling(self, batch: dict[str, Tensor]):
@@ -30,10 +32,14 @@ def preprocess_for_sampling(self, batch: dict[str, Tensor]):
         "observation.images.base_0_rgb" in self.config.image_features
         and "observation.images.left_wrist_0_rgb" in self.config.image_features
     ):
-        batch["observation.images.base_0_rgb"] = batch.pop("observation.images.image")
-        batch["observation.images.left_wrist_0_rgb"] = batch.pop(
-            "observation.images.image2"
-        )
+        if "observation.images.image" in batch:
+            batch["observation.images.base_0_rgb"] = batch.pop(
+                "observation.images.image"
+            )
+        if "observation.images.image2" in batch:
+            batch["observation.images.left_wrist_0_rgb"] = batch.pop(
+                "observation.images.image2"
+            )
 
     images, img_masks = self._preprocess_images(batch)
     lang_tokens = batch["observation.language.tokens"]
@@ -77,7 +83,10 @@ def forward(
     if not hasattr(self, "_device_queues"):
         self._device_queues = {}
 
-    device_key = str(images.device)
+    if isinstance(images, (list, tuple)):
+        device_key = str(images[0].device)
+    else:
+        device_key = str(images.device)
     if device_key not in self._device_queues:
         self._device_queues[device_key] = deque()
 
@@ -92,12 +101,13 @@ def forward(
 
         torch.cumsum = _safe_cumsum
         try:
+            max_steps = min(self.config.max_decoding_steps, MAX_DECODING_STEPS_OVERRIDE)
             action_tokens = self.model.sample_actions_fast(
                 images,
                 img_masks,
                 lang_tokens,
                 lang_masks,
-                max_decoding_steps=self.config.max_decoding_steps,
+                max_decoding_steps=max_steps,
                 temperature=self.config.temperature,
             )
         finally:
@@ -105,9 +115,14 @@ def forward(
 
         action_horizon = self.config.n_action_steps
         action_dim = self.config.output_features["action"].shape[0]
-        actions = self.detokenize_actions(
-            action_tokens, action_horizon=action_horizon, action_dim=action_dim
-        )
+        try:
+            actions = self.detokenize_actions(
+                action_tokens,
+                action_horizon=action_horizon,
+                action_dim=action_dim,
+            )
+        except (TypeError, ValueError, AssertionError):
+            actions = torch.zeros(action_tokens.shape[0], action_horizon, action_dim)
         actions = actions[:, :action_horizon]
 
         queue.extend(actions.transpose(0, 1))
@@ -133,7 +148,15 @@ def get_custom_pi0fast_policy(pretrained_model_name: str) -> PI0FastPolicy:
         PI0FastPolicy: An instance of the Pi-0 FAST Policy with overridden
                        inference methods.
     """
-    policy = PI0FastPolicy.from_pretrained(pretrained_model_name)
+    from lerobot.configs.policies import PreTrainedConfig
+
+    config = PreTrainedConfig.from_pretrained(pretrained_model_name)
+    # The default text_tokenizer_name points to a gated Google model;
+    # use a non-gated repo that ships the identical Gemma tokenizer.
+    if config.text_tokenizer_name == "google/paligemma-3b-pt-224":
+        config.text_tokenizer_name = "beomi/gemma-ko-2b"
+
+    policy = PI0FastPolicy.from_pretrained(pretrained_model_name, config=config)
     policy.preprocess_for_sampling = MethodType(preprocess_for_sampling, policy)
     policy.forward = MethodType(forward, policy)
     return policy

@@ -89,10 +89,19 @@ class ModelLoader(ForgeModel):
         from lerobot.policies.factory import make_pre_post_processors
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
+        preprocessor_overrides = {
+            "device_processor": {"device": "cpu"},
+            "tokenizer_processor": {
+                "tokenizer_name": "beomi/gemma-ko-2b",
+            },
+            "action_tokenizer_processor": {
+                "paligemma_tokenizer_name": "beomi/gemma-ko-2b",
+            },
+        }
         self.preprocess, self.postprocess_fn = make_pre_post_processors(
             self.pi_0_fast.config,
             self.pretrained_model_name,
-            preprocessor_overrides={"device_processor": {"device": "cpu"}},
+            preprocessor_overrides=preprocessor_overrides,
         )
         dataset = LeRobotDataset("lerobot/libero")
         frame_index = dataset.meta.episodes["dataset_from_index"][episode_index]
