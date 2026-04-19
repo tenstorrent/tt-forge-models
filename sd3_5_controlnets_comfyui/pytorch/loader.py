@@ -151,7 +151,7 @@ class ModelLoader(ForgeModel):
         pooled_projections = torch.randn(batch_size, 2048, dtype=dtype)
         timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
         controlnet_cond = torch.randn(
-            batch_size, CONDITIONING_CHANNELS, SAMPLE_SIZE, SAMPLE_SIZE, dtype=dtype
+            batch_size, IN_CHANNELS, SAMPLE_SIZE, SAMPLE_SIZE, dtype=dtype
         )
 
         return {
