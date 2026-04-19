@@ -5,7 +5,7 @@
 Llama 3.1 8B Instruct OpenbookQA DPO Para model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = LlamaConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
                 if hasattr(config.text_config, "layer_types"):
@@ -143,7 +143,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
+        self.config = LlamaConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
         return self.config
