@@ -9,7 +9,7 @@ a pyramid-based autoregressive approach for fast video generation. It uses only
 2 inference steps per pyramid level with guidance_scale=1.0.
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import torch
 from diffusers import DiffusionPipeline  # type: ignore[import]
@@ -42,7 +42,10 @@ class ModelLoader(ForgeModel):
     }
     DEFAULT_VARIANT = ModelVariant.HELIOS_DISTILLED
 
-    DEFAULT_PROMPT = "A cat walks through a sunlit garden, soft lighting, cinematic, 8k"
+    TRANSFORMER_NUM_FRAMES = 2
+    TRANSFORMER_HEIGHT = 4
+    TRANSFORMER_WIDTH = 4
+    TRANSFORMER_TEXT_SEQ_LEN = 8
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -97,14 +100,29 @@ class ModelLoader(ForgeModel):
 
         return self.pipeline.transformer
 
+    def _load_transformer_inputs(self, dtype: torch.dtype) -> Dict[str, Any]:
+        config = self.pipeline.transformer.config
+        return {
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                self.TRANSFORMER_NUM_FRAMES,
+                self.TRANSFORMER_HEIGHT,
+                self.TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                self.TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
+        }
+
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for the Helios-Distilled pipeline.
-
-        Args:
-            prompt: Optional text prompt for video generation.
-
-        Returns:
-            dict: Input dictionary with prompt for the pipeline.
-        """
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {"prompt": prompt_value}
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        if self.pipeline is None:
+            self._load_pipeline(dtype_override=dtype)
+        return self._load_transformer_inputs(dtype)
