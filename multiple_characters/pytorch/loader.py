@@ -64,17 +64,6 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Multiple Characters pipeline.
-
-        Loads the base Qwen-Image-Edit-2509 pipeline and applies the
-        multiple-characters LoRA adapter weights on top.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            DiffusionPipeline: The pipeline with LoRA weights loaded.
-        """
         from diffusers import DiffusionPipeline
 
         dtype = dtype_override or torch.bfloat16
@@ -84,27 +73,37 @@ class ModelLoader(ForgeModel):
         self.pipeline.load_lora_weights(
             self._variant_config.pretrained_model_name,
         )
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Multiple Characters model.
+        dtype = dtype_override or torch.bfloat16
 
-        Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the inputs.
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype)
 
-        Returns:
-            dict: Dictionary containing prompt and input image.
-        """
-        from PIL import Image
-        import numpy as np
-
-        # Create a sample source image
-        image = Image.fromarray(
-            np.random.randint(0, 255, (1080, 1080, 3), dtype=np.uint8)
+        config = self.pipeline.transformer.config
+        frame, height, width = 1, 2, 2
+        img_seq_len = frame * height * width
+        txt_seq_len = 4
+        hidden_states = torch.randn(
+            batch_size,
+            img_seq_len,
+            config.in_channels,
+            dtype=dtype,
         )
+        encoder_hidden_states = torch.randn(
+            batch_size,
+            txt_seq_len,
+            config.joint_attention_dim,
+            dtype=dtype,
+        )
+        timestep = torch.tensor([1000], dtype=torch.long).expand(batch_size)
+        img_shapes = [[(frame, height, width)]] * batch_size
 
         return {
-            "prompt": [self.prompt] * batch_size,
-            "image": [image],
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
+            "return_dict": False,
         }
