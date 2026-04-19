@@ -5,8 +5,45 @@
 openPangu-Embedded-1B model loader implementation for causal language modeling.
 """
 import torch
+from typing import Optional, TypedDict
+
+import transformers.utils
+
+if not hasattr(transformers.utils, "LossKwargs"):
+
+    class LossKwargs(TypedDict, total=False):
+        num_items_in_batch: Optional["torch.Tensor"]
+
+    transformers.utils.LossKwargs = LossKwargs
+
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
+if "default" not in ROPE_INIT_FUNCTIONS:
+
+    def _compute_default_rope_parameters(
+        config=None, device=None, seq_len=None, **rope_kwargs
+    ):
+        base = config.rope_theta
+        partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+        head_dim = (
+            getattr(config, "head_dim", None)
+            or config.hidden_size // config.num_attention_heads
+        )
+        dim = int(head_dim * partial_rotary_factor)
+        inv_freq = 1.0 / (
+            base
+            ** (
+                torch.arange(0, dim, 2, dtype=torch.int64).to(
+                    device=device, dtype=torch.float
+                )
+                / dim
+            )
+        )
+        return inv_freq, 1.0
+
+    ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
+
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
@@ -87,12 +124,13 @@ class ModelLoader(ForgeModel):
 
         model_kwargs["use_cache"] = False
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        config.tie_word_embeddings = False
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
