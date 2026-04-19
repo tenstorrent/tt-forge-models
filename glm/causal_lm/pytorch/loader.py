@@ -318,23 +318,44 @@ class ModelLoader(ForgeModel):
 
         return mesh_shape, ("model", "batch")
 
+    def _shard_mlp(self, shard_specs, mlp):
+        shard_specs[mlp.up_proj.weight] = ("model", "batch")
+        shard_specs[mlp.gate_proj.weight] = ("model", "batch")
+        shard_specs[mlp.down_proj.weight] = ("batch", "model")
+
     def load_shard_spec(self, model):
         shard_specs = {}
         shard_specs[model.model.embed_tokens.weight] = (None, "batch")
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+            attn = layer.self_attn
+
+            if hasattr(layer.mlp, "experts"):
+                for expert in layer.mlp.experts.experts:
+                    self._shard_mlp(shard_specs, expert)
+                self._shard_mlp(shard_specs, layer.mlp.shared_experts)
+            else:
+                self._shard_mlp(shard_specs, layer.mlp)
 
             shard_specs[layer.input_layernorm.weight] = ("batch",)
             shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+
+            if hasattr(attn, "q_proj"):
+                shard_specs[attn.q_proj.weight] = ("model", "batch")
+                if attn.q_proj.bias is not None:
+                    shard_specs[attn.q_proj.bias] = ("model",)
+                shard_specs[attn.k_proj.weight] = ("model", "batch")
+                if attn.k_proj.bias is not None:
+                    shard_specs[attn.k_proj.bias] = ("model",)
+                shard_specs[attn.v_proj.weight] = ("model", "batch")
+                if attn.v_proj.bias is not None:
+                    shard_specs[attn.v_proj.bias] = ("model",)
+            else:
+                shard_specs[attn.q_a_proj.weight] = ("model", "batch")
+                shard_specs[attn.q_b_proj.weight] = ("model", "batch")
+                shard_specs[attn.kv_a_proj_with_mqa.weight] = ("model", "batch")
+                shard_specs[attn.kv_b_proj.weight] = ("model", "batch")
+
+            shard_specs[attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.model.norm.weight] = ("batch",)
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
