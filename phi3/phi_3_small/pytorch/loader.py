@@ -80,6 +80,7 @@ class ModelLoader(ForgeModel):
         # Transformers 5.x auto-populates rope_scaling even when the original
         # config has it as null, which breaks the model's custom LongRoPE code.
         config.rope_scaling = None
+        config.dense_attention_every_n_layers = 0
 
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
