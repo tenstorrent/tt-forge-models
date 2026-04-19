@@ -1,1 +1,2 @@
-acestep @ git+https://github.com/ace-step/ACE-Step.git
+vector-quantize-pytorch
+einops

@@ -4,6 +4,7 @@
 """
 ACE-Step 1.5 model loader implementation for music generation tasks.
 """
+
 import torch
 
 from ...base import ForgeModel
@@ -38,22 +39,41 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, **kwargs):
+        import os
+
+        from huggingface_hub import snapshot_download
         from transformers import AutoModel
 
-        self.model = AutoModel.from_pretrained(
-            self.model_name,
+        repo_path = snapshot_download(self.model_name)
+        model_path = os.path.join(repo_path, "acestep-v15-turbo")
+        full_model = AutoModel.from_pretrained(
+            model_path,
             trust_remote_code=True,
             **kwargs,
         )
+        self.model = full_model.decoder
         self.model.eval()
         return self.model
 
     def load_inputs(self, batch_size=1):
-        # ACE-Step DiT expects latent audio representations
-        # Model config: hidden_size=2048, in_channels=192, patch_size=2
-        # Generate synthetic noise latents matching the expected input shape
-        latents = torch.randn(batch_size, 192, 64, 64)
-        timesteps = torch.randint(0, 1000, (batch_size,))
-        # Conditioning embedding (text encoder output)
-        encoder_hidden_states = torch.randn(batch_size, 77, 2048)
-        return latents, timesteps, encoder_hidden_states
+        seq_len = 64
+        enc_seq_len = 32
+        hidden_dim = 64
+        context_dim = 128
+        encoder_dim = 2048
+        hidden_states = torch.randn(batch_size, seq_len, hidden_dim)
+        timestep = torch.rand(batch_size)
+        timestep_r = torch.rand(batch_size)
+        attention_mask = torch.ones(batch_size, seq_len, dtype=torch.long)
+        encoder_hidden_states = torch.randn(batch_size, enc_seq_len, encoder_dim)
+        encoder_attention_mask = torch.ones(batch_size, enc_seq_len, dtype=torch.long)
+        context_latents = torch.randn(batch_size, seq_len, context_dim)
+        return (
+            hidden_states,
+            timestep,
+            timestep_r,
+            attention_mask,
+            encoder_hidden_states,
+            encoder_attention_mask,
+            context_latents,
+        )
