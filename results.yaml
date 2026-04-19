@@ -1,0 +1,5 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[magnum/pytorch-Magnum_v4_12B-single_device-inference]"
+  status: "PASS"
+  date: "20260419_200054"
+  branch: "ip-172-31-22-17-tt-xla-dev/ubuntu/hf-bringup-range-2000-580-5"
