@@ -87,12 +87,14 @@ class ModelLoader(ForgeModel):
         self._transformer.eval()
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare sample inputs for the diffusion transformer.
 
         Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         batch_size = kwargs.get("batch_size", 1)
 
         # From model config: in_channels=64 (img_in linear input dimension)
@@ -111,7 +113,7 @@ class ModelLoader(ForgeModel):
         )
         encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
         timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
-        img_shapes = [(frame, height, width)] * batch_size
+        img_shapes = [[(frame, height, width)]] * batch_size
 
         return {
             "hidden_states": hidden_states,
