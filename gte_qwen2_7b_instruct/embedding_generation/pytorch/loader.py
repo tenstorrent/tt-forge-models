@@ -6,7 +6,7 @@ GTE-Qwen2-7B-instruct model loader implementation for sentence embedding generat
 """
 
 import torch
-from transformers import AutoConfig, AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -72,13 +72,7 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        config = AutoConfig.from_pretrained(
-            pretrained_model_name, trust_remote_code=True
-        )
-        if not hasattr(config, "rope_theta") and hasattr(config, "rope_parameters"):
-            config.rope_theta = config.rope_parameters.get("rope_theta", 1000000.0)
-
-        model_kwargs = {"trust_remote_code": True, "config": config}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
