@@ -16,6 +16,8 @@ from typing import Optional, Dict, Any
 
 import torch
 from diffusers import DiffusionPipeline
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -87,12 +89,16 @@ class ModelLoader(ForgeModel):
             trust_remote_code=True,
         )
 
-        # Load and fuse distill LoRA weights
+        # Load LoRA weights with key fix for double-underscore prefix bug
         adapter_id = self._variant_config.pretrained_model_name
-        self.pipeline.load_lora_weights(
-            adapter_id,
-            weight_name="Z-Image-Fun-Lora-Distill-8-Steps-2603.safetensors",
-        )
+        weight_name = "Z-Image-Fun-Lora-Distill-8-Steps-2603.safetensors"
+        lora_path = hf_hub_download(adapter_id, weight_name)
+        lora_state_dict = load_file(lora_path)
+        lora_state_dict = {
+            k.replace("lora_unet__", "lora_unet_"): v
+            for k, v in lora_state_dict.items()
+        }
+        self.pipeline.load_lora_weights(lora_state_dict)
         self.pipeline.fuse_lora(lora_scale=0.8)
 
         self.pipeline.to("cpu")
