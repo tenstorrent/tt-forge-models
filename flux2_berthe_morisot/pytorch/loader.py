@@ -12,6 +12,7 @@ Available variants:
 - BERTHE_MORISOT: Berthe Morisot style LoRA applied to FLUX.2-dev
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -78,16 +79,19 @@ class ModelLoader(ForgeModel):
             Pipeline with LoRA weights loaded.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
+        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
 
         self.pipeline = AutoPipelineForText2Image.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
+            token=token,
             **kwargs,
         )
 
         self.pipeline.load_lora_weights(
             LORA_REPO,
             weight_name=LORA_WEIGHT_NAME,
+            token=token,
         )
 
         return self.pipeline
