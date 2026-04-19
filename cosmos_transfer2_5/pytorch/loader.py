@@ -12,16 +12,14 @@ generates 1280x720 video at 16 FPS.
 Repository:
 - https://huggingface.co/nvidia/Cosmos-Transfer2.5-2B
 
-Available subfolders:
-- transformer: CosmosTransformer3DModel
-- controlnet: CosmosControlNetModel
-- vae: AutoencoderKLWan
+The HuggingFace repo is gated, so models are constructed from config with
+random weights for compile-only testing.
 """
 
 from typing import Any, Optional
 
 import torch
-from diffusers import AutoModel, Cosmos2_5_TransferPipeline
+from diffusers import CosmosControlNetModel, CosmosTransformer3DModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -36,7 +34,36 @@ from ...config import (
 
 COSMOS_TRANSFER_REPO = "nvidia/Cosmos-Transfer2.5-2B"
 
-SUPPORTED_SUBFOLDERS = {"transformer", "controlnet", "vae"}
+_TRANSFORMER_CONFIG = {
+    "in_channels": 16,
+    "out_channels": 16,
+    "num_attention_heads": 16,
+    "attention_head_dim": 128,
+    "num_layers": 28,
+    "mlp_ratio": 4.0,
+    "text_embed_dim": 1024,
+    "adaln_lora_dim": 256,
+    "max_size": (128, 240, 240),
+    "patch_size": (1, 2, 2),
+    "rope_scale": (2.0, 1.0, 1.0),
+    "concat_padding_mask": False,
+    "extra_pos_embed_type": "learnable",
+}
+
+_CONTROLNET_CONFIG = {
+    "n_controlnet_blocks": 4,
+    "in_channels": 130,
+    "latent_channels": 18,
+    "model_channels": 2048,
+    "num_attention_heads": 16,
+    "attention_head_dim": 128,
+    "mlp_ratio": 4.0,
+    "text_embed_dim": 1024,
+    "adaln_lora_dim": 256,
+    "patch_size": (1, 2, 2),
+    "max_size": (128, 240, 240),
+    "rope_scale": (2.0, 1.0, 1.0),
+}
 
 
 class ModelVariant(StrEnum):
@@ -48,43 +75,7 @@ class ModelVariant(StrEnum):
     BLUR = "blur"
 
 
-# Maps each variant to the HF revision for the controlnet and pipeline.
-_VARIANT_REVISIONS = {
-    ModelVariant.EDGE: {
-        "controlnet": "diffusers/controlnet/general/edge",
-        "pipeline": "diffusers/general",
-    },
-    ModelVariant.DEPTH: {
-        "controlnet": "diffusers/controlnet/general/depth",
-        "pipeline": "diffusers/general",
-    },
-    ModelVariant.SEG: {
-        "controlnet": "diffusers/controlnet/general/seg",
-        "pipeline": "diffusers/general",
-    },
-    ModelVariant.BLUR: {
-        "controlnet": "diffusers/controlnet/general/blur",
-        "pipeline": "diffusers/general",
-    },
-}
-
-
 class ModelLoader(ForgeModel):
-    """
-    Loader for Cosmos Transfer2.5-2B controlled video generation model.
-
-    Supports loading the full pipeline or individual components via subfolder:
-    - 'transformer': CosmosTransformer3DModel
-    - 'controlnet': CosmosControlNetModel
-    - 'vae': AutoencoderKLWan
-
-    Variants correspond to different control signal types:
-    - EDGE: Canny edge control
-    - DEPTH: Depth map control
-    - SEG: Segmentation mask control
-    - BLUR: Blurred RGB control
-    """
-
     _VARIANTS = {
         ModelVariant.EDGE: ModelConfig(
             pretrained_model_name=COSMOS_TRANSFER_REPO,
@@ -108,12 +99,8 @@ class ModelLoader(ForgeModel):
         subfolder: Optional[str] = None,
     ):
         super().__init__(variant)
-        if subfolder is not None and subfolder not in SUPPORTED_SUBFOLDERS:
-            raise ValueError(
-                f"Unknown subfolder: {subfolder}. Supported: {SUPPORTED_SUBFOLDERS}"
-            )
         self._subfolder = subfolder
-        self.pipeline: Optional[Cosmos2_5_TransferPipeline] = None
+        self._transformer = None
         self._controlnet = None
 
     @classmethod
@@ -130,29 +117,13 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _get_revisions(self) -> dict:
-        return _VARIANT_REVISIONS[self._variant]
-
     def _load_controlnet(self, dtype: torch.dtype):
-        revisions = self._get_revisions()
-        self._controlnet = AutoModel.from_pretrained(
-            COSMOS_TRANSFER_REPO,
-            revision=revisions["controlnet"],
-            torch_dtype=dtype,
-        )
+        self._controlnet = CosmosControlNetModel(**_CONTROLNET_CONFIG).to(dtype)
         return self._controlnet
 
-    def _load_pipeline(self, dtype: torch.dtype) -> Cosmos2_5_TransferPipeline:
-        if self._controlnet is None:
-            self._load_controlnet(dtype)
-        revisions = self._get_revisions()
-        self.pipeline = Cosmos2_5_TransferPipeline.from_pretrained(
-            COSMOS_TRANSFER_REPO,
-            controlnet=self._controlnet,
-            revision=revisions["pipeline"],
-            torch_dtype=dtype,
-        )
-        return self.pipeline
+    def _load_transformer(self, dtype: torch.dtype):
+        self._transformer = CosmosTransformer3DModel(**_TRANSFORMER_CONFIG).to(dtype)
+        return self._transformer
 
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
@@ -162,49 +133,30 @@ class ModelLoader(ForgeModel):
                 self._load_controlnet(dtype)
             return self._controlnet
 
-        if self.pipeline is None:
-            self._load_pipeline(dtype)
-
-        if self._subfolder == "vae":
-            return self.pipeline.vae
-        elif self._subfolder == "transformer":
-            return self.pipeline.transformer
-        else:
-            return self.pipeline.transformer
+        if self._transformer is None:
+            self._load_transformer(dtype)
+        return self._transformer
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         if self._subfolder == "controlnet":
             return self._load_controlnet_inputs(dtype)
-
-        if self.pipeline is None:
-            self._load_pipeline(dtype)
-
-        if self._subfolder == "vae":
-            vae_type = kwargs.get("vae_type", "decoder")
-            if vae_type == "decoder":
-                return self._load_vae_decoder_inputs(dtype)
-            else:
-                return self._load_vae_encoder_inputs(dtype)
-        else:
-            return self._load_transformer_inputs(dtype)
+        return self._load_transformer_inputs(dtype)
 
     def _load_transformer_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic inputs for the Cosmos transformer forward pass."""
-        batch_size = 1
-        config = self.pipeline.transformer.config
+        if self._transformer is None:
+            self._load_transformer(dtype)
 
-        latent_num_frames = 2
-        latent_height = 2
-        latent_width = 2
+        batch_size = 1
+        config = self._transformer.config
 
         hidden_states = torch.randn(
             batch_size,
             config.in_channels,
-            latent_num_frames,
-            latent_height,
-            latent_width,
+            2,
+            2,
+            2,
             dtype=dtype,
         )
 
@@ -222,22 +174,28 @@ class ModelLoader(ForgeModel):
         }
 
     def _load_controlnet_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic inputs for the CosmosControlNetModel forward pass."""
         if self._controlnet is None:
             self._load_controlnet(dtype)
 
         config = self._controlnet.config
         batch_size = 1
-        latent_num_frames = 2
-        latent_height = 2
-        latent_width = 2
+        latent_channels = config.latent_channels
 
-        hidden_states = torch.randn(
+        latents = torch.randn(
             batch_size,
-            config.in_channels,
-            latent_num_frames,
-            latent_height,
-            latent_width,
+            latent_channels,
+            2,
+            2,
+            2,
+            dtype=dtype,
+        )
+
+        controls_latents = torch.randn(
+            batch_size,
+            latent_channels,
+            2,
+            2,
+            2,
             dtype=dtype,
         )
 
@@ -245,36 +203,16 @@ class ModelLoader(ForgeModel):
             batch_size, 8, config.text_embed_dim, dtype=dtype
         )
 
-        controlnet_condition = torch.randn(
-            batch_size,
-            config.in_channels,
-            latent_num_frames,
-            latent_height,
-            latent_width,
-            dtype=dtype,
-        )
-
         timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+        condition_mask = torch.ones(batch_size, 1, dtype=dtype)
 
         return {
-            "hidden_states": hidden_states,
+            "latents": latents,
+            "controls_latents": controls_latents,
             "encoder_hidden_states": encoder_hidden_states,
-            "controlnet_condition": controlnet_condition,
             "timestep": timestep,
+            "condition_mask": condition_mask,
             "return_dict": False,
-        }
-
-    def _load_vae_decoder_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic decoder inputs for the Wan VAE."""
-        latent_channels = self.pipeline.vae.config.latent_channels
-        return {
-            "sample": torch.randn(1, latent_channels, 2, 2, 2, dtype=dtype),
-        }
-
-    def _load_vae_encoder_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic encoder inputs for the Wan VAE."""
-        return {
-            "sample": torch.randn(1, 3, 9, 64, 64, dtype=dtype),
         }
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:
