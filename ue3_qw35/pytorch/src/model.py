@@ -22,6 +22,7 @@ def _patch_vision_pipeline(model, saved_inputs):
 
     grid_thw_vals = saved_inputs["image_grid_thw"].tolist()
     input_ids_vals = saved_inputs["input_ids"].tolist()
+    attn_mask_vals = saved_inputs["attention_mask"].tolist()
 
     visual = inner.visual
     original_visual_fwd = visual.forward
@@ -67,14 +68,22 @@ def _patch_vision_pipeline(model, saved_inputs):
     original_c3d = inner.compute_3d_position_ids
 
     @torch.compiler.disable
-    def patched_compute_3d_position_ids(input_ids=None, image_grid_thw=None, **kwargs):
+    def patched_compute_3d_position_ids(
+        input_ids=None, image_grid_thw=None, attention_mask=None, **kwargs
+    ):
         cpu_ids = torch.tensor(input_ids_vals, dtype=torch.int64)
         cpu_grid_thw = (
             torch.tensor(grid_thw_vals, dtype=torch.int64)
             if image_grid_thw is not None
             else None
         )
-        return original_c3d(input_ids=cpu_ids, image_grid_thw=cpu_grid_thw, **kwargs)
+        cpu_mask = torch.tensor(attn_mask_vals, dtype=torch.int64)
+        return original_c3d(
+            input_ids=cpu_ids,
+            image_grid_thw=cpu_grid_thw,
+            attention_mask=cpu_mask,
+            **kwargs,
+        )
 
     inner.compute_3d_position_ids = patched_compute_3d_position_ids
 
