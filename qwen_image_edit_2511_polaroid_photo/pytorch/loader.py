@@ -67,11 +67,6 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the Qwen-Image-Edit-2511 pipeline with Polaroid Photo LoRA weights.
-
-        Returns:
-            DiffusionPipeline: The pipeline with LoRA adapter applied.
-        """
         dtype = dtype_override if dtype_override is not None else torch.float32
         self.pipeline = DiffusionPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -79,7 +74,7 @@ class ModelLoader(ForgeModel):
             **kwargs,
         )
         self.pipeline.load_lora_weights(LORA_REPO_ID)
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, **kwargs) -> Any:
         """Load sample inputs for the image editing pipeline.
