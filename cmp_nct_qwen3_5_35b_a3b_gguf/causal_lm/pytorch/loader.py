@@ -110,6 +110,18 @@ def _patch_transformers_qwen35moe_gguf():
 _patch_transformers_qwen35moe_gguf()
 
 
+class _LogitsOnlyWrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.config = model.config
+
+    def forward(self, **kwargs):
+        kwargs["use_cache"] = False
+        out = self.model(**kwargs)
+        return out.logits if hasattr(out, "logits") else out[0]
+
+
 class ModelVariant(StrEnum):
     """Available CMP-NCT Qwen3.5 35B A3B GGUF model variants."""
 
@@ -185,7 +197,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"use_cache": False}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -211,11 +223,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
-        model.config.use_cache = False
-
         self.config = model.config
         self.model = model
-        return model
+
+        wrapped = _LogitsOnlyWrapper(model)
+        return wrapped
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
@@ -248,7 +260,6 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        inputs["use_cache"] = False
         return inputs
 
     def get_mesh_config(self, num_devices: int):
