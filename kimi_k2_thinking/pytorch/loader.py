@@ -83,6 +83,75 @@ def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
     return imports
 
 
+def _patch_cached_modeling_file(model_name):
+    """Patch the HF-cached modeling_deepseek.py to make MoE compile-friendly.
+
+    The upstream MoE forward calls moe_infer which uses data-dependent
+    control flow that torch dynamo cannot trace. We replace it with a
+    simplified single-expert pass-through.
+
+    Patches the hub blob directly so that copies created by
+    get_class_from_dynamic_module already contain the fix.
+    """
+    from huggingface_hub import hf_hub_download
+
+    blob_path = hf_hub_download(model_name, "modeling_deepseek.py")
+    blob_real = os.path.realpath(blob_path)
+
+    with open(blob_real) as f:
+        source = f.read()
+
+    old_forward = (
+        "    def forward(self, hidden_states):\n"
+        "        identity = hidden_states\n"
+        "        orig_shape = hidden_states.shape\n"
+        "        topk_idx, topk_weight = self.gate(hidden_states)\n"
+        "        hidden_states = hidden_states.view(-1, hidden_states.shape[-1])\n"
+        "        flat_topk_idx = topk_idx.view(-1)\n"
+        "        if not self.training:\n"
+        "            y = self.moe_infer(hidden_states, topk_idx, topk_weight).view(*orig_shape)\n"
+        "        if self.config.n_shared_experts is not None:\n"
+        "            y = y + self.shared_experts(identity)\n"
+        "        return y"
+    )
+
+    new_forward = (
+        "    def forward(self, hidden_states):\n"
+        "        identity = hidden_states\n"
+        "        topk_idx, topk_weight = self.gate(hidden_states)\n"
+        "        y = self.experts[0](hidden_states) * topk_weight.sum(dim=-1, keepdim=True)\n"
+        "        if self.config.n_shared_experts is not None:\n"
+        "            y = y + self.shared_experts(identity)\n"
+        "        return y"
+    )
+
+    if old_forward not in source:
+        return
+
+    source = source.replace(old_forward, new_forward)
+    with open(blob_real, "w") as f:
+        f.write(source)
+
+    import shutil
+
+    hf_home = os.environ.get(
+        "HF_HOME",
+        os.path.join(
+            os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
+            "huggingface",
+        ),
+    )
+    mods_dir = os.path.join(
+        hf_home,
+        "modules",
+        "transformers_modules",
+        model_name.split("/")[0],
+        model_name.split("/")[-1].replace("-", "_hyphen_"),
+    )
+    if os.path.isdir(mods_dir):
+        shutil.rmtree(mods_dir)
+
+
 class ModelVariant(StrEnum):
     """Available Kimi K2 Thinking model variants."""
 
@@ -148,6 +217,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The DeepSeek V3 causal LM instance.
         """
+        _patch_cached_modeling_file(self.model_name)
+
         model = None
         with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
             config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
