@@ -38,11 +38,11 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINY_RANDOM: LLMModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/tiny-random-internlm",
-            max_length=128,
+            max_length=32,
         ),
         ModelVariant.KATUNI4KA_TINY_RANDOM: LLMModelConfig(
             pretrained_model_name="katuni4ka/tiny-random-internlm",
-            max_length=128,
+            max_length=32,
         ),
         ModelVariant.INTERNLM2_5_7B_CHAT_1M: LLMModelConfig(
             pretrained_model_name="internlm/internlm2_5-7b-chat-1m",
