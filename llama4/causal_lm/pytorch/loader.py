@@ -96,6 +96,7 @@ class ModelLoader(ForgeModel):
             config.text_config.num_hidden_layers = self.num_layers
         if hasattr(config, "quantization_config"):
             delattr(config, "quantization_config")
+        config.use_cache = False
         model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
