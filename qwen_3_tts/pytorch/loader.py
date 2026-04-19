@@ -95,12 +95,14 @@ class ModelLoader(ForgeModel):
         AutoConfig.register("qwen3_tts", Qwen3TTSConfig)
         AutoModel.register(Qwen3TTSConfig, Qwen3TTSForConditionalGeneration)
 
+        dtype = dtype_override or torch.float32
         full_model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
-            dtype=dtype_override or torch.float32,
+            torch_dtype=dtype,
         )
         model = Qwen3TTSTalkerWrapper(full_model.talker)
+        model.to(dtype)
         model.eval()
         return model
 
