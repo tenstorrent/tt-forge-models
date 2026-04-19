@@ -14,6 +14,7 @@ Repository:
 """
 import torch
 from diffusers import WanTransformer3DModel
+from diffusers.quantizers import GGUFQuantizationConfig
 from typing import Optional
 
 from ...base import ForgeModel
@@ -27,10 +28,7 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_BASE_URL = (
-    "https://huggingface.co/vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF"
-    "/blob/main"
-)
+REPO_ID = "vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF"
 
 
 class ModelVariant(StrEnum):
@@ -78,20 +76,16 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
-
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
         self.transformer = WanTransformer3DModel.from_single_file(
-            gguf_url,
-            **load_kwargs,
+            REPO_ID,
+            quantization_config=quantization_config,
+            filename=gguf_file,
+            torch_dtype=compute_dtype,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
