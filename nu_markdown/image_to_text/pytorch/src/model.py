@@ -4,15 +4,6 @@
 
 import torch
 import torch._dynamo
-from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
-    Qwen2_5_VisionTransformerPretrainedModel,
-    Qwen2_5_VLModel,
-)
-
-Qwen2_5_VisionTransformerPretrainedModel.forward = torch._dynamo.disable(
-    Qwen2_5_VisionTransformerPretrainedModel.forward
-)
-Qwen2_5_VLModel.forward = torch._dynamo.disable(Qwen2_5_VLModel.forward)
 
 
 class Wrapper(torch.nn.Module):
@@ -20,12 +11,18 @@ class Wrapper(torch.nn.Module):
         super().__init__()
         self.model = model
 
-    def forward(self, input_ids, attention_mask, pixel_values, image_grid_thw):
+    @torch._dynamo.disable
+    def _run_model(self, input_ids, attention_mask, pixel_values, image_grid_thw):
         inputs = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "pixel_values": pixel_values,
             "image_grid_thw": image_grid_thw,
         }
-        outputs = self.model(**inputs)
-        return outputs.logits
+        return self.model.model(**inputs)
+
+    def forward(self, input_ids, attention_mask, pixel_values, image_grid_thw):
+        outputs = self._run_model(input_ids, attention_mask, pixel_values, image_grid_thw)
+        hidden_states = outputs.last_hidden_state
+        logits = self.model.lm_head(hidden_states)
+        return logits
