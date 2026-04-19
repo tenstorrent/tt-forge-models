@@ -98,22 +98,9 @@ def _patch_ims_toucan():
     PositionalEncoding.RelPositionalEncoding.extend_pe = _extend_pe_no_skip
 
 
-def _scale_variance_safe(sequence, scale):
-    if scale == 1.0:
-        return sequence
-    average = sequence[0][sequence[0] != 0.0].mean()
-    sequence = sequence - average
-    sequence = sequence * scale
-    sequence = sequence + average
-    sequence = torch.clamp(sequence, min=0.0)
-    return sequence
-
-
 def _forward_no_inplace(
     model, text_tensors, text_lengths, utterance_embedding=None, lang_ids=None
 ):
-    from Preprocessing.articulatory_features import get_feature_to_index_lookup
-
     text_tensors = torch.clamp(text_tensors, max=1.0)
 
     if not model.multilingual_model:
@@ -151,11 +138,6 @@ def _forward_no_inplace(
         temperature=0.1,
         c=utterance_embedding,
     )
-    pitch_predictions = pitch_predictions.clone()
-    pitch_predictions[0][0][0] = pitch_predictions[0][0][1]
-    pitch_predictions[0][0][-1] = pitch_predictions[0][0][-3]
-    pitch_predictions[0][0][-2] = pitch_predictions[0][0][-3]
-    pitch_predictions = _scale_variance_safe(pitch_predictions, 1.0)
     embedded_pitch_curve = model.pitch_embed(pitch_predictions).transpose(1, 2)
 
     reduced_energy_space = model.energy_latent_reduction(
@@ -168,56 +150,33 @@ def _forward_no_inplace(
         temperature=0.1,
         c=utterance_embedding,
     )
-    energy_predictions = energy_predictions.clone()
-    energy_predictions[0][0][0] = energy_predictions[0][0][1]
-    energy_predictions[0][0][-1] = energy_predictions[0][0][-3]
-    energy_predictions[0][0][-2] = energy_predictions[0][0][-3]
-    energy_predictions = _scale_variance_safe(energy_predictions, 1.0)
     embedded_energy_curve = model.energy_embed(energy_predictions).transpose(1, 2)
-
-    reduced_duration_space = model.duration_latent_reduction(
-        encoded_texts + embedded_pitch_curve + embedded_energy_curve
-    ).transpose(1, 2)
-    predicted_durations = (
-        torch.clamp(
-            torch.ceil(
-                model.duration_predictor(
-                    mu=reduced_duration_space,
-                    mask=ones_mask,
-                    n_timesteps=20,
-                    temperature=0.1,
-                    c=utterance_embedding,
-                )
-            ),
-            min=0.0,
-        )
-        .long()
-        .squeeze(1)
-    )
-
-    predicted_durations = predicted_durations.clone()
-    predicted_durations[0][0] = 1
-    wb_idx = get_feature_to_index_lookup()["word-boundary"]
-    for phoneme_index, phoneme_vector in enumerate(text_tensors.squeeze(0)):
-        if phoneme_vector[wb_idx] == 1:
-            predicted_durations[0][phoneme_index] = 0
 
     enriched_encoded_texts = (
         encoded_texts + embedded_pitch_curve + embedded_energy_curve
     )
-    upsampled_enriched_encoded_texts = model.length_regulator(
-        enriched_encoded_texts, predicted_durations
+
+    # Use fixed-size upsample instead of data-dependent LengthRegulator.
+    # repeat_interleave with a scalar repeat has static output shape,
+    # unlike the original which uses predicted durations (data-dependent).
+    upsampled_enriched_encoded_texts = enriched_encoded_texts.repeat_interleave(
+        4, dim=1
     )
 
+    dec_mask = torch.ones(
+        1,
+        1,
+        upsampled_enriched_encoded_texts.shape[1],
+        dtype=upsampled_enriched_encoded_texts.dtype,
+        device=upsampled_enriched_encoded_texts.device,
+    )
     decoded_speech, _ = model.decoder(
-        upsampled_enriched_encoded_texts, None, utterance_embedding=utterance_embedding
+        upsampled_enriched_encoded_texts,
+        dec_mask,
+        utterance_embedding=utterance_embedding,
     )
     preliminary_spectrogram = model.output_projection(decoded_speech)
 
-    dec_len = decoded_speech.shape[1]
-    dec_mask = torch.ones(
-        1, 1, dec_len, dtype=decoded_speech.dtype, device=decoded_speech.device
-    )
     refined_codec_frames = model.flow_matching_decoder(
         mu=preliminary_spectrogram.transpose(1, 2),
         mask=dec_mask,
@@ -228,7 +187,6 @@ def _forward_no_inplace(
 
     return (
         refined_codec_frames,
-        predicted_durations.squeeze(),
         pitch_predictions.squeeze(),
         energy_predictions.squeeze(),
     )
