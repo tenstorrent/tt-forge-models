@@ -170,8 +170,12 @@ class ModelLoader(ForgeModel):
                     nn.Linear(hidden_dim, output_class_num),
                 )
 
-            def forward(self, input_values):
-                outputs = self.backbone_model(input_values, output_hidden_states=True)
+            def forward(self, input_values, attention_mask=None):
+                outputs = self.backbone_model(
+                    input_values,
+                    attention_mask=attention_mask,
+                    output_hidden_states=True,
+                )
                 hidden_states = torch.stack(outputs.hidden_states, dim=0)
 
                 norm_weights = F.softmax(self.weights, dim=0)
