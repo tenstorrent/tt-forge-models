@@ -9,7 +9,7 @@ Repository:
 """
 import torch
 from diffusers import QwenImageTransformer2DModel
-from diffusers.quantizers import GGUFQuantizationConfig
+from diffusers.quantizers.quantization_config import GGUFQuantizationConfig
 from typing import Optional
 
 from ...base import ForgeModel
