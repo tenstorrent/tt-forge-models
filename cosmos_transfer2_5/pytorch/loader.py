@@ -18,6 +18,7 @@ Available subfolders:
 - vae: AutoencoderKLWan
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -133,12 +134,16 @@ class ModelLoader(ForgeModel):
     def _get_revisions(self) -> dict:
         return _VARIANT_REVISIONS[self._variant]
 
+    def _get_token(self) -> Optional[str]:
+        return os.environ.get("HF_TOKEN")
+
     def _load_controlnet(self, dtype: torch.dtype):
         revisions = self._get_revisions()
         self._controlnet = AutoModel.from_pretrained(
             COSMOS_TRANSFER_REPO,
             revision=revisions["controlnet"],
             torch_dtype=dtype,
+            token=self._get_token(),
         )
         return self._controlnet
 
@@ -151,6 +156,7 @@ class ModelLoader(ForgeModel):
             controlnet=self._controlnet,
             revision=revisions["pipeline"],
             torch_dtype=dtype,
+            token=self._get_token(),
         )
         return self.pipeline
 
