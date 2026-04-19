@@ -77,19 +77,43 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _convert_fp8_state_dict(state_dict: dict) -> dict:
+        new_sd = {}
+        for key, value in state_dict.items():
+            new_key = key
+            if key.startswith("x_embedder."):
+                new_key = key.replace("x_embedder.", "all_x_embedder.2-1.", 1)
+            elif key.startswith("final_layer."):
+                new_key = key.replace("final_layer.", "all_final_layer.2-1.", 1)
+
+            if ".attention.qkv.weight" in new_key:
+                prefix = new_key.rsplit(".attention.qkv.weight", 1)[0]
+                q, k, v = value.chunk(3, dim=0)
+                new_sd[f"{prefix}.attention.to_q.weight"] = q
+                new_sd[f"{prefix}.attention.to_k.weight"] = k
+                new_sd[f"{prefix}.attention.to_v.weight"] = v
+                continue
+
+            new_key = new_key.replace(".attention.q_norm.", ".attention.norm_q.")
+            new_key = new_key.replace(".attention.k_norm.", ".attention.norm_k.")
+            new_key = new_key.replace(
+                ".attention.out.weight", ".attention.to_out.0.weight"
+            )
+            new_sd[new_key] = value
+        return new_sd
+
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
-        """Load the base Z-Image-Turbo pipeline and swap in FP8 weights."""
-        # Load base pipeline
         self._pipe = ZImagePipeline.from_pretrained(
             BASE_REPO_ID,
             torch_dtype=dtype,
             low_cpu_mem_usage=False,
         )
 
-        # Download and load the FP8 quantized transformer weights
         filename = VARIANT_FILENAMES[self._variant]
         fp8_path = hf_hub_download(repo_id=REPO_ID, filename=filename)
         state_dict = load_file(fp8_path)
+        state_dict = self._convert_fp8_state_dict(state_dict)
         self._pipe.transformer.load_state_dict(state_dict)
         self._pipe.transformer.eval()
         return self._pipe
