@@ -76,7 +76,11 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
+        model_kwargs = {
+            "return_dict": False,
+            "torch_dtype": torch.float32,
+            "attn_implementation": "eager",
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -106,4 +110,4 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def unpack_forward_output(self, fwd_output) -> torch.Tensor:
-        return fwd_output.last_hidden_state
+        return fwd_output[0]
