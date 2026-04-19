@@ -2,16 +2,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""
-Wan 2.1 VAE model loader implementation.
-
-Loads the ai-toolkit/wan2.1-vae AutoencoderKLWan model for video/image
-encoding and decoding. This VAE uses 16 latent channels with 8x spatial
-and 4x temporal compression.
-
-Available variants:
-- DEFAULT: Standard Wan 2.1 VAE
-"""
+"""Wan 2.1 VAE model loader."""
 
 from typing import Any, Optional
 
@@ -31,14 +22,10 @@ from ...config import (
 
 REPO_ID = "ai-toolkit/wan2.1-vae"
 
-# Wan 2.1 VAE uses 16 latent channels (z_dim=16)
-LATENT_CHANNELS = 16
-
-# Small test dimensions for VAE decoder inputs
-# Wan VAE compression: 4x temporal, 8x spatial
-LATENT_HEIGHT = 8
-LATENT_WIDTH = 8
-LATENT_DEPTH = 1  # single frame
+IN_CHANNELS = 3
+SAMPLE_HEIGHT = 8
+SAMPLE_WIDTH = 8
+SAMPLE_DEPTH = 1
 
 
 class ModelVariant(StrEnum):
@@ -75,11 +62,6 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the Wan 2.1 VAE model.
-
-        Returns:
-            AutoencoderKLWan instance.
-        """
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._vae is None:
             self._vae = AutoencoderKLWan.from_pretrained(
@@ -91,19 +73,13 @@ class ModelLoader(ForgeModel):
             self._vae = self._vae.to(dtype=dtype_override)
         return self._vae
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare latent inputs for the VAE decoder.
-
-        Returns:
-            Latent tensor of shape [batch, 16, depth, height, width].
-        """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        # [batch, channels, time, height, width]
+    def load_inputs(self, dtype_override: Optional[torch.dtype] = None) -> Any:
+        dtype = dtype_override if dtype_override is not None else torch.float32
         return torch.randn(
             1,
-            LATENT_CHANNELS,
-            LATENT_DEPTH,
-            LATENT_HEIGHT,
-            LATENT_WIDTH,
+            IN_CHANNELS,
+            SAMPLE_DEPTH,
+            SAMPLE_HEIGHT,
+            SAMPLE_WIDTH,
             dtype=dtype,
         )
