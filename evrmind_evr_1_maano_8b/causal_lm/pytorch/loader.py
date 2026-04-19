@@ -11,6 +11,17 @@ import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
+
+
+def _patch_gguf_unknown_quant_type():
+    """Register unknown GGML quantization type 1024 so the gguf reader can parse this checkpoint."""
+    from gguf import GGMLQuantizationType
+
+    if 1024 not in GGMLQuantizationType._value2member_map_:
+        GGMLQuantizationType._value2member_map_[1024] = GGMLQuantizationType.F32
+
+
+_patch_gguf_unknown_quant_type()
 from ....config import (
     Framework,
     LLMModelConfig,
