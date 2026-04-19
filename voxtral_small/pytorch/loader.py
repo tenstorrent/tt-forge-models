@@ -91,54 +91,35 @@ class ModelLoader(ForgeModel):
             ProcessorMixin.__repr__ = original_repr
         return self._processor
 
-    @staticmethod
-    def _patch_chat_template_kwargs():
-        from transformers.processing_utils import (
-            AllKwargsForChatTemplate,
-            ProcessingKwargs,
-        )
-
-        if "mm_load_kwargs" not in AllKwargsForChatTemplate.__annotations__:
-            AllKwargsForChatTemplate.__annotations__[
-                "mm_load_kwargs"
-            ] = ProcessingKwargs
-
     def load_inputs(self, dtype_override=None):
+        import torch
+
         if self._processor is None:
             self._load_processor()
         if self._model is None:
             self.load_model(dtype_override=dtype_override)
 
-        # Generate a synthetic 1-second audio waveform at the expected sampling rate
         sampling_rate = self._processor.feature_extractor.sampling_rate
-        duration_seconds = 1
-        audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
-            np.float32
-        )
+        audio_array = np.random.randn(sampling_rate).astype(np.float32)
 
-        conversation = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "audio", "audio": audio_array},
-                    {"type": "text", "text": "Transcribe this audio."},
-                ],
-            }
-        ]
+        input_features = self._processor.feature_extractor(
+            audio_array, sampling_rate=sampling_rate, return_tensors="pt"
+        )["input_features"]
 
-        self._patch_chat_template_kwargs()
-        inputs = self._processor.apply_chat_template(
-            conversation,
-            tokenize=True,
-            return_dict=True,
-            return_tensors="pt",
-            sampling_rate=sampling_rate,
+        audio_token_id = self._model.config.audio_token_id
+        text_ids = self._processor.tokenizer.encode(
+            "Transcribe this audio.", add_special_tokens=False
         )
+        token_ids = [self._processor.tokenizer.bos_token_id, audio_token_id] + text_ids
+        input_ids = torch.tensor([token_ids], dtype=torch.long)
+        attention_mask = torch.ones_like(input_ids)
 
         model_param = next(self._model.parameters())
         dtype = dtype_override or model_param.dtype
         device = model_param.device
 
-        inputs = inputs.to(device=device, dtype=dtype)
-
-        return inputs
+        return {
+            "input_ids": input_ids.to(device=device),
+            "input_features": input_features.to(device=device, dtype=dtype),
+            "attention_mask": attention_mask.to(device=device),
+        }
