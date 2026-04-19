@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LLAMA_3_2_3B_INSTRUCT_Q4F16_MLC: LLMModelConfig(
-            pretrained_model_name="meta-llama/Llama-3.2-3B-Instruct",
+            pretrained_model_name="unsloth/Llama-3.2-3B-Instruct",
             max_length=128,
         ),
     }
