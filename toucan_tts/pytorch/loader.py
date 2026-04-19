@@ -68,13 +68,14 @@ def _patch_ims_toucan():
     import functools
 
     from Modules.ToucanTTS import flow_matching, dit
+    from Modules.GeneralLayers import PositionalEncoding
 
     # Remove @torch.inference_mode() from CFMDecoder.forward
     # (conflicts with TT custom ops that need to set version_counter)
     orig_cfm_fwd = flow_matching.CFMDecoder.forward.__wrapped__
     flow_matching.CFMDecoder.forward = orig_cfm_fwd
 
-    # Patch RotaryPositionalEmbedding._build_cache to always rebuild
+    # Patch RotaryPositionalEmbeddings._build_cache to always rebuild
     # (prevents device mismatch between cached CPU tensors and XLA tensors)
     orig_build_cache = dit.RotaryPositionalEmbeddings._build_cache
 
@@ -84,6 +85,17 @@ def _patch_ims_toucan():
         orig_build_cache(self, x)
 
     dit.RotaryPositionalEmbeddings._build_cache = _build_cache_no_skip
+
+    # Patch RelPositionalEncoding.extend_pe to always rebuild
+    # (cached PE on CPU causes shape issues during XLA FakeTensor tracing)
+    orig_extend_pe = PositionalEncoding.RelPositionalEncoding.extend_pe
+
+    @functools.wraps(orig_extend_pe)
+    def _extend_pe_no_skip(self, x):
+        self.pe = None
+        orig_extend_pe(self, x)
+
+    PositionalEncoding.RelPositionalEncoding.extend_pe = _extend_pe_no_skip
 
 
 def _scale_variance_safe(sequence, scale):
@@ -119,20 +131,22 @@ def _forward_no_inplace(
                 [lang_embs, utterance_embedding], dim=1
             ).detach()
 
-    # Use None mask for encoder (fixed-length, no padding) and ones mask for predictors
-    encoded_texts, _ = model.encoder(
-        text_tensors, None, utterance_embedding=utterance_embedding, lang_ids=lang_ids
+    seq_len = text_tensors.shape[1]
+    ones_mask = torch.ones(
+        1, 1, seq_len, dtype=text_tensors.dtype, device=text_tensors.device
     )
 
-    seq_len = text_tensors.shape[1]
-    predictor_mask = torch.ones(
-        1, 1, seq_len, dtype=text_tensors.dtype, device=text_tensors.device
+    encoded_texts, _ = model.encoder(
+        text_tensors,
+        ones_mask,
+        utterance_embedding=utterance_embedding,
+        lang_ids=lang_ids,
     )
 
     reduced_pitch_space = model.pitch_latent_reduction(encoded_texts).transpose(1, 2)
     pitch_predictions = model.pitch_predictor(
         mu=reduced_pitch_space,
-        mask=predictor_mask,
+        mask=ones_mask,
         n_timesteps=20,
         temperature=0.1,
         c=utterance_embedding,
@@ -149,7 +163,7 @@ def _forward_no_inplace(
     ).transpose(1, 2)
     energy_predictions = model.energy_predictor(
         mu=reduced_energy_space,
-        mask=predictor_mask,
+        mask=ones_mask,
         n_timesteps=20,
         temperature=0.1,
         c=utterance_embedding,
@@ -169,7 +183,7 @@ def _forward_no_inplace(
             torch.ceil(
                 model.duration_predictor(
                     mu=reduced_duration_space,
-                    mask=predictor_mask,
+                    mask=ones_mask,
                     n_timesteps=20,
                     temperature=0.1,
                     c=utterance_embedding,
