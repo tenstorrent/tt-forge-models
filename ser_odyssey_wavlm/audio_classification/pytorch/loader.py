@@ -86,12 +86,15 @@ class ModelLoader(ForgeModel):
         import numpy as np
         import torch
 
-        # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         raw_wav = np.random.randn(sampling_rate * duration_seconds).astype(np.float32)
 
         mask = torch.ones(1, len(raw_wav))
         wavs = torch.tensor(raw_wav).unsqueeze(0)
+
+        if dtype_override is not None:
+            wavs = wavs.to(dtype_override)
+            mask = mask.to(dtype_override)
 
         return {"x": wavs, "mask": mask}
