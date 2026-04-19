@@ -96,15 +96,6 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model_kwargs = {
-            "trust_remote_code": True,
-            "_attn_implementation": "eager",
-            "low_cpu_mem_usage": True,
-            "torch_dtype": torch.bfloat16,
-        }
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
@@ -112,13 +103,13 @@ class ModelLoader(ForgeModel):
             config.text_config.num_hidden_layers = self.num_layers
         else:
             config.text_config.num_hidden_layers = 2
-        model_kwargs["config"] = config
+        config._attn_implementation = "eager"
 
-        model_kwargs |= kwargs
-
-        model = Llama4ForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        model = Llama4ForConditionalGeneration(config)
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
+        else:
+            model = model.to(dtype=torch.bfloat16)
 
         model.eval()
         self.model = model
