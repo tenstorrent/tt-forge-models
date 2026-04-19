@@ -11,14 +11,7 @@ Available variants:
 - FLUX1_SCHNELL_Q4_0: Q4_0 quantized variant (~6.88 GB)
 """
 
-import importlib.util
 from typing import Optional
-
-import diffusers.utils.import_utils as _diffusers_import_utils
-
-if not _diffusers_import_utils._gguf_available:
-    if importlib.util.find_spec("gguf") is not None:
-        _diffusers_import_utils._gguf_available = True
 
 from ...base import ForgeModel
 from ...config import (
@@ -30,7 +23,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_flux_gguf_pipe, flux_schnell_preprocessing
 
 REPO_ID = "leejet/FLUX.1-schnell-gguf"
 BASE_MODEL = "black-forest-labs/FLUX.1-schnell"
@@ -80,6 +72,16 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The FLUX transformer model instance.
         """
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+
+        from .src.model_utils import load_flux_gguf_pipe
+
         if self.pipeline is None:
             self.pipeline = load_flux_gguf_pipe(REPO_ID, self.GGUF_FILE, BASE_MODEL)
 
@@ -94,6 +96,8 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors for the FLUX transformer model.
         """
+        from .src.model_utils import flux_schnell_preprocessing
+
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
 
