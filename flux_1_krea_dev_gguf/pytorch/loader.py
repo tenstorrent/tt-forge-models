@@ -16,7 +16,6 @@ Available variants:
 from typing import Optional
 
 import torch
-from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
 
 from ...base import ForgeModel
@@ -79,13 +78,11 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         gguf_file = _GGUF_FILES[self._variant]
-        repo_id = self._variant_config.pretrained_model_name
-        self.transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{gguf_file}",
-            quantization_config=quantization_config,
+        self.transformer = FluxTransformer2DModel.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            gguf_file=gguf_file,
             torch_dtype=compute_dtype,
         )
 
