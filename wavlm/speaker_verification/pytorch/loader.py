@@ -69,11 +69,14 @@ class ModelLoader(ForgeModel):
         return self._feature_extractor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import torch
         from transformers import WavLMForXVector
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        else:
+            model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
         model = WavLMForXVector.from_pretrained(
