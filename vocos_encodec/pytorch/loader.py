@@ -7,6 +7,8 @@ Vocos EnCodec 24kHz model loader implementation.
 Vocos is a fast neural vocoder that reconstructs audio waveforms from EnCodec tokens
 using spectral coefficient prediction and inverse STFT.
 """
+import os
+
 import torch
 import torch.nn as nn
 from typing import Optional
@@ -83,7 +85,37 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: Wrapped Vocos model that decodes features to audio.
         """
-        from vocos import Vocos
+        import sys
+
+        # The local tt_forge_models/encodec/ directory shadows the pip encodec
+        # package. Remove all shadowing path entries so vocos imports the real
+        # EncodecModel from the pip package.
+        shadow_dirs = set()
+        for p in list(sys.path):
+            candidate = os.path.join(p, "encodec", "__init__.py")
+            if os.path.isfile(candidate):
+                try:
+                    with open(candidate) as f:
+                        content = f.read()
+                    if "EncodecModel" not in content:
+                        shadow_dirs.add(p)
+                except OSError:
+                    pass
+
+        removed = []
+        for i in range(len(sys.path) - 1, -1, -1):
+            if sys.path[i] in shadow_dirs:
+                removed.append((i, sys.path.pop(i)))
+
+        for key in list(sys.modules):
+            if key == "encodec" or key.startswith("encodec."):
+                del sys.modules[key]
+
+        try:
+            from vocos import Vocos
+        finally:
+            for idx, entry in reversed(removed):
+                sys.path.insert(idx, entry)
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
