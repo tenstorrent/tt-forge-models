@@ -103,6 +103,7 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         config.use_cache = False
+        config._attn_implementation = "eager"
 
         base_model = Gemma3ForCausalLM(config)
         if dtype_override is not None:
