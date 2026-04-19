@@ -100,14 +100,16 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         self._ensure_tokenizer()
 
-        model_kwargs = {"use_cache": False, "trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name,
+        )
+        if hasattr(config, "auto_map"):
+            del config.auto_map
+
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                self._variant_config.pretrained_model_name,
-                trust_remote_code=True,
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+
+        model_kwargs = {"use_cache": False, "config": config}
 
         # GPTQ/AWQ variants need device_map="cpu" for CPU-based loading
         if self._variant in (ModelVariant.MINI_4K_GPTQ_4BIT, ModelVariant.MINI_4K_AWQ):
