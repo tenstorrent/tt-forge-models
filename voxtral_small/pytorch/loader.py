@@ -76,10 +76,19 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         from transformers import AutoProcessor
+        from transformers.processing_utils import ProcessorMixin
 
-        self._processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name,
-        )
+        # Work around transformers bug where from_pretrained eagerly evaluates
+        # f"Processor {processor}" which triggers deepcopy on the tokenizer,
+        # failing for Voxtral's special tokens.
+        original_repr = ProcessorMixin.__repr__
+        ProcessorMixin.__repr__ = lambda self: self.__class__.__name__
+        try:
+            self._processor = AutoProcessor.from_pretrained(
+                self._variant_config.pretrained_model_name,
+            )
+        finally:
+            ProcessorMixin.__repr__ = original_repr
         return self._processor
 
     def load_inputs(self, dtype_override=None):
