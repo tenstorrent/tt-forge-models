@@ -71,6 +71,7 @@ def _patch_vision_pipeline(model, saved_inputs):
     def patched_compute_3d_position_ids(
         input_ids=None, image_grid_thw=None, attention_mask=None, **kwargs
     ):
+        target_device = input_ids.device if input_ids is not None else "cpu"
         cpu_ids = torch.tensor(input_ids_vals, dtype=torch.int64)
         cpu_grid_thw = (
             torch.tensor(grid_thw_vals, dtype=torch.int64)
@@ -78,12 +79,18 @@ def _patch_vision_pipeline(model, saved_inputs):
             else None
         )
         cpu_mask = torch.tensor(attn_mask_vals, dtype=torch.int64)
-        return original_c3d(
+        result = original_c3d(
             input_ids=cpu_ids,
             image_grid_thw=cpu_grid_thw,
             attention_mask=cpu_mask,
             **kwargs,
         )
+        if isinstance(result, tuple):
+            return tuple(
+                r.to(target_device) if isinstance(r, torch.Tensor) else r
+                for r in result
+            )
+        return result
 
     inner.compute_3d_position_ids = patched_compute_3d_position_ids
 
