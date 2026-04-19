@@ -12,7 +12,7 @@ Available variants:
 - DISTILL_8_STEPS: alibaba-pai/Z-Image-Fun-Lora-Distill 8-step distilled LoRA
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 
 import torch
 from diffusers import DiffusionPipeline
@@ -127,18 +127,38 @@ class ModelLoader(ForgeModel):
 
         return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None) -> Dict[str, Any]:
-        """Load and return sample inputs for the Z-Image model.
-
-        Args:
-            prompt: Optional text prompt. Defaults to DEFAULT_PROMPT.
+    def load_inputs(self, **kwargs) -> Any:
+        """Load and return sample inputs for the Z-Image transformer.
 
         Returns:
-            dict: Input kwargs for the pipeline.
+            list: Positional args [latent_input_list, timestep, prompt_embeds]
+                  matching the transformer's forward(x, t, cap_feats) signature.
         """
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {
-            "prompt": prompt_value,
-            "guidance_scale": 1.0,
-            "num_inference_steps": 8,
-        }
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        height = 128
+        width = 128
+        prompt = self.DEFAULT_PROMPT
+
+        if self.pipeline is None:
+            self._load_pipeline(dtype)
+
+        prompt_embeds, _ = self.pipeline.encode_prompt(
+            prompt=prompt,
+            device="cpu",
+            do_classifier_free_guidance=False,
+        )
+
+        num_channels_latents = self.pipeline.transformer.in_channels
+        vae_scale = self.pipeline.vae_scale_factor * 2
+        latent_h = height // vae_scale
+        latent_w = width // vae_scale
+        latents = torch.randn(
+            1, num_channels_latents, latent_h, latent_w, dtype=torch.float32
+        )
+
+        timestep = torch.tensor([0.5], dtype=dtype)
+
+        latent_input = latents.to(dtype).unsqueeze(2)
+        latent_input_list = list(latent_input.unbind(dim=0))
+
+        return [latent_input_list, timestep, prompt_embeds]
