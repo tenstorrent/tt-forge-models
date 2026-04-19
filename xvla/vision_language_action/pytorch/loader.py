@@ -47,19 +47,74 @@ def _setup_policies_namespace() -> None:
 
 
 class XVLAInferenceWrapper(torch.nn.Module):
-    """Wraps XVLAPolicy to use predict_action_chunk (inference) instead of forward (training).
+    """torch.compile-friendly wrapper around XVLAModel for inference.
 
-    XVLAPolicy.forward() computes training loss; for inference we use predict_action_chunk.
-    See: https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/xvla/modeling_xvla.py
+    Inlines generate_actions and forward_vlm to eliminate graph breaks
+    (self.eval(), .item()) and data-dependent boolean indexing that the
+    XLA/TT backend cannot handle.  All image views are assumed valid.
     """
 
     def __init__(self, policy):
         super().__init__()
-        self.policy = policy
+        self.xvla_model = policy.model
+        self.num_denoising_steps = policy.config.num_denoising_steps
 
-    def forward(self, batch: dict) -> torch.Tensor:
-        """Run inference via predict_action_chunk. Returns action tensor (B, n_steps, action_dim)."""
-        return self.policy.predict_action_chunk(batch)
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        image_input: torch.Tensor,
+        domain_id: torch.Tensor,
+        proprio: torch.Tensor,
+    ) -> torch.Tensor:
+        m = self.xvla_model
+        target_dtype = torch.bfloat16 if m.config.dtype == "bfloat16" else torch.float32
+        image_input = image_input.to(dtype=target_dtype)
+        proprio = proprio.to(dtype=target_dtype)
+
+        # Inline forward_vlm without mask checks / boolean indexing.
+        batch_size, num_views = image_input.shape[:2]
+        flat_images = image_input.flatten(0, 1)
+        image_feats = m.vlm._encode_image(flat_images)
+        tokens_per_view, hidden_dim = image_feats.shape[1:]
+        image_features = image_feats.view(
+            batch_size, num_views, tokens_per_view, hidden_dim
+        )
+
+        inputs_embeds = m.vlm.get_input_embeddings()(input_ids)
+        merged_embeds, attention_mask = m.vlm._merge_input_ids_with_image_features(
+            image_features[:, 0], inputs_embeds
+        )
+        enc_out = m.vlm.language_model.model.encoder(
+            attention_mask=attention_mask, inputs_embeds=merged_embeds
+        )[0]
+        aux_visual_inputs = image_features[:, 1:].reshape(batch_size, -1, hidden_dim)
+        enc = {"vlm_features": enc_out, "aux_visual_inputs": aux_visual_inputs}
+
+        # Inline denoising loop from generate_actions.
+        action_dim = m.dim_action
+        x1 = torch.randn(
+            batch_size,
+            m.chunk_size,
+            action_dim,
+            device=proprio.device,
+            dtype=target_dtype,
+        )
+        action = torch.zeros_like(x1)
+        steps = max(1, int(self.num_denoising_steps))
+        for i in range(steps, 0, -1):
+            t = torch.full(
+                (batch_size,), i / steps, device=proprio.device, dtype=target_dtype
+            )
+            x_t = x1 * t.view(-1, 1, 1) + action * (1 - t).view(-1, 1, 1)
+            proprio_m, x_t_m = m.action_space.preprocess(proprio, x_t)
+            action = m.transformer(
+                domain_id=domain_id,
+                action_with_noise=x_t_m,
+                proprio=proprio_m,
+                t=t,
+                **enc,
+            )
+        return m.action_space.postprocess(action)
 
 
 class ModelVariant(StrEnum):
@@ -113,16 +168,16 @@ class ModelLoader(ForgeModel):
         _setup_policies_namespace()
         from lerobot.policies.xvla.modeling_xvla import XVLAPolicy
 
-        model = XVLAPolicy.from_pretrained(
+        self._policy = XVLAPolicy.from_pretrained(
             self._variant_config.pretrained_model_name, **kwargs
         )
-        model.to(device)
-        model = model.to(dtype=torch.float32)
-        model.eval()
-        self.config = model.config
+        self._policy.to(device)
+        self._policy = self._policy.to(dtype=torch.float32)
+        self._policy.eval()
+        self.config = self._policy.config
         if self.preprocess is None:
             self._load_processors(torch.device(device))
-        return XVLAInferenceWrapper(model)
+        return XVLAInferenceWrapper(self._policy)
 
     def load_inputs(
         self, dtype_override=None, batch_size: int = 1, device: str = "cpu"
@@ -147,14 +202,21 @@ class ModelLoader(ForgeModel):
             robot_type=self.robot_type,
         )
 
-        inputs = self.preprocess(obs_frame)
+        batch = self.preprocess(obs_frame)
 
         if batch_size > 1:
-            for key, value in inputs.items():
+            for key, value in batch.items():
                 if torch.is_tensor(value) and value.dim() > 0:
-                    inputs[key] = value.repeat_interleave(batch_size, dim=0)
+                    batch[key] = value.repeat_interleave(batch_size, dim=0)
 
-        return {"batch": inputs}
+        model_inputs = self._policy._build_model_inputs(batch)
+
+        return {
+            "input_ids": model_inputs["input_ids"],
+            "image_input": model_inputs["image_input"],
+            "domain_id": model_inputs["domain_id"],
+            "proprio": model_inputs["proprio"],
+        }
 
     def unpack_forward_output(self, fwd_output):
         """predict_action_chunk returns action tensor (B, n_steps, action_dim) directly."""
