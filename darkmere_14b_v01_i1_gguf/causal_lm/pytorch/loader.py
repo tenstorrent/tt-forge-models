@@ -16,6 +16,7 @@ from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 
 def _patch_mistral3_support():
@@ -24,7 +25,8 @@ def _patch_mistral3_support():
     Darkmere 14B uses the 'mistral3' architecture identifier in its GGUF
     metadata. Transformers supports 'mistral' but not 'mistral3' for GGUF
     loading. We bridge the gap by registering the config mapping (same as
-    mistral) and remapping model_type to mistral.
+    mistral) and remapping model_type to mistral. We also register the
+    tokenizer converter since mistral uses the same tokenizer as llama.
     """
     if "mistral3" in GGUF_SUPPORTED_ARCHITECTURES:
         return
@@ -34,6 +36,11 @@ def _patch_mistral3_support():
             _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section][
                 "mistral3"
             ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"]
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        if "mistral" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["mistral"] = GGUF_TO_FAST_CONVERTERS["llama"]
+        if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUF_TO_FAST_CONVERTERS["llama"]
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
