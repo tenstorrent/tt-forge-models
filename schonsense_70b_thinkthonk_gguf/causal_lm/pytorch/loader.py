@@ -4,6 +4,8 @@
 """
 Schonsense 70B Thinkthonk GGUF model loader implementation for causal language modeling.
 """
+import os
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -31,13 +33,14 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.SCHONSENSE_70B_THINKTHONK_I1_Q4_K_M_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/schonsense_70B_thinkthonk-i1-GGUF",
+            pretrained_model_name="schonsense/70B_thinkthonk",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.SCHONSENSE_70B_THINKTHONK_I1_Q4_K_M_GGUF
 
+    GGUF_REPO = "mradermacher/schonsense_70B_thinkthonk-i1-GGUF"
     GGUF_FILE = "schonsense_70B_thinkthonk.i1-Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language models."
@@ -62,13 +65,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name,
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -76,28 +74,27 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            model = AutoModelForCausalLM.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.GGUF_FILE
+            model = AutoModelForCausalLM.from_pretrained(self.GGUF_REPO, **model_kwargs)
 
+        model.eval()
         self.config = model.config
         self.model = model
         return model
@@ -154,6 +151,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name
         )
         return self.config
