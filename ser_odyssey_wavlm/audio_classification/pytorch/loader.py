@@ -56,6 +56,14 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers
+        import transformers.modeling_utils
+
+        if not hasattr(transformers.modeling_utils, "PretrainedConfig"):
+            from transformers import PretrainedConfig
+
+            transformers.modeling_utils.PretrainedConfig = PretrainedConfig
+
         from transformers import AutoModelForAudioClassification
 
         model_kwargs = {}
