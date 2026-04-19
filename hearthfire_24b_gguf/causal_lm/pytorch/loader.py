@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.HEARTHFIRE_24B_GGUF
 
-    GGUF_FILE = "Hearthfire-24B-Q4_K_M.gguf"
+    GGUF_FILE = "Hearthfire-24B.Q4_K_M.gguf"
 
     sample_text = "What is your favorite city?"
 
