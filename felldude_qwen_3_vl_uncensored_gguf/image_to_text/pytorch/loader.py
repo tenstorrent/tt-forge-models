@@ -6,7 +6,7 @@ Felldude Qwen3-VL Uncensored V2 GGUF model loader implementation for image to te
 """
 
 from transformers import (
-    Qwen3VLConfig,
+    AutoConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -86,7 +86,7 @@ class ModelLoader(ForgeModel):
             "Qwen/Qwen3-VL-8B-Instruct",
         )
 
-        config = Qwen3VLConfig()
+        config = AutoConfig.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs
         )
