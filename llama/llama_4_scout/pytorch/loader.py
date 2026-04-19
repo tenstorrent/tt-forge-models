@@ -5,7 +5,7 @@
 Llama 4 Scout model loader implementation for multimodal image-text-to-text generation
 """
 import torch
-from transformers import AutoProcessor, Llama4ForConditionalGeneration
+from transformers import AutoProcessor, AutoConfig, Llama4ForConditionalGeneration
 from PIL import Image
 from typing import Optional
 from ....tools.utils import get_file, cast_input_to_type
@@ -38,17 +38,14 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LLAMA_4_SCOUT_17B_16E_INSTRUCT
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         super().__init__(variant)
         self.processor = None
         self.tokenizer = None
         self.model = None
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -102,6 +99,16 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"trust_remote_code": True, "_attn_implementation": "eager"}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if self.num_layers is not None:
+            config.text_config.num_hidden_layers = self.num_layers
+        else:
+            config.text_config.num_hidden_layers = 2
+        model_kwargs["config"] = config
+
         model_kwargs |= kwargs
 
         model = Llama4ForConditionalGeneration.from_pretrained(
