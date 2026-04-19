@@ -29,6 +29,7 @@ from ...config import (
 )
 
 REPO_ID = "vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF"
+WAN_CONFIG_REPO = "Wan-AI/Wan2.1-T2V-14B-Diffusers"
 
 
 class ModelVariant(StrEnum):
@@ -83,6 +84,7 @@ class ModelLoader(ForgeModel):
         self.transformer = WanTransformer3DModel.from_single_file(
             REPO_ID,
             quantization_config=quantization_config,
+            config=WAN_CONFIG_REPO,
             filename=gguf_file,
             torch_dtype=compute_dtype,
         )
