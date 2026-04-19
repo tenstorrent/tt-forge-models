@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -99,6 +99,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         ).eval()
+
+        model.config.use_cache = False
 
         self.config = model.config
         self.model = model
@@ -129,6 +131,7 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
+        inputs["use_cache"] = False
         return inputs
 
     def decode_output(self, outputs, dtype_override=None):
