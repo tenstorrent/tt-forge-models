@@ -2,19 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-LongCat-Video-Avatar ComfyUI GGUF model loader implementation.
+LongCat-Video-Avatar model loader implementation.
 
 LongCat is an audio-driven character animation model that generates
-expressive talking avatar videos. Based on the WAN 16B architecture
-in GGUF format for ComfyUI, supporting both single-stream and
-multi-stream audio inputs.
+expressive talking avatar videos. Uses the custom
+LongCatVideoAvatarTransformer3DModel from the meituan-longcat/LongCat-Video
+codebase, loaded from the official diffusers-format weights.
 
 Repository:
-- https://huggingface.co/vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF
+- https://huggingface.co/meituan-longcat/LongCat-Video-Avatar
 """
+import sys
+import types
+
 import torch
-from diffusers import WanTransformer3DModel
-from diffusers.quantizers import GGUFQuantizationConfig
+import torch.nn.functional as F
 from typing import Optional
 
 from ...base import ForgeModel
@@ -28,32 +30,83 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF"
-WAN_CONFIG_REPO = "Wan-AI/Wan2.1-T2V-14B-Diffusers"
+BASE_REPO = "meituan-longcat/LongCat-Video-Avatar"
+LONGCAT_VIDEO_REPO = "https://github.com/meituan-longcat/LongCat-Video.git"
 
 
 class ModelVariant(StrEnum):
-    """Available LongCat-Video-Avatar ComfyUI GGUF model variants."""
+    """Available LongCat-Video-Avatar model variants."""
 
     SINGLE_Q4_K_M = "Single_Q4_K_M"
     SINGLE_Q8_0 = "Single_Q8_0"
 
 
+def _install_flash_attn_shim():
+    """Install a fake flash_attn module that uses PyTorch SDPA."""
+    if "flash_attn" in sys.modules:
+        return
+
+    def flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=None, **kwargs):
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
+        out = F.scaled_dot_product_attention(q, k, v, scale=softmax_scale)
+        return out.transpose(1, 2)
+
+    def flash_attn_varlen_func(
+        q, k, v, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, **kwargs
+    ):
+        batch = len(cu_seqlens_q) - 1
+        outputs = []
+        for i in range(batch):
+            qs, qe = cu_seqlens_q[i], cu_seqlens_q[i + 1]
+            ks, ke = cu_seqlens_k[i], cu_seqlens_k[i + 1]
+            qi = q[qs:qe].unsqueeze(0).transpose(1, 2)
+            ki = k[ks:ke].unsqueeze(0).transpose(1, 2)
+            vi = v[ks:ke].unsqueeze(0).transpose(1, 2)
+            out = F.scaled_dot_product_attention(qi, ki, vi)
+            outputs.append(out.transpose(1, 2).squeeze(0))
+        return torch.cat(outputs, dim=0)
+
+    mod = types.ModuleType("flash_attn")
+    mod.flash_attn_func = flash_attn_func
+    mod.flash_attn_varlen_func = flash_attn_varlen_func
+    sys.modules["flash_attn"] = mod
+
+
+def _ensure_longcat_video():
+    """Clone and add the LongCat-Video repo to sys.path if not importable."""
+    _install_flash_attn_shim()
+
+    try:
+        import longcat_video  # noqa: F401
+
+        return
+    except ImportError:
+        pass
+
+    import subprocess
+    import tempfile
+
+    clone_dir = tempfile.mkdtemp(prefix="longcat_video_")
+    subprocess.check_call(
+        ["git", "clone", "--depth", "1", LONGCAT_VIDEO_REPO, clone_dir],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    sys.path.insert(0, clone_dir)
+
+
 class ModelLoader(ForgeModel):
-    """LongCat-Video-Avatar ComfyUI GGUF model loader for audio-driven avatar animation."""
+    """LongCat-Video-Avatar model loader for audio-driven avatar animation."""
 
     _VARIANTS = {
         ModelVariant.SINGLE_Q4_K_M: ModelConfig(
-            pretrained_model_name="vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF",
+            pretrained_model_name=BASE_REPO,
         ),
         ModelVariant.SINGLE_Q8_0: ModelConfig(
-            pretrained_model_name="vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF",
+            pretrained_model_name=BASE_REPO,
         ),
-    }
-
-    _GGUF_FILES = {
-        ModelVariant.SINGLE_Q4_K_M: "single/LongCat-Avatar-Single_comfy-Q4_K_M.gguf",
-        ModelVariant.SINGLE_Q8_0: "single/LongCat-Avatar-Single_comfy-Q8_0.gguf",
     }
 
     DEFAULT_VARIANT = ModelVariant.SINGLE_Q4_K_M
@@ -77,17 +130,21 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        gguf_file = self._GGUF_FILES[self._variant]
-
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
-        self.transformer = WanTransformer3DModel.from_single_file(
-            REPO_ID,
-            quantization_config=quantization_config,
-            config=WAN_CONFIG_REPO,
-            filename=gguf_file,
-            torch_dtype=compute_dtype,
+        _ensure_longcat_video()
+        from longcat_video.modules.avatar.longcat_video_dit_avatar import (
+            LongCatVideoAvatarTransformer3DModel,
         )
+
+        subfolder = "avatar_single"
+
+        self.transformer = LongCatVideoAvatarTransformer3DModel.from_pretrained(
+            BASE_REPO,
+            subfolder=subfolder,
+        )
+
+        for module in self.transformer.modules():
+            if hasattr(module, "cp_split_hw") and module.cp_split_hw is None:
+                module.cp_split_hw = [1, 1]
 
         return self.transformer
 
@@ -95,32 +152,37 @@ class ModelLoader(ForgeModel):
         if self.transformer is None:
             self.load_model(dtype_override=dtype_override)
 
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         config = self.transformer.config
 
-        # WAN 16B video transformer dimensions
         num_channels = config.in_channels
         num_frames = 9
-        height = 60  # latent height (480p / 8)
-        width = 104  # latent width (832p / 8)
+        height = 60
+        width = 104
+        vae_scale = config.vae_scale
+        audio_window = config.audio_window
+        audio_blocks = self.transformer.audio_proj.blocks
+        audio_channels = self.transformer.audio_proj.channels
+        audio_num_frames = 1 + (num_frames - 1) * vae_scale
 
-        # Latent video tensor: [batch, channels, frames, height, width]
-        hidden_states = torch.randn(
-            batch_size, num_channels, num_frames, height, width, dtype=dtype
-        )
+        hidden_states = torch.randn(batch_size, num_channels, num_frames, height, width)
 
-        # Timestep
-        timestep = torch.tensor([1.0], dtype=dtype).expand(batch_size)
+        timestep = torch.tensor([1.0]).expand(batch_size)
 
-        # Text encoder hidden states
-        encoder_hidden_states = torch.randn(
-            batch_size, 256, config.text_dim, dtype=dtype
+        encoder_hidden_states = torch.randn(batch_size, 1, 256, config.caption_channels)
+
+        audio_embs = torch.randn(
+            batch_size,
+            audio_num_frames,
+            audio_window,
+            audio_blocks,
+            audio_channels,
         )
 
         inputs = {
             "hidden_states": hidden_states,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
+            "audio_embs": audio_embs,
         }
 
         return inputs
