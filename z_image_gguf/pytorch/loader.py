@@ -14,7 +14,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -26,6 +25,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from .src.model_utils import load_z_image_gguf_transformer
 
 GGUF_REPO_ID = "jayn7/Z-Image-GGUF"
 
@@ -74,22 +74,11 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Load the GGUF-quantized Z-Image transformer."""
-        from diffusers import GGUFQuantizationConfig, ZImageTransformer2DModel
-
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-
         gguf_filename = _GGUF_FILES[self._variant]
-        gguf_path = hf_hub_download(
-            repo_id=GGUF_REPO_ID,
-            filename=gguf_filename,
+        self._transformer = load_z_image_gguf_transformer(
+            GGUF_REPO_ID, gguf_filename, dtype=dtype
         )
-
-        self._transformer = ZImageTransformer2DModel.from_single_file(
-            gguf_path,
-            quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
-            torch_dtype=dtype,
-        )
-        self._transformer.eval()
         return self._transformer
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
@@ -99,31 +88,24 @@ class ModelLoader(ForgeModel):
         if self._transformer is None:
             self.load_model(dtype_override=dtype)
 
-        batch_size = 1
         config = self._transformer.config
 
         latent_height = 2
         latent_width = 2
+        seq_len = 8
 
-        hidden_states = torch.randn(
-            batch_size,
-            config.in_channels,
-            1,
-            latent_height,
-            latent_width,
-            dtype=dtype,
-        )
+        x = [
+            torch.randn(config.in_channels, 1, latent_height, latent_width, dtype=dtype)
+        ]
 
-        encoder_hidden_states = torch.randn(
-            batch_size, 8, config.caption_channels, dtype=dtype
-        )
+        cap_feats = [torch.randn(seq_len, config.cap_feat_dim, dtype=dtype)]
 
-        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+        t = torch.tensor([0.5], dtype=dtype)
 
         return {
-            "hidden_states": hidden_states,
-            "encoder_hidden_states": encoder_hidden_states,
-            "timestep": timestep,
+            "x": x,
+            "t": t,
+            "cap_feats": cap_feats,
             "return_dict": False,
         }
 
