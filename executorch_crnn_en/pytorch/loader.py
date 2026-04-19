@@ -70,27 +70,20 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         import easyocr
 
         reader = easyocr.Reader(["en"], gpu=False)
         model = reader.recognizer
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         return CRNNWrapper(model)
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        # CRNN recognizer expects grayscale images with height 64
+    def load_inputs(self, batch_size=1):
         image = Image.new("L", (200, 64), color=128)
         tensor = (
             torch.from_numpy(np.array(image)).float().unsqueeze(0).unsqueeze(0) / 255.0
         )
-
-        if dtype_override is not None:
-            tensor = tensor.to(dtype_override)
 
         if batch_size > 1:
             tensor = tensor.repeat(batch_size, 1, 1, 1)
