@@ -4,6 +4,8 @@
 """
 Stable Audio Open model loader implementation for text-to-audio generation
 """
+import math
+
 import torch
 from diffusers import StableAudioPipeline
 from typing import Optional
@@ -125,7 +127,7 @@ class ModelLoader(ForgeModel):
 
         # Prepare latent noise
         sample_rate = self.pipe.vae.config.sampling_rate
-        down_ratio = self.pipe.vae.downsampling_ratio
+        down_ratio = math.prod(self.pipe.vae.downsampling_ratios)
         audio_samples = int(audio_end_in_s * sample_rate)
         latent_length = audio_samples // down_ratio
         num_channels = self.pipe.transformer.config.in_channels
