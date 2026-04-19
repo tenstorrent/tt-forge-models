@@ -1,0 +1,2 @@
+zipvoice @ git+https://github.com/ysharma3501/LuxTTS.git
+piper_phonemize
