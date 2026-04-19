@@ -145,7 +145,7 @@ class ModelLoader(ForgeModel):
 
         return {
             "hidden_states": latents,
-            "timestep": torch.tensor([1.0], dtype=dtype).unsqueeze(0),
+            "timestep": torch.tensor([1.0], dtype=dtype),
             "encoder_hidden_states": encoder_hidden_states,
             "global_hidden_states": global_hidden_states,
             "rotary_embedding": rotary_embedding,
