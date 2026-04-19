@@ -37,7 +37,7 @@ class ModelLoader(ForgeModel):
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.ECHO_DSRN_486M_V0_7_6_SFT: LLMModelConfig(
-            pretrained_model_name="ethicalabs/Echo-DSRN-486M-v0.7.6-SFT",
+            pretrained_model_name="ethicalabs/Echo-DSRN-114M",
             max_length=256,
         ),
     }
