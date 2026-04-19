@@ -1,1 +1,2 @@
+decord
 opencv-python
