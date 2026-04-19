@@ -16,7 +16,9 @@ Available variants:
 from typing import Optional
 
 import torch
+from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -30,6 +32,7 @@ from ...config import (
 )
 
 GGUF_REPO = "InvokeAI/FLUX.1-Krea-dev-GGUF"
+CONFIG_REPO = "black-forest-labs/FLUX.1-dev"
 
 
 class ModelVariant(StrEnum):
@@ -78,11 +81,18 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         gguf_file = _GGUF_FILES[self._variant]
-        self.transformer = FluxTransformer2DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            gguf_file=gguf_file,
+        local_path = hf_hub_download(
+            repo_id=GGUF_REPO,
+            filename=gguf_file,
+        )
+        self.transformer = FluxTransformer2DModel.from_single_file(
+            local_path,
+            config=CONFIG_REPO,
+            subfolder="transformer",
+            quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
 
