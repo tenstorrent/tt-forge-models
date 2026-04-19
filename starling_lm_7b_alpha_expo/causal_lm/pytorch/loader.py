@@ -94,6 +94,8 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
+        self.model = model
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -119,4 +121,11 @@ class ModelLoader(ForgeModel):
 
         inputs["input_ids"] = padded_input_ids
         inputs["attention_mask"] = padded_attention_mask
+
+        if (
+            hasattr(self.model.config, "sliding_window")
+            and self.model.config.sliding_window is not None
+        ):
+            self.model.config.sliding_window = inputs["input_ids"].shape[1]
+
         return inputs
