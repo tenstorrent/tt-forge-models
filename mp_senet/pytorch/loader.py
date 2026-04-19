@@ -56,22 +56,16 @@ class ModelLoader(ForgeModel):
         from MPSENet import MPSENet
 
         model = MPSENet.from_pretrained(self._variant_config.pretrained_model_name)
+        model = model.float()
         model.eval()
-
-        if dtype_override is not None:
-            model = model.to(dtype=dtype_override)
 
         return model
 
     def load_inputs(self, dtype_override=None):
-        # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         audio = np.random.randn(sampling_rate * duration_seconds).astype(np.float32)
 
         audio_tensor = torch.from_numpy(audio)
-
-        if dtype_override is not None:
-            audio_tensor = audio_tensor.to(dtype_override)
 
         return audio_tensor
