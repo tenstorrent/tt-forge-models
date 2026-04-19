@@ -4,6 +4,7 @@
 """
 NeuralSynthesis model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -95,7 +96,13 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        if (
+            hasattr(model.config, "sliding_window")
+            and model.config.sliding_window is not None
+        ):
+            model.config.sliding_window = self._variant_config.max_length
         self.config = model.config
+        self.model = model
 
         return model
 
