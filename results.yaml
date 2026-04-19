@@ -95,3 +95,7 @@ results:
   status: "PASS"
   date: "20260419_183749"
   branch: "ip-172-31-30-232-tt-xla-dev/ubuntu/hf-bringup-range-1500-500-7"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[openmed/pii_german_clinicalbge/pytorch-OpenMed/OpenMed-PII-German-ClinicalBGE-Large-335M-v1-single_device-inference]"
+  status: "PASS"
+  date: "20260419_184419"
+  branch: "ip-172-31-30-232-tt-xla-dev/ubuntu/hf-bringup-range-1500-500-7"
