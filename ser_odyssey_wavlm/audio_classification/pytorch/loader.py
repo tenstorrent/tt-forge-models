@@ -56,7 +56,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers
         from transformers import AutoModelForAudioClassification
+
+        # The remote code for this model imports PretrainedConfig from
+        # transformers.modeling_utils, where it no longer lives.
+        if not hasattr(transformers.modeling_utils, "PretrainedConfig"):
+            transformers.modeling_utils.PretrainedConfig = transformers.PretrainedConfig
 
         model_kwargs = {}
         if dtype_override is not None:
