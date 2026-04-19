@@ -7,6 +7,8 @@ LLaVA-NeXT (v1.6) model loader implementation for multimodal conditional generat
 
 from typing import Optional
 
+import torch
+import torch.nn as nn
 from PIL import Image
 from transformers import LlavaNextForConditionalGeneration, LlavaNextProcessor
 
@@ -21,6 +23,32 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import get_file, cast_input_to_type
+
+
+class LlavaNextLanguageModelWrapper(nn.Module):
+    """Wrapper that runs only the language model and lm_head.
+
+    LlavaNextForConditionalGeneration uses image_sizes for Python-level
+    arithmetic inside get_image_features, which fails under torch.compile
+    with XLA backend. This wrapper accepts pre-computed inputs_embeds
+    (with image features already merged) so the vision pipeline runs
+    entirely on CPU before compilation.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self.language_model = model.model.language_model
+        self.lm_head = model.lm_head
+
+    def forward(self, inputs_embeds, attention_mask):
+        outputs = self.language_model(
+            attention_mask=attention_mask,
+            inputs_embeds=inputs_embeds,
+            return_dict=True,
+        )
+        hidden_states = outputs[0]
+        logits = self.lm_head(hidden_states)
+        return logits
 
 
 class ModelVariant(StrEnum):
@@ -50,6 +78,7 @@ class ModelLoader(ForgeModel):
         """Initialize LLaVA-NeXT model loader."""
         super().__init__(variant)
         self.processor = None
+        self.full_model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -84,14 +113,14 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        return model
+        self.full_model = model
+        return LlavaNextLanguageModelWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return input tensors for LLaVA-NeXT."""
         if self.processor is None:
             self._load_processor()
 
-        # Build prompt using chat template
         conversation = [
             {
                 "role": "user",
@@ -106,13 +135,11 @@ class ModelLoader(ForgeModel):
             conversation, padding=True, add_generation_prompt=True
         )
 
-        # Load sample image
         image_file = get_file(
             "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
         )
         image = Image.open(image_file)
 
-        # Preprocess
         inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
 
         input_ids = inputs["input_ids"]
@@ -120,15 +147,32 @@ class ModelLoader(ForgeModel):
         pixel_values = inputs["pixel_values"]
         image_sizes = inputs["image_sizes"]
 
+        with torch.no_grad():
+            inner_model = self.full_model.model
+            inputs_embeds = inner_model.get_input_embeddings()(input_ids)
+
+            image_features = inner_model.get_image_features(
+                pixel_values, image_sizes
+            ).pooler_output
+            image_features = torch.cat(image_features, dim=0).to(
+                inputs_embeds.device, inputs_embeds.dtype
+            )
+            special_image_mask = inner_model.get_placeholder_mask(
+                input_ids,
+                inputs_embeds=inputs_embeds,
+                image_features=image_features,
+            )
+            inputs_embeds = inputs_embeds.masked_scatter(
+                special_image_mask, image_features
+            )
+
+        inputs_embeds = inputs_embeds.clone().detach()
+
         if dtype_override:
-            input_ids = cast_input_to_type(input_ids, dtype_override)
+            inputs_embeds = cast_input_to_type(inputs_embeds, dtype_override)
             attention_mask = cast_input_to_type(attention_mask, dtype_override)
-            pixel_values = cast_input_to_type(pixel_values, dtype_override)
-            image_sizes = cast_input_to_type(image_sizes, dtype_override)
 
         return {
-            "input_ids": input_ids,
+            "inputs_embeds": inputs_embeds,
             "attention_mask": attention_mask,
-            "pixel_values": pixel_values,
-            "image_sizes": image_sizes,
         }
