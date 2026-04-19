@@ -11,7 +11,14 @@ Available variants:
 - FLUX1_SCHNELL_Q4_0: Q4_0 quantized variant (~6.88 GB)
 """
 
+import importlib.util
 from typing import Optional
+
+import diffusers.utils.import_utils as _diffusers_import_utils
+
+if not _diffusers_import_utils._gguf_available:
+    if importlib.util.find_spec("gguf") is not None:
+        _diffusers_import_utils._gguf_available = True
 
 from ...base import ForgeModel
 from ...config import (
