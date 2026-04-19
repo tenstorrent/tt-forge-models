@@ -131,7 +131,12 @@ class ModelLoader(ForgeModel):
             self._controlnet = self._controlnet.to(dtype=dtype_override)
         return self._controlnet
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+        **kwargs,
+    ) -> Any:
         """Prepare sample inputs for the SD3.5 ControlNet.
 
         Returns a dict matching SD3ControlNetModel.forward() signature.
@@ -139,8 +144,7 @@ class ModelLoader(ForgeModel):
         hidden_states must be 3D (pre-patchified) and encoder_hidden_states
         must not be provided.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        batch_size = kwargs.get("batch_size", 1)
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         seq_len = (SAMPLE_SIZE // PATCH_SIZE) ** 2
         hidden_states = torch.randn(batch_size, seq_len, INNER_DIM, dtype=dtype)
