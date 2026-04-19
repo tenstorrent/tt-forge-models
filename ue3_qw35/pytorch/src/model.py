@@ -6,13 +6,12 @@ import torch
 
 
 class Wrapper(torch.nn.Module):
-    """Wrapper that bakes image_grid_thw into forward as a Python constant.
+    """Wrapper that keeps image_grid_thw on CPU to avoid XLA integer zeroing.
 
-    In compile-only mode, integer tensors (both inputs and buffers) get
-    zero-initialized during tracing. The vision encoder's control flow
-    depends on grid_thw values, so zeros cause cascading shape mismatches.
-    By storing the values as a Python list and recreating the tensor in
-    forward, torch.compile embeds them as graph constants.
+    The XLA device in compile-only mode zeroes all integer tensors, even those
+    created from Python constants. Since the vision encoder only uses grid_thw
+    via .tolist() for Python control flow, keeping it on CPU preserves the
+    values while remaining functionally correct.
     """
 
     def __init__(self, model, image_grid_thw):
@@ -24,7 +23,6 @@ class Wrapper(torch.nn.Module):
         image_grid_thw = torch.tensor(
             self._grid_thw_values,
             dtype=torch.int64,
-            device=input_ids.device,
         )
         inputs = {
             "input_ids": input_ids,
