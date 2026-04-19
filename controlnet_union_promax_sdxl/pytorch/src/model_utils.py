@@ -27,7 +27,10 @@ def load_controlnet_union_promax_sdxl_pipe(controlnet_model_name, base_model_nam
         StableDiffusionXLControlNetUnionPipeline: Loaded pipeline with components set to eval mode
     """
     controlnet = ControlNetUnionModel.from_pretrained(
-        controlnet_model_name, torch_dtype=torch.float32
+        controlnet_model_name,
+        torch_dtype=torch.float32,
+        use_safetensors=True,
+        variant="fp16",
     )
     pipe = StableDiffusionXLControlNetUnionPipeline.from_pretrained(
         base_model_name, controlnet=controlnet, torch_dtype=torch.float32
