@@ -5,8 +5,18 @@
 Apriel model loader implementation for causal language modeling.
 """
 import torch
+from typing import Optional, TypedDict
+
+import transformers.utils
+
+if not hasattr(transformers.utils, "LossKwargs"):
+
+    class LossKwargs(TypedDict, total=False):
+        num_items_in_batch: int | None
+
+    transformers.utils.LossKwargs = LossKwargs
+
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
