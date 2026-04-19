@@ -127,6 +127,7 @@ class ModelLoader(ForgeModel):
         )
 
         _dequantize_gguf_and_restore_linear(transformer)
+        transformer = transformer.to(dtype=compute_dtype)
 
         self.pipeline = WanPipeline.from_pretrained(
             BASE_PIPELINE,
