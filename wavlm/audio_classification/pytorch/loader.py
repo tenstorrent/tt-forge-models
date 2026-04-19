@@ -199,13 +199,13 @@ class ModelLoader(ForgeModel):
         )
 
         model.eval()
-        model.float()
         if dtype_override is not None:
             model.to(dtype_override)
 
         return model
 
     def load_inputs(self, dtype_override=None):
+        import torch
         import numpy as np
 
         if self._feature_extractor is None:
@@ -223,5 +223,11 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if isinstance(v, torch.Tensor) else v
+                for k, v in inputs.items()
+            }
 
         return inputs
