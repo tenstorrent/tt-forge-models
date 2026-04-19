@@ -8,11 +8,14 @@ Loads GGUF-quantized variants of the Z-Image-Turbo diffusion model
 from gguf-org/z-image-gguf.
 """
 
+from pathlib import Path
 from typing import Optional
 
 import torch
 from diffusers import AutoencoderKL, FluxTransformer2DModel, GGUFQuantizationConfig
 from huggingface_hub import hf_hub_download
+
+_FLUX_VAE_CONFIG_DIR = str(Path(__file__).parent / "flux_vae_config")
 
 from ....base import ForgeModel
 from ....config import (
@@ -91,10 +94,10 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
         self._vae = AutoencoderKL.from_single_file(
             vae_path,
-            config="black-forest-labs/FLUX.1-dev",
-            subfolder="vae",
+            config=_FLUX_VAE_CONFIG_DIR,
             quantization_config=quantization_config,
             torch_dtype=dtype,
+            low_cpu_mem_usage=False,
         )
         self._vae.eval()
         return self._vae
