@@ -34,7 +34,9 @@ class CRNNWrapper(nn.Module):
         self.recognizer = recognizer
 
     def forward(self, x):
-        return self.recognizer(x)
+        # The recognizer's forward(input, text) requires a text arg but never uses it
+        dummy_text = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
+        return self.recognizer(x, dummy_text)
 
 
 class ModelVariant(StrEnum):
