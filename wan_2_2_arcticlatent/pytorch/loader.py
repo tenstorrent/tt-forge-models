@@ -5,11 +5,10 @@
 """
 Wan 2.2 ArcticLatent model loader implementation.
 
-Loads single-file safetensors VAE from arcticlatent/wan2.2.
-Supports VAE component loading for encoder/decoder testing.
+Loads single-file safetensors VAE decoder from arcticlatent/wan2.2.
 
 Available variants:
-- WAN22_VAE: Wan 2.2 VAE (z_dim=16, 3-channel RGB)
+- WAN22_VAE: Wan 2.2 VAE decoder (z_dim=16)
 """
 
 from typing import Any, Optional
@@ -31,20 +30,28 @@ from ...config import (
 
 REPO_ID = "arcticlatent/wan2.2"
 
-# Wan 2.x VAE uses 16 latent channels (z_dim=16)
 LATENT_CHANNELS = 16
 
-# Small test dimensions for VAE inputs
-# Wan VAE compression: 4x temporal, 8x spatial
 LATENT_HEIGHT = 8
 LATENT_WIDTH = 8
-LATENT_DEPTH = 2  # temporal latent frames
+LATENT_DEPTH = 1
 
 
 class ModelVariant(StrEnum):
     """Available Wan 2.2 ArcticLatent model variants."""
 
     WAN22_VAE = "2.2_VAE"
+
+
+class WanVAEDecoder(torch.nn.Module):
+    """Wrapper that exposes only the VAE decode path."""
+
+    def __init__(self, vae: AutoencoderKLWan):
+        super().__init__()
+        self.vae = vae
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        return self.vae.decode(z, return_dict=False)[0]
 
 
 class ModelLoader(ForgeModel):
@@ -59,7 +66,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._vae = None
+        self._model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -74,61 +81,46 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_vae(self, dtype: torch.dtype = torch.float32) -> AutoencoderKLWan:
-        """Load VAE from single-file safetensors."""
-        vae_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename="vae/wan_2.1_vae.safetensors",
-        )
-
-        self._vae = AutoencoderKLWan.from_single_file(
-            vae_path,
-            config="Wan-AI/Wan2.1-T2V-14B-Diffusers",
-            subfolder="vae",
-            torch_dtype=dtype,
-        )
-        self._vae.eval()
-        return self._vae
-
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the Wan 2.2 VAE model.
+        """Load and return the Wan 2.2 VAE decoder wrapper.
 
         Returns:
-            AutoencoderKLWan instance.
+            WanVAEDecoder wrapping AutoencoderKLWan.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
-        if self._vae is None:
-            return self._load_vae(dtype)
-        if dtype_override is not None:
-            self._vae = self._vae.to(dtype=dtype_override)
-        return self._vae
+        if self._model is None:
+            vae_path = hf_hub_download(
+                repo_id=REPO_ID,
+                filename="vae/wan_2.1_vae.safetensors",
+            )
+            vae = AutoencoderKLWan.from_single_file(
+                vae_path,
+                config="Wan-AI/Wan2.1-T2V-14B-Diffusers",
+                subfolder="vae",
+                torch_dtype=dtype,
+            )
+            vae = vae.to(dtype=dtype)
+            vae.eval()
+            self._model = WanVAEDecoder(vae)
+            self._model.eval()
+        elif dtype_override is not None:
+            self._model = self._model.to(dtype=dtype_override)
+        return self._model
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare inputs for the VAE.
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare latent inputs for the VAE decoder.
 
-        Pass vae_type="decoder" or vae_type="encoder" to select input type.
-        Defaults to decoder inputs.
+        Returns:
+            Latent tensor of shape [batch, 16, depth, height, width].
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        vae_type = kwargs.get("vae_type", "decoder")
-
-        if vae_type == "decoder":
-            # [batch, channels, time, height, width]
-            return torch.randn(
-                1,
-                LATENT_CHANNELS,
-                LATENT_DEPTH,
-                LATENT_HEIGHT,
-                LATENT_WIDTH,
-                dtype=dtype,
-            )
-        elif vae_type == "encoder":
-            # T must satisfy T = 1 + 4*N (Wan temporal constraint)
-            num_frames = 1 + 4 * LATENT_DEPTH  # 9 frames
-            return torch.randn(
-                1, 3, num_frames, LATENT_HEIGHT * 8, LATENT_WIDTH * 8, dtype=dtype
-            )
-        else:
-            raise ValueError(
-                f"Unknown vae_type: {vae_type}. Expected 'decoder' or 'encoder'."
-            )
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        return torch.randn(
+            1,
+            LATENT_CHANNELS,
+            LATENT_DEPTH,
+            LATENT_HEIGHT,
+            LATENT_WIDTH,
+            dtype=dtype,
+        )
