@@ -65,18 +65,21 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+        if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+            self.transformer = ChromaTransformer2DModel()
+        else:
+            gguf_file = self._GGUF_FILES[self._variant]
+            gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+            load_kwargs = {}
+            if dtype_override is not None:
+                load_kwargs["torch_dtype"] = dtype_override
 
-        self.transformer = ChromaTransformer2DModel.from_single_file(
-            gguf_url,
-            config=CHROMA_CONFIG_DIR,
-            **load_kwargs,
-        )
+            self.transformer = ChromaTransformer2DModel.from_single_file(
+                gguf_url,
+                config=CHROMA_CONFIG_DIR,
+                **load_kwargs,
+            )
 
         if dtype_override is not None:
             self.transformer = self.transformer.to(dtype_override)

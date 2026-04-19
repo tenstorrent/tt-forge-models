@@ -9,7 +9,7 @@
   "num_single_layers": 38,
   "patch_size": 1,
   "axes_dims_rope": [16, 56, 56],
-  "approximator_num_channels": 64,
-  "approximator_hidden_dim": 5120,
+  "approximator_num_channels": 128,
+  "approximator_hidden_dim": 10240,
   "approximator_layers": 5
 }
