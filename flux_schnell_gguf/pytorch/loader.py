@@ -72,18 +72,20 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The FLUX transformer model instance.
         """
+        import importlib
+        import sys
+
         import diffusers.utils.import_utils as _diffusers_import_utils
 
         if not _diffusers_import_utils._gguf_available:
-            import importlib.util
-
             if importlib.util.find_spec("gguf") is not None:
                 _diffusers_import_utils._gguf_available = True
-                import importlib.metadata
-
                 _diffusers_import_utils._gguf_version = importlib.metadata.version(
                     "gguf"
                 )
+                for mod_name in list(sys.modules):
+                    if mod_name.startswith("diffusers.quantizers.gguf"):
+                        del sys.modules[mod_name]
 
         from .src.model_utils import load_flux_gguf_pipe
 
