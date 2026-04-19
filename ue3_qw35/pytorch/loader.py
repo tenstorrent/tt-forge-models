@@ -74,9 +74,12 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        return Wrapper(model)
+        inputs = self._process_inputs(dtype_override)
+        image_grid_thw = inputs["image_grid_thw"]
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+        return Wrapper(model, image_grid_thw)
+
+    def _process_inputs(self, dtype_override=None):
         messages = [
             {
                 "role": "user",
@@ -90,8 +93,6 @@ class ModelLoader(ForgeModel):
             }
         ]
 
-        # This model's chat template drops multimodal content, so construct
-        # the prompt manually with the required vision tokens.
         text = (
             "<|im_start|>user\n"
             "<|vision_start|><|image_pad|><|vision_end|>"
@@ -115,4 +116,9 @@ class ModelLoader(ForgeModel):
             if "pixel_values" in inputs:
                 inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
+        return inputs
+
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        inputs = self._process_inputs(dtype_override)
+        inputs.pop("image_grid_thw", None)
         return inputs
