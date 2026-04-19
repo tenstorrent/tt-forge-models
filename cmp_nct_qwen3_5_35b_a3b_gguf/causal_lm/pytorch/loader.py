@@ -267,6 +267,8 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
+        if isinstance(model, _LogitsOnlyWrapper):
+            model = model.model
         shard_specs = {}
         for layer in model.model.layers:
             mlp = layer.mlp
