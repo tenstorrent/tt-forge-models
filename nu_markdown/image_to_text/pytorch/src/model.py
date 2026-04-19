@@ -6,11 +6,13 @@ import torch
 import torch._dynamo
 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
     Qwen2_5_VisionTransformerPretrainedModel,
+    Qwen2_5_VLModel,
 )
 
 Qwen2_5_VisionTransformerPretrainedModel.forward = torch._dynamo.disable(
     Qwen2_5_VisionTransformerPretrainedModel.forward
 )
+Qwen2_5_VLModel.forward = torch._dynamo.disable(Qwen2_5_VLModel.forward)
 
 
 class Wrapper(torch.nn.Module):
