@@ -78,8 +78,8 @@ class ModelLoader(ForgeModel):
         if self._model is None:
             self._model = AutoencoderDC.from_pretrained(
                 self._variant_config.pretrained_model_name,
-                torch_dtype=dtype,
             )
+            self._model = self._model.float()
             self._model.eval()
         elif dtype_override is not None:
             self._model = self._model.to(dtype=dtype_override)
