@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
         if self._embeddings is None:
             self._load_embeddings()
 
-        embedding_tensor = self._embeddings["embeddings"]
+        embedding_tensor = self._embeddings["vectors"]
         embedding_dim = embedding_tensor.shape[1]
         model = FastTextEmbeddingModule(embedding_dim)
         model.eval()
@@ -106,11 +106,12 @@ class ModelLoader(ForgeModel):
         if self._embeddings is None:
             self._load_embeddings()
 
-        embedding_tensor = self._embeddings["embeddings"]
+        embedding_tensor = self._embeddings["vectors"]
+        token_map = self._vocab["tokens"]
         embeddings = []
         for word in self.sample_words:
-            if word in self._vocab:
-                idx = self._vocab[word]
+            if word in token_map:
+                idx = token_map[word]
                 embeddings.append(embedding_tensor[idx])
             else:
                 embeddings.append(torch.zeros(embedding_tensor.shape[1]))
