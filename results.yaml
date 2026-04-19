@@ -179,3 +179,7 @@ results:
   status: "PASS"
   date: "20260419_202848"
   branch: "ip-172-31-30-236-tt-xla-dev/ubuntu/hf-bringup-range-715-785-4"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[fairface_age_detection/pytorch-Base-single_device-inference]"
+  status: "PASS"
+  date: "20260419_203034"
+  branch: "ip-172-31-30-236-tt-xla-dev/ubuntu/hf-bringup-range-715-785-4"
