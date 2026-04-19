@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.V1: ModelConfig(
-            pretrained_model_name="stabilityai/stable-audio-open-1.0",
+            pretrained_model_name="ylacombe/stable-audio-1.0",
         ),
     }
 
