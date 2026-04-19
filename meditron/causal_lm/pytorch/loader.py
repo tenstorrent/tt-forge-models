@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
     # Dictionary of available model variants
     _VARIANTS = {
         ModelVariant.MEDITRON_7B: ModelConfig(
-            pretrained_model_name="epfl-llm/meditron-7b",
+            pretrained_model_name="malhajar/meditron-7b-chat",
         ),
     }
 
