@@ -98,21 +98,10 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
         max_length = self._variant_config.max_length
+        vocab_size = self.config.vocab_size if self.config else 32000
 
-        inputs = self.tokenizer(
-            self.sample_text,
-            return_tensors="pt",
-            padding="max_length",
-            truncation=True,
-            max_length=max_length,
-        )
+        input_ids = torch.randint(0, vocab_size, (batch_size, max_length))
+        attention_mask = torch.ones_like(input_ids)
 
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
-        return inputs
+        return {"input_ids": input_ids, "attention_mask": attention_mask}
