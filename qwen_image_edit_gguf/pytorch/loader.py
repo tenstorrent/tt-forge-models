@@ -16,7 +16,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import QwenImageTransformer2DModel
+from diffusers import GGUFQuantizationConfig, QwenImageTransformer2DModel
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -84,29 +84,29 @@ class ModelLoader(ForgeModel):
         }[self._variant]
 
     def _load_transformer(
-        self, dtype: torch.dtype = torch.float32
+        self, dtype: torch.dtype = torch.bfloat16
     ) -> QwenImageTransformer2DModel:
         """Load diffusion transformer from GGUF file."""
         quant_key = self._get_quant_key()
 
-        model_path = hf_hub_download(
+        gguf_path = hf_hub_download(
             repo_id=REPO_ID,
             filename=_GGUF_FILES[quant_key],
         )
 
         self._transformer = QwenImageTransformer2DModel.from_single_file(
-            model_path,
+            gguf_path,
             config=CONFIG_REPO,
             subfolder="transformer",
+            quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
-            in_channels=128,
         )
         self._transformer.eval()
         return self._transformer
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Load and return the Qwen-Image-Edit GGUF diffusion transformer."""
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         if self._transformer is None:
             return self._load_transformer(dtype)
         if dtype_override is not None:
@@ -115,10 +115,10 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, **kwargs) -> Any:
         """Prepare sample inputs for the diffusion transformer."""
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = kwargs.get("batch_size", 1)
 
-        img_dim = 128
+        img_dim = 64
         # joint_attention_dim from config = 3584
         text_dim = 3584
         txt_seq_len = 32
