@@ -99,6 +99,7 @@ class ModelLoader(ForgeModel):
             config=CONFIG_REPO,
             subfolder="transformer",
             torch_dtype=dtype,
+            in_channels=128,
         )
         self._transformer.eval()
         return self._transformer
@@ -117,8 +118,7 @@ class ModelLoader(ForgeModel):
         dtype = kwargs.get("dtype_override", torch.float32)
         batch_size = kwargs.get("batch_size", 1)
 
-        # From model config: in_channels=64 (img_in linear input dimension)
-        img_dim = 64
+        img_dim = 128
         # joint_attention_dim from config = 3584
         text_dim = 3584
         txt_seq_len = 32
