@@ -89,14 +89,11 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
         self.config = AutoConfig.from_pretrained(pretrained_model_name)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        model = DomainClassifierModel.from_pretrained(pretrained_model_name, **kwargs)
 
-        model = DomainClassifierModel.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
+
         model.eval()
         self.model = model
         return model
