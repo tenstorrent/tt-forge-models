@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.VENUS_120B_V1_0_I1_Q4_K_M_GGUF
 
-    GGUF_FILE = "Venus-120b-v1.0.i1-Q4_K_M.gguf"
+    GGUF_FILE = "Venus-120b-v1.0.i1-Q4_K_M.gguf.part1of2"
 
     sample_text = "What is your favorite city?"
 
