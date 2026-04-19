@@ -8,8 +8,13 @@ BLEURT is a learned evaluation metric for natural language generation that score
 how well a candidate sentence matches a reference sentence, producing a regression
 score where values closer to 1.0 indicate a better match.
 """
+
 import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import (
+    RemBertConfig,
+    RemBertForSequenceClassification,
+    RemBertTokenizer,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -63,23 +68,25 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        self.tokenizer = RemBertTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
         )
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False, "trust_remote_code": True}
+        # BLEURT uses a custom model_type not in modern transformers.
+        # It is architecturally identical to RemBERT, so we load the
+        # config as RemBertConfig and use random weights for compile-only.
+        config = RemBertConfig.from_pretrained(pretrained_model_name)
+        config.return_dict = False
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+            config.dtype = dtype_override
 
-        model = AutoModelForSequenceClassification.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        model = RemBertForSequenceClassification(config)
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
 
         return model
