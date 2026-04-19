@@ -6,7 +6,8 @@ Ettin Encoder model loader implementation for masked language modeling.
 """
 
 from transformers import AutoTokenizer, AutoModelForMaskedLM, AutoConfig
-from third_party.tt_forge_models.config import (
+from ....base import ForgeModel
+from ....config import (
     ModelInfo,
     ModelGroup,
     ModelTask,
@@ -15,7 +16,6 @@ from third_party.tt_forge_models.config import (
     StrEnum,
     LLMModelConfig,
 )
-from third_party.tt_forge_models.base import ForgeModel
 
 
 class ModelVariant(StrEnum):
