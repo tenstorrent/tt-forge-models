@@ -104,14 +104,20 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        config_dir = self._make_local_config_dir()
 
-        self.transformer = Flux2Transformer2DModel.from_single_file(
-            self._NVFP4_URLS[self._variant],
-            config=config_dir,
-            subfolder="transformer",
-            torch_dtype=dtype,
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+            init_kwargs = {
+                k: v for k, v in _TRANSFORMER_CONFIG.items() if not k.startswith("_")
+            }
+            self.transformer = Flux2Transformer2DModel(**init_kwargs).to(dtype)
+        else:
+            config_dir = self._make_local_config_dir()
+            self.transformer = Flux2Transformer2DModel.from_single_file(
+                self._NVFP4_URLS[self._variant],
+                config=config_dir,
+                subfolder="transformer",
+                torch_dtype=dtype,
+            )
 
         if dtype_override is not None:
             self.transformer = self.transformer.to(dtype_override)
