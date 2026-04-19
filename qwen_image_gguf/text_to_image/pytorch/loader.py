@@ -80,7 +80,7 @@ class ModelLoader(ForgeModel):
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        gguf_file = self._GGUF_FILES[self.variant]
+        gguf_file = self._GGUF_FILES[self._variant]
         gguf_path = (
             f"https://huggingface.co/{self._variant_config.pretrained_model_name}"
             f"/blob/main/{gguf_file}"
