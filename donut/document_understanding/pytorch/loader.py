@@ -4,6 +4,7 @@
 """
 Donut model loader implementation for document understanding tasks.
 """
+import torch
 from PIL import Image
 from transformers import DonutProcessor, VisionEncoderDecoderModel
 from typing import Optional
@@ -92,11 +93,13 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
 
-        # Add batch dimension
+        decoder_input_ids = torch.tensor([[self.processor.tokenizer.bos_token_id]])
+
         if batch_size > 1:
             pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
+            decoder_input_ids = decoder_input_ids.repeat_interleave(batch_size, dim=0)
 
-        return {"pixel_values": pixel_values}
+        return {"pixel_values": pixel_values, "decoder_input_ids": decoder_input_ids}
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
