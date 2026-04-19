@@ -232,27 +232,28 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
+        image_file = get_file(
+            "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
+        )
+        image = Image.open(image_file).convert("RGB")
+
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "image",
-                        "image": "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg",
-                    },
-                    {
-                        "type": "text",
-                        "text": "What is shown in this image?",
-                    },
+                    {"type": "image"},
+                    {"type": "text", "text": "What is shown in this image?"},
                 ],
             }
         ]
 
-        inputs = self.processor.apply_chat_template(
+        text = self.processor.apply_chat_template(
             messages,
-            tokenize=True,
             add_generation_prompt=True,
-            return_dict=True,
+        )
+        inputs = self.processor(
+            images=[image],
+            text=text,
             return_tensors="pt",
         )
 
