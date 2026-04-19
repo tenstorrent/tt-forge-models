@@ -51,7 +51,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -99,15 +99,15 @@ class ModelLoader(ForgeModel):
                 _gq._quant_shape_from_byte_shape = _quant_shape_from_byte_shape
                 _gq._replace_with_gguf_linear = _replace_with_gguf_linear
 
-        from .src.model_utils import load_flux_gguf_pipe
+        from .src.model_utils import load_flux_gguf_transformer
 
-        if self.pipeline is None:
-            self.pipeline = load_flux_gguf_pipe(REPO_ID, self.GGUF_FILE, BASE_MODEL)
+        if self._transformer is None:
+            self._transformer = load_flux_gguf_transformer(REPO_ID, self.GGUF_FILE)
 
         if dtype_override is not None:
-            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
+            self._transformer = self._transformer.to(dtype_override)
 
-        return self.pipeline.transformer
+        return self._transformer
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the model.
@@ -117,9 +117,9 @@ class ModelLoader(ForgeModel):
         """
         from .src.model_utils import flux_schnell_preprocessing
 
-        if self.pipeline is None:
+        if self._transformer is None:
             self.load_model(dtype_override=dtype_override)
 
         dtype = dtype_override if dtype_override is not None else None
 
-        return flux_schnell_preprocessing(self.pipeline, self.prompt, dtype=dtype)
+        return flux_schnell_preprocessing(self._transformer, dtype=dtype)
