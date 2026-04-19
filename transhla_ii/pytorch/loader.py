@@ -8,7 +8,7 @@ import torch
 from transformers import AutoTokenizer, AutoModel
 from typing import Optional
 
-from third_party.tt_forge_models.config import (
+from ...config import (
     ModelInfo,
     ModelGroup,
     ModelTask,
@@ -17,7 +17,7 @@ from third_party.tt_forge_models.config import (
     StrEnum,
     ModelConfig,
 )
-from third_party.tt_forge_models.base import ForgeModel
+from ...base import ForgeModel
 
 # Tokenizer model for ESM2 embeddings used by TransHLA_II
 ESM2_TOKENIZER = "facebook/esm2_t33_650M_UR50D"
