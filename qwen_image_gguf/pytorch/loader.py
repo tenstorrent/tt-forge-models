@@ -9,6 +9,7 @@ Repository:
 """
 import torch
 from diffusers import QwenImageTransformer2DModel
+from diffusers.quantizers import GGUFQuantizationConfig
 from typing import Optional
 
 from ...base import ForgeModel
@@ -74,16 +75,15 @@ class ModelLoader(ForgeModel):
         gguf_file = self._GGUF_FILES[self._variant]
         gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
 
         self.transformer = QwenImageTransformer2DModel.from_single_file(
             gguf_url,
             config=CONFIG_REPO,
             subfolder="transformer",
-            in_channels=128,
-            **load_kwargs,
+            quantization_config=quantization_config,
+            torch_dtype=dtype,
         )
 
         if dtype_override is not None:
