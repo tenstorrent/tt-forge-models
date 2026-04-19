@@ -219,7 +219,7 @@ def t2i_adapter_sketch_sdxl_preprocessing(
 
     return (
         latent_model_input,
-        timesteps,
+        timesteps[0],
         prompt_embeds,
         added_cond_kwargs,
         adapter_state,
