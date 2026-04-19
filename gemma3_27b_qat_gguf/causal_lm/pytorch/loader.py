@@ -31,14 +31,14 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GEMMA_3_27B_IT_QAT_Q4_0_GGUF: LLMModelConfig(
-            pretrained_model_name="google/gemma-3-27b-it-qat-q4_0-gguf",
+            pretrained_model_name="ggml-org/gemma-3-27b-it-qat-GGUF",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_27B_IT_QAT_Q4_0_GGUF
 
-    GGUF_FILE = "gemma-3-27b-it-q4_0.gguf"
+    GGUF_FILE = "gemma-3-27b-it-qat-Q4_0.gguf"
 
     sample_text = "What is your favorite city?"
 
