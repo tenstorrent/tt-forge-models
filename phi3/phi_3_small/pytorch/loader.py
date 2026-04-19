@@ -73,15 +73,22 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         self._ensure_tokenizer()
 
-        model_kwargs = {"use_cache": False, "trust_remote_code": True}
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                self._variant_config.pretrained_model_name,
-                trust_remote_code=True,
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+        )
+        # Transformers 5.x auto-populates rope_scaling even when the original
+        # config has it as null, which breaks the model's custom LongRoPE code.
+        config.rope_scaling = None
 
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
+        model_kwargs = {
+            "use_cache": False,
+            "trust_remote_code": True,
+            "config": config,
+        }
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
