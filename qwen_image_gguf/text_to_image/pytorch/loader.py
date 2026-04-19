@@ -5,14 +5,14 @@
 calcuis/qwen-image-gguf model loader implementation for text-to-image generation.
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional
 
 import torch
 from diffusers import (
-    DiffusionPipeline,
     GGUFQuantizationConfig,
     QwenImageTransformer2DModel,
 )
+from huggingface_hub import hf_hub_download
 
 from ....base import ForgeModel
 from ....config import (
@@ -49,11 +49,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.QWEN_IMAGE_Q4_K_M
 
-    DEFAULT_PROMPT = "a pig holding a sign that says hello world"
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[DiffusionPipeline] = None
+        self.transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -68,70 +66,61 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(
-        self,
-        dtype_override: Optional[torch.dtype] = None,
-        device_map: Optional[str] = None,
-        low_cpu_mem_usage: bool = True,
-        extra_pipe_kwargs: Optional[Dict[str, Any]] = None,
-    ) -> DiffusionPipeline:
-        if extra_pipe_kwargs is None:
-            extra_pipe_kwargs = {}
+    def load_model(self, *, dtype_override=None, **kwargs):
+        gguf_file = self._GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(
+            repo_id=self._variant_config.pretrained_model_name,
+            filename=gguf_file,
+        )
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        gguf_file = self._GGUF_FILES[self._variant]
-        gguf_path = (
-            f"https://huggingface.co/{self._variant_config.pretrained_model_name}"
-            f"/blob/main/{gguf_file}"
-        )
-
-        transformer = QwenImageTransformer2DModel.from_single_file(
+        self.transformer = QwenImageTransformer2DModel.from_single_file(
             gguf_path,
+            config=self._PIPELINE_REPO,
+            subfolder="transformer",
             quantization_config=GGUFQuantizationConfig(compute_dtype=compute_dtype),
             torch_dtype=compute_dtype,
         )
 
-        pipe_kwargs = {
-            "transformer": transformer,
-            "torch_dtype": compute_dtype,
-            "device_map": device_map,
-            "low_cpu_mem_usage": low_cpu_mem_usage,
-        }
-        pipe_kwargs.update(extra_pipe_kwargs)
+        return self.transformer
 
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self._PIPELINE_REPO,
-            **pipe_kwargs,
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        if self.transformer is None:
+            self.load_model(dtype_override=dtype_override)
+
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        config = self.transformer.config
+
+        height = 128
+        width = 128
+        patch_size = config.patch_size
+        in_channels = config.in_channels
+
+        h_patches = height // patch_size
+        w_patches = width // patch_size
+        image_seq_len = h_patches * w_patches
+
+        hidden_states = torch.randn(batch_size, image_seq_len, in_channels, dtype=dtype)
+
+        text_seq_len = 128
+        joint_attention_dim = config.joint_attention_dim
+        encoder_hidden_states = torch.randn(
+            batch_size, text_seq_len, joint_attention_dim, dtype=dtype
         )
 
-        return self.pipeline
+        encoder_hidden_states_mask = torch.ones(batch_size, text_seq_len, dtype=dtype)
 
-    def load_model(
-        self,
-        *,
-        dtype_override: Optional[torch.dtype] = None,
-        device_map: Optional[str] = None,
-        low_cpu_mem_usage: bool = True,
-        extra_pipe_kwargs: Optional[Dict[str, Any]] = None,
-        **kwargs,
-    ):
-        """
-        Load and return the Qwen-Image GGUF text-to-image pipeline.
-        """
-        if self.pipeline is None:
-            return self._load_pipeline(
-                dtype_override=dtype_override,
-                device_map=device_map,
-                low_cpu_mem_usage=low_cpu_mem_usage,
-                extra_pipe_kwargs=extra_pipe_kwargs,
-            )
+        timestep = torch.tensor([1.0], dtype=dtype).expand(batch_size)
 
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
+        img_shapes = [(1, h_patches, w_patches)] * batch_size
 
-        return self.pipeline
+        inputs = {
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
+        }
 
-    def load_inputs(self, prompt: Optional[str] = None) -> Dict[str, Any]:
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {"prompt": prompt_value}
+        return inputs
