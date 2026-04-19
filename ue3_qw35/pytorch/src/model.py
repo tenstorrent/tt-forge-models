@@ -19,7 +19,7 @@ def _safe_fast_pos_embed_interpolate(self, grid_thw):
     if all(t == 0 and h == 0 and w == 0 for t, h, w in grid_thw_list):
         return torch.zeros(
             0,
-            self.embed_dim,
+            self.config.hidden_size,
             device=self.pos_embed.weight.device,
             dtype=self.pos_embed.weight.dtype,
         )
@@ -92,7 +92,7 @@ def _safe_fast_pos_embed_interpolate(self, grid_thw):
 
     if not patch_pos_embeds_permute:
         return torch.zeros(
-            0, self.embed_dim, device=device, dtype=self.pos_embed.weight.dtype
+            0, self.config.hidden_size, device=device, dtype=self.pos_embed.weight.dtype
         )
     patch_pos_embeds = torch.cat(patch_pos_embeds_permute)
     return patch_pos_embeds
