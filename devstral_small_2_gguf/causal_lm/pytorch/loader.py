@@ -8,6 +8,48 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_mistral3_support():
+    """Register mistral3 architecture as an alias for mistral.
+
+    Devstral Small 2 uses the mistral3 architecture identifier in its GGUF
+    metadata, which transformers 5.x does not yet recognise. The underlying
+    model is compatible with the existing mistral config and model classes.
+    """
+    if "mistral3" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "mistral" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section][
+                "mistral3"
+            ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"]
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUF_TO_FAST_CONVERTERS["llama"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    _patch_mistral3_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "mistral3":
+        result["config"]["model_type"] = "mistral"
+    return result
+
+
+_patch_mistral3_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
