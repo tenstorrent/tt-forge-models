@@ -268,29 +268,20 @@ class ModelLoader(ForgeModel):
         video_seq_len = latent_num_frames * latent_height * latent_width
         hidden_states = torch.randn(batch_size, video_seq_len, in_channels, dtype=dtype)
 
-        # Audio latents: packed shape [B, audio_seq_len, audio_C * mel_bins]
+        # Audio latents packed as [B, L, C*M] matching pipeline's _pack_audio_latents
         frame_rate = 24.0
         duration_s = num_frames / frame_rate
-        audio_sampling_rate = self.pipeline.audio_sampling_rate
-        audio_hop_length = self.pipeline.audio_hop_length
-        audio_vae_temporal = self.pipeline.audio_vae_temporal_compression_ratio
         audio_latents_per_second = (
-            audio_sampling_rate / audio_hop_length / float(audio_vae_temporal)
+            self.pipeline.audio_sampling_rate
+            / self.pipeline.audio_hop_length
+            / float(self.pipeline.audio_vae_temporal_compression_ratio)
         )
         audio_num_frames = max(1, round(duration_s * audio_latents_per_second))
-        num_mel_bins = (
-            self.pipeline.audio_vae.config.mel_bins
-            if getattr(self.pipeline, "audio_vae", None) is not None
-            else 64
-        )
-        audio_vae_mel = self.pipeline.audio_vae_mel_compression_ratio
-        latent_mel_bins = num_mel_bins // audio_vae_mel
-        audio_in_channels = self.pipeline.transformer.config.audio_in_channels  # 128
-        # Audio is packed as [B, L, C*M]
+        audio_in_channels = self.pipeline.transformer.config.audio_in_channels
         audio_hidden_states = torch.randn(
             batch_size,
             audio_num_frames,
-            audio_in_channels * latent_mel_bins,
+            audio_in_channels,
             dtype=dtype,
         )
 
