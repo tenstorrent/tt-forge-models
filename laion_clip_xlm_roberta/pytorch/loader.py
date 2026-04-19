@@ -31,7 +31,8 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.VIT_H_14_FROZEN_XLM_ROBERTA_LARGE: ModelConfig(
-            pretrained_model_name="hf-hub:laion/CLIP-ViT-H-14-frozen-xlm-roberta-large-laion5B-s13B-b90k",
+            pretrained_model_name="xlm-roberta-large-ViT-H-14",
+            pretrained_tag="frozen_laion5b_s13b_b90k",
         ),
     }
 
@@ -66,8 +67,11 @@ class ModelLoader(ForgeModel):
         from open_clip import create_model_from_pretrained, get_tokenizer
 
         pretrained_model_name = self._variant_config.pretrained_model_name
+        pretrained_tag = self._variant_config.pretrained_tag
 
-        model, self.preprocess = create_model_from_pretrained(pretrained_model_name)
+        model, self.preprocess = create_model_from_pretrained(
+            pretrained_model_name, pretrained=pretrained_tag
+        )
         self.tokenizer = get_tokenizer(pretrained_model_name)
 
         if dtype_override is not None:
@@ -90,7 +94,8 @@ class ModelLoader(ForgeModel):
 
         if self.preprocess is None or self.tokenizer is None:
             _, self.preprocess = create_model_from_pretrained(
-                self._variant_config.pretrained_model_name
+                self._variant_config.pretrained_model_name,
+                pretrained=self._variant_config.pretrained_tag,
             )
             self.tokenizer = get_tokenizer(self._variant_config.pretrained_model_name)
 

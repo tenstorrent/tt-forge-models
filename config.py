@@ -156,8 +156,7 @@ class ModelConfig:
     """
 
     pretrained_model_name: str
-
-    # Common configuration fields shared across models
+    pretrained_tag: Optional[str] = None
 
     def __post_init__(self):
         """Validate required fields after initialization"""
