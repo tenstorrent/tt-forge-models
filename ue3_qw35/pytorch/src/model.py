@@ -22,7 +22,6 @@ def _patch_vision_pipeline(model, saved_inputs):
 
     grid_thw_vals = saved_inputs["image_grid_thw"].tolist()
     input_ids_vals = saved_inputs["input_ids"].tolist()
-    attn_mask_vals = saved_inputs["attention_mask"].tolist()
 
     visual = inner.visual
     original_visual_fwd = visual.forward
@@ -65,32 +64,26 @@ def _patch_vision_pipeline(model, saved_inputs):
 
     inner.get_placeholder_mask = patched_get_placeholder_mask
 
-    original_c3d = inner.compute_3d_position_ids
 
-    @torch.compiler.disable
-    def patched_compute_3d_position_ids(
-        input_ids=None, image_grid_thw=None, attention_mask=None, **kwargs
-    ):
-        cpu_ids = torch.tensor(input_ids_vals, dtype=torch.int64)
-        cpu_grid_thw = (
-            torch.tensor(grid_thw_vals, dtype=torch.int64)
-            if image_grid_thw is not None
-            else None
-        )
-        cpu_mask = torch.tensor(attn_mask_vals, dtype=torch.int64)
-        position_ids = original_c3d(
+def _precompute_position_ids(model, saved_inputs):
+    """Pre-compute 3D position IDs on CPU with correct integer values.
+
+    Returns float position_ids to survive XLA device transfer. The rotary
+    embedding casts to float anyway, so this is functionally correct.
+    """
+    inner = model.model
+    cpu_ids = saved_inputs["input_ids"]
+    cpu_grid_thw = saved_inputs["image_grid_thw"]
+    cpu_mask = saved_inputs["attention_mask"]
+
+    with torch.no_grad():
+        position_ids = inner.compute_3d_position_ids(
             input_ids=cpu_ids,
             image_grid_thw=cpu_grid_thw,
             attention_mask=cpu_mask,
-            **kwargs,
         )
-        # Return float position_ids: XLA zeroes integer tensors, but float
-        # tensors survive. The rotary embedding casts to float anyway.
-        if isinstance(position_ids, tuple):
-            return tuple(r.float() for r in position_ids)
-        return position_ids.float()
 
-    inner.compute_3d_position_ids = patched_compute_3d_position_ids
+    return position_ids.float()
 
 
 class Wrapper(torch.nn.Module):
@@ -98,6 +91,10 @@ class Wrapper(torch.nn.Module):
         super().__init__()
         self.model = model
         self._grid_thw_values = saved_inputs["image_grid_thw"].tolist()
+
+        position_ids = _precompute_position_ids(model, saved_inputs)
+        self.register_buffer("position_ids", position_ids)
+
         _patch_vision_pipeline(model, saved_inputs)
 
     def forward(self, input_ids, attention_mask, pixel_values):
@@ -107,6 +104,7 @@ class Wrapper(torch.nn.Module):
             "attention_mask": attention_mask,
             "pixel_values": pixel_values,
             "image_grid_thw": image_grid_thw,
+            "position_ids": self.position_ids,
         }
         outputs = self.model(**inputs)
         return outputs.logits
