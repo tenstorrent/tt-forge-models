@@ -78,16 +78,13 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
+        # BIOT uses torch.stft internally which requires float32 on CPU
         return model
 
     def load_inputs(self, dtype_override=None):
         cfg = self._variant_config
-        dtype = dtype_override or torch.float32
 
         torch.manual_seed(42)
-        inputs = torch.randn(1, cfg.n_chans, cfg.n_times, dtype=dtype)
+        inputs = torch.randn(1, cfg.n_chans, cfg.n_times, dtype=torch.float32)
 
         return inputs
