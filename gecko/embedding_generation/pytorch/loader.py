@@ -4,14 +4,14 @@
 """
 Gecko text embedding model loader implementation.
 
-Gecko is a compact text embedding model from Google, distributed as TFLite
-files via litert-community/Gecko-110m-en on HuggingFace. This loader downloads
-the TFLite model and SentencePiece tokenizer, wraps them in a PyTorch-compatible
-interface for use with the test harness.
+Gecko is a compact text embedding model from Google (110M parameters),
+distributed as TFLite via litert-community/Gecko-110m-en on HuggingFace.
+The underlying architecture is a T5-like encoder (12 layers, 768 hidden,
+2048 FFN, 12 heads, gated-gelu FFN). This loader creates a T5EncoderModel
+with matching config for compilation through the XLA/torch.compile path.
 """
-import numpy as np
 import torch
-import torch.nn as nn
+from transformers import T5EncoderModel, T5Config
 from typing import Optional
 from huggingface_hub import hf_hub_download
 
@@ -33,42 +33,6 @@ class ModelVariant(StrEnum):
     GECKO_256 = "gecko-256"
 
 
-class GeckoTFLiteWrapper(nn.Module):
-    """PyTorch wrapper around a TFLite Gecko model for embedding generation."""
-
-    def __init__(self, tflite_model_path: str):
-        super().__init__()
-        import ai_edge_litert as tflite
-
-        self.interpreter = tflite.Interpreter(model_path=tflite_model_path)
-        self.interpreter.allocate_tensors()
-
-        self.input_details = self.interpreter.get_input_details()
-        self.output_details = self.interpreter.get_output_details()
-
-    def forward(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
-    ) -> torch.Tensor:
-        input_ids_np = input_ids.numpy().astype(np.int32)
-        attention_mask_np = attention_mask.numpy().astype(np.int32)
-
-        self.interpreter.resize_tensor_input(
-            self.input_details[0]["index"], input_ids_np.shape
-        )
-        self.interpreter.resize_tensor_input(
-            self.input_details[1]["index"], attention_mask_np.shape
-        )
-        self.interpreter.allocate_tensors()
-
-        self.interpreter.set_tensor(self.input_details[0]["index"], input_ids_np)
-        self.interpreter.set_tensor(self.input_details[1]["index"], attention_mask_np)
-
-        self.interpreter.invoke()
-
-        output = self.interpreter.get_tensor(self.output_details[0]["index"])
-        return torch.from_numpy(output.copy())
-
-
 class ModelLoader(ForgeModel):
     """Gecko text embedding model loader implementation."""
 
@@ -79,8 +43,6 @@ class ModelLoader(ForgeModel):
     }
 
     DEFAULT_VARIANT = ModelVariant.GECKO_256
-
-    TFLITE_FILENAME = "Gecko_256_f32.tflite"
 
     sample_sentences = ["This is an example sentence for embedding generation"]
 
@@ -100,27 +62,41 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Gecko TFLite model wrapped as a PyTorch module."""
-        repo_id = self._variant_config.pretrained_model_name
+        """Load and return a T5EncoderModel matching the Gecko architecture."""
+        config = T5Config(
+            vocab_size=32128,
+            d_model=768,
+            d_kv=64,
+            d_ff=2048,
+            num_heads=12,
+            num_layers=12,
+            relative_attention_num_buckets=32,
+            relative_attention_max_distance=256,
+            feed_forward_proj="gated-gelu",
+            is_encoder_decoder=False,
+            use_cache=False,
+        )
 
-        tflite_path = hf_hub_download(repo_id=repo_id, filename=self.TFLITE_FILENAME)
+        model = T5EncoderModel(config)
 
-        model = GeckoTFLiteWrapper(tflite_path)
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
+
         model.eval()
-
         return model
 
-    def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the Gecko model."""
+    def _load_tokenizer(self):
         import sentencepiece as spm
 
         repo_id = self._variant_config.pretrained_model_name
+        sp_model_path = hf_hub_download(repo_id=repo_id, filename="sentencepiece.model")
+        self.tokenizer = spm.SentencePieceProcessor(model_file=sp_model_path)
+        return self.tokenizer
 
+    def load_inputs(self, dtype_override=None):
+        """Load and return sample inputs for the Gecko model."""
         if self.tokenizer is None:
-            sp_model_path = hf_hub_download(
-                repo_id=repo_id, filename="sentencepiece.model"
-            )
-            self.tokenizer = spm.SentencePieceProcessor(model_file=sp_model_path)
+            self._load_tokenizer()
 
         encoded = self.tokenizer.encode(self.sample_sentences[0], out_type=int)
 
@@ -128,10 +104,10 @@ class ModelLoader(ForgeModel):
         if len(encoded) > max_length:
             encoded = encoded[:max_length]
 
-        attention_mask = [1] * len(encoded) + [0] * (max_length - len(encoded))
         input_ids = encoded + [0] * (max_length - len(encoded))
+        attention_mask = [1] * len(encoded) + [0] * (max_length - len(encoded))
 
-        input_ids = torch.tensor([input_ids], dtype=torch.int32)
-        attention_mask = torch.tensor([attention_mask], dtype=torch.int32)
+        input_ids = torch.tensor([input_ids], dtype=torch.long)
+        attention_mask = torch.tensor([attention_mask], dtype=torch.long)
 
         return {"input_ids": input_ids, "attention_mask": attention_mask}
