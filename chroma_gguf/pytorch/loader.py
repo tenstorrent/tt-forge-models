@@ -26,6 +26,9 @@ class ModelVariant(StrEnum):
     UNLOCKED_V50_Q4_0 = "Unlocked_V50_Q4_0"
 
 
+GGUF_BASE_URL = "https://huggingface.co/silveroxides/Chroma-GGUF/blob/main"
+
+
 class ModelLoader(ForgeModel):
     """Chroma GGUF model loader implementation for text-to-image generation tasks."""
 
@@ -35,9 +38,11 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.UNLOCKED_V50_Q4_0
+    _GGUF_FILES = {
+        ModelVariant.UNLOCKED_V50_Q4_0: "chroma-unlocked-v50/chroma-unlocked-v50-Q4_0.gguf",
+    }
 
-    GGUF_FILE = "chroma-unlocked-v50/chroma-unlocked-v50-Q4_0.gguf"
+    DEFAULT_VARIANT = ModelVariant.UNLOCKED_V50_Q4_0
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -59,12 +64,15 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"gguf_file": self.GGUF_FILE}
+        gguf_file = self._GGUF_FILES[self._variant]
+        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+
+        load_kwargs = {}
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
-        self.transformer = Flux2Transformer2DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
+        self.transformer = Flux2Transformer2DModel.from_single_file(
+            gguf_url,
             **load_kwargs,
         )
 
