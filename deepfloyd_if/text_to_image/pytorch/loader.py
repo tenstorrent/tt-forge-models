@@ -6,6 +6,8 @@
 DeepFloyd IF-I-L-v1.0 model loader implementation for text-to-image generation.
 """
 
+import os
+
 import torch
 from typing import Optional
 
@@ -59,9 +61,12 @@ class ModelLoader(ForgeModel):
     def _load_pipeline(self):
         from diffusers import DiffusionPipeline
 
+        token = os.environ.get("HF_TOKEN")
+
         self._pipeline = DiffusionPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=torch.float32,
+            token=token,
         )
         self._pipeline.to("cpu")
         return self._pipeline
