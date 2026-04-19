@@ -106,6 +106,19 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        max_len = self._variant_config.max_length
+        if (
+            hasattr(model.config, "sliding_window")
+            and model.config.sliding_window is not None
+            and model.config.sliding_window > max_len
+        ):
+            model.config.sliding_window = max_len
+            for layer in model.model.layers:
+                if hasattr(layer.self_attn, "sliding_window"):
+                    layer.self_attn.sliding_window = max_len
+                if hasattr(layer.self_attn, "config"):
+                    layer.self_attn.config.sliding_window = max_len
+
         self.config = model.config
         self.model = model
         return model
