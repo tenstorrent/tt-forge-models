@@ -86,10 +86,9 @@ class ModelLoader(ForgeModel):
         width = 512
         latent_h = height // vae_scale_factor // 2
         latent_w = width // vae_scale_factor // 2
-        num_channels_latents = config.in_channels // 4
         seq_len = latent_h * latent_w
 
-        hidden_states = torch.randn(1, seq_len * 2, num_channels_latents, dtype=dtype)
+        hidden_states = torch.randn(1, seq_len * 2, config.in_channels, dtype=dtype)
         prompt_embeds = torch.randn(1, 64, config.joint_attention_dim, dtype=dtype)
         img_shapes = [[(1, latent_h, latent_w), (1, latent_h, latent_w)]]
         timestep = torch.tensor([0.5], dtype=dtype)
