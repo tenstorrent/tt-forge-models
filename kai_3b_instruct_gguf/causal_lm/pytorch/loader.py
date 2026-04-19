@@ -61,6 +61,26 @@ def _patch_transformers_smollm3_gguf():
 
     GGUFTokenizerSkeleton.__init__ = _patched_skeleton_init
 
+    _orig_tokenizer_method = GGUFLlamaConverter.tokenizer
+
+    def _patched_tokenizer(self, proto):
+        result = _orig_tokenizer_method(self, proto)
+        bos_token = (
+            proto.tokens[proto.bos_token_id]
+            if getattr(proto, "bos_token_id", None) is not None
+            else None
+        )
+        eos_token = (
+            proto.tokens[proto.eos_token_id]
+            if getattr(proto, "eos_token_id", None) is not None
+            else None
+        )
+        self.additional_kwargs["bos_token"] = bos_token
+        self.additional_kwargs["eos_token"] = eos_token
+        return result
+
+    GGUFLlamaConverter.tokenizer = _patched_tokenizer
+
     if "smollm3" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["smollm3"] = GGUFLlamaConverter
 
