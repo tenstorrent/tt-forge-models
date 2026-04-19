@@ -5,7 +5,10 @@
 FEEL-IT Italian Emotion model loader implementation for sequence classification.
 """
 
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+import sentencepiece as spm
+from huggingface_hub import hf_hub_download
+from transformers import AutoModelForSequenceClassification
+from transformers.models.camembert.tokenization_camembert import CamembertTokenizer
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -59,7 +62,11 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load FEEL-IT Italian Emotion model for sequence classification from Hugging Face."""
 
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        spiece_path = hf_hub_download(self.model_name, "sentencepiece.bpe.model")
+        sp = spm.SentencePieceProcessor()
+        sp.Load(spiece_path)
+        vocab = [(sp.IdToPiece(i), sp.GetScore(i)) for i in range(sp.GetPieceSize())]
+        self.tokenizer = CamembertTokenizer(vocab=vocab)
 
         model_kwargs = {}
         if dtype_override is not None:
