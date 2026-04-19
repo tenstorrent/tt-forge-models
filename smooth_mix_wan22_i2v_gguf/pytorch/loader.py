@@ -34,8 +34,8 @@ REPO_ID = "Bedovyy/smoothMixWan22-I2V-GGUF"
 CONFIG_REPO = "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers"
 
 _GGUF_FILES = {
-    "HIGH_NOISE_Q4_K_M": "smoothMixWan22I2VT2V_i2vHigh-Q4_K_M.gguf",
-    "LOW_NOISE_Q4_K_M": "smoothMixWan22I2VT2V_i2vLow-Q4_K_M.gguf",
+    "HIGH_NOISE_Q4_K_M": "HighNoise/smoothMixWan22I2VT2V_i2vHigh-Q4_K_M.gguf",
+    "LOW_NOISE_Q4_K_M": "LowNoise/smoothMixWan22I2VT2V_i2vLow-Q4_K_M.gguf",
 }
 
 
