@@ -27,23 +27,15 @@ from third_party.tt_forge_models.base import ForgeModel
 
 
 class HuSpacyEmbeddingModel(nn.Module):
-    """Wraps HuSpaCy word vectors as a PyTorch module for sentence embedding generation."""
+    """Mean-pooling model over pre-computed token embeddings."""
 
-    def __init__(self, nlp):
+    def __init__(self, vector_dim: int):
         super().__init__()
-        vectors_np = nlp.vocab.vectors.data.copy()
-        vectors_tensor = torch.from_numpy(vectors_np).float()
-        # Prepend a zero vector for OOV tokens (index 0), shift real indices by +1
-        oov = torch.zeros(1, vectors_tensor.shape[1])
-        all_vectors = torch.cat([oov, vectors_tensor], dim=0)
-        self.embedding = nn.Embedding.from_pretrained(
-            all_vectors, freeze=True, padding_idx=0
-        )
+        self.vector_dim = vector_dim
 
     def forward(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+        self, token_embeddings: torch.Tensor, attention_mask: torch.Tensor
     ) -> torch.Tensor:
-        token_embeddings = self.embedding(input_ids)
         mask_expanded = (
             attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
         )
@@ -93,13 +85,14 @@ class ModelLoader(ForgeModel):
 
     def _load_nlp(self):
         if self._nlp is None:
-            model_name = self._variant_config.pretrained_model_name
+            model_name = self._variant_config.pretrained_model_name.split("/")[-1]
             self._nlp = spacy.load(model_name)
         return self._nlp
 
     def load_model(self, *, dtype_override=None, **kwargs):
         nlp = self._load_nlp()
-        model = HuSpacyEmbeddingModel(nlp)
+        vector_dim = nlp.vocab.vectors.shape[1]
+        model = HuSpacyEmbeddingModel(vector_dim)
         model.eval()
         if dtype_override is not None:
             model = model.to(dtype=dtype_override)
@@ -110,23 +103,24 @@ class ModelLoader(ForgeModel):
         nlp = self._load_nlp()
         doc = nlp.make_doc(self.sample_text)
         max_length = self._variant_config.max_length
+        vector_dim = nlp.vocab.vectors.shape[1]
 
-        # Get vector row indices for each token
-        input_ids = []
+        token_vectors = []
         for token in doc:
-            row = nlp.vocab.vectors.find(key=token.orth)
-            input_ids.append(row + 1 if row >= 0 else 0)
+            token_vectors.append(torch.from_numpy(token.vector.copy()).float())
 
-        # Pad or truncate to max_length
-        if len(input_ids) >= max_length:
-            input_ids = input_ids[:max_length]
+        if len(token_vectors) >= max_length:
+            token_vectors = token_vectors[:max_length]
             attention_mask = [1] * max_length
         else:
-            attention_mask = [1] * len(input_ids) + [0] * (max_length - len(input_ids))
-            input_ids = input_ids + [0] * (max_length - len(input_ids))
+            pad_count = max_length - len(token_vectors)
+            attention_mask = [1] * len(token_vectors) + [0] * pad_count
+            token_vectors.extend([torch.zeros(vector_dim)] * pad_count)
 
+        token_embeddings = torch.stack(token_vectors).unsqueeze(0)
+        dtype = dtype_override if dtype_override is not None else torch.float32
         return {
-            "input_ids": torch.tensor([input_ids], dtype=torch.long),
+            "token_embeddings": token_embeddings.to(dtype=dtype),
             "attention_mask": torch.tensor([attention_mask], dtype=torch.long),
         }
 

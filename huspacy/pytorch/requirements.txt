@@ -1,0 +1,2 @@
+spacy>=3.8.0,<3.9.0
+hu-core-news-md @ https://huggingface.co/huspacy/hu_core_news_md/resolve/main/hu_core_news_md-3.8.1-py3-none-any.whl
