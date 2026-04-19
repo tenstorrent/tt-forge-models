@@ -52,11 +52,17 @@ def _patch_compatibility():
 
         sys.modules["torchvision.transforms.functional_tensor"] = F
 
-    import types
+    if "torchaudio" not in sys.modules:
+        import types
 
-    for mod_name in ("torchaudio", "torchaudio.transforms"):
-        if mod_name not in sys.modules:
-            sys.modules[mod_name] = types.ModuleType(mod_name)
+        torchaudio_stub = types.ModuleType("torchaudio")
+        torchaudio_stub.set_audio_backend = lambda *a, **kw: None
+        torchaudio_stub.load = lambda *a, **kw: None
+        for sub in ("transforms", "functional", "compliance", "compliance.kaldi"):
+            mod = types.ModuleType(f"torchaudio.{sub}")
+            sys.modules[f"torchaudio.{sub}"] = mod
+            setattr(torchaudio_stub, sub.split(".")[-1], mod)
+        sys.modules["torchaudio"] = torchaudio_stub
 
 
 def _ensure_languagebind_importable():
