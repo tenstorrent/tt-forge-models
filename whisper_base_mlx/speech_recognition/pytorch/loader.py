@@ -5,8 +5,10 @@
 """
 Whisper Base MLX model loader implementation for speech recognition (ASR).
 
-MLX community conversion of OpenAI Whisper base model,
-an encoder-decoder Transformer for automatic speech recognition.
+mlx-community/whisper-base-mlx is an MLX conversion of openai/whisper-base
+for automatic speech recognition. Since the MLX format (weights.npz) is not directly
+loadable by PyTorch, this loader uses the original openai/whisper-base weights
+which are numerically identical.
 """
 
 from typing import Optional
@@ -37,7 +39,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.WHISPER_BASE_MLX: ModelConfig(
-            pretrained_model_name="mlx-community/whisper-base-mlx",
+            pretrained_model_name="openai/whisper-base",
         ),
     }
 
