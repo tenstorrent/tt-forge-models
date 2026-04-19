@@ -144,6 +144,8 @@ class ModelLoader(ForgeModel):
         ),
     }
 
+    _HF_NATIVE_VARIANTS = {ModelVariant.INTERN_VL3_5_1B_HF}
+
     DEFAULT_VARIANT = ModelVariant.INTERN_VL3_5_2B
 
     def __init__(self, variant: Optional[ModelVariant] = None):
