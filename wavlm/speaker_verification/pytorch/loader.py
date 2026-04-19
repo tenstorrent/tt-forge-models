@@ -55,46 +55,34 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_feature_extractor(self, dtype_override=None):
+    def _load_feature_extractor(self):
         from transformers import AutoFeatureExtractor
 
-        feature_extractor_kwargs = {}
-        if dtype_override is not None:
-            feature_extractor_kwargs["dtype"] = dtype_override
-
         self._feature_extractor = AutoFeatureExtractor.from_pretrained(
-            self._variant_config.pretrained_model_name, **feature_extractor_kwargs
+            self._variant_config.pretrained_model_name,
         )
 
         return self._feature_extractor
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         import torch
         from transformers import WavLMForXVector
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        else:
-            model_kwargs["torch_dtype"] = torch.float32
-        model_kwargs |= kwargs
-
         model = WavLMForXVector.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
+            self._variant_config.pretrained_model_name,
+            torch_dtype=torch.float32,
+            **kwargs,
         )
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
 
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         import numpy as np
 
         if self._feature_extractor is None:
-            self._load_feature_extractor(dtype_override=dtype_override)
+            self._load_feature_extractor()
 
-        # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
