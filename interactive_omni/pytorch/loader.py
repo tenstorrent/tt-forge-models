@@ -5,9 +5,11 @@
 InteractiveOmni-4B model loader implementation for multimodal conditional generation.
 """
 
+import sys
+import types
 from typing import Optional
 
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from ...base import ForgeModel
 from ...config import (
@@ -67,19 +69,73 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
+    @staticmethod
+    def _patch_transformers_onnx():
+        import transformers
+
+        _onnx_stub = types.ModuleType("transformers.onnx")
+        _onnx_stub.OnnxConfig = type("OnnxConfig", (), {})
+        _onnx_stub.OnnxSeq2SeqConfigWithPast = type("OnnxSeq2SeqConfigWithPast", (), {})
+        sys.modules["transformers.onnx"] = _onnx_stub
+        transformers.onnx = _onnx_stub
+
+    @staticmethod
+    def _force_eager_attn(config):
+        config._attn_implementation_internal = "eager"
+        config._attn_implementation_autoset = False
+        for attr in vars(config):
+            child = getattr(config, attr)
+            if hasattr(child, "_attn_implementation_internal"):
+                child._attn_implementation_internal = "eager"
+                child._attn_implementation_autoset = False
+
+    @staticmethod
+    def _get_model_class(model_name):
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        config = AutoConfig.from_pretrained(str(model_name), trust_remote_code=True)
+        class_ref = config.auto_map.get("AutoModel")
+        if class_ref:
+            return get_class_from_dynamic_module(
+                class_ref, model_name, trust_remote_code=True
+            )
+        return None
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the InteractiveOmni model instance."""
+        self._patch_transformers_onnx()
         model_name = self._variant_config.pretrained_model_name
+
+        config = AutoConfig.from_pretrained(str(model_name), trust_remote_code=True)
+        self._force_eager_attn(config)
+
+        # The model's custom from_pretrained loads an ONNX speaker encoder
+        # and runs audio feature extraction that crashes with random weights.
+        # Temporarily remove it so the base from_pretrained is used instead.
+        model_class = self._get_model_class(model_name)
+        orig_from_pretrained = None
+        if model_class and "from_pretrained" in model_class.__dict__:
+            orig_from_pretrained = model_class.__dict__["from_pretrained"]
+            delattr(model_class, "from_pretrained")
 
         model_kwargs = {
             "trust_remote_code": True,
             "attn_implementation": "eager",
+            "config": config,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(str(model_name), **model_kwargs)
+        try:
+            model = AutoModel.from_pretrained(str(model_name), **model_kwargs)
+        finally:
+            if orig_from_pretrained is not None:
+                model_class.from_pretrained = orig_from_pretrained
+
+        # The top-level model has no forward(); extract the LLM backbone
+        # which accepts standard input_ids / attention_mask for compilation.
+        model = model.language_model
         model.eval()
 
         if self.tokenizer is None:
