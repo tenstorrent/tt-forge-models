@@ -5,6 +5,7 @@
 DeepSeek R1 Distill Llama 8B Heretic GGUF model loader implementation for causal language modeling.
 """
 
+import importlib
 import importlib.metadata
 
 import torch
@@ -15,6 +16,7 @@ import transformers.utils.import_utils as _tx_import_utils
 
 
 def _refresh_gguf_availability():
+    importlib.invalidate_caches()
     _tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
         importlib.metadata.packages_distributions()
     )
