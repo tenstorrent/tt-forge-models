@@ -79,6 +79,11 @@ class ModelLoader(ForgeModel):
 
             if importlib.util.find_spec("gguf") is not None:
                 _diffusers_import_utils._gguf_available = True
+                import importlib.metadata
+
+                _diffusers_import_utils._gguf_version = importlib.metadata.version(
+                    "gguf"
+                )
 
         from .src.model_utils import load_flux_gguf_pipe
 
