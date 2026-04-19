@@ -34,6 +34,35 @@ REPO_ID = "drbaph/Z-Image-Turbo-FP8"
 BASE_REPO_ID = "Tongyi-MAI/Z-Image-Turbo"
 
 
+def _convert_fp8_state_dict(state_dict):
+    """Convert old-format FP8 checkpoint keys to match the current diffusers model."""
+    new_sd = {}
+    for key, value in state_dict.items():
+        new_key = key
+
+        if new_key.startswith("x_embedder."):
+            new_key = new_key.replace("x_embedder.", "all_x_embedder.2-1.", 1)
+        elif new_key.startswith("final_layer."):
+            new_key = new_key.replace("final_layer.", "all_final_layer.2-1.", 1)
+
+        new_key = new_key.replace(".attention.q_norm.", ".attention.norm_q.")
+        new_key = new_key.replace(".attention.k_norm.", ".attention.norm_k.")
+
+        if ".attention.qkv." in new_key:
+            prefix = new_key.split(".attention.qkv.")[0]
+            suffix = new_key.split(".attention.qkv.")[1]
+            q, k, v = value.chunk(3, dim=0)
+            new_sd[f"{prefix}.attention.to_q.{suffix}"] = q
+            new_sd[f"{prefix}.attention.to_k.{suffix}"] = k
+            new_sd[f"{prefix}.attention.to_v.{suffix}"] = v
+            continue
+
+        new_key = new_key.replace(".attention.out.", ".attention.to_out.0.")
+
+        new_sd[new_key] = value
+    return new_sd
+
+
 class ModelVariant(StrEnum):
     """Available Z-Image-Turbo FP8 model variants."""
 
@@ -90,6 +119,7 @@ class ModelLoader(ForgeModel):
         filename = VARIANT_FILENAMES[self._variant]
         fp8_path = hf_hub_download(repo_id=REPO_ID, filename=filename)
         state_dict = load_file(fp8_path)
+        state_dict = _convert_fp8_state_dict(state_dict)
         self._pipe.transformer.load_state_dict(state_dict)
         self._pipe.transformer.eval()
         return self._pipe
