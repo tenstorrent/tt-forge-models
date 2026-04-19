@@ -73,7 +73,6 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The FLUX transformer model instance.
         """
         import importlib
-        import sys
 
         import diffusers.utils.import_utils as _diffusers_import_utils
 
@@ -83,9 +82,22 @@ class ModelLoader(ForgeModel):
                 _diffusers_import_utils._gguf_version = importlib.metadata.version(
                     "gguf"
                 )
-                for mod_name in list(sys.modules):
-                    if mod_name.startswith("diffusers.quantizers.gguf"):
-                        del sys.modules[mod_name]
+                import diffusers.quantizers.gguf.gguf_quantizer as _gq
+                from diffusers.quantizers.gguf.utils import (
+                    GGML_QUANT_SIZES,
+                    GGUFParameter,
+                    _dequantize_gguf_and_restore_linear,
+                    _quant_shape_from_byte_shape,
+                    _replace_with_gguf_linear,
+                )
+
+                _gq.GGML_QUANT_SIZES = GGML_QUANT_SIZES
+                _gq.GGUFParameter = GGUFParameter
+                _gq._dequantize_gguf_and_restore_linear = (
+                    _dequantize_gguf_and_restore_linear
+                )
+                _gq._quant_shape_from_byte_shape = _quant_shape_from_byte_shape
+                _gq._replace_with_gguf_linear = _replace_with_gguf_linear
 
         from .src.model_utils import load_flux_gguf_pipe
 
