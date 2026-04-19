@@ -63,13 +63,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the ControlNet OpenPose SD1.5 pipeline.
+        """Load and return the UNet from the ControlNet OpenPose SD1.5 pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionControlNetPipeline: The pipeline instance.
+            torch.nn.Module: The UNet model from the pipeline.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -78,9 +78,9 @@ class ModelLoader(ForgeModel):
         )
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the ControlNet OpenPose SD1.5 model.
@@ -111,15 +111,23 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, control_image
         )
 
+        timestep = timesteps[0]
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
+            down_block_additional_residuals = tuple(
+                r.to(dtype_override) for r in down_block_additional_residuals
+            )
+            mid_block_additional_residual = mid_block_additional_residual.to(
+                dtype_override
+            )
 
-        return [
-            latent_model_input,
-            timesteps,
-            prompt_embeds,
-            down_block_additional_residuals,
-            mid_block_additional_residual,
-        ]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "down_block_additional_residuals": down_block_additional_residuals,
+            "mid_block_additional_residual": mid_block_additional_residual,
+        }
