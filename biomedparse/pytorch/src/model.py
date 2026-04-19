@@ -32,11 +32,37 @@ def _ensure_repo_cloned():
     if not repo_dir.exists():
         BIOMEDPARSE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         subprocess.run(
-            ["git", "clone", "--depth", "1", BIOMEDPARSE_REPO_URL, str(repo_dir)],
+            [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                "main",
+                BIOMEDPARSE_REPO_URL,
+                str(repo_dir),
+            ],
             check=True,
         )
+        _patch_repo(repo_dir)
 
     return repo_dir
+
+
+def _patch_repo(repo_dir):
+    """Patch the cloned repo for CPU-only / modern-Pillow compatibility."""
+    for py_file in repo_dir.rglob("*.py"):
+        try:
+            text = py_file.read_text()
+        except Exception:
+            continue
+        original = text
+        text = text.replace(
+            "device=torch.cuda.current_device()",
+            'device="cpu"',
+        )
+        if text != original:
+            py_file.write_text(text)
 
 
 def _add_repo_to_path(repo_dir):
@@ -56,8 +82,15 @@ def build_biomedparse_model():
     Returns:
         torch.nn.Module: The BiomedParse model in eval mode.
     """
+    import os
+
     repo_dir = _ensure_repo_cloned()
     _add_repo_to_path(repo_dir)
+
+    from PIL import Image
+
+    if not hasattr(Image, "LINEAR"):
+        Image.LINEAR = Image.BILINEAR
 
     from modeling.BaseModel import BaseModel
     from modeling import build_model
@@ -68,7 +101,10 @@ def build_biomedparse_model():
     opt = load_opt_from_config_files([config_path])
     opt = init_distributed(opt)
 
-    pretrained_pth = "hf_hub:microsoft/BiomedParse"
-    model = BaseModel(opt, build_model(opt)).from_pretrained(pretrained_pth).eval()
+    model = BaseModel(opt, build_model(opt))
+    if not os.environ.get("TT_RANDOM_WEIGHTS"):
+        pretrained_pth = "hf_hub:microsoft/BiomedParse"
+        model = model.from_pretrained(pretrained_pth)
+    model = model.eval()
 
     return model

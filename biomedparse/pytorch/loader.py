@@ -13,6 +13,9 @@ HuggingFace: https://huggingface.co/microsoft/BiomedParse
 """
 
 from typing import Optional
+
+import torch
+import torch.nn as nn
 from torchvision import transforms
 
 from ...base import ForgeModel
@@ -26,6 +29,42 @@ from ...config import (
     StrEnum,
 )
 from datasets import load_dataset
+
+
+class BiomedParseWrapper(nn.Module):
+    """Wraps BiomedParse to accept a plain image tensor instead of a list of dicts."""
+
+    def __init__(self, inner_model):
+        super().__init__()
+        self.inner = inner_model
+        self.backbone = inner_model.backbone
+        self.sem_seg_head = inner_model.sem_seg_head
+        self.register_buffer("pixel_mean", inner_model.pixel_mean.clone())
+        self.register_buffer("pixel_std", inner_model.pixel_std.clone())
+        self.size_divisibility = inner_model.size_divisibility
+
+    def _ensure_text_embeddings(self):
+        """Pre-set fake text embeddings so the language encoder doesn't need CUDA."""
+        lang_enc = self.sem_seg_head.predictor.lang_encoder
+        if not hasattr(lang_enc, "default_text_embeddings"):
+            num_classes = 17
+            embed_dim = 512
+            fake_emb = torch.randn(num_classes, embed_dim, dtype=self.pixel_mean.dtype)
+            fake_emb = fake_emb / fake_emb.norm(dim=-1, keepdim=True)
+            lang_enc.default_text_embeddings = fake_emb
+
+    def forward(self, images):
+        from detectron2.structures import ImageList
+
+        self._ensure_text_embeddings()
+        images = (images - self.pixel_mean) / self.pixel_std
+        images = ImageList.from_tensors(
+            [images[i] for i in range(images.shape[0])],
+            self.size_divisibility,
+        )
+        features = self.backbone(images.tensor)
+        outputs = self.sem_seg_head(features)
+        return outputs["pred_masks"]
 
 
 class ModelVariant(StrEnum):
@@ -72,7 +111,8 @@ class ModelLoader(ForgeModel):
         """
         from .src.model import build_biomedparse_model
 
-        model = build_biomedparse_model()
+        base_model = build_biomedparse_model()
+        model = BiomedParseWrapper(base_model.model)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -92,7 +132,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Preprocessed image tensor of shape (batch_size, 3, 1024, 1024).
         """
-        image_size = (1024, 1024)
+        image_size = (512, 512)
         transform = transforms.Compose(
             [
                 transforms.Resize(image_size),

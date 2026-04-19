@@ -1,0 +1,5 @@
+nltk
+mpi4py
+kornia
+fvcore
+git+https://github.com/MaureenZOU/detectron2-xyz.git
