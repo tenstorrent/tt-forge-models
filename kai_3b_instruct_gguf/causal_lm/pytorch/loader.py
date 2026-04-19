@@ -47,8 +47,14 @@ def _patch_transformers_smollm3_gguf():
         GGUFLlamaConverter,
     )
 
+    class GGUFSmolLM3Converter(GGUFLlamaConverter):
+        def __init__(self, tokenizer_dict):
+            super().__init__(tokenizer_dict)
+            if not hasattr(self.proto, "bos_token_id"):
+                self.proto.bos_token_id = None
+
     if "smollm3" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["smollm3"] = GGUFLlamaConverter
+        GGUF_TO_FAST_CONVERTERS["smollm3"] = GGUFSmolLM3Converter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
