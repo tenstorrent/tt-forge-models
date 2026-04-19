@@ -156,6 +156,7 @@ class ModelLoader(ForgeModel):
         self.processor = None
         self.tokenizer = None
         self.model = None
+        self._precomputed_inputs = None
 
     @property
     def _is_hf_native(self):
@@ -200,6 +201,30 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
+    @torch.no_grad()
+    def _precompute_embeddings(self, model, raw_inputs):
+        inner = model.model
+        input_ids = raw_inputs["input_ids"]
+        attention_mask = raw_inputs["attention_mask"]
+        pixel_values = raw_inputs["pixel_values"]
+
+        inputs_embeds = inner.get_input_embeddings()(input_ids)
+
+        image_features = inner.get_image_features(
+            pixel_values=pixel_values, return_dict=True
+        ).pooler_output
+        image_features = image_features.to(inputs_embeds.device, inputs_embeds.dtype)
+
+        special_image_mask = inner.get_placeholder_mask(
+            input_ids, inputs_embeds=inputs_embeds, image_features=image_features
+        )
+        inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_features)
+
+        return {
+            "inputs_embeds": inputs_embeds,
+            "attention_mask": attention_mask,
+        }
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -225,6 +250,11 @@ class ModelLoader(ForgeModel):
 
         model.eval()
         self.model = model
+
+        if self._is_hf_native:
+            raw_inputs = self._load_inputs_hf_native(dtype_override=dtype_override)
+            self._precomputed_inputs = self._precompute_embeddings(model, raw_inputs)
+
         return model
 
     def _load_inputs_hf_native(self, dtype_override=None, batch_size=1):
@@ -320,6 +350,13 @@ class ModelLoader(ForgeModel):
         }
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        if self._is_hf_native and self._precomputed_inputs is not None:
+            inputs = {k: v.clone() for k, v in self._precomputed_inputs.items()}
+            if batch_size > 1:
+                for key in inputs:
+                    if torch.is_tensor(inputs[key]):
+                        inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+            return inputs
         if self._is_hf_native:
             return self._load_inputs_hf_native(
                 dtype_override=dtype_override, batch_size=batch_size
