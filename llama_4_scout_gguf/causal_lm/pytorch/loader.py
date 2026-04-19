@@ -4,6 +4,8 @@
 """
 Llama 4 Scout GGUF model loader implementation for causal language modeling.
 """
+import os
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -138,29 +140,26 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+
+        num_layers = self.num_layers if self.num_layers is not None else 6
+        config.text_config.num_hidden_layers = num_layers
+        config.text_config.num_attention_heads = 16
+        config.text_config.hidden_size = 1024
+        config.text_config.num_key_value_heads = 16
+        config.text_config.intermediate_size = 1024 * 4
+        config.text_config.intermediate_size_mlp = 1024 * 4
+        config.text_config.num_local_experts = 16
+        config.text_config.num_experts_per_tok = 1
+
+        model_kwargs = {"attn_implementation": "eager"}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[
-                        : self.num_layers
-                    ]
-            else:
-                config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
 
         self.config = model.config
         self.model = model
