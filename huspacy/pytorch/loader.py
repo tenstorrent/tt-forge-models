@@ -27,23 +27,17 @@ from third_party.tt_forge_models.base import ForgeModel
 
 
 class HuSpacyEmbeddingModel(nn.Module):
-    """Wraps HuSpaCy word vectors as a PyTorch module for sentence embedding generation."""
+    """Mean-pooling model over pre-computed HuSpaCy token embeddings."""
 
-    def __init__(self, nlp):
+    def __init__(self, vector_dim: int):
         super().__init__()
-        vectors_np = nlp.vocab.vectors.data.copy()
-        vectors_tensor = torch.from_numpy(vectors_np).float()
-        # Prepend a zero vector for OOV tokens (index 0), shift real indices by +1
-        oov = torch.zeros(1, vectors_tensor.shape[1])
-        all_vectors = torch.cat([oov, vectors_tensor], dim=0)
-        self.embedding = nn.Embedding.from_pretrained(
-            all_vectors, freeze=True, padding_idx=0
-        )
+        self.proj = nn.Linear(vector_dim, vector_dim, bias=False)
+        nn.init.eye_(self.proj.weight)
 
     def forward(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+        self, token_embeddings: torch.Tensor, attention_mask: torch.Tensor
     ) -> torch.Tensor:
-        token_embeddings = self.embedding(input_ids)
+        token_embeddings = self.proj(token_embeddings)
         mask_expanded = (
             attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
         )
@@ -91,15 +85,35 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _install_spacy_model(repo_id: str, model_name: str):
+        """Download and install a spaCy model from HuggingFace Hub."""
+        import zipfile
+        import sys
+
+        from huggingface_hub import hf_hub_download
+
+        whl_filename = f"{model_name}-any-py3-none-any.whl"
+        whl_path = hf_hub_download(repo_id=repo_id, filename=whl_filename)
+        site_packages = [p for p in sys.path if "site-packages" in p][0]
+        with zipfile.ZipFile(whl_path, "r") as z:
+            z.extractall(site_packages)
+
     def _load_nlp(self):
         if self._nlp is None:
-            model_name = self._variant_config.pretrained_model_name
-            self._nlp = spacy.load(model_name)
+            repo_id = self._variant_config.pretrained_model_name
+            model_name = repo_id.split("/")[-1]
+            try:
+                self._nlp = spacy.load(model_name)
+            except OSError:
+                self._install_spacy_model(repo_id, model_name)
+                self._nlp = spacy.load(model_name)
         return self._nlp
 
     def load_model(self, *, dtype_override=None, **kwargs):
         nlp = self._load_nlp()
-        model = HuSpacyEmbeddingModel(nlp)
+        vector_dim = nlp.vocab.vectors.shape[1]
+        model = HuSpacyEmbeddingModel(vector_dim)
         model.eval()
         if dtype_override is not None:
             model = model.to(dtype=dtype_override)
@@ -107,27 +121,38 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
+        import numpy as np
+
         nlp = self._load_nlp()
         doc = nlp.make_doc(self.sample_text)
         max_length = self._variant_config.max_length
+        vector_dim = nlp.vocab.vectors.shape[1]
 
-        # Get vector row indices for each token
-        input_ids = []
+        embeddings = []
         for token in doc:
-            row = nlp.vocab.vectors.find(key=token.orth)
-            input_ids.append(row + 1 if row >= 0 else 0)
+            embeddings.append(token.vector)
 
-        # Pad or truncate to max_length
-        if len(input_ids) >= max_length:
-            input_ids = input_ids[:max_length]
-            attention_mask = [1] * max_length
+        num_tokens = min(len(embeddings), max_length)
+        embeddings = embeddings[:num_tokens]
+
+        if num_tokens < max_length:
+            pad_count = max_length - num_tokens
+            embeddings.extend([np.zeros(vector_dim, dtype=np.float32)] * pad_count)
+            attention_mask = [1] * num_tokens + [0] * pad_count
         else:
-            attention_mask = [1] * len(input_ids) + [0] * (max_length - len(input_ids))
-            input_ids = input_ids + [0] * (max_length - len(input_ids))
+            attention_mask = [1] * max_length
+
+        token_embeddings = torch.tensor(
+            np.stack(embeddings), dtype=torch.float32
+        ).unsqueeze(0)
+        attention_mask = torch.tensor([attention_mask], dtype=torch.long)
+
+        if dtype_override is not None:
+            token_embeddings = token_embeddings.to(dtype=dtype_override)
 
         return {
-            "input_ids": torch.tensor([input_ids], dtype=torch.long),
-            "attention_mask": torch.tensor([attention_mask], dtype=torch.long),
+            "token_embeddings": token_embeddings,
+            "attention_mask": attention_mask,
         }
 
     def output_postprocess(self, output, inputs=None):
