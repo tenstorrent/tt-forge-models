@@ -105,6 +105,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        if hasattr(model.config, "text_config"):
+            model.config.text_config.use_cache = False
+        else:
+            model.config.use_cache = False
+
         self.config = model.config
         self.model = model
         return model
