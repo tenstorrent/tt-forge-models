@@ -52,6 +52,12 @@ def _patch_compatibility():
 
         sys.modules["torchvision.transforms.functional_tensor"] = F
 
+    import types
+
+    for mod_name in ("torchaudio", "torchaudio.transforms"):
+        if mod_name not in sys.modules:
+            sys.modules[mod_name] = types.ModuleType(mod_name)
+
 
 def _ensure_languagebind_importable():
     """Ensure the LanguageBind repo is cloned and importable."""
