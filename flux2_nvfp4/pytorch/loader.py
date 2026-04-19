@@ -4,8 +4,10 @@
 """
 FLUX.2-dev-NVFP4 model loader implementation for text-to-image generation
 """
+import os
 import torch
 from diffusers.models import Flux2Transformer2DModel
+from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -61,19 +63,22 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        if self._variant == ModelVariant.NVFP4_MIXED:
-            filename = "flux2-dev-nvfp4-mixed.safetensors"
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.transformer = Flux2Transformer2DModel()
         else:
-            filename = "flux2-dev-nvfp4.safetensors"
+            if self._variant == ModelVariant.NVFP4_MIXED:
+                filename = "flux2-dev-nvfp4-mixed.safetensors"
+            else:
+                filename = "flux2-dev-nvfp4.safetensors"
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
-
-        self.transformer = Flux2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{self._variant_config.pretrained_model_name}/resolve/main/{filename}",
-            **load_kwargs,
-        )
+            checkpoint_path = hf_hub_download(
+                self._variant_config.pretrained_model_name,
+                filename=filename,
+            )
+            self.transformer = Flux2Transformer2DModel.from_single_file(
+                checkpoint_path,
+                torch_dtype=dtype_override or torch.bfloat16,
+            )
 
         if dtype_override is not None:
             self.transformer = self.transformer.to(dtype_override)
