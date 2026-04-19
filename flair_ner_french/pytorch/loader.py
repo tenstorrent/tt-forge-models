@@ -5,7 +5,53 @@
 Flair NER French model loader implementation for French named entity recognition.
 """
 
+import importlib
+import importlib.util
+import os
+import site
+import sys
 from typing import Optional
+
+
+def _get_installed_flair():
+    """Get the flair package from site-packages, bypassing local flair/ directory shadow."""
+    for sp_dir in site.getsitepackages():
+        flair_path = os.path.join(sp_dir, "flair", "__init__.py")
+        if os.path.exists(flair_path):
+            return sp_dir
+    return None
+
+
+def _import_flair_submodule(name):
+    """Import a flair submodule from the installed pip package."""
+    sp_dir = _get_installed_flair()
+    if sp_dir is None:
+        raise ImportError("flair pip package not found in site-packages")
+
+    old_path = sys.path[:]
+    old_modules = {
+        k: v for k, v in sys.modules.items() if k == "flair" or k.startswith("flair.")
+    }
+    for k in old_modules:
+        del sys.modules[k]
+
+    try:
+        sys.path = [
+            p
+            for p in sys.path
+            if not os.path.isfile(os.path.join(p, "flair", "__init__.py"))
+            or p == sp_dir
+        ]
+        if sp_dir not in sys.path:
+            sys.path.insert(0, sp_dir)
+        return importlib.import_module(name)
+    finally:
+        sys.path = old_path
+        for k in list(sys.modules.keys()):
+            if k == "flair" or k.startswith("flair."):
+                if k in old_modules:
+                    sys.modules[k] = old_modules[k]
+
 
 from ...base import ForgeModel
 from ...config import (
@@ -55,7 +101,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from flair.models import SequenceTagger
+        flair_models = _import_flair_submodule("flair.models")
+        SequenceTagger = flair_models.SequenceTagger
 
         tagger = SequenceTagger.load(self.model_name)
         self.model = tagger
@@ -67,13 +114,15 @@ class ModelLoader(ForgeModel):
         return tagger
 
     def load_inputs(self, dtype_override=None):
-        from flair.data import Sentence
+        flair_data = _import_flair_submodule("flair.data")
+        Sentence = flair_data.Sentence
 
         sentence = Sentence(self.sample_text)
         return [sentence]
 
     def decode_output(self, co_out):
-        from flair.data import Sentence
+        flair_data = _import_flair_submodule("flair.data")
+        Sentence = flair_data.Sentence
 
         sentence = Sentence(self.sample_text)
         self.model.predict(sentence)
