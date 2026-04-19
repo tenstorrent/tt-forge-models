@@ -11,8 +11,8 @@ import torch
 from safetensors.torch import load_file
 from huggingface_hub import hf_hub_download
 
-from ....base import ForgeModel
-from ....config import (
+from third_party.tt_forge_models.base import ForgeModel
+from third_party.tt_forge_models.config import (
     ModelConfig,
     ModelInfo,
     ModelGroup,
