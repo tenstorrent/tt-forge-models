@@ -5,9 +5,13 @@
 Helper functions for loading GGUF-quantized FLUX.1-schnell models.
 """
 
+import os
+
 import torch
 from diffusers import FluxPipeline, FluxTransformer2DModel, GGUFQuantizationConfig
 from huggingface_hub import hf_hub_download
+
+_TRANSFORMER_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "transformer_config")
 
 
 def load_flux_gguf_pipe(repo_id: str, gguf_filename: str, base_model: str):
@@ -27,6 +31,7 @@ def load_flux_gguf_pipe(repo_id: str, gguf_filename: str, base_model: str):
 
     transformer = FluxTransformer2DModel.from_single_file(
         model_path,
+        config=_TRANSFORMER_CONFIG_DIR,
         quantization_config=quantization_config,
         torch_dtype=torch.bfloat16,
     )
