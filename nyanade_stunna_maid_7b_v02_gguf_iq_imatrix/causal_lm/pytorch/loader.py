@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.NYANADE_STUNNA_MAID_7B_V02_GGUF_IQ_IMATRIX
 
-    GGUF_FILE = "Nyanade_Stunna-Maid-7B-v0.2-IQ4_XS.gguf"
+    GGUF_FILE = "Nyanade_Stunna-Maid-7B-v0.2-IQ4_XS-imat.gguf"
 
     sample_text = "What is your favorite city?"
 
