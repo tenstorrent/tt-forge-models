@@ -4,9 +4,42 @@
 """
 HeYujie Qwen3.5-35B-A3B abliterated GGUF model loader implementation for causal language modeling.
 """
+import importlib
+import importlib.metadata
+from functools import lru_cache
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.utils.import_utils as _tx_import_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+
+def _refresh_gguf_availability():
+    importlib.invalidate_caches()
+    _tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+        importlib.metadata.packages_distributions()
+    )
+    _tx_import_utils.is_gguf_available.cache_clear()
+
+    @lru_cache
+    def _fixed_is_gguf_available(min_version: str = _tx_import_utils.GGUF_MIN_VERSION):
+        try:
+            import gguf
+
+            gguf_version = getattr(gguf, "__version__", None)
+            if gguf_version is None:
+                gguf_version = importlib.metadata.version("gguf")
+            from packaging import version
+
+            return version.parse(gguf_version) >= version.parse(min_version)
+        except Exception:
+            return False
+
+    _tx_import_utils.is_gguf_available = _fixed_is_gguf_available
+    _gguf_utils.is_gguf_available = _fixed_is_gguf_available
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -62,6 +95,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _refresh_gguf_availability()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -76,6 +110,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _refresh_gguf_availability()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -168,6 +203,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _refresh_gguf_availability()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
