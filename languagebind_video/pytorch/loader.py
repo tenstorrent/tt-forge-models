@@ -85,6 +85,15 @@ def _ensure_languagebind_importable():
 
     _patch_compatibility()
 
+    from transformers import AutoConfig, AutoModel
+    from languagebind import LanguageBindVideoConfig, LanguageBindVideo
+
+    try:
+        AutoConfig.register("LanguageBindVideo", LanguageBindVideoConfig)
+        AutoModel.register(LanguageBindVideoConfig, LanguageBindVideo)
+    except ValueError:
+        pass
+
 
 class ModelVariant(StrEnum):
     """Available LanguageBind Video model variants."""
