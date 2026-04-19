@@ -4,6 +4,8 @@
 """
 HeYujie Qwen3.5-35B-A3B abliterated GGUF model loader implementation for causal language modeling.
 """
+import functools
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -109,6 +111,18 @@ class ModelLoader(ForgeModel):
             model.config.text_config.use_cache = False
         else:
             model.config.use_cache = False
+
+        original_forward = model.forward
+
+        @functools.wraps(original_forward)
+        def forward_no_cache(*args, **kwargs):
+            kwargs["use_cache"] = False
+            output = original_forward(*args, **kwargs)
+            if hasattr(output, "past_key_values"):
+                output["past_key_values"] = None
+            return output
+
+        model.forward = forward_no_cache
 
         self.config = model.config
         self.model = model
