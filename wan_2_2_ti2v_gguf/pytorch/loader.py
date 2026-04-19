@@ -122,6 +122,12 @@ class ModelLoader(ForgeModel):
             torch_dtype=torch.float32,
         )
 
+        from diffusers.quantizers.gguf.utils import (
+            _dequantize_gguf_and_restore_linear,
+        )
+
+        _dequantize_gguf_and_restore_linear(transformer)
+
         self.pipeline = WanPipeline.from_pretrained(
             BASE_PIPELINE,
             transformer=transformer,
