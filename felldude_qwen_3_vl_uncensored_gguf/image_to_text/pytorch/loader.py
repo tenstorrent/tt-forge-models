@@ -171,24 +171,24 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        max_length = self._variant_config.max_length
         messages = [
             {
                 "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": self.sample_image,
-                    },
-                    {"type": "text", "text": "Describe this image."},
-                ],
+                "content": [{"type": "text", "text": "Describe this image."}],
             }
         ]
 
-        inputs = self.processor.apply_chat_template(
+        text = self.processor.apply_chat_template(
             messages,
-            tokenize=True,
+            tokenize=False,
             add_generation_prompt=True,
-            return_dict=True,
+        )
+        inputs = self.processor.tokenizer(
+            text,
             return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=max_length,
         )
         return inputs
