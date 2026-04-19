@@ -12,10 +12,12 @@ Available variants:
 - DISTILL_8_STEPS: alibaba-pai/Z-Image-Fun-Lora-Distill 8-step distilled LoRA
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import torch
 from diffusers import DiffusionPipeline
+from huggingface_hub import hf_hub_download
+from safetensors import safe_open
 
 from ...base import ForgeModel
 from ...config import (
@@ -29,7 +31,7 @@ from ...config import (
 )
 
 
-BASE_MODEL_ID = "alibaba-pai/Z-Image"
+BASE_MODEL_ID = "Tongyi-MAI/Z-Image"
 
 
 class ModelVariant(StrEnum):
@@ -70,34 +72,29 @@ class ModelLoader(ForgeModel):
     def _load_pipeline(
         self,
         dtype_override: Optional[torch.dtype] = None,
-    ) -> DiffusionPipeline:
-        """Load Z-Image base pipeline and fuse distill LoRA weights.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            DiffusionPipeline: Pipeline with distill LoRA weights fused.
-        """
+    ) -> None:
         pipe_dtype = dtype_override if dtype_override is not None else torch.float32
 
         self.pipeline = DiffusionPipeline.from_pretrained(
             BASE_MODEL_ID,
             torch_dtype=pipe_dtype,
-            trust_remote_code=True,
         )
 
-        # Load and fuse distill LoRA weights
+        # The LoRA file uses kohya key format with double underscores
+        # (lora_unet__...) which triggers a diffusers conversion bug producing
+        # "transformer.." (double-dot) keys. Normalize to single underscore.
         adapter_id = self._variant_config.pretrained_model_name
-        self.pipeline.load_lora_weights(
-            adapter_id,
-            weight_name="Z-Image-Fun-Lora-Distill-8-Steps-2603.safetensors",
-        )
+        weight_name = "Z-Image-Fun-Lora-Distill-8-Steps-2603.safetensors"
+        lora_path = hf_hub_download(adapter_id, weight_name)
+        with safe_open(lora_path, framework="pt") as f:
+            lora_sd = {
+                k.replace("lora_unet__", "lora_unet_"): f.get_tensor(k)
+                for k in f.keys()
+            }
+        self.pipeline.load_lora_weights(lora_sd)
         self.pipeline.fuse_lora(lora_scale=0.8)
 
         self.pipeline.to("cpu")
-
-        return self.pipeline
 
     def load_model(
         self,
@@ -105,34 +102,56 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load and return the Z-Image pipeline with distill LoRA.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            DiffusionPipeline: The Z-Image pipeline with distill LoRA fused.
-        """
         if self.pipeline is None:
-            return self._load_pipeline(dtype_override=dtype_override)
+            self._load_pipeline(dtype_override=dtype_override)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
+            self.pipeline.transformer = self.pipeline.transformer.to(
+                dtype=dtype_override
+            )
 
-        return self.pipeline
+        return self.pipeline.transformer
+
+    def _encode_prompt(self, prompt: str) -> List[torch.Tensor]:
+        pipe = self.pipeline
+        messages = [{"role": "user", "content": prompt}]
+        text = pipe.tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=True,
+        )
+        inputs = pipe.tokenizer(
+            [text],
+            padding="max_length",
+            max_length=512,
+            truncation=True,
+            return_tensors="pt",
+        )
+        mask = inputs.attention_mask.bool()
+        hidden = pipe.text_encoder(
+            input_ids=inputs.input_ids,
+            attention_mask=inputs.attention_mask,
+            output_hidden_states=True,
+        ).hidden_states[-2]
+        return [hidden[0][mask[0]]]
 
     def load_inputs(self, prompt: Optional[str] = None) -> Dict[str, Any]:
-        """Load and return sample inputs for the Z-Image model.
-
-        Args:
-            prompt: Optional text prompt. Defaults to DEFAULT_PROMPT.
-
-        Returns:
-            dict: Input kwargs for the pipeline.
-        """
         prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {
-            "prompt": prompt_value,
-            "guidance_scale": 1.0,
-            "num_inference_steps": 8,
-        }
+        model_dtype = self.pipeline.transformer.dtype
+
+        prompt_embeds = self._encode_prompt(prompt_value)
+        prompt_embeds = [pe.to(model_dtype) for pe in prompt_embeds]
+
+        height = width = 512
+        vae_sf = self.pipeline.vae_scale_factor
+        latent_h = 2 * (height // (vae_sf * 2))
+        latent_w = 2 * (width // (vae_sf * 2))
+        in_channels = self.pipeline.transformer.in_channels
+        latents = torch.randn(1, in_channels, latent_h, latent_w, dtype=model_dtype)
+        latents = latents.unsqueeze(2)
+        x = list(latents.unbind(dim=0))
+
+        t = torch.tensor([500.0], dtype=model_dtype)
+
+        return {"x": x, "t": t, "cap_feats": prompt_embeds, "return_dict": False}
