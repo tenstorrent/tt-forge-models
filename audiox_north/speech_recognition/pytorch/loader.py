@@ -8,7 +8,11 @@ AudioX-North-v1 model loader implementation for speech recognition (ASR) using P
 
 import numpy as np
 import torch
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from transformers import (
+    WhisperConfig,
+    WhisperProcessor,
+    WhisperForConditionalGeneration,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -31,6 +35,9 @@ class ModelVariant(StrEnum):
 
 class ModelLoader(ForgeModel):
     """AudioX-North-v1 model loader implementation for speech recognition (PyTorch)."""
+
+    # jiviai/audioX-north-v1 is a gated repo; use public whisper-small for config/processor
+    BASE_WHISPER_MODEL = "openai/whisper-small"
 
     _VARIANTS = {
         ModelVariant.AUDIOX_NORTH_V1: ModelConfig(
@@ -67,11 +74,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = WhisperConfig.from_pretrained(self.BASE_WHISPER_MODEL)
+        model_kwargs["config"] = config
+
         self.model = WhisperForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         self.model.config.forced_decoder_ids = None
-        self.processor = WhisperProcessor.from_pretrained(pretrained_model_name)
+        self.processor = WhisperProcessor.from_pretrained(self.BASE_WHISPER_MODEL)
 
         self.model.eval()
         if dtype_override is not None:
@@ -86,7 +96,6 @@ class ModelLoader(ForgeModel):
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
-        # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
@@ -103,4 +112,7 @@ class ModelLoader(ForgeModel):
             device=device,
         )
 
-        return [input_features, decoder_input_ids]
+        return {
+            "input_features": input_features,
+            "decoder_input_ids": decoder_input_ids,
+        }
