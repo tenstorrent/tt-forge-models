@@ -12,7 +12,7 @@ Available variants:
 - ZIMAGE_TURBO_TRAINING_ADAPTER_V1: ostris/zimage_turbo_training_adapter (v1 weights)
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 from diffusers import AutoPipelineForText2Image
@@ -78,18 +78,52 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
             **kwargs,
         )
-        self.pipeline.load_lora_weights(
-            ADAPTER_REPO_ID,
-            weight_name="zimage_turbo_training_adapter_v1.safetensors",
+
+        from huggingface_hub import hf_hub_download
+        from safetensors.torch import load_file
+
+        lora_path = hf_hub_download(
+            ADAPTER_REPO_ID, "zimage_turbo_training_adapter_v1.safetensors"
         )
-        return self.pipeline
+        state_dict = load_file(lora_path)
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the model.
+        # LoRA weights lack alpha keys; add default alpha=rank so scaling is 1.0
+        for key in list(state_dict.keys()):
+            if key.endswith(".lora_A.weight"):
+                alpha_key = key.replace(".lora_A.weight", ".alpha")
+                if alpha_key not in state_dict:
+                    rank = state_dict[key].shape[0]
+                    state_dict[alpha_key] = torch.tensor(float(rank))
 
-        Returns:
-            list: A list of sample text prompts.
-        """
-        return [
-            "A cinematic shot of a baby raccoon wearing an intricate italian priest robe."
-        ] * batch_size
+        self.pipeline.load_lora_weights(state_dict)
+        return self.pipeline.transformer
+
+    def load_inputs(self, **kwargs) -> Any:
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        height = 128
+        width = 128
+        prompt = "A cinematic shot of a baby raccoon wearing an intricate italian priest robe."
+
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype)
+
+        prompt_embeds, _ = self.pipeline.encode_prompt(
+            prompt=prompt,
+            device="cpu",
+            do_classifier_free_guidance=False,
+        )
+
+        num_channels_latents = self.pipeline.transformer.in_channels
+        vae_scale = self.pipeline.vae_scale_factor * 2
+        latent_h = height // vae_scale
+        latent_w = width // vae_scale
+        latents = torch.randn(
+            1, num_channels_latents, latent_h, latent_w, dtype=torch.float32
+        )
+
+        timestep = torch.tensor([0.5], dtype=dtype)
+
+        latent_input = latents.to(dtype).unsqueeze(2)
+        latent_input_list = list(latent_input.unbind(dim=0))
+
+        return [latent_input_list, timestep, prompt_embeds]
