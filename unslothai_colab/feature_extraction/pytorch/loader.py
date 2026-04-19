@@ -5,7 +5,7 @@
 Unslothai Colab model loader implementation for feature extraction.
 """
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, LlamaTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
         """Load tokenizer for the current variant."""
         if self.tokenizer is None:
             model_name = self._variant_config.pretrained_model_name
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.tokenizer = LlamaTokenizer.from_pretrained(model_name)
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
