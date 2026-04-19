@@ -39,6 +39,7 @@ from ...config import (
 
 SUPPORTED_SUBFOLDERS = {"transformer", "vae", "audio_vae"}
 
+LTX_2_3_CHECKPOINT_URL = "https://huggingface.co/Lightricks/LTX-2.3/blob/main/ltx-2.3-22b-distilled.safetensors"
 FP8_CHECKPOINT_URL = "https://huggingface.co/Lightricks/LTX-2.3-fp8/blob/main/ltx-2.3-22b-distilled-fp8.safetensors"
 NVFP4_CHECKPOINT_URL = "https://huggingface.co/Lightricks/LTX-2.3-nvfp4/blob/main/ltx-2.3-22b-dev-nvfp4.safetensors"
 
@@ -145,8 +146,24 @@ class ModelLoader(ForgeModel):
         )
         return self.pipeline
 
+    def _load_2_3_transformer(self, dtype: torch.dtype) -> LTX2VideoTransformer3DModel:
+        """Load the LTX-2.3 transformer from a single safetensors checkpoint."""
+        self._transformer = LTX2VideoTransformer3DModel.from_single_file(
+            LTX_2_3_CHECKPOINT_URL,
+            torch_dtype=dtype,
+            cross_attn_mod=True,
+            audio_cross_attn_mod=True,
+            low_cpu_mem_usage=False,
+        )
+        return self._transformer
+
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        if self._variant == ModelVariant.LTX_2_3:
+            if self._transformer is None:
+                self._load_2_3_transformer(dtype)
+            return self._transformer
 
         if self._variant == ModelVariant.LTX_2_3_FP8:
             if self._transformer is None:
@@ -170,6 +187,11 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        if self._variant == ModelVariant.LTX_2_3:
+            if self._transformer is None:
+                self._load_2_3_transformer(dtype)
+            return self._load_fp8_transformer_inputs(dtype)
 
         if self._variant == ModelVariant.LTX_2_3_FP8:
             if self._transformer is None:
