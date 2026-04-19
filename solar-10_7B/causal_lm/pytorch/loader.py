@@ -149,13 +149,13 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         max_length = self._variant_config.max_length
-        if self._variant == ModelVariant.SOLAR_10_7B_V1_0:
-            prompt = self.sample_text
-        else:
+        if self._variant == ModelVariant.SOLAR_10_7B_INSTRUCT_V1_0:
             conversation = [{"role": "user", "content": self.sample_text}]
             prompt = self.tokenizer.apply_chat_template(
                 conversation, tokenize=False, add_generation_prompt=True
             )
+        else:
+            prompt = self.sample_text
         inputs = self.tokenizer(
             prompt,
             return_tensors="pt",
