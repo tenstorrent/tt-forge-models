@@ -120,12 +120,14 @@ class ModelLoader(ForgeModel):
 
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Dict[str, Any]:
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Dict[str, Any]:
         """Prepare sample tensor inputs for the diffusion transformer.
 
         Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        dtype = torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         # Transformer config: in_channels=64, joint_attention_dim=3584
         img_dim = 64
