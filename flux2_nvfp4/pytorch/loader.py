@@ -67,7 +67,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            self.transformer = Flux2Transformer2DModel.from_config(_CONFIG_DIR)
+            config = Flux2Transformer2DModel.load_config(_CONFIG_DIR)
+            self.transformer = Flux2Transformer2DModel.from_config(config)
             if dtype_override is not None:
                 self.transformer = self.transformer.to(dtype_override)
         else:
