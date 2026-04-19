@@ -113,4 +113,11 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        inputs.pop("attention_mask", None)
+
+        if dtype_override is not None:
+            for key, value in inputs.items():
+                if isinstance(value, torch.Tensor) and value.dtype == torch.float32:
+                    inputs[key] = value.to(dtype_override)
+
         return inputs
