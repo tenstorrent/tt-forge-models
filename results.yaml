@@ -51,3 +51,7 @@ results:
   status: "PASS"
   date: "20260419_045454"
   branch: "ip-172-31-30-232-tt-xla-dev/ubuntu/hf-bringup-range-1500-500-7"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[occiglot_7b_it_en_instruct/causal_lm/pytorch-7B-single_device-inference]"
+  status: "PASS"
+  date: "20260419_051143"
+  branch: "ip-172-31-30-232-tt-xla-dev/ubuntu/hf-bringup-range-1500-500-7"
