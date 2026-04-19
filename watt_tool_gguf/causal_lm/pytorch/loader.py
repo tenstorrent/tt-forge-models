@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.WATT_TOOL_70B_GGUF
 
-    GGUF_FILE = "watt-tool-70B-Q4_K_M.gguf"
+    GGUF_FILE = "watt-ai_watt-tool-70B-Q4_K_M.gguf"
 
     sample_text = "What is your favorite city?"
 
