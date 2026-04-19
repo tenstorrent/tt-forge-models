@@ -75,3 +75,7 @@ results:
   status: "MAX_FAILED_ATTEMPTS"
   date: "20260419_174434"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-1500-250-4"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[camembert/sequence_classification/pytorch-EIStakovskii_french_toxicity_classifier_plus_v2-single_device-inference]"
+  status: "MAX_FAILED_ATTEMPTS"
+  date: "20260419_174724"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-1500-250-4"
