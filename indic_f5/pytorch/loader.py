@@ -24,6 +24,18 @@ from ...config import (
     StrEnum,
 )
 
+INDICF5_DIT_CONFIG = dict(
+    dim=1024,
+    depth=22,
+    heads=16,
+    dim_head=64,
+    ff_mult=2,
+    text_dim=512,
+    conv_layers=4,
+    text_num_embeds=2546,
+    mel_dim=100,
+)
+
 
 class IndicF5DiTWrapper(nn.Module):
     """Wrapper around the IndicF5 DiT transformer backbone.
@@ -59,7 +71,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.INDIC_F5: ModelConfig(
-            pretrained_model_name="ai4bharat/IndicF5",
+            pretrained_model_name="6Morpheus6/IndicF5",
         ),
     }
 
@@ -67,7 +79,6 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.full_model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -81,23 +92,30 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoModel
+        from f5_tts.model import DiT
+        from huggingface_hub import hf_hub_download
+        from safetensors.torch import load_file
 
         token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
+        repo_id = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
+        transformer = DiT(**INDICF5_DIT_CONFIG)
+
+        if not os.environ.get("TT_RANDOM_WEIGHTS"):
+            weights_path = hf_hub_download(repo_id, "model.safetensors", token=token)
+            state_dict = load_file(weights_path)
+            prefix = "ema_model._orig_mod.transformer."
+            transformer_sd = {
+                k[len(prefix) :]: v
+                for k, v in state_dict.items()
+                if k.startswith(prefix)
+            }
+            transformer.load_state_dict(transformer_sd)
+
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+            transformer = transformer.to(dtype=dtype_override)
 
-        self.full_model = AutoModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            token=token,
-            **model_kwargs,
-        )
-
-        model = IndicF5DiTWrapper(self.full_model.model.transformer)
+        model = IndicF5DiTWrapper(transformer)
         model.eval()
         return model
 
