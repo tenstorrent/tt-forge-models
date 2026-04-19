@@ -102,6 +102,8 @@ def _safe_vision_forward(self, hidden_states, grid_thw, **kwargs):
     """Patched vision forward that handles zero-valued grid_thw."""
     hidden_states = self.patch_embed(hidden_states)
     pos_embeds = self.fast_pos_embed_interpolate(grid_thw)
+    if pos_embeds.shape[0] != hidden_states.shape[0]:
+        pos_embeds = torch.zeros_like(hidden_states)
     hidden_states = hidden_states + pos_embeds
 
     rotary_pos_emb = self.rot_pos_emb(grid_thw)
