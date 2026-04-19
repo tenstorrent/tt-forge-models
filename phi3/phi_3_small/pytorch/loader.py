@@ -19,6 +19,7 @@ from ....config import (
 )
 from ....base import ForgeModel
 from ....tools.utils import cast_input_to_type
+from .src.model_utils import patch_attention
 
 
 class ModelVariant(StrEnum):
@@ -95,6 +96,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
+        model = patch_attention(model)
         if dtype_override is not None:
             model = model.to(dtype_override)
         return model
