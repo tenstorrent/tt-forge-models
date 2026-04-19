@@ -23,7 +23,6 @@ from ...config import (
 )
 
 GGUF_BASE_URL = "https://huggingface.co/city96/Qwen-Image-gguf/blob/main"
-CONFIG_REPO = "Qwen/Qwen-Image-2512"
 
 
 class ModelVariant(StrEnum):
@@ -80,8 +79,6 @@ class ModelLoader(ForgeModel):
 
         self.transformer = QwenImageTransformer2DModel.from_single_file(
             gguf_url,
-            config=CONFIG_REPO,
-            subfolder="transformer",
             **load_kwargs,
         )
 
