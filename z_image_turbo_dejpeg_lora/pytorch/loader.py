@@ -23,6 +23,7 @@ from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
 
 from ...base import ForgeModel
+from .src.model_utils import patch_complex_rope
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -134,6 +135,7 @@ class ModelLoader(ForgeModel):
             self._load_pipeline(dtype)
         if dtype_override is not None:
             self._pipe.transformer = self._pipe.transformer.to(dtype_override)
+        patch_complex_rope(self._pipe.transformer)
         return self._pipe.transformer
 
     def load_inputs(self, **kwargs) -> Any:
