@@ -4,6 +4,8 @@
 """
 LanguageBind Video model loader implementation for video-text similarity.
 """
+import os
+import sys
 import tempfile
 
 import cv2
@@ -21,6 +23,27 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+LANGUAGEBIND_REPO_PATH = "/tmp/languagebind_repo"
+
+
+def _ensure_languagebind_importable():
+    """Ensure the LanguageBind repo is cloned and importable."""
+    if not os.path.isdir(LANGUAGEBIND_REPO_PATH):
+        import subprocess
+
+        subprocess.check_call(
+            [
+                "git",
+                "clone",
+                "--filter=blob:none",
+                "https://github.com/PKU-YuanGroup/LanguageBind.git",
+                LANGUAGEBIND_REPO_PATH,
+            ]
+        )
+
+    if LANGUAGEBIND_REPO_PATH not in sys.path:
+        sys.path.insert(0, LANGUAGEBIND_REPO_PATH)
 
 
 class ModelVariant(StrEnum):
@@ -57,6 +80,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        _ensure_languagebind_importable()
         from languagebind import LanguageBindVideoTokenizer, LanguageBindVideoProcessor
 
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -67,6 +91,7 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def _load_model_config(self):
+        _ensure_languagebind_importable()
         from languagebind import LanguageBindVideoConfig
 
         return LanguageBindVideoConfig.from_pretrained(
@@ -74,6 +99,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _ensure_languagebind_importable()
         from languagebind import LanguageBindVideo
 
         pretrained_model_name = self._variant_config.pretrained_model_name
