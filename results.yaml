@@ -79,3 +79,7 @@ results:
   status: "PASS"
   date: "20260419_173955"
   branch: "ip-172-31-30-232-tt-xla-dev/ubuntu/hf-bringup-range-1500-500-7"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[cyfragovpl_llama_pllum_70b_instruct/causal_lm/pytorch-70B_INSTRUCT-single_device-inference]"
+  status: "MODEL_TOO_LARGE"
+  date: "20260419_175501"
+  branch: "ip-172-31-30-232-tt-xla-dev/ubuntu/hf-bringup-range-1500-500-7"
