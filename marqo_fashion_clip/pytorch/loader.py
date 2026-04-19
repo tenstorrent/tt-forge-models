@@ -5,7 +5,7 @@
 Marqo FashionCLIP model loader implementation for image-text similarity.
 """
 import torch
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoModel, AutoTokenizer, CLIPImageProcessor, CLIPProcessor
 from typing import Optional
 
 from ...base import ForgeModel
@@ -79,8 +79,11 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded processor instance
         """
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+        model_name = self._variant_config.pretrained_model_name
+        image_processor = CLIPImageProcessor.from_pretrained(model_name)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.processor = CLIPProcessor(
+            image_processor=image_processor, tokenizer=tokenizer
         )
 
         return self.processor
