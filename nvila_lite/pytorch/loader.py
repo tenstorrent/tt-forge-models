@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, trust_remote_code=True
         )
         return self.processor
 
@@ -77,7 +77,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForImageTextToText.from_pretrained(
-            str(model_name), **model_kwargs
+            str(model_name), trust_remote_code=True, **model_kwargs
         )
         model.eval()
 
