@@ -6,9 +6,6 @@ SantaCoder model loader implementation
 """
 
 
-import sys
-import types
-
 from ...config import (
     ModelInfo,
     ModelGroup,
@@ -22,14 +19,6 @@ from ...base import ForgeModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
-# bigcode/santacoder remote code imports OnnxConfigWithPast and PatchingSpec from
-# transformers.onnx, which was removed in transformers v5.
-if "transformers.onnx" not in sys.modules:
-    _onnx_stub = types.ModuleType("transformers.onnx")
-    _onnx_stub.OnnxConfigWithPast = type("OnnxConfigWithPast", (), {})
-    _onnx_stub.PatchingSpec = type("PatchingSpec", (), {})
-    sys.modules["transformers.onnx"] = _onnx_stub
-
 
 class ModelVariant(StrEnum):
     """Available SantaCoder model variants."""
@@ -42,7 +31,7 @@ class ModelLoader(ForgeModel):
     # Dictionary of available model variants
     _VARIANTS = {
         ModelVariant.SANTACODER_1_1B: LLMModelConfig(
-            pretrained_model_name="bigcode/santacoder",
+            pretrained_model_name="bigcode/gpt_bigcode-santacoder",
             max_length=256,
         ),
     }
@@ -96,18 +85,16 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The SantaCoder model instance.
         """
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, trust_remote_code=True
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         # Load pre-trained model from HuggingFace
-        model_kwargs = {"use_cache": False, "trust_remote_code": True}
+        model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
+            config = AutoConfig.from_pretrained(self.model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
