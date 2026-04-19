@@ -4,6 +4,7 @@
 """
 Recap CLIP model loader implementation for image-text similarity using OpenCLIP.
 """
+
 import torch
 import torch.nn.functional as F
 from typing import Optional
@@ -55,6 +56,13 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_tokenizer(tokenizer):
+        if hasattr(tokenizer, "tokenizer") and not hasattr(
+            tokenizer.tokenizer, "batch_encode_plus"
+        ):
+            tokenizer.tokenizer.batch_encode_plus = tokenizer.tokenizer.__call__
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Recap CLIP model instance.
 
@@ -70,6 +78,7 @@ class ModelLoader(ForgeModel):
 
         model, self.preprocess = create_model_from_pretrained(pretrained_model_name)
         self.tokenizer = get_tokenizer(pretrained_model_name)
+        self._patch_tokenizer(self.tokenizer)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -94,6 +103,7 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
             self.tokenizer = get_tokenizer(self._variant_config.pretrained_model_name)
+            self._patch_tokenizer(self.tokenizer)
 
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
