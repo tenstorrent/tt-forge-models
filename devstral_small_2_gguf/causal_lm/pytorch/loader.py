@@ -34,6 +34,8 @@ def _patch_mistral3_support():
                 "mistral3"
             ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"]
     if "llama" in GGUF_TO_FAST_CONVERTERS:
+        if "mistral" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["mistral"] = GGUF_TO_FAST_CONVERTERS["llama"]
         GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUF_TO_FAST_CONVERTERS["llama"]
 
 
