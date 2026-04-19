@@ -26,6 +26,9 @@ def _patch_transformers_smollm3_gguf():
     The GGUF file declares architecture as 'smollm3' which transformers
     does not natively support. The backbone is identical to llama,
     so we reuse its config mapping and remap model_type to 'llama'.
+    Also patches GGUFTokenizerSkeleton to default bos_token_id to None,
+    working around a transformers bug where the llama tokenizer converter
+    accesses bos_token_id unconditionally.
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
@@ -45,16 +48,21 @@ def _patch_transformers_smollm3_gguf():
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
         GGUFLlamaConverter,
+        GGUFTokenizerSkeleton,
     )
+    import transformers.integrations.ggml as ggml_mod
 
-    class GGUFSmolLM3Converter(GGUFLlamaConverter):
-        def __init__(self, tokenizer_dict):
-            super().__init__(tokenizer_dict)
-            if not hasattr(self.proto, "bos_token_id"):
-                self.proto.bos_token_id = None
+    _orig_skeleton_init = GGUFTokenizerSkeleton.__init__
+
+    def _patched_skeleton_init(self, dict_):
+        _orig_skeleton_init(self, dict_)
+        if not hasattr(self, "bos_token_id"):
+            self.bos_token_id = None
+
+    GGUFTokenizerSkeleton.__init__ = _patched_skeleton_init
 
     if "smollm3" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["smollm3"] = GGUFSmolLM3Converter
+        GGUF_TO_FAST_CONVERTERS["smollm3"] = GGUFLlamaConverter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
