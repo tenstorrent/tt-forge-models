@@ -73,36 +73,27 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
+    def _load_tokenizer(self):
         self._tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name,
         )
 
         return self._tokenizer
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self._tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = VitsModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        model = VitsModel.from_pretrained(pretrained_model_name, **kwargs)
         model.eval()
 
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         if self._tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         sample_text = self._SAMPLE_TEXTS.get(self._variant, self.sample_text)
         inputs = self._tokenizer(sample_text, return_tensors="pt")
