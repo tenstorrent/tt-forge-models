@@ -96,7 +96,12 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model_kwargs = {"trust_remote_code": True, "_attn_implementation": "eager"}
+        model_kwargs = {
+            "trust_remote_code": True,
+            "_attn_implementation": "eager",
+            "low_cpu_mem_usage": True,
+            "torch_dtype": torch.bfloat16,
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
