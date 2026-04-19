@@ -9,6 +9,7 @@ Repository:
 """
 import torch
 from diffusers import GGUFQuantizationConfig, QwenImageTransformer2DModel
+from diffusers.quantizers.gguf.utils import GGUFParameter, dequantize_gguf_tensor
 from huggingface_hub import hf_hub_download
 from typing import Optional
 
@@ -86,7 +87,22 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
         )
 
+        self._dequantize_model(dtype)
         return self.transformer
+
+    def _dequantize_model(self, dtype):
+        for name, param in list(self.transformer.named_parameters()):
+            if isinstance(param, GGUFParameter):
+                parts = name.split(".")
+                module = self.transformer
+                for part in parts[:-1]:
+                    module = getattr(module, part)
+                dequantized = dequantize_gguf_tensor(param).to(dtype)
+                setattr(
+                    module,
+                    parts[-1],
+                    torch.nn.Parameter(dequantized, requires_grad=False),
+                )
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.transformer is None:
