@@ -130,10 +130,11 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         _ensure_languagebind_importable()
-        from languagebind import LanguageBindVideoTokenizer, LanguageBindVideoProcessor
+        from transformers import CLIPTokenizer
+        from languagebind import LanguageBindVideoProcessor
 
         pretrained_model_name = self._variant_config.pretrained_model_name
-        tokenizer = LanguageBindVideoTokenizer.from_pretrained(pretrained_model_name)
+        tokenizer = CLIPTokenizer.from_pretrained(pretrained_model_name)
         self.processor = LanguageBindVideoProcessor(
             self._load_model_config(), tokenizer
         )
