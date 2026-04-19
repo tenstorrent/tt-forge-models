@@ -7,6 +7,7 @@ Emu3 VisionTokenizer model loader implementation for vision feature extraction.
 """
 
 import torch
+import torch.nn as nn
 from typing import Optional
 from datasets import load_dataset
 from loguru import logger
@@ -21,6 +22,15 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+class Emu3VisionTokenizerWrapper(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        return self.model.encode(pixel_values)
 
 
 class ModelVariant(StrEnum):
@@ -82,7 +92,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model = model.to(dtype_override)
 
-        return model
+        return Emu3VisionTokenizerWrapper(model)
 
     def load_inputs(self, dtype_override=None):
         if self.image_processor is None:
