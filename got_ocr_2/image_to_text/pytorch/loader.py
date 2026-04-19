@@ -104,7 +104,10 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {
+            "use_cache": False,
+            "attn_implementation": "eager",
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
