@@ -330,8 +330,16 @@ class ModelLoader(ForgeModel):
             attn = layer.self_attn
 
             if hasattr(layer.mlp, "experts"):
-                for expert in layer.mlp.experts.experts:
-                    self._shard_mlp(shard_specs, expert)
+                shard_specs[layer.mlp.experts.gate_up_proj] = (
+                    None,
+                    "model",
+                    "batch",
+                )
+                shard_specs[layer.mlp.experts.down_proj] = (
+                    None,
+                    "batch",
+                    "model",
+                )
                 self._shard_mlp(shard_specs, layer.mlp.shared_experts)
             else:
                 self._shard_mlp(shard_specs, layer.mlp)
