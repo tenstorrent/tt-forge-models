@@ -4,8 +4,26 @@
 """
 BGE Reranker v2.5 Gemma2 Lightweight model loader implementation for passage ranking.
 """
+
 import torch
 from typing import Optional
+
+import transformers.models.gemma2.modeling_gemma2 as _gemma2_mod
+
+if not hasattr(_gemma2_mod, "Gemma2FlashAttention2"):
+    _gemma2_mod.Gemma2FlashAttention2 = _gemma2_mod.Gemma2Attention
+if not hasattr(_gemma2_mod, "Gemma2SdpaAttention"):
+    _gemma2_mod.Gemma2SdpaAttention = _gemma2_mod.Gemma2Attention
+if not hasattr(_gemma2_mod, "GEMMA2_ATTENTION_CLASSES"):
+    _gemma2_mod.GEMMA2_ATTENTION_CLASSES = {
+        "eager": _gemma2_mod.Gemma2Attention,
+        "flash_attention_2": _gemma2_mod.Gemma2Attention,
+        "sdpa": _gemma2_mod.Gemma2Attention,
+    }
+if not hasattr(_gemma2_mod, "GEMMA2_START_DOCSTRING"):
+    _gemma2_mod.GEMMA2_START_DOCSTRING = ""
+if not hasattr(_gemma2_mod, "GEMMA2_INPUTS_DOCSTRING"):
+    _gemma2_mod.GEMMA2_INPUTS_DOCSTRING = ""
 
 from ....base import ForgeModel
 from ....config import (
