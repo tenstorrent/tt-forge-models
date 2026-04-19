@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The LAION CLIP XLM-RoBERTa model instance.
         """
-        from open_clip import create_model_from_pretrained, get_tokenizer
+        from open_clip import create_model_from_pretrained
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         pretrained_tag = self._variant_config.pretrained_tag
@@ -72,13 +72,33 @@ class ModelLoader(ForgeModel):
         model, self.preprocess = create_model_from_pretrained(
             pretrained_model_name, pretrained=pretrained_tag
         )
-        self.tokenizer = get_tokenizer(pretrained_model_name)
+        self.tokenizer = self._create_tokenizer(pretrained_model_name)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
 
         model.eval()
         return model
+
+    @staticmethod
+    def _create_tokenizer(model_name):
+        from open_clip import get_tokenizer
+
+        hf_tokenizer = get_tokenizer(model_name)
+        context_length = hf_tokenizer.context_length
+
+        def tokenize(texts):
+            if isinstance(texts, str):
+                texts = [texts]
+            return hf_tokenizer.tokenizer(
+                texts,
+                return_tensors="pt",
+                max_length=context_length,
+                padding="max_length",
+                truncation=True,
+            ).input_ids
+
+        return tokenize
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the LAION CLIP XLM-RoBERTa model.
@@ -90,14 +110,16 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors containing image and text tokens.
         """
-        from open_clip import create_model_from_pretrained, get_tokenizer
+        from open_clip import create_model_from_pretrained
 
         if self.preprocess is None or self.tokenizer is None:
             _, self.preprocess = create_model_from_pretrained(
                 self._variant_config.pretrained_model_name,
                 pretrained=self._variant_config.pretrained_tag,
             )
-            self.tokenizer = get_tokenizer(self._variant_config.pretrained_model_name)
+            self.tokenizer = self._create_tokenizer(
+                self._variant_config.pretrained_model_name
+            )
 
         # Load image from HuggingFace dataset
         from datasets import load_dataset
