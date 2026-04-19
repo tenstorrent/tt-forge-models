@@ -5,7 +5,7 @@
 Chroma GGUF model loader implementation for text-to-image generation
 """
 import torch
-from diffusers.models import Flux2Transformer2DModel
+from diffusers import FluxTransformer2DModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
-        self.transformer = Flux2Transformer2DModel.from_single_file(
+        self.transformer = FluxTransformer2DModel.from_single_file(
             gguf_url,
             **load_kwargs,
         )
@@ -100,23 +100,23 @@ class ModelLoader(ForgeModel):
         h_packed = height_latent // 2
         w_packed = width_latent // 2
 
-        # Create latent tensor (B, C, H, W) then pack to (B, H*W, C)
+        # Create latent tensor and pack to (B, H*W, C)
         latents = torch.randn(
             batch_size, num_channels_latents * 4, h_packed, w_packed, dtype=dtype
         )
-
-        # Prepare latent image IDs (B, H*W, 4)
-        t = torch.arange(1)
-        h = torch.arange(h_packed)
-        w = torch.arange(w_packed)
-        l = torch.arange(1)
-        latent_ids = torch.cartesian_prod(t, h, w, l)
-        latent_ids = latent_ids.unsqueeze(0).expand(batch_size, -1, -1).to(dtype=dtype)
-
-        # Pack latents: (B, C, H, W) -> (B, H*W, C)
         latents = latents.reshape(batch_size, num_channels_latents * 4, -1).permute(
             0, 2, 1
         )
+
+        # Prepare latent image IDs
+        latent_image_ids = torch.zeros(h_packed, w_packed, 3)
+        latent_image_ids[..., 1] = (
+            latent_image_ids[..., 1] + torch.arange(h_packed)[:, None]
+        )
+        latent_image_ids[..., 2] = (
+            latent_image_ids[..., 2] + torch.arange(w_packed)[None, :]
+        )
+        latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
 
         # Prompt embeddings: use random tensors matching joint_attention_dim
         max_sequence_length = 256
@@ -125,27 +125,28 @@ class ModelLoader(ForgeModel):
             batch_size, max_sequence_length, joint_attention_dim, dtype=dtype
         )
 
-        # Text IDs (B, seq_len, 4)
-        t = torch.arange(1)
-        h = torch.arange(1)
-        w = torch.arange(1)
-        l = torch.arange(max_sequence_length)
-        text_ids = torch.cartesian_prod(t, h, w, l)
-        text_ids = text_ids.unsqueeze(0).expand(batch_size, -1, -1).to(dtype=dtype)
+        # Pooled projections
+        pooled_prompt_embeds = torch.randn(
+            batch_size, config.pooled_projection_dim, dtype=dtype
+        )
+
+        # Text IDs
+        text_ids = torch.zeros(max_sequence_length, 3).to(dtype=dtype)
 
         # Guidance
         guidance = torch.full([batch_size], self.guidance_scale, dtype=dtype)
 
         # Timestep
-        timestep = torch.tensor([1.0 / 1000], dtype=dtype).expand(batch_size)
+        timestep = torch.tensor([1.0], dtype=dtype).expand(batch_size)
 
         inputs = {
             "hidden_states": latents,
             "timestep": timestep,
             "guidance": guidance,
+            "pooled_projections": pooled_prompt_embeds,
             "encoder_hidden_states": prompt_embeds,
             "txt_ids": text_ids,
-            "img_ids": latent_ids,
+            "img_ids": latent_image_ids,
             "joint_attention_kwargs": {},
         }
 
