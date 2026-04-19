@@ -7,12 +7,14 @@ DeepSeek R1 Distill Llama 8B Heretic GGUF model loader implementation for causal
 
 import importlib
 import importlib.metadata
+from functools import lru_cache
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 import transformers.utils.import_utils as _tx_import_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
 
 def _refresh_gguf_availability():
@@ -21,6 +23,23 @@ def _refresh_gguf_availability():
         importlib.metadata.packages_distributions()
     )
     _tx_import_utils.is_gguf_available.cache_clear()
+
+    @lru_cache
+    def _fixed_is_gguf_available(min_version: str = _tx_import_utils.GGUF_MIN_VERSION):
+        try:
+            import gguf
+
+            gguf_version = getattr(gguf, "__version__", None)
+            if gguf_version is None:
+                gguf_version = importlib.metadata.version("gguf")
+            from packaging import version
+
+            return version.parse(gguf_version) >= version.parse(min_version)
+        except Exception:
+            return False
+
+    _tx_import_utils.is_gguf_available = _fixed_is_gguf_available
+    _gguf_utils.is_gguf_available = _fixed_is_gguf_available
 
 
 from ....base import ForgeModel
