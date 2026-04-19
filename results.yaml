@@ -191,3 +191,7 @@ results:
   status: "MAX_FAILED_ATTEMPTS"
   date: "20260419_031014"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-4"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[seed_oss_36b/causal_lm/pytorch-36B-Base-single_device-inference]"
+  status: "MODEL_TOO_LARGE"
+  date: "20260419_031901"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-250-250-4"
