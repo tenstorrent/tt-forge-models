@@ -98,12 +98,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
-            from transformers import AutoConfig
+        from transformers import AutoConfig
 
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        else:
+            config.num_hidden_layers = 2
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
