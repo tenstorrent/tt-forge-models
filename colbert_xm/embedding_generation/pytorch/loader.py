@@ -5,8 +5,11 @@
 ColBERT-XM model loader implementation for embedding generation.
 """
 
+import types
+
 import torch
 from transformers import AutoModel, AutoTokenizer
+from transformers.models.xmod.modeling_xmod import XmodOutput
 from typing import Optional
 
 from third_party.tt_forge_models.config import (
@@ -19,6 +22,36 @@ from third_party.tt_forge_models.config import (
     LLMModelConfig,
 )
 from third_party.tt_forge_models.base import ForgeModel
+
+
+def _patch_xmod_lang_adapters(model):
+    """Replace XmodOutput.lang_adapter with a version that uses the default
+    language adapter directly, avoiding masked tensor assignment that is
+    incompatible with XLA compilation."""
+    adapter_languages = list(model.encoder.layer[0].output.adapter_modules.keys())
+    default_lang_key = adapter_languages[
+        adapter_languages.index(model.config.default_language)
+    ]
+
+    def _simple_lang_adapter(self, lang_ids, hidden_states):
+        if not self.ln_before_adapter:
+            residual = hidden_states
+        if self.adapter_layer_norm is not None:
+            hidden_states = self.adapter_layer_norm(hidden_states)
+        elif self.adapter_reuse_layer_norm:
+            hidden_states = self.LayerNorm(hidden_states)
+        if self.ln_before_adapter:
+            residual = hidden_states
+        hidden_states = self.adapter_modules[default_lang_key](hidden_states)
+        hidden_states = self.dropout(hidden_states)
+        hidden_states += residual
+        return hidden_states
+
+    for layer in model.encoder.layer:
+        if isinstance(layer.output, XmodOutput):
+            layer.output.lang_adapter = types.MethodType(
+                _simple_lang_adapter, layer.output
+            )
 
 
 class ModelVariant(StrEnum):
@@ -93,6 +126,7 @@ class ModelLoader(ForgeModel):
 
         model = AutoModel.from_pretrained(model_name, **model_kwargs)
         model.eval()
+        _patch_xmod_lang_adapters(model)
 
         self.model = model
         return model
