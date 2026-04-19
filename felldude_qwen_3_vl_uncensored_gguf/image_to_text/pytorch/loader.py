@@ -42,11 +42,32 @@ def _patch_transformers_qwen3vl_gguf():
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
+    _TEXT_CONFIG_KEYS = {
+        "max_position_embeddings",
+        "num_hidden_layers",
+        "intermediate_size",
+        "hidden_size",
+        "rope_theta",
+        "num_attention_heads",
+        "num_key_value_heads",
+        "rms_norm_eps",
+        "vocab_size",
+        "head_dim",
+    }
+
     def patched_load_gguf_checkpoint(*args, **kwargs):
         result = orig_load(*args, **kwargs)
         config = result.get("config", {})
         if config.get("model_type") == "qwen3vl":
             config["model_type"] = "qwen3_vl"
+            text_config = {}
+            for k in list(config.keys()):
+                if k in _TEXT_CONFIG_KEYS:
+                    text_config[k] = config.pop(k)
+            config["text_config"] = text_config
+            hidden_size = text_config.get("hidden_size")
+            if hidden_size is not None:
+                config.setdefault("vision_config", {})["out_hidden_size"] = hidden_size
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
