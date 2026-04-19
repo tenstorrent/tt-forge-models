@@ -240,6 +240,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_inputs(self, dtype_override=None):
+        import torch
         import numpy as np
 
         if self._processor is None:
@@ -257,5 +258,12 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        inputs.pop("attention_mask", None)
+
+        if dtype_override is not None:
+            for key, value in inputs.items():
+                if isinstance(value, torch.Tensor) and value.dtype == torch.float32:
+                    inputs[key] = value.to(dtype_override)
 
         return inputs
