@@ -2,8 +2,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-FLUX.2 FP8 Scaled model loader implementation for text-to-image generation
+FLUX.2 FP8 Scaled model loader implementation for text-to-image generation.
+
+Loads FP8-scaled FLUX.2 transformer weights from silveroxides/FLUX.2-dev-fp8_scaled.
+Uses a local config because the repo contains only standalone safetensors files.
 """
+import json
+import os
+import tempfile
+
 import torch
 from diffusers.models import Flux2Transformer2DModel
 from typing import Optional
@@ -18,6 +25,25 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+_FP8_DEV_URL = "https://huggingface.co/silveroxides/FLUX.2-dev-fp8_scaled/blob/main/flux2-dev-fp8_scaled.safetensors"
+
+_TRANSFORMER_CONFIG = {
+    "_class_name": "Flux2Transformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "patch_size": 1,
+    "in_channels": 128,
+    "num_layers": 8,
+    "num_single_layers": 48,
+    "attention_head_dim": 128,
+    "num_attention_heads": 48,
+    "joint_attention_dim": 15360,
+    "timestep_guidance_channels": 256,
+    "mlp_ratio": 3.0,
+    "axes_dims_rope": [32, 32, 32, 32],
+    "rope_theta": 2000,
+    "guidance_embeds": True,
+}
 
 
 class ModelVariant(StrEnum):
@@ -56,15 +82,24 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"use_safetensors": True}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+    def _make_local_config_dir(self):
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
 
-        self.transformer = Flux2Transformer2DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
+    def load_model(self, *, dtype_override=None, **kwargs):
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        config_dir = self._make_local_config_dir()
+
+        self.transformer = Flux2Transformer2DModel.from_single_file(
+            _FP8_DEV_URL,
+            config=config_dir,
             subfolder="transformer",
-            **load_kwargs,
+            torch_dtype=dtype,
         )
 
         if dtype_override is not None:
