@@ -18,6 +18,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from .src.model import Wrapper
 
 
 class ModelVariant(StrEnum):
@@ -73,7 +74,7 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        return model
+        return Wrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         messages = [
