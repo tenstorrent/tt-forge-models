@@ -7,6 +7,8 @@ IndicF5 model loader implementation for text-to-speech tasks.
 IndicF5 is a polyglot TTS model supporting 11 Indian languages, built on the
 F5-TTS Conditional Flow Matching architecture with a DiT transformer backbone.
 """
+import os
+
 import torch
 import torch.nn as nn
 from typing import Optional
@@ -81,6 +83,8 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         from transformers import AutoModel
 
+        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -89,6 +93,7 @@ class ModelLoader(ForgeModel):
         self.full_model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
+            token=token,
             **model_kwargs,
         )
 
