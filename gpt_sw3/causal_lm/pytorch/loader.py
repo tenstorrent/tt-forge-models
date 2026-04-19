@@ -3,11 +3,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 GPT-SW3 model loader implementation for causal language modeling (PyTorch).
+
+The HuggingFace repo is gated, so models are constructed from config with
+random weights for compile-only testing.
 """
 
 from typing import Optional
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+from transformers import GPT2Config, GPT2LMHeadModel
 
 from ....config import (
     ModelConfig,
@@ -19,7 +23,15 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
-from ....tools.utils import cast_input_to_type
+
+_GPT_SW3_356M_CONFIG = {
+    "vocab_size": 64000,
+    "n_embd": 1024,
+    "n_layer": 24,
+    "n_head": 16,
+    "n_positions": 2048,
+    "activation_function": "gelu_new",
+}
 
 
 class ModelVariant(StrEnum):
@@ -39,11 +51,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.GPT_SW3_356M
 
-    sample_text = "Träd är fina för att"  # Swedish text: "Trees are nice for"
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -59,38 +68,20 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self):
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-        )
-        return self.tokenizer
-
     def load_model(self, *, dtype_override=None, **kwargs):
-        if self.tokenizer is None:
-            self._load_tokenizer()
-
-        model_kwargs = {}
-        model_kwargs |= kwargs
-
-        model = AutoModelForCausalLM.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
-        )
+        config = GPT2Config(**_GPT_SW3_356M_CONFIG)
+        model = GPT2LMHeadModel(config)
         if dtype_override is not None:
             model = model.to(dtype_override)
         model.eval()
         return model
 
     def load_inputs(self, dtype_override=None):
-        if self.tokenizer is None:
-            self._load_tokenizer()
-
-        inputs = self.tokenizer(
-            self.sample_text,
-            return_tensors="pt",
-        )
-
-        if dtype_override is not None:
-            for key in inputs:
-                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
-
+        seq_len = 16
+        inputs = {
+            "input_ids": torch.randint(
+                0, _GPT_SW3_356M_CONFIG["vocab_size"], (1, seq_len)
+            ),
+            "attention_mask": torch.ones(1, seq_len, dtype=torch.long),
+        }
         return inputs
