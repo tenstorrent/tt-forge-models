@@ -83,19 +83,6 @@ class ModelLoader(ForgeModel):
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the T2I-Adapter Sketch SDXL model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-
-        Returns:
-            List: Input tensors for the UNet with T2I-Adapter residuals:
-                - latent_model_input (torch.Tensor)
-                - timestep (torch.Tensor)
-                - prompt_embeds (torch.Tensor)
-                - added_cond_kwargs (dict)
-                - down_intrablock_additional_residuals (list of torch.Tensor)
-        """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
 
@@ -103,7 +90,7 @@ class ModelLoader(ForgeModel):
 
         (
             latent_model_input,
-            timesteps,
+            timestep,
             prompt_embeds,
             added_cond_kwargs,
             down_intrablock_additional_residuals,
@@ -113,13 +100,13 @@ class ModelLoader(ForgeModel):
 
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [
-            latent_model_input,
-            timesteps,
-            prompt_embeds,
-            added_cond_kwargs,
-            down_intrablock_additional_residuals,
-        ]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+            "down_intrablock_additional_residuals": down_intrablock_additional_residuals,
+        }
