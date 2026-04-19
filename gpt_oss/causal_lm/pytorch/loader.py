@@ -22,6 +22,18 @@ from ....config import (
 )
 
 
+class _LogitsOnlyWrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.config = model.config
+
+    def forward(self, **kwargs):
+        kwargs["use_cache"] = False
+        out = self.model(**kwargs)
+        return out.logits if hasattr(out, "logits") else out[0]
+
+
 class ModelVariant(StrEnum):
     """Available GPT-OSS model variants."""
 
@@ -84,7 +96,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
 
-        model_kwargs = {"use_cache": False}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -100,11 +112,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         ).eval()
 
-        model.config.use_cache = False
-
         self.config = model.config
         self.model = model
-        return model
+
+        return _LogitsOnlyWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
@@ -131,14 +142,13 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        inputs["use_cache"] = False
         return inputs
 
     def decode_output(self, outputs, dtype_override=None):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
 
-        next_token_logits = outputs.logits[:, -1]
+        next_token_logits = outputs[:, -1]
         next_token = next_token_logits.softmax(dim=-1).argmax()
         return self.tokenizer.decode([next_token])
 
