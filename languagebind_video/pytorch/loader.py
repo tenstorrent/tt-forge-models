@@ -28,25 +28,29 @@ from ...config import (
 LANGUAGEBIND_REPO_PATH = "/tmp/languagebind_repo"
 
 
-def _patch_expand_mask():
-    """Patch _expand_mask back into transformers CLIP module for LanguageBind compatibility."""
+def _patch_compatibility():
+    """Patch removed APIs for LanguageBind/pytorchvideo compatibility with newer deps."""
     import transformers.models.clip.modeling_clip as clip_module
 
-    if hasattr(clip_module, "_expand_mask"):
-        return
+    if not hasattr(clip_module, "_expand_mask"):
 
-    def _expand_mask(mask, dtype, tgt_len=None):
-        bsz, src_len = mask.size()
-        tgt_len = tgt_len if tgt_len is not None else src_len
-        expanded_mask = (
-            mask[:, None, None, :].expand(bsz, 1, tgt_len, src_len).to(dtype)
-        )
-        inverted_mask = 1.0 - expanded_mask
-        return inverted_mask.masked_fill(
-            inverted_mask.to(torch.bool), torch.finfo(dtype).min
-        )
+        def _expand_mask(mask, dtype, tgt_len=None):
+            bsz, src_len = mask.size()
+            tgt_len = tgt_len if tgt_len is not None else src_len
+            expanded_mask = (
+                mask[:, None, None, :].expand(bsz, 1, tgt_len, src_len).to(dtype)
+            )
+            inverted_mask = 1.0 - expanded_mask
+            return inverted_mask.masked_fill(
+                inverted_mask.to(torch.bool), torch.finfo(dtype).min
+            )
 
-    clip_module._expand_mask = _expand_mask
+        clip_module._expand_mask = _expand_mask
+
+    if "torchvision.transforms.functional_tensor" not in sys.modules:
+        import torchvision.transforms.functional as F
+
+        sys.modules["torchvision.transforms.functional_tensor"] = F
 
 
 def _ensure_languagebind_importable():
@@ -67,7 +71,7 @@ def _ensure_languagebind_importable():
     if LANGUAGEBIND_REPO_PATH not in sys.path:
         sys.path.insert(0, LANGUAGEBIND_REPO_PATH)
 
-    _patch_expand_mask()
+    _patch_compatibility()
 
 
 class ModelVariant(StrEnum):
