@@ -116,7 +116,7 @@ class ModelLoader(ForgeModel):
 
         model = HunYuanDiTPlain(**model_params)
         state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
-        model.load_state_dict(state_dict)
+        model.load_state_dict(state_dict["model"])
         model.eval()
 
         if dtype_override is not None:
