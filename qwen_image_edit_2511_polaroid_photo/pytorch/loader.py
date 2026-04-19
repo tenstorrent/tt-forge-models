@@ -12,11 +12,10 @@ Available variants:
 - QWEN_IMAGE_EDIT_2511_POLAROID_PHOTO: Polaroid Photo LoRA (bf16)
 """
 
-from typing import Any, Optional
+from typing import Optional
 
 import torch
 from diffusers import DiffusionPipeline
-from diffusers.utils import load_image
 
 from ...base import ForgeModel
 from ...config import (
@@ -80,45 +79,20 @@ class ModelLoader(ForgeModel):
         if self.pipeline is None:
             self.load_model()
 
-        image = load_image(
-            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png"
-        )
-        prompt = (
-            "cinematic polaroid with soft grain subtle vignette gentle lighting "
-            "white frame handwritten photographed by prithivMLmods preserving "
-            "realistic texture and details"
-        )
-
+        config = self.pipeline.transformer.config
+        dtype = self.pipeline.transformer.dtype
+        vae_scale_factor = self.pipeline.vae_scale_factor
         height = 512
         width = 512
-        vae_scale_factor = self.pipeline.vae_scale_factor
-
-        prompt_embeds, _ = self.pipeline.encode_prompt(prompt=prompt, image=image)
-
-        vae_image = self.pipeline.image_processor.preprocess(
-            image, height, width
-        ).unsqueeze(2)
-        num_channels_latents = self.pipeline.transformer.config.in_channels // 4
-        latents, image_latents = self.pipeline.prepare_latents(
-            [vae_image],
-            batch_size=1,
-            num_channels_latents=num_channels_latents,
-            height=height,
-            width=width,
-            dtype=self.pipeline.transformer.dtype,
-            device="cpu",
-            generator=torch.Generator().manual_seed(42),
-        )
-
-        hidden_states = (
-            torch.cat([latents, image_latents], dim=1)
-            if image_latents is not None
-            else latents
-        )
         latent_h = height // vae_scale_factor // 2
         latent_w = width // vae_scale_factor // 2
+        num_channels_latents = config.in_channels // 4
+        seq_len = latent_h * latent_w
+
+        hidden_states = torch.randn(1, seq_len * 2, num_channels_latents, dtype=dtype)
+        prompt_embeds = torch.randn(1, 64, config.joint_attention_dim, dtype=dtype)
         img_shapes = [[(1, latent_h, latent_w), (1, latent_h, latent_w)]]
-        timestep = torch.tensor([0.5], dtype=self.pipeline.transformer.dtype)
+        timestep = torch.tensor([0.5], dtype=dtype)
 
         return {
             "hidden_states": hidden_states,
