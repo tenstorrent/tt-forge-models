@@ -6,6 +6,7 @@
 MMS (Massively Multilingual Speech) model loader implementation for language identification using PyTorch.
 """
 
+import torch
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +19,41 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_attention_mask_index_dtype(model):
+    """Patch _get_feature_vector_attention_mask to use consistent index dtypes.
+
+    The original uses torch.arange (int64) alongside output_lengths which may
+    lower to int32 in XLA, causing a 'Cannot concatenate S64 vs S32' error.
+    """
+    wav2vec2 = model.wav2vec2
+
+    def _patched(feature_vector_length, attention_mask, add_adapter=None):
+        non_padded_lengths = attention_mask.cumsum(dim=-1)[:, -1]
+        output_lengths = wav2vec2._get_feat_extract_output_lengths(
+            non_padded_lengths, add_adapter=add_adapter
+        )
+        output_lengths = output_lengths.to(torch.long)
+
+        batch_size = attention_mask.shape[0]
+        attention_mask = torch.zeros(
+            (batch_size, feature_vector_length),
+            dtype=attention_mask.dtype,
+            device=attention_mask.device,
+        )
+        idx = torch.arange(
+            attention_mask.shape[0],
+            device=attention_mask.device,
+            dtype=torch.int32,
+        )
+        col_idx = (output_lengths.to(torch.int32)) - 1
+        attention_mask[(idx, col_idx)] = 1
+        attention_mask = attention_mask.flip([-1]).cumsum(-1).flip([-1]).bool()
+        return attention_mask
+
+    wav2vec2._get_feature_vector_attention_mask = _patched
+    model._get_feature_vector_attention_mask = _patched
 
 
 class ModelVariant(StrEnum):
@@ -55,43 +91,32 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self, dtype_override=None):
+    def _load_processor(self):
         from transformers import AutoFeatureExtractor
 
-        processor_kwargs = {}
-        if dtype_override is not None:
-            processor_kwargs["dtype"] = dtype_override
-
         self._processor = AutoFeatureExtractor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
+            self._variant_config.pretrained_model_name,
         )
 
         return self._processor
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         from transformers import Wav2Vec2ForSequenceClassification
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
         model = Wav2Vec2ForSequenceClassification.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
+            self._variant_config.pretrained_model_name, **kwargs
         )
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
+        _patch_attention_mask_index_dtype(model)
 
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         import numpy as np
 
         if self._processor is None:
-            self._load_processor(dtype_override=dtype_override)
+            self._load_processor()
 
-        # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
