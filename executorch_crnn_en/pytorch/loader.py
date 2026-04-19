@@ -73,7 +73,7 @@ class ModelLoader(ForgeModel):
     def load_model(self, **kwargs):
         import easyocr
 
-        reader = easyocr.Reader(["en"], gpu=False)
+        reader = easyocr.Reader(["en"], gpu=False, quantize=False)
         model = reader.recognizer
         model.eval()
 
