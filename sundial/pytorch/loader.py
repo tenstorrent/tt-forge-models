@@ -66,34 +66,22 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the Sundial model for time series forecasting.
-
-        Returns:
-            torch.nn.Module: The Sundial causal LM model instance.
-        """
+    def load_model(self, **kwargs):
         cfg = self._variant_config
 
         model = AutoModelForCausalLM.from_pretrained(
             cfg.pretrained_model_name,
             trust_remote_code=True,
-            torch_dtype=dtype_override or torch.float32,
+            torch_dtype=torch.float32,
         )
         model.eval()
 
         return model
 
-    def load_inputs(self, dtype_override=None):
-        """Load sample time series inputs for the model.
-
-        Returns:
-            dict: Input dict with 'input_ids' float tensor of shape
-                  (batch_size, context_length).
-        """
+    def load_inputs(self):
         cfg = self._variant_config
-        dtype = dtype_override or torch.float32
 
         torch.manual_seed(42)
-        input_ids = torch.randn(1, cfg.context_length, dtype=dtype)
+        input_ids = torch.randn(1, cfg.context_length, dtype=torch.float32)
 
-        return {"input_ids": input_ids}
+        return {"input_ids": input_ids, "use_cache": False}
