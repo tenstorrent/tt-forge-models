@@ -46,7 +46,7 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.HUIHUI_GPT_OSS_20B_BF16_ABLITERATED: LLMModelConfig(
             pretrained_model_name="huihui-ai/Huihui-gpt-oss-20b-BF16-abliterated",
-            max_length=128,
+            max_length=129,
         ),
     }
 
@@ -133,7 +133,7 @@ class ModelLoader(ForgeModel):
         inputs = self.tokenizer(
             text,
             return_tensors="pt",
-            padding=True,
+            padding="max_length",
             truncation=True,
             max_length=max_length,
         )
