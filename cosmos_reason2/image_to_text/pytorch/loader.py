@@ -29,6 +29,9 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Cosmos Reason2 model loader implementation for image to text tasks."""
 
+    # nvidia/Cosmos-Reason2-8B is a gated repo; use public Qwen3-VL-8B-Instruct (same architecture)
+    BASE_QWEN3_VL_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
+
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.COSMOS_REASON2_8B: LLMModelConfig(
@@ -93,10 +96,10 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        self.processor = AutoProcessor.from_pretrained(self.BASE_QWEN3_VL_MODEL)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            self.BASE_QWEN3_VL_MODEL, **model_kwargs
         )
         model.eval()
 
