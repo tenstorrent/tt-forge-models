@@ -85,9 +85,13 @@ class ModelLoader(ForgeModel):
 
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
+        model_kwargs = {
+            "return_dict": False,
+            "torch_dtype": torch.float32,
+            "attn_implementation": "eager",
+        }
         if dtype_override is not None:
-            model_kwargs["dtype"] = dtype_override
+            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(model_name, **model_kwargs)
@@ -136,29 +140,15 @@ class ModelLoader(ForgeModel):
         """
         if isinstance(outputs, (tuple, list)):
             return outputs[0]
-        elif hasattr(outputs, "last_hidden_state"):
-            return outputs.last_hidden_state
         return outputs
 
-    def unpack_forward_output(self, fwd_output):
+    def unpack_forward_output(self, fwd_output) -> torch.Tensor:
         """Unpack forward pass output to extract a differentiable tensor.
 
         Args:
             fwd_output: Output from the model's forward pass
 
         Returns:
-            torch.Tensor: Concatenated flattened outputs for backward pass
+            torch.Tensor: The last hidden state tensor.
         """
-        tensors = []
-
-        if hasattr(fwd_output, "last_hidden_state"):
-            tensors.append(fwd_output.last_hidden_state.flatten())
-        if (
-            hasattr(fwd_output, "pooler_output")
-            and fwd_output.pooler_output is not None
-        ):
-            tensors.append(fwd_output.pooler_output.flatten())
-
-        if tensors:
-            return torch.cat(tensors, dim=0)
-        return fwd_output
+        return fwd_output[0]
