@@ -87,12 +87,28 @@ def _ensure_languagebind_importable():
 
     from transformers import AutoConfig, AutoModel
     from languagebind import LanguageBindVideoConfig, LanguageBindVideo
+    from languagebind.video.processing_video import (
+        LanguageBindVideoProcessor,
+        get_video_transform,
+        load_and_transform_video,
+    )
 
     try:
         AutoConfig.register("LanguageBindVideo", LanguageBindVideoConfig)
         AutoModel.register(LanguageBindVideoConfig, LanguageBindVideo)
     except ValueError:
         pass
+
+    _orig_processor_init = LanguageBindVideoProcessor.__init__
+
+    def _patched_processor_init(self, config, tokenizer=None, **kwargs):
+        super(LanguageBindVideoProcessor, self).__init__(tokenizer=tokenizer, **kwargs)
+        self.config = config
+        self.transform = get_video_transform(config)
+        self.image_processor = load_and_transform_video
+        self.tokenizer = tokenizer
+
+    LanguageBindVideoProcessor.__init__ = _patched_processor_init
 
 
 class ModelVariant(StrEnum):
