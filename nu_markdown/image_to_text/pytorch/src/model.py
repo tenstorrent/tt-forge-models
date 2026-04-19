@@ -3,9 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import torch
-import torch._dynamo
-
-torch._dynamo.config.suppress_errors = True
 
 
 class Wrapper(torch.nn.Module):
