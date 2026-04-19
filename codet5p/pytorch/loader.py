@@ -6,8 +6,34 @@ CodeT5+ model loader implementation
 """
 
 import torch
-from transformers import AutoTokenizer, T5ForConditionalGeneration
+import transformers.tokenization_utils_tokenizers as _tut
+from transformers import AddedToken, AutoTokenizer, T5ForConditionalGeneration
 from typing import Optional
+
+# Workaround: transformers 5.x may pass dict tokens to the tokenizers backend
+# which only accepts str or AddedToken. Patch _add_tokens to convert dicts.
+_original_add_tokens = _tut.PreTrainedTokenizerFast._add_tokens
+
+
+def _patched_add_tokens(self, new_tokens, special_tokens=False):
+    fixed = []
+    for t in new_tokens:
+        if isinstance(t, dict) and "content" in t:
+            fixed.append(
+                AddedToken(
+                    t["content"],
+                    lstrip=t.get("lstrip", False),
+                    rstrip=t.get("rstrip", False),
+                    single_word=t.get("single_word", False),
+                    normalized=t.get("normalized", True),
+                )
+            )
+        else:
+            fixed.append(t)
+    return _original_add_tokens(self, fixed, special_tokens)
+
+
+_tut.PreTrainedTokenizerFast._add_tokens = _patched_add_tokens
 
 from ...base import ForgeModel
 from ...config import (
