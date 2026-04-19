@@ -7,9 +7,9 @@ Gemma3 4B IT OpenBookQA SFT model loader implementation for causal language mode
 This model is a PEFT/LoRA fine-tune of google/gemma-3-4b-it on the OpenBookQA dataset.
 """
 
-import os
+import copy
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers import AutoTokenizer, Gemma3ForCausalLM, Gemma3TextConfig
 from peft import PeftModel
 from typing import Optional
 
@@ -44,7 +44,19 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.GEMMA3_4B_IT_OPENBOOKQA_SFT
 
-    BASE_MODEL_NAME = "google/gemma-3-4b-it"
+    # Gemma 3 4B IT text-only config (avoids downloading from gated base repo)
+    BASE_CONFIG = Gemma3TextConfig(
+        vocab_size=262144,
+        hidden_size=2560,
+        intermediate_size=10240,
+        num_hidden_layers=34,
+        num_attention_heads=10,
+        num_key_value_heads=2,
+        head_dim=256,
+        max_position_embeddings=131072,
+        sliding_window=512,
+        sliding_window_pattern=6,
+    )
 
     sample_text = "What is the main cause of seasons on Earth?"
 
@@ -75,8 +87,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.BASE_MODEL_NAME,
-            token=os.environ.get("HF_TOKEN"),
+            self._variant_config.pretrained_model_name,
             **tokenizer_kwargs,
         )
         if self.tokenizer.pad_token is None:
@@ -88,24 +99,14 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"use_cache": False}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-
+        config = copy.deepcopy(self.BASE_CONFIG)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                self.BASE_MODEL_NAME, token=os.environ.get("HF_TOKEN")
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        config.use_cache = False
 
-        model_kwargs |= kwargs
-
-        base_model = AutoModelForCausalLM.from_pretrained(
-            self.BASE_MODEL_NAME,
-            token=os.environ.get("HF_TOKEN"),
-            **model_kwargs,
-        )
+        base_model = Gemma3ForCausalLM(config)
+        if dtype_override is not None:
+            base_model = base_model.to(dtype=dtype_override)
 
         adapter_name = self._variant_config.pretrained_model_name
         model = PeftModel.from_pretrained(base_model, adapter_name)
