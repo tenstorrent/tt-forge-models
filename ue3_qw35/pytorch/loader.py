@@ -89,10 +89,13 @@ class ModelLoader(ForgeModel):
             }
         ]
 
-        text = self.processor.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
+        # This model's chat template drops multimodal content, so construct
+        # the prompt manually with the required vision tokens.
+        text = (
+            "<|im_start|>user\n"
+            "<|vision_start|><|image_pad|><|vision_end|>"
+            "Describe this image.<|im_end|>\n"
+            "<|im_start|>assistant\n"
         )
 
         from qwen_vl_utils import process_vision_info
