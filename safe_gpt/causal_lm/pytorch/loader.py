@@ -77,9 +77,6 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        if self.tokenizer is None:
-            self._load_tokenizer()
-
         config = GPT2Config.from_pretrained(self._variant_config.pretrained_model_name)
         vocab_size = config.vocab_size
 
