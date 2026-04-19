@@ -19,6 +19,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
+from .src.model import Wrapper
 from .src.utils import last_token_pool
 
 
@@ -83,9 +84,14 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model_kwargs = {}
+        model_kwargs = {
+            "use_cache": False,
+            "attn_implementation": "eager",
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        else:
+            model_kwargs["torch_dtype"] = torch.bfloat16
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(
@@ -94,6 +100,7 @@ class ModelLoader(ForgeModel):
             **model_kwargs,
         )
         model.eval()
+        model = Wrapper(model)
 
         return model
 
@@ -128,19 +135,17 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        return inputs
+        return {
+            "input_ids": inputs["input_ids"],
+            "attention_mask": inputs["attention_mask"],
+        }
 
     def decode_output(self, outputs, inputs=None):
         if inputs is None:
             inputs = self.load_inputs()
 
-        # Extract last hidden state
-        if hasattr(outputs, "last_hidden_state"):
-            hidden_states = outputs.last_hidden_state
-        elif hasattr(outputs, "hidden_states") and outputs.hidden_states is not None:
-            hidden_states = outputs.hidden_states[-1]
-        else:
-            hidden_states = outputs[0]
+        # Wrapper returns last_hidden_state directly as a tensor
+        hidden_states = outputs
 
         # Pool embeddings using last token
         attention_mask = inputs.get("attention_mask", None)
