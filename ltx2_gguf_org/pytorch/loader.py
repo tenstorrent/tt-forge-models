@@ -11,6 +11,7 @@ levels including IQ4_NL, IQ4_XS, Q2_K, and Q2_K_S.
 Repository: https://huggingface.co/gguf-org/ltx2-gguf
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -29,6 +30,7 @@ from ...config import (
 )
 
 REPO_ID = "gguf-org/ltx2-gguf"
+_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
 
 
 class ModelVariant(StrEnum):
@@ -91,6 +93,7 @@ class ModelLoader(ForgeModel):
 
         self._transformer = LTX2VideoTransformer3DModel.from_single_file(
             gguf_path,
+            config=_CONFIG_DIR,
             quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
         )
@@ -129,8 +132,6 @@ class ModelLoader(ForgeModel):
 
         timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
         audio_timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
-        sigma = torch.tensor([0.5], dtype=dtype).expand(batch_size)
-        audio_sigma = torch.tensor([0.5], dtype=dtype).expand(batch_size)
 
         return {
             "hidden_states": hidden_states,
@@ -139,8 +140,6 @@ class ModelLoader(ForgeModel):
             "audio_encoder_hidden_states": audio_encoder_hidden_states,
             "timestep": timestep,
             "audio_timestep": audio_timestep,
-            "sigma": sigma,
-            "audio_sigma": audio_sigma,
             "num_frames": latent_num_frames,
             "height": latent_height,
             "width": latent_width,
