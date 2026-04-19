@@ -7,7 +7,7 @@ ViT Base Violence Detection model loader implementation
 
 from typing import Optional
 
-from transformers import ViTForImageClassification
+from transformers import ViTConfig, ViTForImageClassification, ViTImageProcessor
 
 from ...config import (
     ModelConfig,
@@ -62,8 +62,9 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        config = ViTConfig.from_pretrained(pretrained_model_name)
         model = ViTForImageClassification.from_pretrained(
-            pretrained_model_name, **kwargs
+            pretrained_model_name, config=config, **kwargs
         )
         model.eval()
 
@@ -88,6 +89,9 @@ class ModelLoader(ForgeModel):
             self._preprocessor = VisionPreprocessor(
                 model_source=ModelSource.HUGGING_FACE,
                 model_name=model_name,
+            )
+            self._preprocessor._image_processor = ViTImageProcessor.from_pretrained(
+                model_name
             )
 
             if hasattr(self, "model") and self.model is not None:
