@@ -177,7 +177,7 @@ class ModelLoader(ForgeModel):
 
         # AWQ variant requires quantization config and CPU device map
         if pretrained_model_name == "OpenGVLab/InternVL2-2B-AWQ":
-            quantization_config = AwqConfig(version="ipex")
+            quantization_config = AwqConfig(do_fuse=False, backend="torch_awq")
             model_kwargs["quantization_config"] = quantization_config
             model_kwargs["device_map"] = "cpu"
 
