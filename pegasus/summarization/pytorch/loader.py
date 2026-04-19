@@ -7,6 +7,8 @@ Pegasus model loader implementation for financial text summarization.
 
 from typing import Optional
 
+import torch
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -54,6 +56,7 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self._tokenizer = None
+        self._cached_model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -121,6 +124,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        self._cached_model = model
 
         return model
 
@@ -141,5 +145,11 @@ class ModelLoader(ForgeModel):
             truncation=True,
             return_tensors="pt",
         )
+
+        decoder_start_token_id = self._cached_model.config.decoder_start_token_id
+        decoder_input_ids = torch.ones((1, 1), dtype=torch.long) * torch.tensor(
+            decoder_start_token_id, dtype=torch.long
+        )
+        inputs["decoder_input_ids"] = decoder_input_ids
 
         return inputs
