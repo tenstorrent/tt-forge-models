@@ -2,8 +2,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-FLUX.2-dev-NVFP4 model loader implementation for text-to-image generation
+FLUX.2-dev-NVFP4 model loader implementation for text-to-image generation.
+
+Loads NVFP4-quantized FLUX.2-dev transformer weights from
+black-forest-labs/FLUX.2-dev-NVFP4. Avoids accessing gated
+black-forest-labs/FLUX.2-dev repo by using a local transformer config.
 """
+import json
+import os
+import tempfile
+
 import torch
 from diffusers.models import Flux2Transformer2DModel
 from typing import Optional
@@ -18,6 +26,27 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+_NVFP4_URL = "https://huggingface.co/black-forest-labs/FLUX.2-dev-NVFP4/blob/main/flux2-dev-nvfp4.safetensors"
+_NVFP4_MIXED_URL = "https://huggingface.co/black-forest-labs/FLUX.2-dev-NVFP4/blob/main/flux2-dev-nvfp4-mixed.safetensors"
+
+_TRANSFORMER_CONFIG = {
+    "_class_name": "Flux2Transformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "patch_size": 1,
+    "in_channels": 128,
+    "num_layers": 8,
+    "num_single_layers": 48,
+    "attention_head_dim": 128,
+    "num_attention_heads": 48,
+    "joint_attention_dim": 15360,
+    "timestep_guidance_channels": 256,
+    "mlp_ratio": 3.0,
+    "axes_dims_rope": [32, 32, 32, 32],
+    "rope_theta": 2000,
+    "eps": 1e-06,
+    "guidance_embeds": True,
+}
 
 
 class ModelVariant(StrEnum):
@@ -37,6 +66,11 @@ class ModelLoader(ForgeModel):
         ModelVariant.NVFP4_MIXED: ModelConfig(
             pretrained_model_name="black-forest-labs/FLUX.2-dev-NVFP4",
         ),
+    }
+
+    _NVFP4_URLS = {
+        ModelVariant.NVFP4: _NVFP4_URL,
+        ModelVariant.NVFP4_MIXED: _NVFP4_MIXED_URL,
     }
 
     DEFAULT_VARIANT = ModelVariant.NVFP4
@@ -60,19 +94,23 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        if self._variant == ModelVariant.NVFP4_MIXED:
-            filename = "flux2-dev-nvfp4-mixed.safetensors"
-        else:
-            filename = "flux2-dev-nvfp4.safetensors"
+    def _make_local_config_dir(self):
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+    def load_model(self, *, dtype_override=None, **kwargs):
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        config_dir = self._make_local_config_dir()
 
         self.transformer = Flux2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{self._variant_config.pretrained_model_name}/blob/main/{filename}",
-            **load_kwargs,
+            self._NVFP4_URLS[self._variant],
+            config=config_dir,
+            subfolder="transformer",
+            torch_dtype=dtype,
         )
 
         if dtype_override is not None:
