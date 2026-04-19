@@ -53,19 +53,26 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+        from transformers import (
+            AutoTokenizer,
+            GPTNeoXConfig,
+            GPTNeoXForSequenceClassification,
+        )
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+
+        config = GPTNeoXConfig.from_pretrained(pretrained_model_name)
+        config.num_labels = 1
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForSequenceClassification.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        model = GPTNeoXForSequenceClassification.from_pretrained(
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
         return model
