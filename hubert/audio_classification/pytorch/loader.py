@@ -88,6 +88,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         import numpy as np
+        import torch
 
         if self._processor is None:
             self._load_processor(dtype_override=dtype_override)
@@ -104,5 +105,10 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            for key in inputs:
+                if torch.is_tensor(inputs[key]) and inputs[key].is_floating_point():
+                    inputs[key] = inputs[key].to(dtype=dtype_override)
 
         return inputs
