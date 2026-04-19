@@ -18,7 +18,7 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from diffusers import LMSDiscreteScheduler, UNet2DConditionModel
+from diffusers import UNet2DConditionModel
 from transformers import CLIPTextModel, CLIPTokenizer
 
 
@@ -66,10 +66,8 @@ class ModelLoader(ForgeModel):
         unet = UNet2DConditionModel.from_pretrained(
             model_name, subfolder="unet", torch_dtype=dtype, **kwargs
         )
-        self.scheduler = LMSDiscreteScheduler.from_pretrained(
-            model_name, subfolder="scheduler", **kwargs
-        )
-        self.in_channels = unet.in_channels
+        self.in_channels = unet.config.in_channels
+        self.sample_size = unet.config.sample_size
         return unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -81,16 +79,13 @@ class ModelLoader(ForgeModel):
         text_input = self.tokenizer(prompt, return_tensors="pt")
         text_embeddings = self.text_encoder(text_input.input_ids)[0]
 
-        height, width = 512, 512
-        latents = torch.randn((batch_size, self.in_channels, height // 8, width // 8))
-
-        num_inference_steps = 1
-        self.scheduler.set_timesteps(num_inference_steps)
-        latents = latents * self.scheduler.init_noise_sigma
-        latent_model_input = self.scheduler.scale_model_input(latents, 0)
+        sample = torch.randn(
+            (batch_size, self.in_channels, self.sample_size, self.sample_size)
+        )
+        timestep = torch.tensor([1], dtype=torch.long)
 
         return {
-            "sample": latent_model_input.to(dtype),
-            "timestep": 0,
+            "sample": sample.to(dtype),
+            "timestep": timestep,
             "encoder_hidden_states": text_embeddings.to(dtype),
         }
