@@ -5,6 +5,8 @@
 DINOv3 ConvNeXt model loader implementation for feature extraction (PyTorch).
 """
 
+import os
+
 import torch
 from transformers import AutoImageProcessor, AutoModel
 from datasets import load_dataset
@@ -79,11 +81,20 @@ class ModelLoader(ForgeModel):
             The loaded processor instance
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        token = os.environ.get("HF_TOKEN")
+        processor_kwargs = {}
+        if token:
+            processor_kwargs["token"] = token
+        self.processor = AutoImageProcessor.from_pretrained(
+            pretrained_model_name, **processor_kwargs
+        )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the DINOv3 ConvNeXt model instance.
+
+        Requires a HuggingFace token with access to the gated model.
+        Set the HF_TOKEN environment variable or pass token as a kwarg.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
@@ -94,6 +105,9 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
+        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
+        if token:
+            model_kwargs["token"] = token
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
