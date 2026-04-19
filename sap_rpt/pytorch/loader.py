@@ -8,8 +8,6 @@ SAP RPT-1-OSS (formerly ConTextTab) is a tabular foundation model for
 in-context learning on tabular data. It uses 2D attention (cross-column +
 cross-row) with cell embeddings derived from sentence transformers.
 """
-import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
 from typing import Optional
@@ -33,31 +31,53 @@ class ModelVariant(StrEnum):
 
 
 class SapRptWrapper(nn.Module):
-    """Wrapper around RPT model that accepts tensor inputs for XLA tracing.
+    """XLA-friendly wrapper around RPT model components.
 
-    The SAP RPT model normally uses a scikit-learn-style API (fit/predict)
-    which is not compatible with XLA tracing. This wrapper accepts pre-computed
-    cell embeddings and passes them through the model directly.
+    Pre-computes the context attention mask externally (avoiding
+    data-dependent boolean indexing that breaks dynamo tracing) and
+    inlines the forward pass using only XLA-compatible ops.
     """
 
-    def __init__(self, model):
+    def __init__(self, rpt_model):
         super().__init__()
-        self.model = model
+        self.embeddings = rpt_model.embeddings
+        self.in_context_encoder = rpt_model.in_context_encoder
+        self.dense_classif = rpt_model.dense_classif
+        self.output_head_classif = rpt_model.output_head_classif
 
-    def forward(self, cell_emb, attn_mask, output_mask):
-        """Run forward pass with tensor inputs.
+    def forward(
+        self,
+        column_embeddings,
+        text_embeddings,
+        date_year_month_day_weekday,
+        target,
+        target_delta,
+        number_normalized,
+        attention_mask,
+    ):
+        from transformers.activations import gelu
 
-        Args:
-            cell_emb: Cell embeddings tensor.
-            attn_mask: Attention mask tensor.
-            output_mask: Output mask tensor.
+        data = {
+            "column_embeddings": column_embeddings,
+            "text_embeddings": text_embeddings,
+            "date_year_month_day_weekday": date_year_month_day_weekday,
+            "target": target,
+            "target_delta": target_delta,
+            "number_normalized": number_normalized,
+        }
 
-        Returns:
-            Tensor: Model output predictions.
-        """
-        return self.model(
-            cell_emb=cell_emb, attn_mask=attn_mask, output_mask=output_mask
-        )
+        input_embeds = self.embeddings(data, False)
+        attention_mask = attention_mask.to(dtype=input_embeds.dtype)
+
+        for layer in self.in_context_encoder:
+            input_embeds = layer(input_embeds, attention_mask)
+
+        target_column_output = input_embeds[:, -1]
+
+        out = self.dense_classif(target_column_output)
+        out = gelu(out)
+        out = self.output_head_classif(out)
+        return out
 
 
 class ModelLoader(ForgeModel):
@@ -71,30 +91,13 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.SAP_RPT_1_OSS
 
-    # Sample tabular data for binary classification (is_drama)
-    _SAMPLE_TRAIN_DATA = {
-        "title": [
-            "The Shawshank Redemption",
-            "The Dark Knight",
-            "Forrest Gump",
-            "The Matrix",
-        ],
-        "year": [1994, 2008, 1994, 1999],
-        "genre": ["drama", "action", "drama", "sci-fi"],
-    }
-    _SAMPLE_TRAIN_LABELS = [1, 0, 1, 0]
-
-    _SAMPLE_TEST_DATA = {
-        "title": ["Inception", "The Godfather"],
-        "year": [2010, 1972],
-        "genre": ["sci-fi", "drama"],
-    }
+    NUM_TRAIN_ROWS = 4
+    NUM_TEST_ROWS = 2
+    NUM_FEATURE_COLS = 3
+    EMBEDDING_DIM = 384
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._classifier = None
-        self._X_train = None
-        self._y_train = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -109,41 +112,67 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load SAP RPT-1-OSS model wrapped for tensor-based inference.
+    def _build_context_attention_mask(self, target):
+        """Build context attention mask using XLA-friendly operations.
 
-        Returns:
-            torch.nn.Module: The wrapped RPT model instance.
+        Context rows (target > -99) can be attended by all rows.
+        Query rows (target <= -99) can only attend to themselves.
         """
-        from sap_rpt_oss import SAP_RPT_OSS_Classifier
+        num_rows = target.shape[0]
+        identity = torch.eye(num_rows, dtype=torch.float32)
+        context_cols = (target > -99).float().unsqueeze(0)
+        mask = torch.where(context_cols > 0, torch.ones_like(identity), identity)
+        return (1.0 - mask) * torch.finfo(torch.float32).min
 
-        self._classifier = SAP_RPT_OSS_Classifier(max_context_size=2048, bagging=1)
+    def load_model(self, *, dtype_override=None, **kwargs):
+        """Load SAP RPT-1-OSS model wrapped for tensor-based inference."""
+        from sap_rpt_oss.constants import ModelSize
+        from sap_rpt_oss.model.torch_model import RPT
 
-        self._X_train = pd.DataFrame(self._SAMPLE_TRAIN_DATA)
-        self._y_train = np.array(self._SAMPLE_TRAIN_LABELS)
-        self._classifier.fit(self._X_train, self._y_train)
+        model = RPT(
+            ModelSize.base,
+            regression_type="l2",
+            classification_type="cross-entropy",
+            checkpointing_segments=0,
+        )
+        model.eval()
 
-        wrapper = SapRptWrapper(self._classifier.model)
+        wrapper = SapRptWrapper(model)
         wrapper.eval()
         return wrapper
 
     def load_inputs(self, dtype_override=None):
-        """Prepare sample inputs for the SAP RPT model.
-
-        Returns:
-            list: [cell_emb, attn_mask, output_mask] tensors.
-        """
-        if self._classifier is None:
-            self.load_model(dtype_override=dtype_override)
-
-        X_test = pd.DataFrame(self._SAMPLE_TEST_DATA)
-
-        tokenized = self._classifier.tokenize(self._X_train, self._y_train, X_test)
+        """Prepare sample inputs for the SAP RPT model."""
+        num_rows = self.NUM_TRAIN_ROWS + self.NUM_TEST_ROWS
+        num_cols = self.NUM_FEATURE_COLS + 1
 
         dtype = dtype_override if dtype_override is not None else torch.float32
 
+        column_embeddings = torch.randn(
+            num_cols, self.EMBEDDING_DIM, dtype=torch.float16
+        )
+        text_embeddings = torch.zeros(
+            num_rows, num_cols, self.EMBEDDING_DIM, dtype=torch.float16
+        )
+        date_year_month_day_weekday = torch.zeros(
+            num_rows, num_cols, 4, dtype=torch.int64
+        )
+
+        target = torch.zeros(num_rows, dtype=dtype)
+        target[: self.NUM_TRAIN_ROWS] = torch.tensor([0.0, 1.0, 0.0, 1.0], dtype=dtype)
+        target[self.NUM_TRAIN_ROWS :] = -100.0
+
+        target_delta = torch.zeros(num_rows, dtype=dtype)
+        number_normalized = torch.full((num_rows, num_cols), -100.0, dtype=dtype)
+
+        attention_mask = self._build_context_attention_mask(target)
+
         return [
-            tokenized.cell_emb.to(dtype),
-            tokenized.attn_mask,
-            tokenized.output_mask,
+            column_embeddings,
+            text_embeddings,
+            date_year_month_day_weekday,
+            target,
+            target_delta,
+            number_normalized,
+            attention_mask,
         ]

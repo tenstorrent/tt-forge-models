@@ -1,0 +1,1 @@
+sap-rpt-oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git
