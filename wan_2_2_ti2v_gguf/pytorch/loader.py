@@ -105,6 +105,8 @@ class ModelLoader(ForgeModel):
 
         transformer = WanTransformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+            config=BASE_PIPELINE,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
