@@ -2,9 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import types
-
 import torch
+
+
+@torch.compiler.disable
+def _make_cpu_grid_thw(values):
+    return torch.tensor(values, dtype=torch.int64)
 
 
 def _patch_vision_encoder(model):
@@ -13,8 +16,6 @@ def _patch_vision_encoder(model):
     The XLA device zeroes all integer tensors during compilation. The vision
     encoder depends heavily on integer grid_thw values for control flow and
     shape calculations (pos_embed, rotary_emb, cu_seqlens, attention splits).
-    Disabling compilation on the vision encoder lets these run in eager mode
-    with correct values while the text model is still compiled.
     """
     visual = model.model.visual
     original_forward = visual.forward
@@ -34,10 +35,7 @@ class Wrapper(torch.nn.Module):
         _patch_vision_encoder(model)
 
     def forward(self, input_ids, attention_mask, pixel_values):
-        image_grid_thw = torch.tensor(
-            self._grid_thw_values,
-            dtype=torch.int64,
-        )
+        image_grid_thw = _make_cpu_grid_thw(self._grid_thw_values)
         inputs = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
