@@ -13,6 +13,7 @@ Available variants:
 - Q4_K_M: 4-bit quantization (medium)
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -32,7 +33,7 @@ from ...config import (
 )
 
 GGUF_REPO = "InvokeAI/FLUX.1-Krea-dev-GGUF"
-CONFIG_REPO = "black-forest-labs/FLUX.1-dev"
+_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "transformer_config")
 
 
 class ModelVariant(StrEnum):
@@ -90,8 +91,7 @@ class ModelLoader(ForgeModel):
         )
         self.transformer = FluxTransformer2DModel.from_single_file(
             local_path,
-            config=CONFIG_REPO,
-            subfolder="transformer",
+            config=_CONFIG_DIR,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
