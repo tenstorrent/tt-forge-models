@@ -129,6 +129,8 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """InternVL3.5 model loader implementation for multimodal visual question answering tasks."""
 
+    _HF_NATIVE_VARIANTS = {ModelVariant.INTERN_VL3_5_1B_HF}
+
     _VARIANTS = {
         ModelVariant.INTERN_VL3_5_1B_HF: LLMModelConfig(
             pretrained_model_name="OpenGVLab/InternVL3_5-1B-HF",
