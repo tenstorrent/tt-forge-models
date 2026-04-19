@@ -79,21 +79,23 @@ class ModelLoader(ForgeModel):
         return self.pipeline
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the Helios-Distilled pipeline.
+        """Load and return the Helios-Distilled transformer.
 
         Args:
             dtype_override: Optional torch dtype to instantiate the pipeline with.
 
         Returns:
-            DiffusionPipeline: The Helios-Distilled text-to-video pipeline.
+            torch.nn.Module: The Wan transformer from the Helios-Distilled pipeline.
         """
         if self.pipeline is None:
             self._load_pipeline(dtype_override=dtype_override)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
+            self.pipeline.transformer = self.pipeline.transformer.to(
+                dtype=dtype_override
+            )
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
         """Prepare inputs for the Helios-Distilled pipeline.
