@@ -5,18 +5,21 @@
 """
 USO 1.0 Repackaged model loader implementation.
 
-Loads the FLUX.1-dev pipeline and applies USO (Unified Style-Subject Optimized)
-LoRA weights from Comfy-Org/USO_1.0_Repackaged for style/subject-driven
-text-to-image generation.
+Loads a FLUX.1-dev transformer from non-gated FP8 weights (Kijai/flux-fp8)
+and applies USO (Unified Style-Subject Optimized) LoRA weights from
+Comfy-Org/USO_1.0_Repackaged for style/subject-driven text-to-image generation.
 
 Available variants:
-- USO_1_0_LORA: FLUX.1-dev with USO LoRA applied
+- USO_1_0_LORA: FLUX.1-dev (FP8) with USO LoRA applied
 """
 
+import json
+import os
+import tempfile
 from typing import Any, Optional
 
 import torch
-from diffusers import AutoencoderTiny, FluxPipeline  # type: ignore[import]
+from diffusers.models import FluxTransformer2DModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -29,9 +32,26 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+FP8_WEIGHTS_URL = (
+    "https://huggingface.co/Kijai/flux-fp8/blob/main/flux1-dev-fp8-e4m3fn.safetensors"
+)
 LORA_REPO = "Comfy-Org/USO_1.0_Repackaged"
 LORA_FILE = "split_files/loras/uso-flux1-dit-lora-v1.safetensors"
+
+_TRANSFORMER_CONFIG = {
+    "_class_name": "FluxTransformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "attention_head_dim": 128,
+    "axes_dims_rope": [16, 56, 56],
+    "guidance_embeds": True,
+    "in_channels": 64,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 24,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "patch_size": 1,
+    "pooled_projection_dim": 768,
+}
 
 
 class ModelVariant(StrEnum):
@@ -41,18 +61,18 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """USO 1.0 Repackaged model loader using FLUX.1-dev with LoRA."""
+    """USO 1.0 Repackaged model loader using FLUX.1-dev (FP8) with LoRA."""
 
     _VARIANTS = {
         ModelVariant.USO_1_0_LORA: ModelConfig(
-            pretrained_model_name=BASE_MODEL,
+            pretrained_model_name="Kijai/flux-fp8",
         ),
     }
     DEFAULT_VARIANT = ModelVariant.USO_1_0_LORA
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipe = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -67,106 +87,70 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype: torch.dtype = torch.float32) -> FluxPipeline:
-        """Load FLUX.1-dev pipeline and apply USO LoRA weights."""
-        self.pipe = FluxPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
+    def _make_local_config_dir(self):
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
+
+    def _load_transformer(self, dtype: torch.dtype = torch.float32):
+        config_dir = self._make_local_config_dir()
+        self._transformer = FluxTransformer2DModel.from_single_file(
+            FP8_WEIGHTS_URL,
+            config=config_dir,
+            subfolder="transformer",
             torch_dtype=dtype,
-            use_safetensors=True,
         )
-
-        # Replace VAE with tiny version for efficiency
-        self.pipe.vae = AutoencoderTiny.from_pretrained(
-            "madebyollin/taef1", torch_dtype=dtype
-        )
-
-        # Apply USO LoRA weights
-        self.pipe.load_lora_weights(
+        self._transformer.load_lora_adapter(
             LORA_REPO,
             weight_name=LORA_FILE,
         )
-
-        self.pipe.enable_attention_slicing()
-        self.pipe.enable_vae_tiling()
-        return self.pipe
+        return self._transformer
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the FLUX transformer with USO LoRA applied.
-
-        Returns:
-            FluxTransformer2DModel with USO LoRA weights.
-        """
         dtype = dtype_override if dtype_override is not None else torch.float32
-        if self.pipe is None:
-            self._load_pipeline(dtype)
+        if self._transformer is None:
+            self._load_transformer(dtype)
         if dtype_override is not None:
-            self.pipe.transformer = self.pipe.transformer.to(dtype_override)
-        return self.pipe.transformer
+            self._transformer = self._transformer.to(dtype_override)
+        return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare sample inputs for the FLUX transformer.
+    def load_inputs(
+        self,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+    ) -> Any:
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
-        Returns:
-            dict matching FluxTransformer2DModel.forward() signature.
-        """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        batch_size = kwargs.get("batch_size", 1)
-
-        if self.pipe is None:
-            self._load_pipeline(dtype)
+        if self._transformer is None:
+            self._load_transformer(dtype)
 
         max_sequence_length = 256
-        prompt = "A stylized portrait in watercolor style"
         num_images_per_prompt = 1
         height = 128
         width = 128
-        num_channels_latents = self.pipe.transformer.config.in_channels // 4
+        num_channels_latents = self._transformer.config.in_channels // 4
+        vae_scale_factor = 8
 
-        # CLIP text encoding
-        text_inputs_clip = self.pipe.tokenizer(
-            prompt,
-            padding="max_length",
-            max_length=self.pipe.tokenizer_max_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-        pooled_prompt_embeds = self.pipe.text_encoder(
-            text_inputs_clip.input_ids, output_hidden_states=False
-        ).pooler_output
-        pooled_prompt_embeds = pooled_prompt_embeds.to(dtype=dtype)
-        pooled_prompt_embeds = pooled_prompt_embeds.repeat(
-            batch_size, num_images_per_prompt
-        )
-        pooled_prompt_embeds = pooled_prompt_embeds.view(
-            batch_size * num_images_per_prompt, -1
+        pooled_projection_dim = self._transformer.config.pooled_projection_dim
+        pooled_prompt_embeds = torch.randn(
+            batch_size * num_images_per_prompt, pooled_projection_dim, dtype=dtype
         )
 
-        # T5 text encoding
-        text_inputs_t5 = self.pipe.tokenizer_2(
-            prompt,
-            padding="max_length",
-            max_length=max_sequence_length,
-            truncation=True,
-            return_length=False,
-            return_overflowing_tokens=False,
-            return_tensors="pt",
-        )
-        prompt_embeds = self.pipe.text_encoder_2(
-            text_inputs_t5.input_ids, output_hidden_states=False
-        )[0]
-        prompt_embeds = prompt_embeds.to(dtype=dtype)
-        _, seq_len_t5, _ = prompt_embeds.shape
-        prompt_embeds = prompt_embeds.repeat(batch_size, num_images_per_prompt, 1)
-        prompt_embeds = prompt_embeds.view(
-            batch_size * num_images_per_prompt, seq_len_t5, -1
+        joint_attention_dim = self._transformer.config.joint_attention_dim
+        prompt_embeds = torch.randn(
+            batch_size * num_images_per_prompt,
+            max_sequence_length,
+            joint_attention_dim,
+            dtype=dtype,
         )
 
-        # Text IDs
-        text_ids = torch.zeros(prompt_embeds.shape[1], 3).to(dtype=dtype)
+        text_ids = torch.zeros(max_sequence_length, 3, dtype=dtype)
 
-        # Latents
-        height_latent = 2 * (int(height) // (self.pipe.vae_scale_factor * 2))
-        width_latent = 2 * (int(width) // (self.pipe.vae_scale_factor * 2))
+        height_latent = 2 * (int(height) // (vae_scale_factor * 2))
+        width_latent = 2 * (int(width) // (vae_scale_factor * 2))
 
         shape = (
             batch_size * num_images_per_prompt,
@@ -191,7 +175,6 @@ class ModelLoader(ForgeModel):
             num_channels_latents * 4,
         )
 
-        # Latent image IDs
         latent_image_ids = torch.zeros(height_latent // 2, width_latent // 2, 3)
         latent_image_ids[..., 1] = (
             latent_image_ids[..., 1] + torch.arange(height_latent // 2)[:, None]
@@ -201,7 +184,6 @@ class ModelLoader(ForgeModel):
         )
         latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
 
-        # Guidance (FLUX.1-dev uses guidance_scale > 1)
         guidance = torch.full([batch_size], 3.5, dtype=dtype)
 
         return {
