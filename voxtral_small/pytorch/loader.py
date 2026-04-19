@@ -91,6 +91,18 @@ class ModelLoader(ForgeModel):
             ProcessorMixin.__repr__ = original_repr
         return self._processor
 
+    @staticmethod
+    def _patch_chat_template_kwargs():
+        from transformers.processing_utils import (
+            AllKwargsForChatTemplate,
+            ProcessingKwargs,
+        )
+
+        if "mm_load_kwargs" not in AllKwargsForChatTemplate.__annotations__:
+            AllKwargsForChatTemplate.__annotations__[
+                "mm_load_kwargs"
+            ] = ProcessingKwargs
+
     def load_inputs(self, dtype_override=None):
         if self._processor is None:
             self._load_processor()
@@ -114,6 +126,7 @@ class ModelLoader(ForgeModel):
             }
         ]
 
+        self._patch_chat_template_kwargs()
         inputs = self._processor.apply_chat_template(
             conversation,
             tokenize=True,
