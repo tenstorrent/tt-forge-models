@@ -41,12 +41,26 @@ def _patch_vision_pipeline(model, saved_inputs):
 
     inner.get_image_features = patched_get_image_features
 
-    original_gpm = inner.get_placeholder_mask
-
     @torch.compiler.disable
-    def patched_get_placeholder_mask(input_ids, **kwargs):
+    def patched_get_placeholder_mask(input_ids, inputs_embeds=None, **kwargs):
         cpu_ids = torch.tensor(input_ids_vals, dtype=torch.int64)
-        return original_gpm(cpu_ids, **kwargs)
+        image_token_id = inner.config.image_token_id
+        video_token_id = inner.config.video_token_id
+
+        special_image_mask = cpu_ids == image_token_id
+        special_video_mask = cpu_ids == video_token_id
+
+        special_image_mask = (
+            special_image_mask.unsqueeze(-1)
+            .expand_as(inputs_embeds)
+            .to(inputs_embeds.device)
+        )
+        special_video_mask = (
+            special_video_mask.unsqueeze(-1)
+            .expand_as(inputs_embeds)
+            .to(inputs_embeds.device)
+        )
+        return special_image_mask, special_video_mask
 
     inner.get_placeholder_mask = patched_get_placeholder_mask
 
