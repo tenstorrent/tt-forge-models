@@ -18,7 +18,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import SD3ControlNetModel
-from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -31,17 +30,7 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "Comfy-Org/stable-diffusion-3.5-controlnets_ComfyUI_repackaged"
-
-# ControlNet file paths within the ComfyUI repackaged repo
-_CONTROLNET_FILES = {
-    "blur": "split_files/controlnet/sd3.5_large_controlnet_blur.safetensors",
-    "canny": "split_files/controlnet/sd3.5_large_controlnet_canny.safetensors",
-    "depth": "split_files/controlnet/sd3.5_large_controlnet_depth.safetensors",
-}
-
-# Upstream diffusers config sources for each variant
-_CONFIGS = {
+_REPO_IDS = {
     "blur": "stabilityai/stable-diffusion-3.5-large-controlnet-blur",
     "canny": "stabilityai/stable-diffusion-3.5-large-controlnet-canny",
     "depth": "stabilityai/stable-diffusion-3.5-large-controlnet-depth",
@@ -67,13 +56,13 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.SD35_CONTROLNET_BLUR: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name=_REPO_IDS["blur"],
         ),
         ModelVariant.SD35_CONTROLNET_CANNY: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name=_REPO_IDS["canny"],
         ),
         ModelVariant.SD35_CONTROLNET_DEPTH: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name=_REPO_IDS["depth"],
         ),
     }
     DEFAULT_VARIANT = ModelVariant.SD35_CONTROLNET_CANNY
@@ -106,17 +95,10 @@ class ModelLoader(ForgeModel):
     def _load_controlnet(
         self, dtype: torch.dtype = torch.float32
     ) -> SD3ControlNetModel:
-        """Load ControlNet from single-file safetensors."""
+        """Load ControlNet from upstream stabilityai diffusers repo."""
         version = self._get_version_key()
-
-        model_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename=_CONTROLNET_FILES[version],
-        )
-
-        self._controlnet = SD3ControlNetModel.from_single_file(
-            model_path,
-            config=_CONFIGS[version],
+        self._controlnet = SD3ControlNetModel.from_pretrained(
+            _REPO_IDS[version],
             torch_dtype=dtype,
         )
         self._controlnet.eval()
