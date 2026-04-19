@@ -17,7 +17,7 @@ Available variants:
 - WAN22_TI2V_Q8_0: Q8_0 quantization
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import torch
 
@@ -34,6 +34,11 @@ from ...config import (
 
 GGUF_REPO = "QuantStack/Wan2.2-TI2V-5B-GGUF"
 BASE_PIPELINE = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
+
+NUM_FRAMES = 2
+HEIGHT = 4
+WIDTH = 4
+TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -126,11 +131,17 @@ class ModelLoader(ForgeModel):
 
         return self.pipeline.transformer
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare inputs for the Wan TI2V pipeline."""
+    def load_inputs(self, **kwargs) -> Dict[str, Any]:
+        """Prepare tensor inputs for the WanTransformer3DModel forward pass."""
+        config = self.pipeline.transformer.config
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
         return {
-            "prompt": (
-                "Astronaut in a jungle, cold color palette, muted colors, "
-                "detailed, 8k"
+            "hidden_states": torch.randn(
+                1, config.in_channels, NUM_FRAMES, HEIGHT, WIDTH, dtype=dtype
             ),
+            "encoder_hidden_states": torch.randn(
+                1, TEXT_SEQ_LEN, config.text_dim, dtype=dtype
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }
