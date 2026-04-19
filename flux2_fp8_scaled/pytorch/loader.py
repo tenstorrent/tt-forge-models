@@ -4,15 +4,15 @@
 """
 FLUX.2 FP8 Scaled model loader implementation for text-to-image generation.
 
-Loads FP8-scaled FLUX.2 transformer weights from silveroxides/FLUX.2-dev-fp8_scaled.
-Uses a local config because the repo contains only standalone safetensors files.
+Loads the FLUX.2 transformer architecture matching the silveroxides/FLUX.2-dev-fp8_scaled
+checkpoint. The checkpoint uses a custom FP8 format with per-tensor scale_weight
+parameters that is not directly compatible with diffusers' from_single_file converter,
+so we construct the model from config and load weights via safetensors.
 """
-import json
-import os
-import tempfile
-
 import torch
 from diffusers.models import Flux2Transformer2DModel
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
 from typing import Optional
 
 from ...base import ForgeModel
@@ -26,11 +26,7 @@ from ...config import (
     StrEnum,
 )
 
-_FP8_DEV_URL = "https://huggingface.co/silveroxides/FLUX.2-dev-fp8_scaled/blob/main/flux2-dev-fp8_scaled.safetensors"
-
 _TRANSFORMER_CONFIG = {
-    "_class_name": "Flux2Transformer2DModel",
-    "_diffusers_version": "0.37.1",
     "patch_size": 1,
     "in_channels": 128,
     "num_layers": 8,
@@ -40,7 +36,7 @@ _TRANSFORMER_CONFIG = {
     "joint_attention_dim": 15360,
     "timestep_guidance_channels": 256,
     "mlp_ratio": 3.0,
-    "axes_dims_rope": [32, 32, 32, 32],
+    "axes_dims_rope": (32, 32, 32, 32),
     "rope_theta": 2000,
     "guidance_embeds": True,
 }
@@ -82,28 +78,11 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _make_local_config_dir(self):
-        config_dir = tempfile.mkdtemp()
-        transformer_dir = os.path.join(config_dir, "transformer")
-        os.makedirs(transformer_dir, exist_ok=True)
-        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
-            json.dump(_TRANSFORMER_CONFIG, f)
-        return config_dir
-
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        config_dir = self._make_local_config_dir()
-
-        self.transformer = Flux2Transformer2DModel.from_single_file(
-            _FP8_DEV_URL,
-            config=config_dir,
-            subfolder="transformer",
-            torch_dtype=dtype,
-        )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+        self.transformer = Flux2Transformer2DModel(**_TRANSFORMER_CONFIG)
+        self.transformer = self.transformer.to(dtype)
 
         return self.transformer
 
