@@ -19,6 +19,8 @@ from typing import Any, Optional
 
 import torch
 from diffusers import ZImagePipeline
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -94,6 +96,16 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _convert_lora_state_dict(state_dict):
+        """Convert LoRA state dict to diffusers format, handling missing alpha keys."""
+        converted = {}
+        for k, v in state_dict.items():
+            new_key = k.removeprefix("diffusion_model.")
+            new_key = f"transformer.{new_key}"
+            converted[new_key] = v
+        return converted
+
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
         """Load the Z-Image-Turbo pipeline with DeJPEG LoRA weights applied."""
         self._pipe = ZImagePipeline.from_pretrained(
@@ -103,10 +115,10 @@ class ModelLoader(ForgeModel):
         )
 
         lora_file = _LORA_FILES[self._variant]
-        self._pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=lora_file,
-        )
+        lora_path = hf_hub_download(LORA_REPO, lora_file)
+        raw_state_dict = load_file(lora_path)
+        converted_sd = self._convert_lora_state_dict(raw_state_dict)
+        self._pipe.load_lora_weights(converted_sd)
         self._pipe.fuse_lora()
 
         return self._pipe
