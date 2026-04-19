@@ -66,27 +66,32 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        if self._variant == ModelVariant.NVFP4_MIXED:
-            filename = "flux2-dev-nvfp4-mixed.safetensors"
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.transformer = Flux2Transformer2DModel.from_config(_CONFIG_DIR)
+            if dtype_override is not None:
+                self.transformer = self.transformer.to(dtype_override)
         else:
-            filename = "flux2-dev-nvfp4.safetensors"
+            if self._variant == ModelVariant.NVFP4_MIXED:
+                filename = "flux2-dev-nvfp4-mixed.safetensors"
+            else:
+                filename = "flux2-dev-nvfp4.safetensors"
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+            load_kwargs = {}
+            if dtype_override is not None:
+                load_kwargs["torch_dtype"] = dtype_override
 
-        checkpoint_path = hf_hub_download(
-            repo_id=self._variant_config.pretrained_model_name,
-            filename=filename,
-        )
-        self.transformer = Flux2Transformer2DModel.from_single_file(
-            checkpoint_path,
-            config=_CONFIG_DIR,
-            **load_kwargs,
-        )
+            checkpoint_path = hf_hub_download(
+                repo_id=self._variant_config.pretrained_model_name,
+                filename=filename,
+            )
+            self.transformer = Flux2Transformer2DModel.from_single_file(
+                checkpoint_path,
+                config=_CONFIG_DIR,
+                **load_kwargs,
+            )
 
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+            if dtype_override is not None:
+                self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
