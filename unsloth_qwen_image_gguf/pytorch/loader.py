@@ -8,7 +8,8 @@ Repository:
 - https://huggingface.co/unsloth/Qwen-Image-GGUF
 """
 import torch
-from diffusers import QwenImageTransformer2DModel
+from diffusers import GGUFQuantizationConfig, QwenImageTransformer2DModel
+from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -22,7 +23,7 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_BASE_URL = "https://huggingface.co/unsloth/Qwen-Image-GGUF/blob/main"
+REPO_ID = "unsloth/Qwen-Image-GGUF"
 CONFIG_REPO = "Qwen/Qwen-Image-2512"
 
 
@@ -38,10 +39,10 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.Q4_K_M: ModelConfig(
-            pretrained_model_name="unsloth/Qwen-Image-GGUF",
+            pretrained_model_name=REPO_ID,
         ),
         ModelVariant.Q8_0: ModelConfig(
-            pretrained_model_name="unsloth/Qwen-Image-GGUF",
+            pretrained_model_name=REPO_ID,
         ),
     }
 
@@ -72,21 +73,18 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+        model_path = hf_hub_download(repo_id=REPO_ID, filename=gguf_file)
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
 
         self.transformer = QwenImageTransformer2DModel.from_single_file(
-            gguf_url,
+            model_path,
             config=CONFIG_REPO,
             subfolder="transformer",
-            **load_kwargs,
+            quantization_config=quantization_config,
+            torch_dtype=dtype,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
