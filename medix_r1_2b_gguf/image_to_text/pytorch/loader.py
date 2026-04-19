@@ -5,7 +5,7 @@
 MediX R1 2B GGUF model loader implementation for image to text.
 """
 
-from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen3VLForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -63,6 +63,8 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    BASE_MODEL = "Qwen/Qwen3-VL-2B-Instruct"
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
@@ -72,11 +74,10 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         model_kwargs["gguf_file"] = gguf_file
+        model_kwargs["config"] = AutoConfig.from_pretrained(self.BASE_MODEL)
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(
-            "Qwen/Qwen3-VL-2B-Instruct",
-        )
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
