@@ -141,6 +141,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         self.config = model.config
         model.eval()
         return model
