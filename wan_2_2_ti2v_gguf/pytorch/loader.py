@@ -124,21 +124,13 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
         )
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation."""
-        if prompt is None:
-            prompt = (
+    def load_inputs(self, **kwargs) -> Any:
+        """Prepare inputs for the Wan TI2V pipeline."""
+        return {
+            "prompt": (
                 "Astronaut in a jungle, cold color palette, muted colors, "
                 "detailed, 8k"
-            )
-
-        return {
-            "prompt": prompt,
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            ),
         }
