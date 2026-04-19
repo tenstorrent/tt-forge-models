@@ -6,7 +6,7 @@ GOT-OCR 2.0 model loader implementation for image-to-text OCR tasks.
 """
 import torch
 from PIL import Image
-from transformers import AutoProcessor, AutoModelForImageTextToText
+from transformers import AutoConfig, AutoProcessor, AutoModelForImageTextToText
 from typing import Optional
 
 from ....base import ForgeModel
@@ -19,6 +19,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
+from .src.model import Wrapper
 
 
 class ModelVariant(StrEnum):
@@ -104,8 +105,11 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.use_cache = False
+
         model_kwargs = {
-            "use_cache": False,
+            "config": config,
             "attn_implementation": "eager",
         }
         if dtype_override is not None:
@@ -116,7 +120,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
-        return model
+        return Wrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the GOT-OCR 2.0 model with this instance's variant settings.
