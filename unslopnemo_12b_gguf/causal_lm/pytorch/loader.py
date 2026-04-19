@@ -31,14 +31,14 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.UNSLOPNEMO_12B_V4_1_Q4_K_M: LLMModelConfig(
-            pretrained_model_name="TheDrummer/UnslopNemo-12B-v4.1-GGUF",
+            pretrained_model_name="mradermacher/UnslopNemo-12B-v4.1-GGUF",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.UNSLOPNEMO_12B_V4_1_Q4_K_M
 
-    GGUF_FILE = "UnslopNemo-12B-v4.1-Q4_K_M.gguf"
+    GGUF_FILE = "UnslopNemo-12B-v4.1.Q4_K_M.gguf"
 
     sample_text = "What is your favorite city?"
 
@@ -108,18 +108,21 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        prompts = [text]
+        if self.tokenizer.chat_template is not None:
+            messages = [
+                {
+                    "role": "user",
+                    "content": self.sample_text,
+                }
+            ]
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            prompts = [text]
+        else:
+            prompts = [self.sample_text]
 
         inputs = self.tokenizer(
             prompts,
