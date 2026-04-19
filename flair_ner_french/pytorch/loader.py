@@ -12,6 +12,8 @@ import site
 import sys
 from typing import Optional
 
+import torch
+
 
 def _get_installed_flair():
     """Get the flair package from site-packages, bypassing local flair/ directory shadow."""
@@ -111,14 +113,38 @@ class ModelLoader(ForgeModel):
             tagger = tagger.to(dtype_override)
 
         tagger.eval()
-        return tagger
+
+        class SequenceTaggerWrapper(torch.nn.Module):
+            def __init__(self, tagger):
+                super().__init__()
+                self.tagger = tagger
+
+            def forward(self, sentence_tensor, lengths):
+                return self.tagger(sentence_tensor, lengths)
+
+        wrapper = SequenceTaggerWrapper(tagger)
+        wrapper.eval()
+        return wrapper
 
     def load_inputs(self, dtype_override=None):
         flair_data = _import_flair_submodule("flair.data")
         Sentence = flair_data.Sentence
 
         sentence = Sentence(self.sample_text)
-        return [sentence]
+        self.model.embeddings.embed(sentence)
+
+        seq_len = len(sentence)
+        embedding_dim = self.model.embeddings.embedding_length
+        sentence_tensor = torch.zeros([1, seq_len, embedding_dim])
+        for i, token in enumerate(sentence.tokens):
+            sentence_tensor[0][i] = token.get_embedding()
+
+        lengths = torch.LongTensor([seq_len])
+
+        if dtype_override is not None:
+            sentence_tensor = sentence_tensor.to(dtype_override)
+
+        return [sentence_tensor, lengths]
 
     def decode_output(self, co_out):
         flair_data = _import_flair_submodule("flair.data")
