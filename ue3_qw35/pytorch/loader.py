@@ -75,9 +75,8 @@ class ModelLoader(ForgeModel):
         model.eval()
 
         inputs = self._process_inputs(dtype_override)
-        image_grid_thw = inputs["image_grid_thw"]
 
-        return Wrapper(model, image_grid_thw)
+        return Wrapper(model, inputs)
 
     def _process_inputs(self, dtype_override=None):
         messages = [
