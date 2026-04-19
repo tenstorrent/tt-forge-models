@@ -93,6 +93,7 @@ class ModelLoader(ForgeModel):
             gguf_path,
             quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
+            caption_channels=3840,
         )
         self._transformer.eval()
         return self._transformer
@@ -129,8 +130,6 @@ class ModelLoader(ForgeModel):
 
         timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
         audio_timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
-        sigma = torch.tensor([0.5], dtype=dtype).expand(batch_size)
-        audio_sigma = torch.tensor([0.5], dtype=dtype).expand(batch_size)
 
         return {
             "hidden_states": hidden_states,
@@ -139,8 +138,6 @@ class ModelLoader(ForgeModel):
             "audio_encoder_hidden_states": audio_encoder_hidden_states,
             "timestep": timestep,
             "audio_timestep": audio_timestep,
-            "sigma": sigma,
-            "audio_sigma": audio_sigma,
             "num_frames": latent_num_frames,
             "height": latent_height,
             "width": latent_width,
