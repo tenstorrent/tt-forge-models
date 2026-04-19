@@ -48,8 +48,11 @@ _CONFIGS = {
 
 # SD3.5 Large transformer config dimensions
 SAMPLE_SIZE = 128
+PATCH_SIZE = 2
 IN_CHANNELS = 16
-JOINT_ATTENTION_DIM = 4096
+NUM_ATTENTION_HEADS = 38
+ATTENTION_HEAD_DIM = 64
+INNER_DIM = NUM_ATTENTION_HEADS * ATTENTION_HEAD_DIM
 CONDITIONING_CHANNELS = 3
 
 
@@ -132,20 +135,15 @@ class ModelLoader(ForgeModel):
         """Prepare sample inputs for the SD3.5 ControlNet.
 
         Returns a dict matching SD3ControlNetModel.forward() signature.
+        These controlnets have no pos_embed or context_embedder, so
+        hidden_states must be 3D (pre-patchified) and encoder_hidden_states
+        must not be provided.
         """
         dtype = kwargs.get("dtype_override", torch.float32)
         batch_size = kwargs.get("batch_size", 1)
 
-        # Latent spatial dimensions (compressed from image)
-        latent_h = SAMPLE_SIZE // 8
-        latent_w = SAMPLE_SIZE // 8
-
-        hidden_states = torch.randn(
-            batch_size, IN_CHANNELS, latent_h, latent_w, dtype=dtype
-        )
-        encoder_hidden_states = torch.randn(
-            batch_size, 154, JOINT_ATTENTION_DIM, dtype=dtype
-        )
+        seq_len = (SAMPLE_SIZE // PATCH_SIZE) ** 2
+        hidden_states = torch.randn(batch_size, seq_len, INNER_DIM, dtype=dtype)
         pooled_projections = torch.randn(batch_size, 2048, dtype=dtype)
         timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
         controlnet_cond = torch.randn(
@@ -156,7 +154,6 @@ class ModelLoader(ForgeModel):
             "hidden_states": hidden_states,
             "controlnet_cond": controlnet_cond,
             "conditioning_scale": 1.0,
-            "encoder_hidden_states": encoder_hidden_states,
             "pooled_projections": pooled_projections,
             "timestep": timestep,
         }
