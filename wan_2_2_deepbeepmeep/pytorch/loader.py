@@ -104,17 +104,18 @@ class ModelLoader(ForgeModel):
             WanPipeline,
             WanTransformer3DModel,
         )
+        from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         variant_info = _SINGLE_FILES[self._variant]
-        single_file_url = (
-            f"https://huggingface.co/{SINGLE_FILE_REPO}"
-            f"/resolve/main/{variant_info['file']}"
+        local_path = hf_hub_download(
+            repo_id=SINGLE_FILE_REPO,
+            filename=variant_info["file"],
         )
 
         transformer = WanTransformer3DModel.from_single_file(
-            single_file_url,
+            local_path,
             torch_dtype=compute_dtype,
         )
 
