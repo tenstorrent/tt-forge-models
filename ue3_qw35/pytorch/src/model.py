@@ -77,8 +77,10 @@ def _precompute_position_ids(model, saved_inputs):
     cpu_mask = saved_inputs["attention_mask"]
 
     with torch.no_grad():
+        inputs_embeds = inner.get_input_embeddings()(cpu_ids)
         position_ids = inner.compute_3d_position_ids(
             input_ids=cpu_ids,
+            inputs_embeds=inputs_embeds,
             image_grid_thw=cpu_grid_thw,
             attention_mask=cpu_mask,
         )
