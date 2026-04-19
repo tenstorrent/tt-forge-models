@@ -8,6 +8,9 @@ for Japanese sentence embedding generation.
 import torch
 from transformers import AutoModel, AutoTokenizer
 from typing import Optional
+import transformers.models.mluke.tokenization_mluke as _mluke_mod
+from tokenizers import Tokenizer
+from tokenizers.models import Unigram
 
 from third_party.tt_forge_models.config import (
     ModelInfo,
@@ -61,7 +64,22 @@ class ModelLoader(ForgeModel):
     def _load_tokenizer(self):
         if self.tokenizer is None:
             model_name = self._variant_config.pretrained_model_name
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            _orig_init = _mluke_mod.MLukeTokenizer.__init__
+
+            def _patched_init(self_tok, *args, **kwargs):
+                if args:
+                    vocab = args[0]
+                    if isinstance(vocab, dict):
+                        args = (list(vocab.items()),) + args[1:]
+                elif "vocab" in kwargs and isinstance(kwargs["vocab"], dict):
+                    kwargs["vocab"] = list(kwargs["vocab"].items())
+                _orig_init(self_tok, *args, **kwargs)
+
+            _mluke_mod.MLukeTokenizer.__init__ = _patched_init
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            finally:
+                _mluke_mod.MLukeTokenizer.__init__ = _orig_init
 
         return self.tokenizer
 
