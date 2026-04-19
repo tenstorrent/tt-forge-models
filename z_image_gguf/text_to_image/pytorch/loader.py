@@ -91,6 +91,8 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
         self._vae = AutoencoderKL.from_single_file(
             vae_path,
+            config="black-forest-labs/FLUX.1-dev",
+            subfolder="vae",
             quantization_config=quantization_config,
             torch_dtype=dtype,
         )
