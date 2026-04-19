@@ -146,9 +146,9 @@ class ModelLoader(ForgeModel):
         dtype = kwargs.get("dtype_override", torch.float32)
         return torch.randn(
             1,
-            LATENT_CHANNELS,
-            LATENT_HEIGHT,
-            LATENT_WIDTH,
+            3,
+            256,
+            256,
             dtype=dtype,
         )
 
