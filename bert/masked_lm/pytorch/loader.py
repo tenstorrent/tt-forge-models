@@ -17,12 +17,6 @@ from third_party.tt_forge_models.config import (
 )
 from third_party.tt_forge_models.base import ForgeModel
 
-_SAMPLE_TEXTS = {
-    "dbmdz/bert-base-german-uncased": "Die Hauptstadt von Deutschland ist [MASK].",
-    "Base_Polish_Cased_v1": "Adam Mickiewicz wielkim polskim [MASK] był.",
-    "PathologyBERT": "intraductal papilloma with [MASK] AND MICRO calcifications",
-}
-
 
 class ModelVariant(StrEnum):
     """Available BERT model variants for masked language modeling."""
@@ -38,8 +32,12 @@ class ModelVariant(StrEnum):
     LEGAL_BERT_BASE_UNCASED = "nlpaueb/legal-bert-base-uncased"
     RETROMAE_MSMARCO_DISTILL = "Shitao/RetroMAE_MSMARCO_distill"
     BERT_LARGE_UNCASED_WWM = "Large_Uncased_Whole_Word_Masking"
-    BERT_BASE_POLISH_CASED_V1 = "Base_Polish_Cased_v1"
-    PATHOLOGY_BERT = "PathologyBERT"
+    BERT_BASE_DUTCH_CASED = "wietsedv/bert-base-dutch-cased"
+
+
+_SAMPLE_TEXTS = {
+    ModelVariant.BERT_BASE_DUTCH_CASED: "Amsterdam is de hoofdstad van [MASK].",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -91,12 +89,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bert-large-uncased-whole-word-masking",
             max_length=128,
         ),
-        ModelVariant.BERT_BASE_POLISH_CASED_V1: LLMModelConfig(
-            pretrained_model_name="dkleczek/bert-base-polish-cased-v1",
-            max_length=128,
-        ),
-        ModelVariant.PATHOLOGY_BERT: LLMModelConfig(
-            pretrained_model_name="tsantos/PathologyBERT",
+        ModelVariant.BERT_BASE_DUTCH_CASED: LLMModelConfig(
+            pretrained_model_name="wietsedv/bert-base-dutch-cased",
             max_length=128,
         ),
     }
@@ -146,8 +140,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LEGAL_BERT_BASE_UNCASED,
             ModelVariant.RETROMAE_MSMARCO_DISTILL,
             ModelVariant.BERT_LARGE_UNCASED_WWM,
-            ModelVariant.BERT_BASE_POLISH_CASED_V1,
-            ModelVariant.PATHOLOGY_BERT,
+            ModelVariant.BERT_BASE_DUTCH_CASED,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
