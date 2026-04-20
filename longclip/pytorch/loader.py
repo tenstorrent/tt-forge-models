@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available LongCLIP-GmP model variants for image-text similarity."""
 
     GMP_VIT_L_14 = "GmP_ViT_L_14"
+    L_DIFFUSERS = "L_Diffusers"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GMP_VIT_L_14: ModelConfig(
             pretrained_model_name="zer0int/LongCLIP-GmP-ViT-L-14",
+        ),
+        ModelVariant.L_DIFFUSERS: ModelConfig(
+            pretrained_model_name="zer0int/LongCLIP-L-Diffusers",
         ),
     }
 
