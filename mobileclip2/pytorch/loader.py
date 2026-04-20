@@ -23,12 +23,14 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available MobileCLIP2 model variants."""
 
+    S0 = "S0"
     S2 = "S2"
     S4 = "S4"
 
 
 # Mapping from variant to OpenCLIP tokenizer name
 _TOKENIZER_NAME = {
+    ModelVariant.S0: "MobileCLIP2-S0",
     ModelVariant.S2: "MobileCLIP2-S2",
     ModelVariant.S4: "MobileCLIP2-S4",
 }
@@ -38,6 +40,9 @@ class ModelLoader(ForgeModel):
     """MobileCLIP2 model loader using OpenCLIP for image-text similarity tasks."""
 
     _VARIANTS = {
+        ModelVariant.S0: ModelConfig(
+            pretrained_model_name="hf-hub:timm/MobileCLIP2-S0-OpenCLIP",
+        ),
         ModelVariant.S2: ModelConfig(
             pretrained_model_name="hf-hub:timm/MobileCLIP2-S2-OpenCLIP",
         ),
