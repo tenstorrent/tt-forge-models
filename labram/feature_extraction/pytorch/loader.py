@@ -53,6 +53,18 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import importlib
+        import sys
+
+        from .src.model_utils import patch_braindecode_labram
+
+        patch_braindecode_labram()
+
+        for key in list(sys.modules.keys()):
+            if "braindecode" in key:
+                del sys.modules[key]
+        importlib.invalidate_caches()
+
         from braindecode.models import Labram
 
         model = Labram.from_pretrained(
