@@ -23,8 +23,8 @@ class ModelVariant(StrEnum):
 
     ETTIN_ENCODER_68M = "68M"
     ETTIN_ENCODER_150M = "150M"
-    ETTIN_ENCODER_280M = "280M"
-    ETTIN_ENCODER_580M = "580M"
+    ETTIN_ENCODER_400M = "400M"
+    ETTIN_ENCODER_1B = "1B"
 
 
 class ModelLoader(ForgeModel):
@@ -39,12 +39,12 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="jhu-clsp/ettin-encoder-150m",
             max_length=128,
         ),
-        ModelVariant.ETTIN_ENCODER_280M: LLMModelConfig(
-            pretrained_model_name="jhu-clsp/ettin-encoder-280m",
+        ModelVariant.ETTIN_ENCODER_400M: LLMModelConfig(
+            pretrained_model_name="jhu-clsp/ettin-encoder-400m",
             max_length=128,
         ),
-        ModelVariant.ETTIN_ENCODER_580M: LLMModelConfig(
-            pretrained_model_name="jhu-clsp/ettin-encoder-580m",
+        ModelVariant.ETTIN_ENCODER_1B: LLMModelConfig(
+            pretrained_model_name="jhu-clsp/ettin-encoder-1b",
             max_length=128,
         ),
     }
