@@ -74,6 +74,7 @@ class ModelVariant(StrEnum):
     HF_TIMM_TF_EFFICIENTNETV2_S_IN21K = "Timm_Tf_V2_S_In21k"
     HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K = "Timm_Tf_V2_Xl_In21k"
     HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K = "Timm_Tf_B7_Ns_Jft_In1k"
+    HF_TIMM_TF_EFFICIENTNETV2_B2_IN1K = "Timm_Tf_V2_B2_In1k"
 
 
 class ModelLoader(ForgeModel):
@@ -210,6 +211,11 @@ class ModelLoader(ForgeModel):
         source=ModelSource.TIMM,
         use_1k_labels=True,
     )
+    HF_TIMM_TF_EFFICIENTNETV2_B2_IN1K_CONFIG = EfficientNetConfig(
+        pretrained_model_name="hf_hub:timm/tf_efficientnetv2_b2.in1k",
+        source=ModelSource.TIMM,
+        use_1k_labels=True,
+    )
 
     # Dictionary using the static dataclass instances (for compatibility with existing tests)
     _VARIANTS = {
@@ -236,6 +242,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_S_IN21K: HF_TIMM_TF_EFFICIENTNETV2_S_IN21K_CONFIG,
         ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K: HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K_CONFIG,
         ModelVariant.HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K: HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K_CONFIG,
+        ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_B2_IN1K: HF_TIMM_TF_EFFICIENTNETV2_B2_IN1K_CONFIG,
     }
 
     # Default variant to use
@@ -274,6 +281,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HF_TIMM_EFFICIENTNET_B1_FT_IN1K,
             ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K,
             ModelVariant.HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K,
+            ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_B2_IN1K,
         ]:
             group = ModelGroup.VULCAN
         else:
@@ -292,6 +300,7 @@ class ModelLoader(ForgeModel):
                         ModelVariant.HF_TIMM_EFFICIENTNET_B1_FT_IN1K,
                         ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K,
                         ModelVariant.HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K,
+                        ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_B2_IN1K,
                     )
                     else ModelGroup.GENERALITY
                 )
