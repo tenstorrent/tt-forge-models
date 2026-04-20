@@ -4,6 +4,7 @@
 """
 OmDet-Turbo model loader implementation for zero-shot object detection.
 """
+
 import torch
 from transformers import AutoProcessor, OmDetTurboForObjectDetection
 from datasets import load_dataset
@@ -120,6 +121,9 @@ class ModelLoader(ForgeModel):
         """
         if self.processor is None:
             self._load_processor()
+
+        # Swin Tiny backbone expects 224x224, not the default 640x640
+        self.processor.image_processor.size = {"height": 224, "width": 224}
 
         dataset = load_dataset("huggingface/cats-image")["test"]
         image = dataset[0]["image"]
