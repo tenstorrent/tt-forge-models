@@ -42,6 +42,7 @@ class ModelVariant(StrEnum):
     SWIN_TINY_HF = "Tiny_Patch4_Window7_224"
     SWIN_BASE_HF = "Base_Patch4_Window7_224"
     SWINV2_TINY_HF = "v2_Tiny_Patch4_Window8_256"
+    SWINV2_BASE_HF = "v2_Base_Patch4_Window8_256"
     SWIN_BASE_PATCH4_WINDOW12_384_IN22K_HF = "Base_Patch4_Window12_384_in22k"
 
     # TIMM variants
@@ -73,6 +74,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.SWINV2_TINY_HF: SwinConfig(
             pretrained_model_name="microsoft/swinv2-tiny-patch4-window8-256",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.SWINV2_BASE_HF: SwinConfig(
+            pretrained_model_name="microsoft/swinv2-base-patch4-window8-256",
             source=ModelSource.HUGGING_FACE,
         ),
         ModelVariant.SWIN_BASE_PATCH4_WINDOW12_384_IN22K_HF: SwinConfig(
@@ -139,6 +144,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SWIN_LARGE_PATCH4_WINDOW7_224_TIMM,
             ModelVariant.SWIN_BASE_PATCH4_WINDOW7_224_MS_IN1K_TIMM,
             ModelVariant.SWIN_BASE_PATCH4_WINDOW12_384_IN22K_HF,
+            ModelVariant.SWINV2_BASE_HF,
         ]:
             group = ModelGroup.VULCAN
         elif variant == ModelVariant.SWIN_S:
