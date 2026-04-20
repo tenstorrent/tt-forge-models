@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-AI21 Jamba Large 1.6 model loader implementation for causal language modeling.
+AI21 Jamba Large model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,15 +21,20 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available AI21 Jamba Large 1.6 model variants for causal language modeling."""
+    """Available AI21 Jamba Large model variants for causal language modeling."""
 
+    AI21_JAMBA_LARGE_1_5 = "Large_1.5"
     AI21_JAMBA_LARGE_1_6 = "Large_1.6"
 
 
 class ModelLoader(ForgeModel):
-    """AI21 Jamba Large 1.6 model loader implementation for causal language modeling tasks."""
+    """AI21 Jamba Large model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
+        ModelVariant.AI21_JAMBA_LARGE_1_5: LLMModelConfig(
+            pretrained_model_name="ai21labs/AI21-Jamba-Large-1.5",
+            max_length=256,
+        ),
         ModelVariant.AI21_JAMBA_LARGE_1_6: LLMModelConfig(
             pretrained_model_name="ai21labs/AI21-Jamba-Large-1.6",
             max_length=256,
@@ -51,7 +56,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="AI21 Jamba Large 1.6",
+            model="AI21 Jamba Large",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
