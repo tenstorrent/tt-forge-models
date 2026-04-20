@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
 
     LARGE_DISCRIMINATOR_SQUAD2_512 = "Large_Discriminator_Squad2_512"
     GELECTRA_LARGE_GERMANQUAD = "GElectra_Large_GermanQuAD"
+    GELECTRA_BASE_GERMANQUAD = "GElectra_Base_GermanQuAD"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GELECTRA_LARGE_GERMANQUAD: LLMModelConfig(
             pretrained_model_name="deepset/gelectra-large-germanquad",
+            max_length=512,
+        ),
+        ModelVariant.GELECTRA_BASE_GERMANQUAD: LLMModelConfig(
+            pretrained_model_name="deepset/gelectra-base-germanquad",
             max_length=512,
         ),
     }
@@ -52,6 +57,10 @@ class ModelLoader(ForgeModel):
             "question": "Which NFL team represented the AFC at Super Bowl 50?",
         },
         ModelVariant.GELECTRA_LARGE_GERMANQUAD: {
+            "context": "Mein Name ist Wolfgang und ich lebe in Berlin.",
+            "question": "Wo wohne ich?",
+        },
+        ModelVariant.GELECTRA_BASE_GERMANQUAD: {
             "context": "Mein Name ist Wolfgang und ich lebe in Berlin.",
             "question": "Wo wohne ich?",
         },
