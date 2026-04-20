@@ -56,20 +56,18 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load and return the Autoformer model."""
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
+        # Autoformer uses torch.fft.rfft which does not support BFloat16
         model = AutoformerForPrediction.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
+            self._variant_config.pretrained_model_name,
+            torch_dtype=torch.float32,
+            **kwargs,
         )
         model.eval()
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         """Load sample time series inputs for the Autoformer model.
 
         Returns:
@@ -77,7 +75,7 @@ class ModelLoader(ForgeModel):
                   past_observed_mask, static_categorical_features,
                   future_values, and future_time_features tensors.
         """
-        dtype = dtype_override or torch.float32
+        dtype = torch.float32
         torch.manual_seed(42)
 
         # The model requires context_length + max(lags_sequence) past time steps
