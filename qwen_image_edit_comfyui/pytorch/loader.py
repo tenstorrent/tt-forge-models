@@ -106,6 +106,7 @@ class ModelLoader(ForgeModel):
             subfolder="transformer",
             torch_dtype=dtype,
         )
+        self._transformer = self._transformer.to(dtype=dtype)
         self._transformer.eval()
         return self._transformer
 
