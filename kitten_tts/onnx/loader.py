@@ -4,6 +4,7 @@
 """
 KittenTTS model loader implementation for text-to-speech tasks.
 """
+import json
 import os
 
 import numpy as np
@@ -27,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available KittenTTS model variants."""
 
     KITTEN_TTS_NANO_0_8_FP32 = "nano-0.8-fp32"
+    KITTEN_TTS_MICRO_0_8 = "micro-0.8"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.KITTEN_TTS_NANO_0_8_FP32: ModelConfig(
             pretrained_model_name="KittenML/kitten-tts-nano-0.8-fp32",
+        ),
+        ModelVariant.KITTEN_TTS_MICRO_0_8: ModelConfig(
+            pretrained_model_name="KittenML/kitten-tts-micro-0.8",
         ),
     }
 
@@ -61,7 +66,9 @@ class ModelLoader(ForgeModel):
         self._model_dir = snapshot_download(
             repo_id=self._variant_config.pretrained_model_name
         )
-        model = onnx.load(os.path.join(self._model_dir, "kitten_tts_nano_v0_8.onnx"))
+        with open(os.path.join(self._model_dir, "config.json")) as f:
+            model_file = json.load(f)["model_file"]
+        model = onnx.load(os.path.join(self._model_dir, model_file))
         return model
 
     def load_inputs(self, **kwargs):
