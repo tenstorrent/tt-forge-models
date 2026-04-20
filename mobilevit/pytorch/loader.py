@@ -39,6 +39,9 @@ class ModelVariant(StrEnum):
     SMALL = "Small"
     XX_SMALL = "XX-Small"
 
+    # TIMM variants
+    HF_TIMM_MOBILEVIT_XS_CVNETS_IN1K = "Timm_XS_Cvnets_In1k"
+
 
 class ModelLoader(ForgeModel):
     """MobileViT model loader implementation."""
@@ -52,6 +55,11 @@ class ModelLoader(ForgeModel):
         ModelVariant.XX_SMALL: MobileViTConfig(
             pretrained_model_name="apple/mobilevit-xx-small",
             source=ModelSource.HUGGING_FACE,
+        ),
+        # TIMM variants
+        ModelVariant.HF_TIMM_MOBILEVIT_XS_CVNETS_IN1K: MobileViTConfig(
+            pretrained_model_name="hf_hub:timm/mobilevit_xs.cvnets_in1k",
+            source=ModelSource.TIMM,
         ),
     }
 
