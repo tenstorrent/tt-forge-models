@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available OpenMed PII ClinicalBGE model variants."""
 
     CLINICAL_BGE_LARGE_335M_V1 = "ClinicalBGE-Large-335M-v1"
+    CLINICAL_BGE_LARGE_568M_V1 = "ClinicalBGE-Large-568M-v1"
 
 
 class ModelLoader(ForgeModel):
@@ -32,12 +33,16 @@ class ModelLoader(ForgeModel):
         ModelVariant.CLINICAL_BGE_LARGE_335M_V1: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-PII-ClinicalBGE-Large-335M-v1",
         ),
+        ModelVariant.CLINICAL_BGE_LARGE_568M_V1: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-PII-ClinicalBGE-Large-568M-v1",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.CLINICAL_BGE_LARGE_335M_V1
 
     _SAMPLE_TEXTS = {
         ModelVariant.CLINICAL_BGE_LARGE_335M_V1: "Patient John Smith, SSN 123-45-6789, was admitted to the clinic on 2024-01-15.",
+        ModelVariant.CLINICAL_BGE_LARGE_568M_V1: "Patient John Smith, SSN 123-45-6789, was admitted to the clinic on 2024-01-15.",
     }
 
     def __init__(self, variant=None):
