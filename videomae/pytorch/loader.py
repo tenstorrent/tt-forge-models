@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available VideoMAE model variants."""
 
     BASE_KINETICS = "Base_Kinetics"
+    SMALL_KINETICS = "Small_Kinetics"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE_KINETICS: ModelConfig(
             pretrained_model_name="MCG-NJU/videomae-base-finetuned-kinetics",
+        ),
+        ModelVariant.SMALL_KINETICS: ModelConfig(
+            pretrained_model_name="MCG-NJU/videomae-small-finetuned-kinetics",
         ),
     }
 
