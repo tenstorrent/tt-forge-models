@@ -10,10 +10,13 @@ It processes video frames using a Vision Transformer architecture with patch siz
 and produces dense feature representations.
 """
 
+import os
 from typing import Optional
+from unittest.mock import patch
 
 import torch
-from transformers import AutoModel
+from transformers import AutoConfig, AutoModel
+from transformers.dynamic_module_utils import get_imports
 
 from ....base import ForgeModel
 from ....config import (
@@ -25,6 +28,13 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
+    imports = get_imports(filename)
+    if not torch.cuda.is_available() and "flash_attn" in imports:
+        imports.remove("flash_attn")
+    return imports
 
 
 class ModelVariant(StrEnum):
@@ -86,9 +96,17 @@ class ModelLoader(ForgeModel):
         Returns:
             model: The loaded InternVideoNext model instance
         """
-        model = AutoModel.from_pretrained(
-            self._model_name, trust_remote_code=True, **kwargs
-        )
+        with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
+            config = AutoConfig.from_pretrained(
+                self._model_name, trust_remote_code=True
+            )
+            if not torch.cuda.is_available():
+                config.model_config["use_flash_attn"] = False
+                config.model_config["use_fused_rmsnorm"] = False
+                config.model_config["use_fused_mlp"] = False
+            model = AutoModel.from_pretrained(
+                self._model_name, config=config, trust_remote_code=True, **kwargs
+            )
         model.eval()
 
         if dtype_override is not None:
