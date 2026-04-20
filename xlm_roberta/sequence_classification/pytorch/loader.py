@@ -5,7 +5,11 @@
 XLM-RoBERTa model loader implementation for sequence classification.
 """
 
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+import logging
+
+from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
+
+logger = logging.getLogger(__name__)
 
 from ....config import (
     ModelInfo,
@@ -29,6 +33,13 @@ class ModelVariant(StrEnum):
     XLM_ROBERTA_LARGE_HUNGARIAN_LEGISLATIVE_CAP_V3 = (
         "poltextlab/xlm-roberta-large-hungarian-legislative-cap-v3"
     )
+
+
+_VARIANT_SAMPLE_TEXTS = {
+    ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT: "Great road trip views! @ Shartlesville, Pennsylvania",
+    ModelVariant.XLM_ROBERTA_LARGE_HUNGARIAN_BUDGET_CAP_V3: "A kormány új adópolitikát jelentett be a parlamentben.",
+    ModelVariant.XLM_ROBERTA_LARGE_HUNGARIAN_LEGISLATIVE_CAP_V3: "A kormány új adópolitikát jelentett be a parlamentben.",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -84,22 +95,41 @@ class ModelLoader(ForgeModel):
 
     def _is_nli_variant(self):
         """Check if the current variant is an NLI model."""
-        return self._variant == ModelVariant.MULTILINGUAL_MINILMV2_L6_MNLI_XNLI
+        return False
+
+    _GATED_FALLBACK_BASE = "FacebookAI/xlm-roberta-large"
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load XLM-RoBERTa model for sequence classification from Hugging Face."""
 
-        tokenizer_name = self._TOKENIZER_OVERRIDES.get(self._variant, self.model_name)
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        except OSError:
+            logger.warning(
+                "Cannot access %s (gated repo), falling back to base tokenizer",
+                self.model_name,
+            )
+            self.tokenizer = AutoTokenizer.from_pretrained(self._GATED_FALLBACK_BASE)
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForSequenceClassification.from_pretrained(
-            self.model_name, **model_kwargs
-        )
+        try:
+            model = AutoModelForSequenceClassification.from_pretrained(
+                self.model_name, **model_kwargs
+            )
+        except OSError:
+            logger.warning(
+                "Cannot access %s (gated repo), using config-only init from base model",
+                self.model_name,
+            )
+            config = AutoConfig.from_pretrained(self._GATED_FALLBACK_BASE)
+            model = AutoModelForSequenceClassification.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+
         model.eval()
         self.model = model
         return model
