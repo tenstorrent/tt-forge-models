@@ -31,9 +31,10 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """MAIRA-2 model loader for radiology report generation from chest X-rays."""
 
+    # Use ungated mirror; microsoft/maira-2 is a gated repo.
     _VARIANTS = {
         ModelVariant.MAIRA_2: ModelConfig(
-            pretrained_model_name="microsoft/maira-2",
+            pretrained_model_name="kp-forks/maira-2",
         ),
     }
 
@@ -61,6 +62,35 @@ class ModelLoader(ForgeModel):
         )
         return self.processor
 
+    @staticmethod
+    def _patch_model_for_transformers_v5(model):
+        """Wire up ``model.model`` for transformers >=5 compatibility.
+
+        The custom Maira2ForConditionalGeneration.__init__ (written for
+        transformers 4.x) stores vision_tower / multi_modal_projector /
+        language_model directly on the top-level module instead of nesting
+        them inside a LlavaModel wrapper.  Transformers 5.x changed
+        LlavaForConditionalGeneration.forward() to delegate to self.model,
+        so we synthesise a LlavaModel that shares the existing sub-modules.
+        """
+        if hasattr(model, "model"):
+            return
+
+        import torch.nn as nn
+        from transformers.models.llava.modeling_llava import LlavaModel
+
+        shim = LlavaModel.__new__(LlavaModel)
+        nn.Module.__init__(shim)
+        shim.config = model.config
+        shim.vision_tower = model.vision_tower
+        shim.multi_modal_projector = model.multi_modal_projector
+        # LlavaModel.forward expects a base model (returns last_hidden_state),
+        # not the full CausalLM wrapper.
+        shim.language_model = model.language_model.model
+
+        model.model = shim
+        model.lm_head = model.language_model.lm_head
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -75,6 +105,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        self._patch_model_for_transformers_v5(model)
         model.eval()
         return model
 
