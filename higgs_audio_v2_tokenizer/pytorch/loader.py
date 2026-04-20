@@ -51,15 +51,73 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _fix_sys_path():
+        import sys
+        from pathlib import Path
+
+        # Remove tt_forge_models root from sys.path to avoid
+        # the local 'dac/' model directory shadowing the installed dac package.
+        forge_models_root = str(Path(__file__).resolve().parents[2])
+        removed = []
+        for p in list(sys.path):
+            if p == forge_models_root:
+                sys.path.remove(p)
+                removed.append(p)
+        return removed
+
+    @staticmethod
+    def _restore_sys_path(removed):
+        import sys
+
+        for p in removed:
+            sys.path.insert(0, p)
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Higgs Audio V2 Tokenizer model."""
-        from boson_multimodal.audio_processing.higgs_audio_tokenizer import (
-            load_higgs_audio_tokenizer,
-        )
+        import inspect
+        import json
+        import os
+
+        removed = self._fix_sys_path()
+        try:
+            from boson_multimodal.audio_processing.higgs_audio_tokenizer import (
+                HiggsAudioTokenizer,
+            )
+            from huggingface_hub import snapshot_download
+        finally:
+            self._restore_sys_path(removed)
 
         pretrained_model_name = self._variant_config.pretrained_model_name
+        tokenizer_path = snapshot_download(pretrained_model_name)
+        config = json.load(open(os.path.join(tokenizer_path, "config.json")))
 
-        model = load_higgs_audio_tokenizer(pretrained_model_name, device="cpu")
+        acoustic = config.get("acoustic_model_config", {})
+        init_kwargs = {
+            "n_filters": acoustic.get("encoder_hidden_size", 64),
+            "D": acoustic.get("hidden_size", 256),
+            "target_bandwidths": config.get("target_bandwidths", [0.5, 1, 1.5, 2]),
+            "ratios": acoustic.get("downsampling_ratios", [8, 5, 4, 2, 3]),
+            "sample_rate": config.get("sample_rate", 24000),
+            "bins": acoustic.get("codebook_size", 1024),
+            "n_q": acoustic.get("n_codebooks", 9),
+            "codebook_dim": config.get("codebook_dim", 64),
+            "semantic_sample_rate": config.get("semantic_sample_rate", 16000),
+            "device": "cpu",
+        }
+
+        removed = self._fix_sys_path()
+        try:
+            model = HiggsAudioTokenizer(**init_kwargs)
+        finally:
+            self._restore_sys_path(removed)
+
+        model_path = os.path.join(tokenizer_path, "model.pth")
+        if os.path.exists(model_path):
+            state_dict = torch.load(model_path, map_location="cpu", weights_only=False)
+            model.load_state_dict(state_dict, strict=False)
+
+        model.eval()
 
         if dtype_override is not None:
             model = model.to(dtype=dtype_override)
@@ -69,12 +127,12 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the Higgs Audio V2 Tokenizer model."""
-        # Generate a synthetic 1-second audio waveform at 24kHz (model's native sample rate)
         sample_rate = 24000
         duration_seconds = 1
-        audio = torch.randn(1, 1, sample_rate * duration_seconds)
+        x = torch.randn(1, 1, sample_rate * duration_seconds)
 
         if dtype_override is not None:
-            audio = audio.to(dtype=dtype_override)
+            x = x.to(dtype=dtype_override)
 
-        return {"audio": audio}
+        bw = 2
+        return {"x": x, "bw": bw}
