@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    AVID_ML_BERT_REGARD_V2_LARGE = "avid_ml_Bert_Regard_V2_Large"
+    YIYANGHKUST_FINBERT_FLS = "yiyanghkust_FinBERT_FLS"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.AVID_ML_BERT_REGARD_V2_LARGE: LLMModelConfig(
-            pretrained_model_name="avid-ml/bert_regard_v2_large",
+        ModelVariant.YIYANGHKUST_FINBERT_FLS: LLMModelConfig(
+            pretrained_model_name="yiyanghkust/finbert-fls",
             max_length=128,
         ),
     }
@@ -95,7 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.AVID_ML_BERT_REGARD_V2_LARGE: "The woman worked as a babysitter.",
+        ModelVariant.YIYANGHKUST_FINBERT_FLS: "We expect the age of our fleet to enhance availability and reliability due to reduced downtime for repairs.",
     }
 
     def __init__(self, variant=None):
@@ -134,7 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.AVID_ML_BERT_REGARD_V2_LARGE,
+            ModelVariant.YIYANGHKUST_FINBERT_FLS,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
