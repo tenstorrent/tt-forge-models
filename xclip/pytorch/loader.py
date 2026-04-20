@@ -4,6 +4,7 @@
 """
 X-CLIP model loader implementation for video classification.
 """
+
 from dataclasses import dataclass
 from typing import Optional
 
@@ -34,6 +35,7 @@ class ModelVariant(StrEnum):
     """Available X-CLIP model variants."""
 
     LARGE_PATCH14 = "Large_Patch14"
+    BASE_PATCH16_ZERO_SHOT = "Base_Patch16_Zero_Shot"
 
 
 class ModelLoader(ForgeModel):
@@ -43,6 +45,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.LARGE_PATCH14: XCLIPConfig(
             pretrained_model_name="microsoft/xclip-large-patch14",
             num_frames=8,
+        ),
+        ModelVariant.BASE_PATCH16_ZERO_SHOT: XCLIPConfig(
+            pretrained_model_name="microsoft/xclip-base-patch16-zero-shot",
+            num_frames=32,
         ),
     }
 
