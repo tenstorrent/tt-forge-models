@@ -139,3 +139,7 @@ results:
   status: "MAX_FAILED_ATTEMPTS"
   date: "20260420_023850"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-1500-250-1"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[cosmos_predict2/pytorch-2B-single_device-inference]"
+  status: "MAX_FAILED_ATTEMPTS: gated HuggingFace repo (nvidia/Cosmos-Predict2-2B-Video2World requires access approval)"
+  date: "20260420_024217"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-1500-250-1"
