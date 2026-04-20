@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     SWIN_SMALL = "Swin_Small"
     SWIN_BASE = "Swin_Base"
     SWIN_LARGE = "Swin_Large"
+    SEGMENTHOMEAI = "Segmenthomeai"
 
 
 class ModelLoader(ForgeModel):
@@ -47,6 +48,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.SWIN_LARGE: ModelConfig(
             pretrained_model_name="openmmlab/upernet-swin-large",
+        ),
+        ModelVariant.SEGMENTHOMEAI: ModelConfig(
+            pretrained_model_name="thang101020/upernet-segmenthomeai",
         ),
     }
 
