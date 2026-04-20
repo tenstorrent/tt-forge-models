@@ -71,8 +71,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.DEFAULT
 
-    # DINOv2 ViT-L/14 patch size, so H and W must be divisible by 14.
-    _PATCH_SIZE = 14
+    # DINOv2 ViT-L/14 backbone requires H and W divisible by 14.
     _NUM_VIEWS = 4
     _IMAGE_SIZE = 224
 
