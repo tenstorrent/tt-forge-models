@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     MULTILINGUAL_E5_BASE = "intfloat/multilingual-e5-base"
     MULTILINGUAL_E5_LARGE_INSTRUCT = "intfloat/multilingual-e5-large-instruct"
     MULTILINGUAL_E5_SMALL_KO = "dragonkue/multilingual-e5-small-ko"
-    SLOVLO_V1 = "rokn/slovlo-v1"
+    MULTILINGUAL_E5_SMALL_MINTPLEX = "MintplexLabs/multilingual-e5-small"
 
 
 class ModelLoader(ForgeModel):
@@ -53,8 +53,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="dragonkue/multilingual-e5-small-ko",
             max_length=512,
         ),
-        ModelVariant.SLOVLO_V1: LLMModelConfig(
-            pretrained_model_name="rokn/slovlo-v1",
+        ModelVariant.MULTILINGUAL_E5_SMALL_MINTPLEX: LLMModelConfig(
+            pretrained_model_name="MintplexLabs/multilingual-e5-small",
             max_length=512,
         ),
     }
