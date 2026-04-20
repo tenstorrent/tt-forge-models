@@ -4,7 +4,6 @@
 """
 Ministral-3-14B-Instruct-2512 GGUF model loader implementation for causal language modeling.
 """
-
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -24,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Ministral-3-14B-Instruct-2512 GGUF model variants for causal language modeling."""
 
-    MINISTRAL_3_14B_INSTRUCT_2512_GGUF = "3-14B-Instruct-2512-GGUF"
+    MINISTRAL_3_14B_INSTRUCT_2512_GGUF = "Ministral-3-14B-Instruct-2512-GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -32,16 +31,16 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.MINISTRAL_3_14B_INSTRUCT_2512_GGUF: LLMModelConfig(
-            pretrained_model_name="bartowski/mistralai_Ministral-3-14B-Instruct-2512-GGUF",
+            pretrained_model_name="EnlistedGhost/Ministral-3-14B-Instruct-2512-GGUF",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.MINISTRAL_3_14B_INSTRUCT_2512_GGUF
 
-    GGUF_FILE = "mistralai_Ministral-3-14B-Instruct-2512-Q4_K_M.gguf"
+    GGUF_FILE = "Ministral-3-14B-Instruct-2512-Q4_K_M.gguf"
 
-    sample_text = "What is your favorite city?"
+    sample_text = "Give me a short introduction to large language models."
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
