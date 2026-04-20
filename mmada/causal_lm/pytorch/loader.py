@@ -8,7 +8,8 @@ MMaDA model loader implementation for causal language modeling.
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
 from ....base import ForgeModel
 from ....config import (
@@ -20,6 +21,23 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+
+# MMaDA's config.json auto_map references custom code files (configuration_llada.py,
+# modeling_llada.py) that only exist in the base LLaDA repo, not in the MMaDA repo.
+_LLADA_CODE_REPO = "GSAI-ML/LLaDA-8B-Instruct"
+
+
+def _get_llada_config_class():
+    return get_class_from_dynamic_module(
+        "configuration_llada.LLaDAConfig", _LLADA_CODE_REPO
+    )
+
+
+def _get_llada_model_class():
+    return get_class_from_dynamic_module(
+        "modeling_llada.LLaDAModelLM", _LLADA_CODE_REPO
+    )
 
 
 class ModelVariant(StrEnum):
@@ -86,15 +104,17 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        LLaDAConfig = _get_llada_config_class()
+        config = LLaDAConfig.from_pretrained(pretrained_model_name)
+        if not hasattr(config, "use_cache"):
+            config.use_cache = False
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+        LLaDAModelLM = _get_llada_model_class()
+        model = LLaDAModelLM.from_pretrained(
+            pretrained_model_name, **model_kwargs
         ).eval()
 
         self.config = model.config
@@ -124,7 +144,10 @@ class ModelLoader(ForgeModel):
         return self.tokenizer.decode([next_token])
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+        LLaDAConfig = _get_llada_config_class()
+        self.config = LLaDAConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
         )
+        if not hasattr(self.config, "use_cache"):
+            self.config.use_cache = False
         return self.config
