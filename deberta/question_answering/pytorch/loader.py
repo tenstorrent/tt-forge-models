@@ -20,6 +20,7 @@ class ModelVariant(StrEnum):
     """Available DeBERTa question answering model variants."""
 
     DEEPSET_DEBERTA_V3_LARGE_SQUAD2 = "deepset_deberta_v3_large_squad2"
+    DEEPSET_DEBERTA_V3_BASE_SQUAD2 = "deepset_deberta_v3_base_squad2"
 
 
 class ModelLoader(ForgeModel):
@@ -28,6 +29,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEEPSET_DEBERTA_V3_LARGE_SQUAD2: LLMModelConfig(
             pretrained_model_name="deepset/deberta-v3-large-squad2",
+            max_length=384,
+        ),
+        ModelVariant.DEEPSET_DEBERTA_V3_BASE_SQUAD2: LLMModelConfig(
+            pretrained_model_name="deepset/deberta-v3-base-squad2",
             max_length=384,
         ),
     }
