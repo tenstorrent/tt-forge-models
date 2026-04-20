@@ -24,7 +24,7 @@ from ....base import ForgeModel
 class ModelVariant(StrEnum):
     """Available Pythia model variants."""
 
-    PYTHIA_14M_SEED1 = "14M-seed1"
+    PYTHIA_14M_SEED2 = "14M-seed2"
     PYTHIA_31M = "31M"
     PYTHIA_31M_SEED3 = "31M-seed3"
     PYTHIA_70M_DEDUPED = "70M-deduped"
@@ -42,8 +42,8 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.PYTHIA_14M_SEED1: LLMModelConfig(
-            pretrained_model_name="EleutherAI/pythia-14m-seed1",
+        ModelVariant.PYTHIA_14M_SEED2: LLMModelConfig(
+            pretrained_model_name="EleutherAI/pythia-14m-seed2",
             max_length=256,
         ),
         ModelVariant.PYTHIA_31M: LLMModelConfig(
