@@ -4,12 +4,13 @@
 """
 z_image_turbo_sdnq model loader implementation.
 
-Loads the Disty0/Z-Image-Turbo-SDNQ-uint4-svd-r32 quantized text-to-image
-pipeline. This is a 4-bit SDNQ-quantized variant of Z-Image-Turbo with
-SVD rank-32 decomposition, reducing model size by ~71%.
+Loads SDNQ-quantized variants of the Z-Image-Turbo text-to-image pipeline.
 
 Available variants:
-- Z_IMAGE_TURBO_SDNQ: Full quantized Z-Image-Turbo DiT transformer
+- Z_IMAGE_TURBO_SDNQ: Disty0/Z-Image-Turbo-SDNQ-uint4-svd-r32 (4-bit SDNQ
+  with SVD rank-32 decomposition, ~71% size reduction).
+- INT8: Disty0/Z-Image-Turbo-SDNQ-int8 (8-bit SDNQ with group sizes
+  disabled for faster INT8 MatMul, ~50% size reduction).
 """
 
 from typing import Any, Optional
@@ -29,13 +30,12 @@ from ...config import (
     StrEnum,
 )
 
-PIPELINE_REPO_ID = "Disty0/Z-Image-Turbo-SDNQ-uint4-svd-r32"
-
 
 class ModelVariant(StrEnum):
     """Available z_image_turbo_sdnq model variants."""
 
     Z_IMAGE_TURBO_SDNQ = "Z-Image-Turbo-SDNQ"
+    INT8 = "int8"
 
 
 class ModelLoader(ForgeModel):
@@ -43,7 +43,10 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.Z_IMAGE_TURBO_SDNQ: ModelConfig(
-            pretrained_model_name=PIPELINE_REPO_ID,
+            pretrained_model_name="Disty0/Z-Image-Turbo-SDNQ-uint4-svd-r32",
+        ),
+        ModelVariant.INT8: ModelConfig(
+            pretrained_model_name="Disty0/Z-Image-Turbo-SDNQ-int8",
         ),
     }
     DEFAULT_VARIANT = ModelVariant.Z_IMAGE_TURBO_SDNQ
@@ -68,7 +71,7 @@ class ModelLoader(ForgeModel):
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
         """Load the quantized Z-Image-Turbo pipeline."""
         self._pipe = ZImagePipeline.from_pretrained(
-            PIPELINE_REPO_ID,
+            self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
             low_cpu_mem_usage=False,
         )
