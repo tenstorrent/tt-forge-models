@@ -119,3 +119,7 @@ results:
   status: "MAX_FAILED_ATTEMPTS"
   date: "20260420_022121"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-1500-250-3"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[alma/causal_lm/pytorch-Alma_13B_R-single_device-inference]"
+  status: "MAX_FAILED_ATTEMPTS"
+  date: "20260420_022704"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-1500-250-3"
