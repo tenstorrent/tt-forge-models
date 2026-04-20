@@ -4,9 +4,17 @@
 """
 Welyjesch Hiligaynon Llama 3.1 Finetuned 8B GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.utils.import_utils as _tx_import_utils
+
+_tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+    importlib.metadata.packages_distributions()
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -70,6 +78,8 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+        if self.tokenizer.eos_token is None:
+            self.tokenizer.eos_token = "<|end_of_text|>"
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
