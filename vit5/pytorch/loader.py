@@ -6,7 +6,7 @@ ViT5 model loader implementation
 """
 
 import torch
-from transformers import AutoTokenizer, T5ForConditionalGeneration
+from transformers import PreTrainedTokenizerFast, T5ForConditionalGeneration
 from typing import Optional
 
 from ...base import ForgeModel
@@ -62,8 +62,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        self.tokenizer = PreTrainedTokenizerFast.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            **tokenizer_kwargs,
         )
 
         return self.tokenizer
