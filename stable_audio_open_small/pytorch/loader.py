@@ -88,9 +88,8 @@ class ModelLoader(ForgeModel):
 
         dtype = dtype_override if dtype_override is not None else torch.float32
 
-        sample_rate = self._model_config["sample_rate"]
         sample_size = self._model_config["sample_size"]
-        seconds_total = float(sample_size) / float(sample_rate)
+        seconds_total = float(sample_size) / float(self._model_config["sample_rate"])
 
         # Build real conditioning tensors via the wrapper's conditioner so that
         # text embedding shapes are correct for the DiT forward pass.
