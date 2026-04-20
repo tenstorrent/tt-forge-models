@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available TAPAS model variants."""
 
     LARGE_FINETUNED_SQA = "Large_Finetuned_SQA"
+    TINY_FINETUNED_SQA = "Tiny_Finetuned_SQA"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LARGE_FINETUNED_SQA: LLMModelConfig(
             pretrained_model_name="google/tapas-large-finetuned-sqa",
+        ),
+        ModelVariant.TINY_FINETUNED_SQA: LLMModelConfig(
+            pretrained_model_name="google/tapas-tiny-finetuned-sqa",
         ),
     }
 
