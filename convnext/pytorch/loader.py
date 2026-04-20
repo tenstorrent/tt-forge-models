@@ -41,7 +41,7 @@ class ModelVariant(StrEnum):
     BASE_CLIP_LAION2B = "Base_CLIP_LAION2B"
     BASE_FB_IN22K = "Base_FB_IN22K"
     TINY_DINOV3_LVD1689M = "Tiny_DINOv3_LVD1689M"
-    ZOOBOT_ENCODER_NANO = "Zoobot_Encoder_Nano"
+    BASE_FB_IN1K = "Base_FB_IN1K"
 
 
 class ModelLoader(ForgeModel):
@@ -60,8 +60,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="hf_hub:timm/convnext_tiny.dinov3_lvd1689m",
             source=ModelSource.TIMM,
         ),
-        ModelVariant.ZOOBOT_ENCODER_NANO: ConvNeXtConfig(
-            pretrained_model_name="hf_hub:mwalmsley/zoobot-encoder-convnext_nano",
+        ModelVariant.BASE_FB_IN1K: ConvNeXtConfig(
+            pretrained_model_name="hf_hub:timm/convnext_base.fb_in1k",
             source=ModelSource.TIMM,
         ),
     }
