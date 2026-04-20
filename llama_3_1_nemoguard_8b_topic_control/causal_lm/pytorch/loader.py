@@ -17,7 +17,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from ....base import ForgeModel
 from ....config import (
     Framework,
-    ModelConfig,
+    LLMModelConfig,
     ModelGroup,
     ModelInfo,
     ModelSource,
@@ -36,8 +36,9 @@ class ModelLoader(ForgeModel):
     """Llama-3.1-NemoGuard-8B-Topic-Control LoRA model loader for causal language modeling."""
 
     _VARIANTS = {
-        ModelVariant.LLAMA_3_1_NEMOGUARD_8B_TOPIC_CONTROL: ModelConfig(
+        ModelVariant.LLAMA_3_1_NEMOGUARD_8B_TOPIC_CONTROL: LLMModelConfig(
             pretrained_model_name="nvidia/llama-3.1-nemoguard-8b-topic-control",
+            max_length=256,
         ),
     }
 
@@ -134,7 +135,7 @@ class ModelLoader(ForgeModel):
         inputs = self.tokenizer(
             [input_text],
             return_tensors="pt",
-            max_length=256,
+            max_length=self._variant_config.max_length,
             padding="max_length",
             truncation=True,
         )
