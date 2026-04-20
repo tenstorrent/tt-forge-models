@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Anubis 70B v1.2 GGUF model variants for causal language modeling."""
 
-    ANUBIS_70B_V1_2_Q4_K_M_GGUF = "70B_V1_2_Q4_K_M_GGUF"
+    ANUBIS_70B_V1_2_Q4_K_M_GGUF = "ANUBIS_70B_V1_2_Q4_K_M_GGUF"
 
 
 class ModelLoader(ForgeModel):
