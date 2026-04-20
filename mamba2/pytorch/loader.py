@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Mamba2 model variants."""
 
     MAMBA2_780M = "780M_HF"
+    MAMBA2_2_7B = "2.7b"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MAMBA2_780M: ModelConfig(
             pretrained_model_name="AntonV/mamba2-780m-hf",
+        ),
+        ModelVariant.MAMBA2_2_7B: ModelConfig(
+            pretrained_model_name="state-spaces/mamba2-2.7b",
         ),
     }
 
