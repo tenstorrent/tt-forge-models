@@ -19,7 +19,8 @@ Available subfolders:
 from typing import Any, Optional
 
 import torch
-from diffusers import Cosmos2_5_PredictBasePipeline
+from diffusers import AutoencoderKLWan, CosmosTransformer3DModel
+from transformers import Qwen2_5_VLForConditionalGeneration
 
 from ...base import ForgeModel
 from ...config import (
@@ -32,6 +33,8 @@ from ...config import (
     StrEnum,
 )
 
+REPO_ID = "nvidia/Cosmos-Predict2.5-14B"
+REVISION = "diffusers/base/post-trained"
 SUPPORTED_SUBFOLDERS = {"transformer", "vae", "text_encoder"}
 
 
@@ -45,7 +48,10 @@ class ModelLoader(ForgeModel):
     """
     Loader for Cosmos Predict2.5 14B model.
 
-    Supports loading the full pipeline or individual components via subfolder:
+    Loads individual components directly to avoid the cosmos_guardrail
+    dependency required by the full pipeline.
+
+    Supports loading components via subfolder:
     - 'transformer': The diffusion transformer denoiser (CosmosTransformer3DModel)
     - 'vae': Video tokenizer (AutoencoderKLWan)
     - 'text_encoder': Qwen2.5-VL encoder for prompt conditioning
@@ -53,7 +59,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.V2_5_14B: ModelConfig(
-            pretrained_model_name="nvidia/Cosmos-Predict2.5-14B",
+            pretrained_model_name=REPO_ID,
         ),
     }
 
@@ -70,7 +76,9 @@ class ModelLoader(ForgeModel):
                 f"Unknown subfolder: {subfolder}. Supported: {SUPPORTED_SUBFOLDERS}"
             )
         self._subfolder = subfolder
-        self.pipeline: Optional[Cosmos2_5_PredictBasePipeline] = None
+        self._transformer = None
+        self._vae = None
+        self._text_encoder = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -86,36 +94,48 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(
-        self, dtype: torch.dtype, **kwargs
-    ) -> Cosmos2_5_PredictBasePipeline:
-        model_kwargs = {"torch_dtype": dtype}
-        model_kwargs |= kwargs
-        self.pipeline = Cosmos2_5_PredictBasePipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            revision="diffusers/base/post-trained",
-            **model_kwargs,
-        )
-        return self.pipeline
+    def _load_transformer(self, dtype: torch.dtype):
+        if self._transformer is None:
+            self._transformer = CosmosTransformer3DModel.from_pretrained(
+                REPO_ID,
+                subfolder="transformer",
+                revision=REVISION,
+                torch_dtype=dtype,
+            )
+        return self._transformer
+
+    def _load_vae(self, dtype: torch.dtype):
+        if self._vae is None:
+            self._vae = AutoencoderKLWan.from_pretrained(
+                REPO_ID,
+                subfolder="vae",
+                revision=REVISION,
+                torch_dtype=dtype,
+            )
+        return self._vae
+
+    def _load_text_encoder(self, dtype: torch.dtype):
+        if self._text_encoder is None:
+            self._text_encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                REPO_ID,
+                subfolder="text_encoder",
+                revision=REVISION,
+                torch_dtype=dtype,
+            )
+        return self._text_encoder
 
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        if self.pipeline is None:
-            self._load_pipeline(dtype, **kwargs)
-
         if self._subfolder == "vae":
-            return self.pipeline.vae
+            return self._load_vae(dtype)
         elif self._subfolder == "text_encoder":
-            return self.pipeline.text_encoder
-        elif self._subfolder == "transformer" or self._subfolder is None:
-            return self.pipeline.transformer
+            return self._load_text_encoder(dtype)
+        else:
+            return self._load_transformer(dtype)
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-
-        if self.pipeline is None:
-            self._load_pipeline(dtype)
 
         if self._subfolder == "transformer" or self._subfolder is None:
             return self._load_transformer_inputs(dtype)
@@ -129,11 +149,9 @@ class ModelLoader(ForgeModel):
             return self._load_text_encoder_inputs(dtype)
 
     def _load_transformer_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic inputs for the Cosmos Predict2.5 diffusion transformer."""
         batch_size = 1
-        config = self.pipeline.transformer.config
+        config = self._load_transformer(dtype).config
 
-        # Use small latent dimensions for testing
         num_latent_frames = 2
         latent_height = 2
         latent_width = 2
@@ -148,8 +166,6 @@ class ModelLoader(ForgeModel):
             dtype=dtype,
         )
 
-        # Text conditioning - dimension depends on whether cross-attention
-        # projection is used
         if config.use_crossattn_projection:
             text_dim = config.crossattn_proj_in_channels
         else:
@@ -165,7 +181,6 @@ class ModelLoader(ForgeModel):
             "return_dict": False,
         }
 
-        # Provide padding mask if the model concatenates it
         if config.concat_padding_mask:
             inputs["padding_mask"] = torch.ones(
                 batch_size, 1, latent_height, latent_width, dtype=dtype
@@ -174,20 +189,17 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def _load_vae_decoder_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic decoder inputs for the video VAE."""
-        latent_channels = self.pipeline.vae.config.latent_channels
+        latent_channels = self._load_vae(dtype).config.latent_channels
         return {
             "sample": torch.randn(1, latent_channels, 2, 2, 2, dtype=dtype),
         }
 
     def _load_vae_encoder_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic encoder inputs for the video VAE."""
         return {
             "sample": torch.randn(1, 3, 9, 64, 64, dtype=dtype),
         }
 
     def _load_text_encoder_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic inputs for the text encoder."""
         return {
             "input_ids": torch.randint(0, 1000, (1, 16)),
         }
