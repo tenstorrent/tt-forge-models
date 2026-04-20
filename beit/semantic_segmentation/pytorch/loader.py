@@ -1,13 +1,13 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-BEiT model loader implementation for semantic segmentation.
+BEiT for Semantic Segmentation model loader implementation
 """
 
 import torch
 from transformers import BeitImageProcessor, BeitForSemanticSegmentation
-from datasets import load_dataset
+from PIL import Image
 from typing import Optional
 
 from ....base import ForgeModel
@@ -23,43 +23,28 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available BEiT model variants for semantic segmentation."""
+    """Available BEiT for Semantic Segmentation model variants."""
 
-    LARGE_FINETUNED_ADE_640 = "Large_Finetuned_Ade_640_640"
+    BASE_ADE_640 = "Base_Ade_640_640"
 
 
 class ModelLoader(ForgeModel):
     """BEiT model loader implementation for semantic segmentation tasks."""
 
     _VARIANTS = {
-        ModelVariant.LARGE_FINETUNED_ADE_640: ModelConfig(
-            pretrained_model_name="microsoft/beit-large-finetuned-ade-640-640",
+        ModelVariant.BASE_ADE_640: ModelConfig(
+            pretrained_model_name="microsoft/beit-base-finetuned-ade-640-640",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.LARGE_FINETUNED_ADE_640
+    DEFAULT_VARIANT = ModelVariant.BASE_ADE_640
 
     def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
         super().__init__(variant)
         self.processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Get model information for dashboard and metrics reporting.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
@@ -73,30 +58,12 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        """Load processor for the current variant.
-
-        Returns:
-            The loaded processor instance
-        """
-        self.processor = BeitImageProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        self.processor = BeitImageProcessor.from_pretrained(pretrained_model_name)
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load BEiT model for semantic segmentation from Hugging Face.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
-
-        Returns:
-            torch.nn.Module: The BEiT model instance for semantic segmentation.
-        """
         pretrained_model_name = self._variant_config.pretrained_model_name
-
-        if self.processor is None:
-            self._load_processor()
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -111,20 +78,11 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the BEiT semantic segmentation model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the inputs' default dtype.
-            batch_size: Optional batch size to override the default batch size of 1.
-
-        Returns:
-            dict: Input tensors (pixel_values) that can be fed to the model.
-        """
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (640, 640))
+
         inputs = self.processor(images=image, return_tensors="pt")
 
         for key in inputs:
