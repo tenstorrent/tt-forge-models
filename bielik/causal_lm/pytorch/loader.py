@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Bielik model variants for causal language modeling."""
 
     BIELIK_11B_V2_3_INSTRUCT = "11B_v2.3_Instruct"
-    BIELIK_7B_V0_1 = "7B_v0.1"
+    BIELIK_7B_INSTRUCT_V0_1 = "7B_Instruct_v0.1"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="speakleash/Bielik-11B-v2.3-Instruct",
             max_length=128,
         ),
-        ModelVariant.BIELIK_7B_V0_1: LLMModelConfig(
-            pretrained_model_name="speakleash/Bielik-7B-v0.1",
+        ModelVariant.BIELIK_7B_INSTRUCT_V0_1: LLMModelConfig(
+            pretrained_model_name="speakleash/Bielik-7B-Instruct-v0.1",
             max_length=128,
         ),
     }
