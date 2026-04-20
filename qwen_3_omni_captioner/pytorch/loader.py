@@ -10,6 +10,7 @@ of arbitrary audio.
 """
 import numpy as np
 import torch
+from qwen_omni_utils import process_mm_info
 from transformers import (
     Qwen3OmniMoeForConditionalGeneration,
     Qwen3OmniMoeProcessor,
@@ -120,8 +121,6 @@ class ModelLoader(ForgeModel):
         text = self.processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
-
-        from qwen_omni_utils import process_mm_info
 
         audios, _, _ = process_mm_info(messages, use_audio_in_video=False)
 
