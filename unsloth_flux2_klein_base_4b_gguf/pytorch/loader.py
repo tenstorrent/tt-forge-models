@@ -97,9 +97,6 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
         )
 
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
-
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
