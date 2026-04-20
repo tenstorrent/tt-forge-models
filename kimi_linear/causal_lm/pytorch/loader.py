@@ -8,6 +8,10 @@ Kimi Linear model loader implementation for causal language modeling.
 from typing import Optional
 
 import torch
+import transformers.utils.generic as _tfu_generic
+from transformers.utils.output_capturing import OutputRecorder
+
+_tfu_generic.OutputRecorder = OutputRecorder
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel

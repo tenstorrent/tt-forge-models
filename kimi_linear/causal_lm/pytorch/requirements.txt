@@ -1,1 +1,4 @@
 tiktoken
+fla-core
+einops
+transformers>=5.5.0
