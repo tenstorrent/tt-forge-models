@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
         max_length = self._variant_config.max_length
 
         inputs = self.tokenizer(
-            [self.sample_text],
+            self.sample_text,
             return_tensors="pt",
             padding=True,
             truncation=True,
