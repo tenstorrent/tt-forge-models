@@ -28,19 +28,19 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     """Available CaiT model variants (timm)."""
 
-    CAIT_M36_384_FB_DIST_IN1K = "CaiT_M36_384.fb_dist_in1k"
+    CAIT_M48_448_FB_DIST_IN1K = "CaiT_M48_448.fb_dist_in1k"
 
 
 class ModelLoader(ForgeModel):
     """CaiT model loader implementation."""
 
     _VARIANTS = {
-        ModelVariant.CAIT_M36_384_FB_DIST_IN1K: ModelConfig(
-            pretrained_model_name="cait_m36_384.fb_dist_in1k",
+        ModelVariant.CAIT_M48_448_FB_DIST_IN1K: ModelConfig(
+            pretrained_model_name="cait_m48_448.fb_dist_in1k",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.CAIT_M36_384_FB_DIST_IN1K
+    DEFAULT_VARIANT = ModelVariant.CAIT_M48_448_FB_DIST_IN1K
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
