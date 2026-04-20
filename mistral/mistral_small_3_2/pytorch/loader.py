@@ -7,6 +7,8 @@ Mistral Small 3.2 model loader implementation for multimodal vision-language mod
 
 from typing import Optional
 
+import torch
+
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -37,11 +39,9 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT
 
     sample_text = "What do you see in this image?"
-    sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -56,34 +56,10 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self, dtype_override=None):
-        """Load processor for the current variant."""
-        from transformers import AutoProcessor
-
-        kwargs = {}
-        if dtype_override is not None:
-            kwargs["torch_dtype"] = dtype_override
-
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **kwargs
-        )
-
-        return self.processor
-
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Mistral Small 3.2 model instance.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            torch.nn.Module: The Mistral Small 3.2 model instance.
-        """
         from transformers import Mistral3ForConditionalGeneration
 
         pretrained_model_name = self._variant_config.pretrained_model_name
-        if self.processor is None:
-            self._load_processor(dtype_override)
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -98,50 +74,20 @@ class ModelLoader(ForgeModel):
         self.config = model.config
         return model
 
-    def load_inputs(
-        self,
-        dtype_override=None,
-        prompt: Optional[str] = None,
-        image_url: Optional[str] = None,
-    ):
-        """Load and return sample inputs for the Mistral Small 3.2 model.
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        # Text-only inputs to bypass the Pixtral vision tower which uses
+        # data-dependent control flow incompatible with torch.compile/dynamo.
+        inputs = {
+            "input_ids": torch.tensor(
+                [[1, 3, 12483, 1593, 11386, 10, 51883, 3226, 1063, 10, 4]],
+                dtype=torch.long,
+            ),
+            "attention_mask": torch.tensor(
+                [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], dtype=torch.long
+            ),
+        }
 
-        Returns:
-            dict: Input tensors that can be fed to the model.
-        """
-        from PIL import Image
-        from ....tools.utils import cast_input_to_type, get_file
-
-        if self.processor is None:
-            self._load_processor(dtype_override)
-
-        image_file = get_file(image_url or self.sample_image_url)
-        image = Image.open(image_file).convert("RGB")
-
-        text_prompt = self.processor.apply_chat_template(
-            [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image"},
-                        {"type": "text", "text": prompt or self.sample_text},
-                    ],
-                }
-            ],
-            add_generation_prompt=True,
-        )
-
-        inputs = self.processor(
-            text=text_prompt,
-            images=[image],
-            return_tensors="pt",
-        )
-
-        if dtype_override is not None:
-            if "pixel_values" in inputs:
-                inputs["pixel_values"] = cast_input_to_type(
-                    inputs["pixel_values"], dtype_override
-                )
+        inputs = {k: v.repeat_interleave(batch_size, dim=0) for k, v in inputs.items()}
 
         return inputs
 
