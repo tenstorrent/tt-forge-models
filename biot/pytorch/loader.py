@@ -32,6 +32,7 @@ class ModelVariant(StrEnum):
     """Available BIOT model variants."""
 
     SHHS_PREST_18CHS = "shhs_prest_18chs"
+    PREST_16CHS = "prest_16chs"
 
 
 class ModelLoader(ForgeModel):
@@ -41,6 +42,12 @@ class ModelLoader(ForgeModel):
         ModelVariant.SHHS_PREST_18CHS: BiotConfig(
             pretrained_model_name="braindecode/biot-pretrained-shhs-prest-18chs",
             n_chans=18,
+            n_times=2000,
+            sfreq=200,
+        ),
+        ModelVariant.PREST_16CHS: BiotConfig(
+            pretrained_model_name="braindecode/biot-pretrained-prest-16chs",
+            n_chans=16,
             n_times=2000,
             sfreq=200,
         ),
