@@ -4,9 +4,11 @@
 """
 OlmoEarth feature extraction model loader implementation.
 
-OlmoEarth-v1-Base is a ViT-Base (89M parameters) foundation model for remote
-sensing tasks over Sentinel-1, Sentinel-2, and Landsat images or image time series.
-Uses the olmoearth-pretrain library for model loading.
+OlmoEarth is a family of foundation models for remote sensing tasks over
+Sentinel-1, Sentinel-2, and Landsat images or image time series. The Base
+variant is a ViT-Base (89M parameters) encoder; the Tiny variant is a
+ViT-Tiny (6.2M parameters) encoder. Uses the olmoearth-pretrain library
+for model loading.
 """
 
 import torch
@@ -31,6 +33,7 @@ class ModelVariant(StrEnum):
     """Available OlmoEarth model variants for feature extraction."""
 
     V1_BASE = "v1_base"
+    V1_TINY = "v1_tiny"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +43,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.V1_BASE: ModelConfig(
             pretrained_model_name="allenai/OlmoEarth-v1-Base",
         ),
+        ModelVariant.V1_TINY: ModelConfig(
+            pretrained_model_name="allenai/OlmoEarth-v1-Tiny",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.V1_BASE
@@ -47,6 +53,7 @@ class ModelLoader(ForgeModel):
     # Map variant to olmoearth_pretrain ModelID
     _MODEL_IDS = {
         ModelVariant.V1_BASE: ModelID.OLMOEARTH_V1_BASE,
+        ModelVariant.V1_TINY: ModelID.OLMOEARTH_V1_TINY,
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
