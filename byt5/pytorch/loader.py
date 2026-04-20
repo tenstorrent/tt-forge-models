@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
 
     BASE = "Base"
     LARGE = "Large"
-    XL = "XL"
+    BASE_AKKADIAN = "Base_Akkadian"
 
 
 class ModelLoader(ForgeModel):
@@ -41,8 +41,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="google/byt5-large",
             max_length=512,
         ),
-        ModelVariant.XL: LLMModelConfig(
-            pretrained_model_name="google/byt5-xl",
+        ModelVariant.BASE_AKKADIAN: LLMModelConfig(
+            pretrained_model_name="notninja/byt5-base-akkadian",
             max_length=512,
         ),
     }
