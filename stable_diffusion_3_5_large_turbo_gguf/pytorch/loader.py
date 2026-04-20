@@ -7,8 +7,11 @@ Stable Diffusion 3.5 Large Turbo GGUF model loader implementation
 import torch
 from typing import Optional
 
-from diffusers import SD3Transformer2DModel, StableDiffusion3Pipeline
-from diffusers.quantizers import GGUFQuantizationConfig
+from diffusers import (
+    GGUFQuantizationConfig,
+    SD3Transformer2DModel,
+    StableDiffusion3Pipeline,
+)
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
