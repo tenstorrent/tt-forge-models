@@ -23,6 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available UnslopNemo 12B GGUF model variants for causal language modeling."""
 
+    UNSLOPNEMO_12B_V3_Q4_K_M = "12B_V3_Q4_K_M"
     UNSLOPNEMO_12B_V4_1_Q4_K_M = "12B_V4_1_Q4_K_M"
 
 
@@ -30,6 +31,10 @@ class ModelLoader(ForgeModel):
     """UnslopNemo 12B GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
+        ModelVariant.UNSLOPNEMO_12B_V3_Q4_K_M: LLMModelConfig(
+            pretrained_model_name="TheDrummer/UnslopNemo-12B-v3-GGUF",
+            max_length=128,
+        ),
         ModelVariant.UNSLOPNEMO_12B_V4_1_Q4_K_M: LLMModelConfig(
             pretrained_model_name="TheDrummer/UnslopNemo-12B-v4.1-GGUF",
             max_length=128,
@@ -38,7 +43,14 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.UNSLOPNEMO_12B_V4_1_Q4_K_M
 
-    GGUF_FILE = "UnslopNemo-12B-v4.1-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.UNSLOPNEMO_12B_V3_Q4_K_M: "Rocinante-12B-v2g-Q4_K_M.gguf",
+        ModelVariant.UNSLOPNEMO_12B_V4_1_Q4_K_M: "UnslopNemo-12B-v4.1-Q4_K_M.gguf",
+    }
+
+    @property
+    def GGUF_FILE(self):
+        return self._GGUF_FILES[self._variant]
 
     sample_text = "What is your favorite city?"
 
