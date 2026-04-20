@@ -121,13 +121,15 @@ class ModelLoader(ForgeModel):
 
         Transformers 5.5+ passes q_length (int) instead of cache_position (Tensor).
         """
-        mod = type(model).__module__
-        cache_mod = __import__(mod, fromlist=["KimiLinearCache"])
-        cache_cls = getattr(cache_mod, "KimiLinearCache", None)
+        import sys
+
+        model_module = type(model).__module__
+        mod = sys.modules.get(model_module)
+        if mod is None:
+            return
+        cache_cls = getattr(mod, "KimiLinearCache", None)
         if cache_cls is None:
             return
-
-        orig = cache_cls.get_mask_sizes
 
         def patched_get_mask_sizes(self, cache_position, layer_idx):
             if isinstance(cache_position, int):
