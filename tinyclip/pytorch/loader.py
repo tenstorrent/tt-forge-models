@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available TinyCLIP model variants for image-text similarity."""
 
     VIT_61M_32_TEXT_29M = "ViT_61M_32_Text_29M"
+    VIT_40M_32_TEXT_19M = "ViT_40M_32_Text_19M"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.VIT_61M_32_TEXT_29M: ModelConfig(
             pretrained_model_name="wkcn/TinyCLIP-ViT-61M-32-Text-29M-LAION400M",
+        ),
+        ModelVariant.VIT_40M_32_TEXT_19M: ModelConfig(
+            pretrained_model_name="wkcn/TinyCLIP-ViT-40M-32-Text-19M-LAION400M",
         ),
     }
 
