@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 import torch
 from diffusers import GGUFQuantizationConfig, QwenImageTransformer2DModel
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -77,8 +78,9 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         repo_id = self._variant_config.pretrained_model_name
+        model_path = hf_hub_download(repo_id=repo_id, filename=self.GGUF_FILE)
         self._transformer = QwenImageTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{self.GGUF_FILE}",
+            model_path,
             quantization_config=quantization_config,
             config=CONFIG_REPO,
             subfolder="transformer",
