@@ -13,6 +13,7 @@ Available variants:
 - CONTROLNET_UNION_2602: Updated ControlNet Union weights (2602 revision)
 """
 
+import torch
 from typing import Optional
 
 from ...base import ForgeModel
@@ -26,9 +27,13 @@ from ...config import (
     StrEnum,
 )
 from .src.model_utils import (
-    create_dummy_control_image,
-    load_controlnet_state_dict,
-)
+    load_controlnet_model,
+    HIDDEN_SIZE,
+    NUM_HEADS,
+    HEAD_DIM,
+    IN_CHANNELS,
+    PATCH_SIZE,
+)  # noqa: F401
 
 
 class ModelVariant(StrEnum):
@@ -38,7 +43,6 @@ class ModelVariant(StrEnum):
     CONTROLNET_UNION_2602 = "ControlNet_Union_2602"
 
 
-# Mapping from variant to safetensors filename
 _VARIANT_FILENAMES = {
     ModelVariant.CONTROLNET_UNION: "Qwen-Image-2512-Fun-Controlnet-Union.safetensors",
     ModelVariant.CONTROLNET_UNION_2602: "Qwen-Image-2512-Fun-Controlnet-Union-2602.safetensors",
@@ -61,7 +65,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._state_dict = None
+        self._model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -77,39 +81,63 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the ControlNet Union state dict.
+        """Load and return the ControlNet Union model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            dict: The ControlNet state dict containing model weights.
+            torch.nn.Module: The ControlNet Union model with loaded weights.
         """
         filename = _VARIANT_FILENAMES[self._variant]
-        self._state_dict = load_controlnet_state_dict(filename)
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        self._model = load_controlnet_model(filename, dtype=compute_dtype)
+        return self._model
 
-        if dtype_override is not None:
-            self._state_dict = {
-                k: v.to(dtype_override) for k, v in self._state_dict.items()
-            }
-
-        return self._state_dict
-
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the ControlNet Union model.
-
-        Creates a dummy control conditioning image suitable for any of the
-        supported control types (Canny, Depth, Pose, etc.).
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
+            batch_size: Optional batch size (default: 1).
 
         Returns:
-            torch.Tensor: A dummy control image tensor of shape (1, 3, 512, 512).
+            dict: Input tensors for the ControlNet model.
         """
-        control_image = create_dummy_control_image()
+        if self._model is None:
+            self.load_model(dtype_override=dtype_override)
 
-        if dtype_override is not None:
-            control_image = control_image.to(dtype_override)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        return control_image
+        height = 128
+        width = 128
+        vae_scale_factor = 8
+        patch_size = PATCH_SIZE
+
+        h_latent = height // vae_scale_factor
+        w_latent = width // vae_scale_factor
+        h_patched = h_latent // patch_size
+        w_patched = w_latent // patch_size
+        seq_len = h_patched * w_patched
+
+        hidden_states = torch.randn(batch_size, seq_len, HIDDEN_SIZE, dtype=dtype)
+
+        text_seq_len = 128
+        joint_attention_dim = NUM_HEADS * HEAD_DIM
+        encoder_hidden_states = torch.randn(
+            batch_size, text_seq_len, joint_attention_dim, dtype=dtype
+        )
+
+        temb = torch.randn(batch_size, HIDDEN_SIZE, dtype=dtype)
+
+        controlnet_cond = torch.randn(
+            batch_size, seq_len, IN_CHANNELS * PATCH_SIZE + 4, dtype=dtype
+        )
+
+        return {
+            "hidden_states": hidden_states,
+            "temb": temb,
+            "encoder_hidden_states": encoder_hidden_states,
+            "controlnet_cond": controlnet_cond,
+            "conditioning_scale": 1.0,
+        }
