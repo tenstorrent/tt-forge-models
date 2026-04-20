@@ -5,17 +5,18 @@
 Chinese ELECTRA model loader implementation for discriminator (pre-training) task.
 """
 
-from transformers import ElectraForPreTraining, AutoTokenizer
 from typing import Optional
+
+from transformers import AutoTokenizer, ElectraForPreTraining
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -23,22 +24,22 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Chinese ELECTRA discriminator model variants."""
 
-    SMALL_EX_180G = "Small_Ex_180G"
+    LARGE_180G = "180g-large"
 
 
 class ModelLoader(ForgeModel):
     """Chinese ELECTRA model loader implementation for discriminator (pre-training) task."""
 
     _VARIANTS = {
-        ModelVariant.SMALL_EX_180G: LLMModelConfig(
-            pretrained_model_name="hfl/chinese-electra-180g-small-ex-discriminator",
+        ModelVariant.LARGE_180G: LLMModelConfig(
+            pretrained_model_name="hfl/chinese-electra-180g-large-discriminator",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.SMALL_EX_180G
+    DEFAULT_VARIANT = ModelVariant.LARGE_180G
 
-    sample_text = "这是一个示例文本。"
+    sample_text = "今天天气非常好，我们一起去公园散步吧。"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -52,7 +53,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Chinese_ELECTRA",
+            model="Chinese-ELECTRA",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_TOKEN_CLS,
