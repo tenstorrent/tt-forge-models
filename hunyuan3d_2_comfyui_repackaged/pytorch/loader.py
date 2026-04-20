@@ -99,6 +99,12 @@ _VARIANT_FILENAMES = {
     ModelVariant.DIT_V2_MV_TURBO: "split_files/hunyuan3d-dit-v2-mv-turbo_fp16.safetensors",
 }
 
+_VARIANT_GUIDANCE_EMBED = {
+    ModelVariant.DIT_V2: False,
+    ModelVariant.DIT_V2_MV: False,
+    ModelVariant.DIT_V2_MV_TURBO: True,
+}
+
 
 class ModelLoader(ForgeModel):
     """Hunyuan3D 2.0 ComfyUI Repackaged model loader using single-file safetensors."""
@@ -160,6 +166,7 @@ class ModelLoader(ForgeModel):
             num_heads=NUM_HEADS,
             depth=DEPTH,
             depth_single_blocks=DEPTH_SINGLE_BLOCKS,
+            guidance_embed=_VARIANT_GUIDANCE_EMBED[variant],
         )
         model.load_state_dict(state_dict)
         model.eval()
@@ -176,14 +183,15 @@ class ModelLoader(ForgeModel):
             dict: Input tensors (x, t, contexts) for the model forward pass.
         """
         dtype = dtype_override or torch.float32
+        variant = self._variant or self.DEFAULT_VARIANT
 
-        # x: noisy 3D shape latent [B, N, in_channels]
         x = torch.randn(batch_size, LATENT_SEQ_LEN, IN_CHANNELS, dtype=dtype)
-
-        # t: diffusion timestep [B]
         t = torch.full((batch_size,), 0.5, dtype=dtype)
-
-        # contexts: image conditioning dict with 'main' key [B, seq_len, context_in_dim]
         cond = torch.randn(batch_size, COND_SEQ_LEN, CONTEXT_IN_DIM, dtype=dtype)
 
-        return {"x": x, "t": t, "contexts": {"main": cond}}
+        inputs = {"x": x, "t": t, "contexts": {"main": cond}}
+
+        if _VARIANT_GUIDANCE_EMBED[variant]:
+            inputs["guidance"] = torch.full((batch_size,), 3.5, dtype=dtype)
+
+        return inputs
