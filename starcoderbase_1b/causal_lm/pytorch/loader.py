@@ -23,9 +23,9 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available StarCoderBase 1B model variants."""
+    """Available StarCoderBase 1B model variants for causal language modeling."""
 
-    STARCODERBASE_1B = "starcoderbase-1b"
+    STARCODERBASE_1B = "1B"
 
 
 class ModelLoader(ForgeModel):
@@ -34,7 +34,7 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.STARCODERBASE_1B: LLMModelConfig(
             pretrained_model_name="bigcode/starcoderbase-1b",
-            max_length=128,
+            max_length=256,
         ),
     }
 
@@ -105,7 +105,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
 
-        test_input = "def print_hello_world():"
+        test_input = "def hello_world():"
 
         inputs = self.tokenizer(test_input, return_tensors="pt")
 
