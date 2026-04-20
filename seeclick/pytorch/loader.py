@@ -5,7 +5,18 @@
 SeeClick model loader implementation for GUI grounding tasks.
 """
 
+import sys
+import types
 from typing import Optional
+
+# The cckevinn/SeeClick model's remote code requires transformers_stream_generator,
+# which is incompatible with transformers>=5.0. Mock it since streaming generation
+# is not needed for inference/compilation.
+if "transformers_stream_generator" not in sys.modules:
+    _mock = types.ModuleType("transformers_stream_generator")
+    _mock.init_stream_support = lambda: None
+    sys.modules["transformers_stream_generator"] = _mock
+    sys.modules["transformers_stream_generator.main"] = _mock
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
