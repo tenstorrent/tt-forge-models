@@ -131,22 +131,24 @@ def _patch_transformers_granitehybrid_gguf():
                         config["layer_types"] = layer_types
 
                     kv_heads = config.get("num_key_value_heads", 0)
+                    if isinstance(kv_heads, (list, tuple)):
+                        kv_heads = kv_heads[0] if kv_heads else 0
+                    kv_heads = int(kv_heads)
                     if kv_heads == 0:
                         for i in range(num_layers):
                             k_name = f"blk.{i}.attn_k.weight"
                             if k_name in tensor_names:
                                 for t in reader.tensors:
                                     if t.name == k_name:
-                                        kv_dim = t.shape[-1]
+                                        kv_dim = int(t.shape[0])
                                         head_dim = (
                                             config.get("hidden_size", 2048)
                                             // n_heads_attn
                                         )
-                                        config["num_key_value_heads"] = (
-                                            kv_dim // head_dim
-                                        )
+                                        kv_heads = kv_dim // head_dim
                                         break
                                 break
+                    config["num_key_value_heads"] = kv_heads
 
                 except Exception:
                     pass
