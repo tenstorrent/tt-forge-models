@@ -6,7 +6,7 @@ BERT-CRF model loader implementation for token classification (Portuguese NER).
 """
 
 import torch
-from transformers import AutoModelForTokenClassification, AutoTokenizer
+from transformers import AutoModelForTokenClassification, BertTokenizer
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -88,9 +88,7 @@ class ModelLoader(ForgeModel):
         """
 
         # Initialize tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, trust_remote_code=True
-        )
+        self.tokenizer = BertTokenizer.from_pretrained(self.model_name)
 
         # Load pre-trained model from HuggingFace (trust_remote_code required for CRF head)
         model_kwargs = {}
