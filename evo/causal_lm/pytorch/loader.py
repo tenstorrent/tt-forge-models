@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Evo-1 (8k-base) model loader implementation for causal language modeling.
+Evo-1 model loader implementation for causal language modeling.
 """
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
@@ -23,14 +23,19 @@ class ModelVariant(StrEnum):
     """Available Evo model variants for causal language modeling."""
 
     EVO_1_8K_BASE = "1-8k-base"
+    EVO_1_131K_BASE = "1-131k-base"
 
 
 class ModelLoader(ForgeModel):
-    """Evo-1 (8k-base) model loader implementation for causal language modeling tasks."""
+    """Evo-1 model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.EVO_1_8K_BASE: LLMModelConfig(
             pretrained_model_name="togethercomputer/evo-1-8k-base",
+            max_length=256,
+        ),
+        ModelVariant.EVO_1_131K_BASE: LLMModelConfig(
+            pretrained_model_name="togethercomputer/evo-1-131k-base",
             max_length=256,
         ),
     }
