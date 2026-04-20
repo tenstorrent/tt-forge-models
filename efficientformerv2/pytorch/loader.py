@@ -11,8 +11,6 @@ import timm
 from timm.data import resolve_data_config
 from timm.data.transforms_factory import create_transform
 
-from datasets import load_dataset
-
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -23,24 +21,26 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+from datasets import load_dataset
+from ...tools.utils import print_compiled_model_results
 
 
 class ModelVariant(StrEnum):
     """Available EfficientFormerV2 model variants (timm)."""
 
-    EFFICIENTFORMERV2_S0_SNAP_DIST_IN1K = "EfficientFormerV2_s0.snap_dist_in1k"
+    EFFICIENTFORMERV2_S2_SNAP_DIST_IN1K = "EfficientFormerV2_S2.snap_dist_in1k"
 
 
 class ModelLoader(ForgeModel):
     """EfficientFormerV2 model loader implementation."""
 
     _VARIANTS = {
-        ModelVariant.EFFICIENTFORMERV2_S0_SNAP_DIST_IN1K: ModelConfig(
-            pretrained_model_name="efficientformerv2_s0.snap_dist_in1k",
+        ModelVariant.EFFICIENTFORMERV2_S2_SNAP_DIST_IN1K: ModelConfig(
+            pretrained_model_name="efficientformerv2_s2.snap_dist_in1k",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.EFFICIENTFORMERV2_S0_SNAP_DIST_IN1K
+    DEFAULT_VARIANT = ModelVariant.EFFICIENTFORMERV2_S2_SNAP_DIST_IN1K
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -67,13 +67,16 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model = model.to(dtype_override)
 
+        # cache for input transform config
         self._cached_model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size: int = 1):
+        # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
         image = dataset[0]["image"].convert("RGB")
 
+        # Use cached model if available, otherwise load it
         model_for_config = (
             self._cached_model
             if self._cached_model is not None
@@ -88,3 +91,6 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             inputs = inputs.to(dtype_override)
         return inputs
+
+    def print_cls_results(self, compiled_model_out):
+        print_compiled_model_results(compiled_model_out)
