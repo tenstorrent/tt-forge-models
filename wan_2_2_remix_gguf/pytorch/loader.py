@@ -19,6 +19,7 @@ Available variants:
 - WAN22_REMIX_I2V_HIGH_V3_Q4_K_M: I2V high-noise expert v3.0, Q4_K_M
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -100,25 +101,28 @@ class ModelLoader(ForgeModel):
         then constructs the appropriate pipeline (T2V or I2V) with the base model's
         VAE in float32 for numerical stability.
         """
-        from diffusers import (
-            AutoencoderKLWan,
-            GGUFQuantizationConfig,
-            WanTransformer3DModel,
-        )
+        from diffusers import AutoencoderKLWan, WanTransformer3DModel
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
-
-        gguf_file = _GGUF_FILES[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
-
-        transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
-
         is_i2v = _IS_I2V[self._variant]
         base_pipeline = I2V_BASE_PIPELINE if is_i2v else T2V_BASE_PIPELINE
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            transformer = WanTransformer3DModel.from_pretrained(
+                base_pipeline,
+                subfolder="transformer",
+                torch_dtype=compute_dtype,
+            )
+        else:
+            from diffusers import GGUFQuantizationConfig
+
+            gguf_file = _GGUF_FILES[self._variant]
+            quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+            transformer = WanTransformer3DModel.from_single_file(
+                f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         vae = AutoencoderKLWan.from_pretrained(
             base_pipeline,
