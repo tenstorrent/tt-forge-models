@@ -25,20 +25,25 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Kimi 2.5 Text NVFP4 model variants."""
 
-    DEFAULT = "default"
+    V6_MLP_ONLY = "v6_mlp_only"
+    V3 = "v3"
 
 
 class ModelLoader(ForgeModel):
     """Kimi 2.5 Text NVFP4 model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.DEFAULT: LLMModelConfig(
+        ModelVariant.V6_MLP_ONLY: LLMModelConfig(
             pretrained_model_name="baseten-admin/Kimi-2.5-text-nvfp4-v6-mlp-only",
+            max_length=128,
+        ),
+        ModelVariant.V3: LLMModelConfig(
+            pretrained_model_name="baseten-admin/Kimi-2.5-text-nvfp4-v3",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.DEFAULT
+    DEFAULT_VARIANT = ModelVariant.V6_MLP_ONLY
 
     sample_text = "Give me a short introduction to large language models."
 
