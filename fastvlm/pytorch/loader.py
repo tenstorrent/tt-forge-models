@@ -6,7 +6,7 @@ FastVLM model loader implementation for multimodal visual question answering.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from PIL import Image
 from typing import Optional
 
@@ -21,6 +21,8 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+IMAGE_TOKEN_INDEX = -200
 
 
 class ModelVariant(StrEnum):
@@ -42,7 +44,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
+        self.tokenizer = None
         self.model = None
 
     @classmethod
@@ -59,17 +61,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
+    def _load_tokenizer(self):
+        self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
-        return self.processor
+        return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.processor is None:
-            self._load_processor()
+        if self.tokenizer is None:
+            self._load_tokenizer()
 
         model_kwargs = {
             "trust_remote_code": True,
@@ -88,54 +90,66 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.processor is None:
-            self._load_processor()
+        if self.tokenizer is None:
+            self._load_tokenizer()
+
+        messages = [
+            {
+                "role": "user",
+                "content": "<image>\nWhat is shown in this image?",
+            }
+        ]
+        rendered = self.tokenizer.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=False
+        )
+
+        pre, post = rendered.split("<image>", 1)
+        pre_ids = self.tokenizer(
+            pre, return_tensors="pt", add_special_tokens=False
+        ).input_ids
+        post_ids = self.tokenizer(
+            post, return_tensors="pt", add_special_tokens=False
+        ).input_ids
+        img_tok = torch.tensor([[IMAGE_TOKEN_INDEX]], dtype=pre_ids.dtype)
+        input_ids = torch.cat([pre_ids, img_tok, post_ids], dim=1)
+        attention_mask = torch.ones_like(input_ids)
 
         image_file = get_file(
             "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
         )
         image = Image.open(image_file).convert("RGB")
 
-        conversation = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": "What is shown in this image?"},
-                ],
-            }
+        vision_tower = self.model.get_vision_tower()
+        pixel_values = vision_tower.image_processor(images=image, return_tensors="pt")[
+            "pixel_values"
         ]
 
-        text_prompt = self.processor.apply_chat_template(
-            conversation, add_generation_prompt=True
-        )
-
-        inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
-
         if dtype_override is not None:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]) and inputs[key].is_floating_point():
-                    inputs[key] = inputs[key].to(dtype_override)
+            pixel_values = pixel_values.to(dtype_override)
 
         if batch_size > 1:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]):
-                    inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+            input_ids = input_ids.repeat_interleave(batch_size, dim=0)
+            attention_mask = attention_mask.repeat_interleave(batch_size, dim=0)
+            pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
 
-        return dict(inputs)
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "images": pixel_values,
+        }
 
     def decode_output(self, outputs, input_length=None):
         if isinstance(outputs, str):
             return outputs
 
-        if self.processor is None:
-            self._load_processor()
+        if self.tokenizer is None:
+            self._load_tokenizer()
 
         if torch.is_tensor(outputs) and outputs.dtype in [torch.long, torch.int]:
             if input_length is not None:
                 outputs = outputs[:, input_length:]
-            return self.processor.batch_decode(outputs, skip_special_tokens=True)[0]
+            return self.tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
         else:
             logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
             next_token_id = torch.argmax(logits[:, -1, :], dim=-1)
-            return self.processor.decode(next_token_id[0], skip_special_tokens=True)
+            return self.tokenizer.decode(next_token_id[0], skip_special_tokens=True)
