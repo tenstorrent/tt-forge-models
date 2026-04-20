@@ -70,14 +70,25 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
         model = VisionEncoderDecoderModel.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, **kwargs
         )
+
+        # Sinusoidal positional embeddings are a plain attribute (not a
+        # parameter/buffer), so they can be stuck on the meta device after
+        # lazy-loading.  Re-materialize them on CPU before any dtype cast.
+        embed_pos = model.decoder.model.decoder.embed_positions
+        if hasattr(embed_pos, "weights") and embed_pos.weights.device.type == "meta":
+            embed_pos.weights = embed_pos.get_embedding(
+                embed_pos.weights.shape[0],
+                embed_pos.embedding_dim,
+                embed_pos.padding_idx,
+            )
+
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+            embed_pos.weights = embed_pos.weights.to(dtype_override)
+
         model.eval()
         return model
 
