@@ -13,6 +13,7 @@ Repositories:
 - https://huggingface.co/rootonchair/LTX-2-19b-distilled
 - https://huggingface.co/Lightricks/LTX-2.3
 - https://huggingface.co/Lightricks/LTX-2.3-nvfp4
+- https://huggingface.co/Cosmicvibez/LTX-2.3
 
 Available subfolders:
 - transformer: LTX2VideoTransformer3DModel
@@ -51,6 +52,7 @@ class ModelVariant(StrEnum):
     LTX_2_3 = "2.3"
     LTX_2_3_FP8 = "2.3-fp8"
     LTX_2_3_NVFP4 = "2.3-nvfp4"
+    LTX_2_3_COSMICVIBEZ = "2.3-cosmicvibez"
 
 
 class ModelLoader(ForgeModel):
@@ -81,6 +83,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LTX_2_3_NVFP4: ModelConfig(
             pretrained_model_name="Lightricks/LTX-2.3-nvfp4",
+        ),
+        ModelVariant.LTX_2_3_COSMICVIBEZ: ModelConfig(
+            pretrained_model_name="Cosmicvibez/LTX-2.3",
         ),
     }
 
