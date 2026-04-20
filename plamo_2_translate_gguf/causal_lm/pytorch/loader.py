@@ -8,6 +8,13 @@ The plamo2 GGUF architecture is not yet supported by transformers, so we load
 the model architecture and tokenizer from the base (non-GGUF) repository
 with trust_remote_code=True.
 """
+try:
+    import causal_conv1d.causal_conv1d_interface  # noqa: F401
+except ModuleNotFoundError:
+    from . import causal_conv1d_shim
+
+    causal_conv1d_shim.install_shim()
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
