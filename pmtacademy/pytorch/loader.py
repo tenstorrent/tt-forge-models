@@ -26,7 +26,7 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+BASE_MODEL = "camenduru/FLUX.1-dev-ungated"
 LORA_REPO = "hoanganho0o/PMTACADEMY"
 LORA_FILENAME = "PMT_ACADEMY_Ultra Realistic V12.0.safetensors"
 
