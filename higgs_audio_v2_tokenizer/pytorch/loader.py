@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available Higgs Audio V2 Tokenizer model variants."""
 
     DEFAULT = "Default"
+    EUSTLB = "eustlb"
 
 
 class ModelLoader(ForgeModel):
@@ -31,6 +32,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEFAULT: ModelConfig(
             pretrained_model_name="bosonai/higgs-audio-v2-tokenizer",
+        ),
+        ModelVariant.EUSTLB: ModelConfig(
+            pretrained_model_name="eustlb/higgs-audio-v2-tokenizer",
         ),
     }
 
@@ -53,16 +57,24 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Higgs Audio V2 Tokenizer model."""
-        from boson_multimodal.audio_processing.higgs_audio_tokenizer import (
-            load_higgs_audio_tokenizer,
-        )
-
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model = load_higgs_audio_tokenizer(pretrained_model_name, device="cpu")
+        if self._variant == ModelVariant.EUSTLB:
+            from transformers import AutoModel
 
-        if dtype_override is not None:
-            model = model.to(dtype=dtype_override)
+            model_kwargs = {"trust_remote_code": True}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+            model.eval()
+        else:
+            from boson_multimodal.audio_processing.higgs_audio_tokenizer import (
+                load_higgs_audio_tokenizer,
+            )
+
+            model = load_higgs_audio_tokenizer(pretrained_model_name, device="cpu")
+            if dtype_override is not None:
+                model = model.to(dtype=dtype_override)
 
         self.model = model
         return model
