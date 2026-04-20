@@ -124,9 +124,13 @@ class ModelLoader(ForgeModel):
         except ValueError as e:
             if "unk_token should not be set in dumping mode" not in str(e):
                 raise
-            for mod in sys.modules.values():
+            import inspect
+
+            for mod_name, mod in sys.modules.items():
+                if "tokenization_opencua" not in mod_name:
+                    continue
                 tok_cls = getattr(mod, "TikTokenV3", None)
-                if tok_cls is not None:
+                if tok_cls is not None and inspect.isclass(tok_cls):
                     _orig_init = tok_cls.__init__
 
                     def _patched_init(self, *args, _orig=_orig_init, **kwargs):
