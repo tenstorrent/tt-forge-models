@@ -140,7 +140,7 @@ class ModelLoader(ForgeModel):
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
-        # Preprocess audio using v3 turbo processor
+        # Preprocess audio using the variant's processor
         processor = AutoProcessor.from_pretrained(self._model_name)
         features = processor.feature_extractor(
             sample_audio,
