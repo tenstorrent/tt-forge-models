@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Wav2Vec2 deepfake audio detection (fake vs real) PyTorch model implementation.
+Wav2Vec2 deepfake audio detection PyTorch model implementation.
 """
 from .loader import ModelLoader, ModelVariant
