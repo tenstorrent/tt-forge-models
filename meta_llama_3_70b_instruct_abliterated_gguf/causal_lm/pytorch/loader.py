@@ -4,9 +4,35 @@
 """
 Meta-Llama-3-70B-Instruct abliterated GGUF model loader implementation for causal language modeling.
 """
+import importlib
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _ensure_gguf_version_detectable():
+    """Ensure gguf version is detectable by transformers after mid-process pip install.
+
+    When gguf is installed via requirements.txt during test execution,
+    importlib.metadata cache is stale. Combined with gguf 0.18+ lacking
+    __version__, transformers' is_gguf_available() gets 'N/A' and crashes.
+    """
+    try:
+        import gguf
+
+        if not hasattr(gguf, "__version__"):
+            importlib.invalidate_caches()
+            try:
+                gguf.__version__ = importlib.metadata.version("gguf")
+            except importlib.metadata.PackageNotFoundError:
+                gguf.__version__ = "0.18.0"
+    except ImportError:
+        pass
+
+
+_ensure_gguf_version_detectable()
 
 from ....base import ForgeModel
 from ....config import (
