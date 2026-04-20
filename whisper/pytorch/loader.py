@@ -254,4 +254,4 @@ class ModelLoader(ForgeModel):
         decoder_input_ids = torch.full(
             (1, 2), model_config.decoder_start_token_id, dtype=torch.long, device=device
         )
-        return [input_features, decoder_input_ids]
+        return [input_features, None, decoder_input_ids]
