@@ -5,7 +5,7 @@
 GTR-T5-Large model loader for text embedding generation.
 """
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import T5EncoderModel, AutoTokenizer
 from typing import Optional
 
 from third_party.tt_forge_models.config import (
@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(model_name, **model_kwargs)
+        model = T5EncoderModel.from_pretrained(model_name, **model_kwargs)
         model.eval()
 
         self.model = model
