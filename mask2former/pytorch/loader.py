@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
 
     SWIN_L_COCO_INSTANCE = "Swin_Large_Coco_Instance"
     SWIN_S_COCO_INSTANCE = "Swin_Small_Coco_Instance"
+    SWIN_B_COCO_INSTANCE = "Swin_Base_Coco_Instance"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.SWIN_S_COCO_INSTANCE: ModelConfig(
             pretrained_model_name="facebook/mask2former-swin-small-coco-instance"
+        ),
+        ModelVariant.SWIN_B_COCO_INSTANCE: ModelConfig(
+            pretrained_model_name="facebook/mask2former-swin-base-coco-instance"
         ),
     }
 
