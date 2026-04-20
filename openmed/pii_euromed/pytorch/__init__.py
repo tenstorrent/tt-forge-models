@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-OpenMed PII EuroMed PyTorch implementation for token classification.
+OpenMed PII EuroMed PyTorch model implementation.
 """
 from .loader import ModelLoader, ModelVariant
