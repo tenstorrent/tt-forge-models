@@ -72,6 +72,13 @@ class ModelLoader(ForgeModel):
         ModelVariant.MM_SD_V15_V2: 32,
     }
 
+    # v2 adds a motion module inside the UNet mid-block; v1 does not.
+    _USE_MOTION_MID_BLOCK = {
+        ModelVariant.MM_SD_V14: False,
+        ModelVariant.MM_SD_V15: False,
+        ModelVariant.MM_SD_V15_V2: True,
+    }
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipeline: Optional[AnimateDiffPipeline] = None
@@ -122,6 +129,7 @@ class ModelLoader(ForgeModel):
             block_out_channels=(320, 640, 1280, 1280),
             motion_num_attention_heads=8,
             motion_max_seq_length=self._MOTION_MAX_SEQ_LENGTH[self._variant],
+            use_motion_mid_block=self._USE_MOTION_MID_BLOCK[self._variant],
         )
         # strict=False: raw checkpoints omit positional encoding buffers that
         # MotionAdapter reconstructs from motion_max_seq_length.
