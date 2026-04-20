@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     BASE_100H = "Base_100h"
     BASE_960H = "Base_960h"
+    FRENCH_PHONEMIZER_V2 = "French_Phonemizer_v2"
     LARGE_XLS_R_300M_WELSH = "Large_XLS_R_300M_Welsh"
     LARGE_XLSR_53_AMHARIC = "Large_XLSR_53_Amharic"
     NB_WAV2VEC2_300M_BOKMAAL_V2 = "NB_Wav2Vec2_300M_Bokmaal_v2"
@@ -40,6 +41,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.BASE_960H: ModelConfig(
             pretrained_model_name="facebook/wav2vec2-base-960h",
+        ),
+        ModelVariant.FRENCH_PHONEMIZER_V2: ModelConfig(
+            pretrained_model_name="Cnam-LMSSC/wav2vec2-french-phonemizer-v2",
         ),
         ModelVariant.LARGE_XLS_R_300M_WELSH: ModelConfig(
             pretrained_model_name="infinitejoy/wav2vec2-large-xls-r-300m-welsh",
