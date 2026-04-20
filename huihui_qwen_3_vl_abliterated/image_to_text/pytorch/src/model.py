@@ -13,7 +13,7 @@ def _make_cpu_int_tensor(values, dtype=torch.int64):
 def _precompute_visual_pos_mask(saved_inputs, config):
     cpu_ids = saved_inputs["input_ids"]
     image_token_id = config.image_token_id
-    return (cpu_ids == image_token_id).squeeze(0)
+    return cpu_ids == image_token_id
 
 
 def _patch_vision_pipeline(model, saved_inputs, saved_visual_pos_mask):
