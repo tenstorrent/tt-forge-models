@@ -19,6 +19,7 @@ from third_party.tt_forge_models.base import ForgeModel
 
 _SAMPLE_TEXTS = {
     "dbmdz/bert-base-german-uncased": "Die Hauptstadt von Deutschland ist [MASK].",
+    "avichr/heBERT": "הקורונה לקחה את [MASK] ולנו לא נשאר דבר.",
 }
 
 
@@ -36,6 +37,7 @@ class ModelVariant(StrEnum):
     LEGAL_BERT_BASE_UNCASED = "nlpaueb/legal-bert-base-uncased"
     RETROMAE_MSMARCO_DISTILL = "Shitao/RetroMAE_MSMARCO_distill"
     BERT_LARGE_UNCASED_WWM = "Large_Uncased_Whole_Word_Masking"
+    HEBERT = "avichr/heBERT"
 
 
 class ModelLoader(ForgeModel):
@@ -87,6 +89,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bert-large-uncased-whole-word-masking",
             max_length=128,
         ),
+        ModelVariant.HEBERT: LLMModelConfig(
+            pretrained_model_name="avichr/heBERT",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -134,6 +140,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LEGAL_BERT_BASE_UNCASED,
             ModelVariant.RETROMAE_MSMARCO_DISTILL,
             ModelVariant.BERT_LARGE_UNCASED_WWM,
+            ModelVariant.HEBERT,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
