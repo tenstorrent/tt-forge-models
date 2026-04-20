@@ -59,33 +59,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load Mitra model for tabular regression.
-
-        Returns:
-            torch.nn.Module: The Mitra Tab2D model instance.
-        """
+    def load_model(self, **kwargs):
         from autogluon.tabular.models.mitra._internal.models.tab2d import Tab2D
 
-        model_kwargs = {"device": "cpu"}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
         model = Tab2D.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
+            self._variant_config.pretrained_model_name, device="cpu"
         )
         model.eval()
         return model
 
-    def load_inputs(self, dtype_override=None):
-        """Prepare sample in-context learning inputs for the Mitra regressor model.
-
-        Returns:
-            list: [x_support, y_support, x_query, padding_features,
-                   padding_obs_support, padding_obs_query] tensors.
-        """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+    def load_inputs(self):
+        dtype = torch.float32
         batch_size = 1
 
         # Support set: labeled examples for in-context learning
