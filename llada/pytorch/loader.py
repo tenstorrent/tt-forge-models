@@ -86,6 +86,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
         model.eval()
+        model.config.use_cache = False
         self.config = model.config
 
         return model
