@@ -15,18 +15,20 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
 from huggingface_hub import hf_hub_download
 
 
-def load_gguf_pipe(repo_id: str, gguf_filename: str):
+def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = None):
     """Load a Stable Diffusion XL pipeline from a GGUF checkpoint.
 
     Args:
         repo_id: HuggingFace repository ID.
-        gguf_filename: Filename (including any subfolder path) of the GGUF
-            checkpoint within the repo.
+        gguf_filename: Filename of the GGUF checkpoint within the repo.
+        subfolder: Optional subfolder within the repo containing the checkpoint.
 
     Returns:
         DiffusionPipeline: Loaded pipeline with components set to eval mode.
     """
-    model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
+    model_path = hf_hub_download(
+        repo_id=repo_id, filename=gguf_filename, subfolder=subfolder
+    )
 
     quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
 
