@@ -23,6 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Zephyr model variants for causal language modeling."""
 
+    ZEPHYR_7B_ALPHA = "zephyr-7b-alpha"
     ZEPHYR_7B_SFT_FULL = "zephyr-7b-sft-full"
 
 
@@ -30,6 +31,10 @@ class ModelLoader(ForgeModel):
     """Zephyr model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
+        ModelVariant.ZEPHYR_7B_ALPHA: LLMModelConfig(
+            pretrained_model_name="HuggingFaceH4/zephyr-7b-alpha",
+            max_length=128,
+        ),
         ModelVariant.ZEPHYR_7B_SFT_FULL: LLMModelConfig(
             pretrained_model_name="alignment-handbook/zephyr-7b-sft-full",
             max_length=128,
