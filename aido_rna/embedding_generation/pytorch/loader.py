@@ -67,11 +67,10 @@ class ModelLoader(ForgeModel):
         if self._model_instance is None:
             self.load_model(dtype_override=dtype_override)
 
-        # Sample RNA sequence
         rna_sequence = "ACGUACGUACGUACGU"
 
         transformed_batch = self._model_instance.transform(
             {"sequences": [rna_sequence]}
         )
 
-        return transformed_batch
+        return (transformed_batch,)

@@ -1,1 +1,1 @@
-modelgenerator
+modelgenerator==0.1.3.post0
