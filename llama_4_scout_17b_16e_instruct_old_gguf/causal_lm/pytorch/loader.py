@@ -46,6 +46,7 @@ def _patch_llama4_gguf_support():
 
     if "llama" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["llama4"] = GGUF_TO_FAST_CONVERTERS["llama"]
+        GGUF_TO_FAST_CONVERTERS["llama4_text"] = GGUF_TO_FAST_CONVERTERS["llama"]
 
     if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
         if "llama" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
