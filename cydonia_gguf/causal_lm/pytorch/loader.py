@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     CYDONIA_24B_V4_3_GGUF = "24B_v4.3_GGUF"
     CYDONIA_24B_V4_1_GGUF = "24B_v4.1_GGUF"
+    CYDONIA_24B_V4_3_ABSOLUTE_HERESY_I1_GGUF = "24B_v4.3_absolute_heresy_i1_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bartowski/TheDrummer_Cydonia-24B-v4.1-GGUF",
             max_length=128,
         ),
+        ModelVariant.CYDONIA_24B_V4_3_ABSOLUTE_HERESY_I1_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Cydonia-24B-v4.3-absolute-heresy-i1-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.CYDONIA_24B_V4_3_GGUF
@@ -46,6 +51,7 @@ class ModelLoader(ForgeModel):
     _GGUF_FILES = {
         ModelVariant.CYDONIA_24B_V4_3_GGUF: "Cydonia-24B-v4zg-Q4_K_M.gguf",
         ModelVariant.CYDONIA_24B_V4_1_GGUF: "TheDrummer_Cydonia-24B-v4.1-Q4_K_M.gguf",
+        ModelVariant.CYDONIA_24B_V4_3_ABSOLUTE_HERESY_I1_GGUF: "Cydonia-24B-v4.3-absolute-heresy.i1-Q4_K_M.gguf",
     }
 
     sample_text = "What is your favorite city?"
