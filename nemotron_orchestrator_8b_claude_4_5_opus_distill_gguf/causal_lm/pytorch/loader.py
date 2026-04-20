@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.CLAUDE_4_5_OPUS_DISTILL_Q4_K_M: LLMModelConfig(
-            pretrained_model_name="TeichAI/Nemotron-Orchestrator-8B-Claude-4.5-Opus-Distill-GGUF",
+            pretrained_model_name="mohusein/Nemotron-Orchestrator-8B-Claude-4.5-Opus-Distill-GGUF",
             max_length=128,
         ),
     }
