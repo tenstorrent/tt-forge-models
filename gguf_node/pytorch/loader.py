@@ -100,11 +100,12 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.float32
         config = self.transformer.config
 
-        # Latent image: (B, in_channels, H, W)
-        height = 128
-        width = 128
+        # Latent image: (B, in_channels, H, W). AuraFlow-v0.3 defaults to a
+        # 64x64 latent (sample_size=64 in the transformer config).
+        latent_height = config.sample_size
+        latent_width = config.sample_size
         hidden_states = torch.randn(
-            batch_size, config.in_channels, height, width, dtype=dtype
+            batch_size, config.in_channels, latent_height, latent_width, dtype=dtype
         )
 
         # Text encoder hidden states from Pile-T5-XL: (B, seq_len, joint_attention_dim)
