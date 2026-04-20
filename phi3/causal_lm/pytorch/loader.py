@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
     MINI_4K = "Mini_4K_Instruct"
     MINI_4K_GPTQ_4BIT = "Mini_4K_Instruct_GPTQ_4bit"
     MINI_4K_AWQ = "Mini_4K_Instruct_AWQ"
-    ARKADAS_FIELD_717HZ = "arkadas_field_717hz"
+    RYS_MEDIUM_4K = "RYS_Phi3_Medium_4K_Instruct"
     TINY_RANDOM = "Tiny Random"
 
 
@@ -48,8 +48,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.MINI_4K_AWQ: ModelConfig(
             pretrained_model_name="Sreenington/Phi-3-mini-4k-instruct-AWQ"
         ),
-        ModelVariant.ARKADAS_FIELD_717HZ: ModelConfig(
-            pretrained_model_name="misterJB/arkadas-field-717hz"
+        ModelVariant.RYS_MEDIUM_4K: ModelConfig(
+            pretrained_model_name="dnhkng/RYS-Phi-3-medium-4k-instruct"
         ),
         ModelVariant.TINY_RANDOM: ModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/tiny-random-Phi3ForCausalLM"
@@ -80,7 +80,7 @@ class ModelLoader(ForgeModel):
         if variant in (
             ModelVariant.MEDIUM_128K,
             ModelVariant.MINI_4K_GPTQ_4BIT,
-            ModelVariant.ARKADAS_FIELD_717HZ,
+            ModelVariant.RYS_MEDIUM_4K,
             ModelVariant.TINY_RANDOM,
         ):
             group = ModelGroup.VULCAN
