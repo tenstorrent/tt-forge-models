@@ -79,6 +79,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="google/vit-base-patch16-384",
             source=ModelSource.HUGGING_FACE,
         ),
+        ModelVariant.BASE_PATCH32_384: ViTConfig(
+            pretrained_model_name="google/vit-base-patch32-384",
+            source=ModelSource.HUGGING_FACE,
+        ),
         ModelVariant.LARGE: ViTConfig(
             pretrained_model_name="google/vit-large-patch16-224",
             source=ModelSource.HUGGING_FACE,
@@ -162,6 +166,8 @@ class ModelLoader(ForgeModel):
         elif variant == ModelVariant.BASE:
             group = ModelGroup.RED
         elif variant == ModelVariant.AI_IMAGE_DETECTOR:
+            group = ModelGroup.VULCAN
+        elif variant == ModelVariant.BASE_PATCH32_384:
             group = ModelGroup.VULCAN
         elif cls._VARIANTS[variant].source == ModelSource.TIMM:
             group = ModelGroup.VULCAN
