@@ -70,9 +70,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained(
-            "Qwen/Qwen3-VL-30B-A3B-Thinking"
-        )
+        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-30B-A3B-Thinking")
 
         model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
