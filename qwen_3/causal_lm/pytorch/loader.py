@@ -47,6 +47,7 @@ class ModelVariant(StrEnum):
     QWEN_3_8B_FP8 = "8B_FP8"
     QWEN_3_14B = "14B"
     QWEN_3_14B_BASE = "14B_Base"
+    QWEN_3_14B_GPTQ_INT4 = "14B_GPTQ_Int4"
     QWEN_3_32B = "32B"
     QWEN_3_32B_FP8 = "32B_FP8"
     QWEN_3_32B_GPTQ_INT4 = "32B_GPTQ_Int4"
@@ -145,6 +146,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_14B_BASE: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-14B-Base",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_14B_GPTQ_INT4: LLMModelConfig(
+            pretrained_model_name="JunHowie/Qwen3-14B-GPTQ-Int4",
             max_length=128,
         ),
         ModelVariant.QWEN_3_14B_INSTRUCT_OPENPIPE: LLMModelConfig(
@@ -260,6 +265,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_8B_BASE,
             ModelVariant.QWEN_3_8B_FP8,
             ModelVariant.QWEN_3_14B_BASE,
+            ModelVariant.QWEN_3_14B_GPTQ_INT4,
             ModelVariant.QWEN_3_14B_INSTRUCT_OPENPIPE,
             ModelVariant.QWEN_3_30B_A3B_FP8,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
@@ -350,7 +356,7 @@ class ModelLoader(ForgeModel):
         if pretrained_model_name in (
             "Qwen/Qwen3-8B-AWQ",
             "JunHowie/Qwen3-4B-GPTQ-Int4",
-            "JunHowie/Qwen3-32B-GPTQ-Int4",
+            "JunHowie/Qwen3-14B-GPTQ-Int4",
         ):
             model_kwargs["device_map"] = "cpu"
 
