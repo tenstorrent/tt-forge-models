@@ -58,11 +58,11 @@ def _patch_transformers_granitehybrid_gguf():
 
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
-        GGUFGpt2Converter,
+        GGUFGPTConverter,
     )
 
     if "granitehybrid" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["granitehybrid"] = GGUFGpt2Converter
+        GGUF_TO_FAST_CONVERTERS["granitehybrid"] = GGUFGPTConverter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
