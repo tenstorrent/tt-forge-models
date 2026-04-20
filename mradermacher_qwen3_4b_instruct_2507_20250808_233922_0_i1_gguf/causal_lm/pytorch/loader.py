@@ -22,26 +22,24 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available mradermacher Qwen3-4B-Instruct-2507-20250808-233922-0 i1 GGUF model variants."""
+    """Available mradermacher Qwen3-4B-Instruct-2507-20250808-233922-0 i1 GGUF model variants for causal language modeling."""
 
-    QWEN3_4B_INSTRUCT_2507_20250808_233922_0_I1_Q4_K_M_GGUF = (
-        "4B_Instruct_2507_20250808_233922_0_i1_Q4_K_M_GGUF"
+    QWEN3_4B_INSTRUCT_2507_20250808_233922_0_I1_GGUF = (
+        "4B_Instruct_2507_20250808_233922_0_i1_GGUF"
     )
 
 
 class ModelLoader(ForgeModel):
-    """mradermacher Qwen3-4B-Instruct-2507-20250808-233922-0 i1 GGUF model loader for causal language modeling."""
+    """mradermacher Qwen3-4B-Instruct-2507-20250808-233922-0 i1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.QWEN3_4B_INSTRUCT_2507_20250808_233922_0_I1_Q4_K_M_GGUF: LLMModelConfig(
+        ModelVariant.QWEN3_4B_INSTRUCT_2507_20250808_233922_0_I1_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/Qwen3-4B-Instruct-2507-20250808-233922-0-i1-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = (
-        ModelVariant.QWEN3_4B_INSTRUCT_2507_20250808_233922_0_I1_Q4_K_M_GGUF
-    )
+    DEFAULT_VARIANT = ModelVariant.QWEN3_4B_INSTRUCT_2507_20250808_233922_0_I1_GGUF
 
     GGUF_FILE = "Qwen3-4B-Instruct-2507-20250808-233922-0.i1-Q4_K_M.gguf"
 
