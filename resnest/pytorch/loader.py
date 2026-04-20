@@ -37,6 +37,7 @@ class ModelVariant(StrEnum):
     """Available ResNeSt model variants."""
 
     RESNEST_50D_IN1K = "ResNeSt50d_IN1K"
+    RESNEST_101E_IN1K = "ResNeSt101e_IN1K"
 
 
 class ModelLoader(ForgeModel):
@@ -45,6 +46,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.RESNEST_50D_IN1K: ResNeStConfig(
             pretrained_model_name="hf_hub:timm/resnest50d.in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.RESNEST_101E_IN1K: ResNeStConfig(
+            pretrained_model_name="hf_hub:timm/resnest101e.in1k",
             source=ModelSource.TIMM,
         ),
     }
