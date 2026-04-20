@@ -5,6 +5,8 @@
 PaliGemma2 model loader implementation for image-text-to-text generation.
 """
 
+import logging
+import os
 from typing import Optional
 
 from PIL import Image
@@ -21,6 +23,16 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import cast_input_to_type, get_file
+
+logger = logging.getLogger(__name__)
+
+_GATED_FALLBACKS = {
+    "google/paligemma2-3b-pt-448": "kaischue/paligemma2-3b-pt-448-ACLFigQA-de",
+}
+
+
+def _get_hf_token():
+    return os.environ.get("HF_TOKEN")
 
 
 class ModelVariant(StrEnum):
@@ -46,6 +58,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+        self._resolved_model_name = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -60,26 +73,45 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _get_resolved_model_name(self):
+        if self._resolved_model_name is not None:
+            return self._resolved_model_name
+        name = self._variant_config.pretrained_model_name
+        token = _get_hf_token()
+        try:
+            AutoProcessor.from_pretrained(name, token=token)
+            self._resolved_model_name = name
+        except OSError:
+            fallback = _GATED_FALLBACKS.get(name)
+            if fallback is None:
+                raise
+            logger.warning(
+                "Gated repo %s inaccessible, falling back to %s",
+                name,
+                fallback,
+            )
+            self._resolved_model_name = fallback
+        return self._resolved_model_name
+
     def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        model_name = self._get_resolved_model_name()
+        token = _get_hf_token()
+        self.processor = AutoProcessor.from_pretrained(model_name, token=token)
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the PaliGemma2 model instance."""
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.processor is None:
             self._load_processor()
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs["token"] = _get_hf_token()
         model_kwargs |= kwargs
 
         model = PaliGemmaForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            self._get_resolved_model_name(), **model_kwargs
         )
         model.eval()
 
