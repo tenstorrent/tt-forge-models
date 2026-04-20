@@ -5,7 +5,7 @@
 Llama-3.1-8B-Instruct Lion Numbers FT model loader implementation for causal language modeling.
 """
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, LlamaForCausalLM
 from typing import Optional
 
 from ....base import ForgeModel
@@ -75,9 +75,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        model = LlamaForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         self.config = model.config
