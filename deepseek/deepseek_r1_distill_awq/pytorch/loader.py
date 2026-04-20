@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available DeepSeek R1 Distill AWQ model variants."""
 
     DISTILL_QWEN_32B_ABLITERATED_AWQ = "Distill_Qwen_32B_Abliterated_AWQ"
+    DISTILL_LLAMA_8B_AWQ = "Distill_Llama_8B_AWQ"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DISTILL_QWEN_32B_ABLITERATED_AWQ: LLMModelConfig(
             pretrained_model_name="Orion-zhen/DeepSeek-R1-Distill-Qwen-32B-abliterated-AWQ",
+            max_length=128,
+        ),
+        ModelVariant.DISTILL_LLAMA_8B_AWQ: LLMModelConfig(
+            pretrained_model_name="casperhansen/deepseek-r1-distill-llama-8b-awq",
             max_length=128,
         ),
     }
