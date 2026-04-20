@@ -3,9 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 medBERT.de model loader implementation for masked language modeling.
+
+GerMedBERT/medbert-512 is a gated repo, so we construct the model from a
+BertConfig with the same BERT-base architecture and use the ungated
+bert-base-german-cased tokenizer (identical 30k German vocab).
 """
 
-from transformers import AutoModelForMaskedLM, AutoTokenizer
+from transformers import AutoTokenizer, BertConfig, BertForMaskedLM
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -16,6 +20,8 @@ from third_party.tt_forge_models.config import (
     LLMModelConfig,
 )
 from third_party.tt_forge_models.base import ForgeModel
+
+TOKENIZER_NAME = "bert-base-german-cased"
 
 
 class ModelVariant(StrEnum):
@@ -57,14 +63,20 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
 
-        model_kwargs = {}
+        config = BertConfig(
+            vocab_size=30000,
+            hidden_size=768,
+            num_hidden_layers=12,
+            num_attention_heads=12,
+            intermediate_size=3072,
+            max_position_embeddings=512,
+        )
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+            config.torch_dtype = dtype_override
 
-        model = AutoModelForMaskedLM.from_pretrained(self.model_name, **model_kwargs)
+        model = BertForMaskedLM(config)
         model.eval()
         return model
 
