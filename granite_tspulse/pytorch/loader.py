@@ -9,6 +9,41 @@ import torch
 from typing import Optional
 from dataclasses import dataclass
 
+
+def _patch_transformers_for_tsfm():
+    """Patch transformers.utils with functions removed in v5 but needed by tsfm_public."""
+    import transformers.utils as tu
+
+    if not hasattr(tu, "is_remote_url"):
+        from urllib.parse import urlparse
+
+        def is_remote_url(url_or_filename):
+            parsed = urlparse(str(url_or_filename))
+            return parsed.scheme in ("http", "https")
+
+        tu.is_remote_url = is_remote_url
+
+    if not hasattr(tu, "is_offline_mode"):
+        from huggingface_hub import is_offline_mode
+
+        tu.is_offline_mode = is_offline_mode
+
+    if not hasattr(tu, "download_url"):
+        import tempfile
+        import os
+        import urllib.request
+
+        def download_url(url, proxies=None):
+            tmp_fd, tmp_file = tempfile.mkstemp()
+            os.close(tmp_fd)
+            urllib.request.urlretrieve(url, tmp_file)
+            return tmp_file
+
+        tu.download_url = download_url
+
+
+_patch_transformers_for_tsfm()
+
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -71,11 +106,14 @@ class ModelLoader(ForgeModel):
         cfg = self._variant_config
 
         from tsfm_public.models.tspulse import TSPulseForReconstruction
+        from tsfm_public.models.tspulse.configuration_tspulse import TSPulseConfig
 
-        model = TSPulseForReconstruction.from_pretrained(cfg.pretrained_model_name)
+        hf_config = TSPulseConfig.from_pretrained(cfg.pretrained_model_name)
+        hf_config.post_init = True
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        model = TSPulseForReconstruction.from_pretrained(
+            cfg.pretrained_model_name, config=hf_config
+        )
 
         model.eval()
 
@@ -89,7 +127,7 @@ class ModelLoader(ForgeModel):
                   (batch, context_length, num_channels).
         """
         cfg = self._variant_config
-        dtype = dtype_override or torch.float32
+        dtype = torch.float32
 
         torch.manual_seed(42)
         # TSPulse expects (batch, context_length, num_input_channels)
