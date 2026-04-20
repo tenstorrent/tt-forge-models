@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-OpenMed PII Italian BioClinicalModern PyTorch implementation.
+OpenMed PII Italian BioClinicalModern PyTorch model implementation.
 """
 from .loader import ModelLoader, ModelVariant
