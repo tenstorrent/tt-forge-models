@@ -5,6 +5,7 @@
 MedGemma model loader implementation for multimodal medical imaging.
 """
 
+import os
 from typing import Optional
 
 from transformers import (
@@ -64,11 +65,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self, dtype_override=None):
+    def _load_processor(self, dtype_override=None, token=None):
         """Load processor for the current variant."""
         kwargs = {}
         if dtype_override is not None:
             kwargs["torch_dtype"] = dtype_override
+
+        token = token or os.environ.get("HF_TOKEN")
+        if token:
+            kwargs["token"] = token
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name, **kwargs)
@@ -84,13 +89,16 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The MedGemma model instance for multimodal medical imaging.
         """
+        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
         pretrained_model_name = self._variant_config.pretrained_model_name
         if self.processor is None:
-            self._load_processor(dtype_override)
+            self._load_processor(dtype_override, token=token)
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if token:
+            model_kwargs["token"] = token
         model_kwargs |= kwargs
 
         model = Gemma3ForConditionalGeneration.from_pretrained(
