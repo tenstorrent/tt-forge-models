@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     BASE = "Base"
     LARGE = "Large"
+    XL = "XL"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE: LLMModelConfig(
             pretrained_model_name="google/byt5-large",
+            max_length=512,
+        ),
+        ModelVariant.XL: LLMModelConfig(
+            pretrained_model_name="google/byt5-xl",
             max_length=512,
         ),
     }
