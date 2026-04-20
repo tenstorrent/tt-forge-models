@@ -4,6 +4,7 @@
 """
 Pythia model loader implementation
 """
+
 import torch
 from typing import Optional
 
@@ -23,6 +24,7 @@ from ....base import ForgeModel
 class ModelVariant(StrEnum):
     """Available Pythia model variants."""
 
+    PYTHIA_14M_SEED1 = "14M-seed1"
     PYTHIA_31M = "31M"
     PYTHIA_70M_DEDUPED = "70M-deduped"
     PYTHIA_70M_SEED7 = "70M-seed7"
@@ -37,6 +39,10 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
+        ModelVariant.PYTHIA_14M_SEED1: LLMModelConfig(
+            pretrained_model_name="EleutherAI/pythia-14m-seed1",
+            max_length=256,
+        ),
         ModelVariant.PYTHIA_31M: LLMModelConfig(
             pretrained_model_name="EleutherAI/pythia-31m",
             max_length=256,
