@@ -22,6 +22,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available OpenSearch Neural Sparse Encoding model variants."""
 
+    DOC_V1 = "Doc_v1"
     DOC_V3_DISTILL = "Doc_v3_Distill"
 
 
@@ -29,6 +30,9 @@ class ModelLoader(ForgeModel):
     """OpenSearch Neural Sparse Encoding model loader implementation for masked language modeling."""
 
     _VARIANTS = {
+        ModelVariant.DOC_V1: ModelConfig(
+            pretrained_model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v1",
+        ),
         ModelVariant.DOC_V3_DISTILL: ModelConfig(
             pretrained_model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill",
         ),
