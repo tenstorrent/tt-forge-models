@@ -35,6 +35,8 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """MLX Community Whisper Large V3 Turbo 4-bit speech recognition model loader implementation."""
 
+    _BASE_MODEL = "openai/whisper-large-v3-turbo"
+
     _VARIANTS = {
         ModelVariant.LARGE_V3_TURBO_4BIT: ModelConfig(
             pretrained_model_name="mlx-community/whisper-large-v3-turbo-4bit",
@@ -74,7 +76,7 @@ class ModelLoader(ForgeModel):
         self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
             pretrained_model_name, use_cache=False, **model_kwargs
         )
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        self.processor = AutoProcessor.from_pretrained(self._BASE_MODEL)
 
         self.model.eval()
         if dtype_override is not None:
