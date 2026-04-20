@@ -27,8 +27,7 @@ class ModelVariant(StrEnum):
     ASPRAM_ARMENIAN = "ASPRAM_Armenian"
     BASE_100H = "Base_100h"
     BASE_960H = "Base_960h"
-    LARGE_XLS_R_1B_CA_LM = "Large_XLS_R_1B_Catalan_LM"
-    LARGE_XLS_R_1B_SWEDISH = "Large_XLS_R_1B_Swedish"
+    FRENCH_PHONEMIZER_V2 = "French_Phonemizer_v2"
     LARGE_XLS_R_300M_WELSH = "Large_XLS_R_300M_Welsh"
     LARGE_XLSR_53_AMHARIC = "Large_XLSR_53_Amharic"
     LARGE_XLSR_53_SPANISH = "Large_XLSR_53_Spanish"
@@ -49,11 +48,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.BASE_960H: ModelConfig(
             pretrained_model_name="facebook/wav2vec2-base-960h",
         ),
-        ModelVariant.LARGE_XLS_R_1B_CA_LM: ModelConfig(
-            pretrained_model_name="PereLluis13/wav2vec2-xls-r-1b-ca-lm",
-        ),
-        ModelVariant.LARGE_XLS_R_1B_SWEDISH: ModelConfig(
-            pretrained_model_name="kingabzpro/wav2vec2-large-xls-r-1b-Swedish",
+        ModelVariant.FRENCH_PHONEMIZER_V2: ModelConfig(
+            pretrained_model_name="Cnam-LMSSC/wav2vec2-french-phonemizer-v2",
         ),
         ModelVariant.LARGE_XLS_R_300M_WELSH: ModelConfig(
             pretrained_model_name="infinitejoy/wav2vec2-large-xls-r-300m-welsh",
