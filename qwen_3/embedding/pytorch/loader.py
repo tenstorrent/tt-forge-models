@@ -4,6 +4,7 @@
 """
 Qwen 3 model loader implementation for embedding tasks.
 """
+
 import torch
 from transformers import AutoModel, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -31,6 +32,7 @@ class ModelVariant(StrEnum):
     QWEN_3_EMBEDDING_4B_W4A16_G128 = "Embedding_4B_W4A16_G128"
     QWEN_3_EMBEDDING_8B = "Embedding_8B"
     QWEN_3_EMBEDDING_4B_4BIT_DWQ = "Embedding_4B_4bit_DWQ"
+    OCTEN_EMBEDDING_4B = "Octen_Embedding_4B"
 
 
 class ModelLoader(ForgeModel):
@@ -52,6 +54,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_EMBEDDING_4B_4BIT_DWQ: ModelConfig(
             pretrained_model_name="mlx-community/Qwen3-Embedding-4B-4bit-DWQ",
+        ),
+        ModelVariant.OCTEN_EMBEDDING_4B: ModelConfig(
+            pretrained_model_name="Octen/Octen-Embedding-4B",
         ),
     }
 
@@ -98,7 +103,10 @@ class ModelLoader(ForgeModel):
         """
         if variant == ModelVariant.QWEN_3_EMBEDDING_0_6B:
             group = ModelGroup.GENERALITY
-        elif variant == ModelVariant.QWEN_3_EMBEDDING_4B_W4A16_G128:
+        elif variant in (
+            ModelVariant.QWEN_3_EMBEDDING_4B_W4A16_G128,
+            ModelVariant.OCTEN_EMBEDDING_4B,
+        ):
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.RED
@@ -243,6 +251,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_EMBEDDING_0_6B,
             ModelVariant.QWEN_3_EMBEDDING_4B,
             ModelVariant.QWEN_3_EMBEDDING_4B_W4A16_G128,
+            ModelVariant.OCTEN_EMBEDDING_4B,
         ]:
             return None
 
