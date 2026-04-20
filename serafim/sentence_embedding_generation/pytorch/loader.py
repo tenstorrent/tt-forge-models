@@ -27,8 +27,8 @@ class ModelVariant(StrEnum):
     SERAFIM_900M_PT_SENTENCE_ENCODER_IR = (
         "PORTULAN/serafim-900m-portuguese-pt-sentence-encoder-ir"
     )
-    SERAFIM_100M_PT_SENTENCE_ENCODER_IR = (
-        "PORTULAN/serafim-100m-portuguese-pt-sentence-encoder-ir"
+    SERAFIM_900M_PT_SENTENCE_ENCODER = (
+        "PORTULAN/serafim-900m-portuguese-pt-sentence-encoder"
     )
 
 
@@ -40,9 +40,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="PORTULAN/serafim-900m-portuguese-pt-sentence-encoder-ir",
             max_length=512,
         ),
-        ModelVariant.SERAFIM_100M_PT_SENTENCE_ENCODER_IR: LLMModelConfig(
-            pretrained_model_name="PORTULAN/serafim-100m-portuguese-pt-sentence-encoder-ir",
-            max_length=512,
+        ModelVariant.SERAFIM_900M_PT_SENTENCE_ENCODER: LLMModelConfig(
+            pretrained_model_name="PORTULAN/serafim-900m-portuguese-pt-sentence-encoder",
+            max_length=128,
         ),
     }
 
@@ -59,7 +59,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="serafim-portuguese-pt-sentence-encoder-ir",
+            model="serafim-900m-portuguese-pt-sentence-encoder",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_EMBED_GEN,
