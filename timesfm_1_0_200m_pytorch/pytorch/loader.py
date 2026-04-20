@@ -64,11 +64,6 @@ class ModelLoader(ForgeModel):
                 backend="cpu",
                 per_core_batch_size=32,
                 horizon_len=128,
-                input_patch_len=32,
-                output_patch_len=128,
-                num_layers=20,
-                model_dims=1280,
-                context_len=512,
             ),
             checkpoint=timesfm.TimesFmCheckpoint(
                 huggingface_repo_id=self._variant_config.pretrained_model_name,
