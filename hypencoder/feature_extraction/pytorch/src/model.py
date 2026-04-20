@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import AutoModel, PretrainedConfig, PreTrainedModel
+from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedModel
 from transformers.modeling_outputs import ModelOutput
 
 from .q_net import RepeatedDenseBlockConverter
@@ -101,6 +101,11 @@ class BaseDualEncoder(PreTrainedModel):
     def __init__(self, config: BaseDualEncoderConfig):
         super().__init__(config)
 
+    def post_init(self):
+        # The dual encoder's sub-encoders are instantiated in subclasses after
+        # super().__init__ returns, so delegate post_init to the subclass.
+        pass
+
     def forward(
         self,
         query_input_ids: Optional[torch.LongTensor] = None,
@@ -158,7 +163,10 @@ class Hypencoder(PreTrainedModel):
 
     def __init__(self, config: HypencoderConfig) -> None:
         super().__init__(config)
-        self.transformer = AutoModel.from_pretrained(config.model_name_or_path)
+        # Initialize from config (empty weights) — the outer dual-encoder
+        # from_pretrained supplies the fine-tuned state dict.
+        inner_config = AutoConfig.from_pretrained(config.model_name_or_path)
+        self.transformer = AutoModel.from_config(inner_config)
         self.weight_to_model_converter = RepeatedDenseBlockConverter(
             **config.converter_kwargs
         )
@@ -345,7 +353,8 @@ class TextEncoder(PreTrainedModel):
 
     def __init__(self, config: TextEncoderConfig) -> None:
         super().__init__(config)
-        self.transformer = AutoModel.from_pretrained(config.model_name_or_path)
+        inner_config = AutoConfig.from_pretrained(config.model_name_or_path)
+        self.transformer = AutoModel.from_config(inner_config)
         self.pooling_type = config.pooling_type
 
         if self.pooling_type == "mean":
@@ -384,6 +393,10 @@ class HypencoderDualEncoder(BaseDualEncoder):
 
         if config.shared_encoder:
             self.passage_encoder.transformer = self.query_encoder.transformer
+
+        # Now that sub-encoders are attached, run PreTrainedModel.post_init to
+        # populate tied_weights_keys metadata expected by from_pretrained.
+        PreTrainedModel.post_init(self)
 
 
 class HypencoderScoringWrapper(nn.Module):
