@@ -6,7 +6,11 @@ LFM2.5 GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from typing import Optional
+
+if "lfm2" not in GGUF_TO_FAST_CONVERTERS:
+    GGUF_TO_FAST_CONVERTERS["lfm2"] = GGUF_TO_FAST_CONVERTERS["gpt2"]
 
 from ....base import ForgeModel
 from ....config import (
