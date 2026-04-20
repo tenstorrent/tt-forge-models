@@ -4,6 +4,9 @@
 """
 Llama 2 7B LoRA STS-B model loader implementation for causal language modeling.
 """
+
+import os
+
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from peft import PeftModel
@@ -58,10 +61,14 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self, dtype_override=None, token=None):
         tokenizer_kwargs = {"padding_side": "left"}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+
+        token = token or os.environ.get("HF_TOKEN")
+        if token:
+            tokenizer_kwargs["token"] = token
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.BASE_MODEL_NAME, **tokenizer_kwargs
@@ -70,16 +77,20 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
+
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer(dtype_override=dtype_override, token=token)
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if token:
+            model_kwargs["token"] = token
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
+            config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME, token=token)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
