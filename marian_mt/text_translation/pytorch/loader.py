@@ -35,7 +35,7 @@ class ModelVariant(StrEnum):
     OPUS_MT_TC_BIG_EN_BG = "Opus_Mt_Tc_Big_En_Bg"
     OPUS_MT_LV_EN = "Opus_Mt_Lv_En"
     OPUS_MT_EN_GMQ = "Opus_Mt_En_Gmq"
-    OPUS_MT_EN_RO = "Opus_Mt_En_Ro"
+    OPUS_MT_EN_MUL = "Opus_Mt_En_Mul"
 
 
 class ModelLoader(ForgeModel):
@@ -78,8 +78,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPUS_MT_EN_GMQ: LLMModelConfig(
             pretrained_model_name="Helsinki-NLP/opus-mt-en-gmq",
         ),
-        ModelVariant.OPUS_MT_EN_RO: LLMModelConfig(
-            pretrained_model_name="Helsinki-NLP/opus-mt-en-ro",
+        ModelVariant.OPUS_MT_EN_MUL: LLMModelConfig(
+            pretrained_model_name="Helsinki-NLP/opus-mt-en-mul",
         ),
     }
 
