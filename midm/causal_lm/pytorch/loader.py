@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Mi:dm model variants."""
 
     MIDM_2_0_BASE_INSTRUCT = "2.0_Base_Instruct"
+    MIDM_2_0_MINI_INSTRUCT = "2.0_Mini_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MIDM_2_0_BASE_INSTRUCT: ModelConfig(
             pretrained_model_name="K-intelligence/Midm-2.0-Base-Instruct",
+        ),
+        ModelVariant.MIDM_2_0_MINI_INSTRUCT: ModelConfig(
+            pretrained_model_name="K-intelligence/Midm-2.0-Mini-Instruct",
         ),
     }
 
