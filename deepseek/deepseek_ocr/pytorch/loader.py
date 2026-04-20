@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
 
     DEEPSEEK_OCR = "Ocr"
     DEEPSEEK_OCR_UNSLOTH = "Ocr-Unsloth"
+    DEEPSEEK_OCR_LATEST_BF16_I64 = "Ocr-Latest-BF16-I64"
 
 
 class ModelLoader(ForgeModel):
@@ -41,6 +42,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DEEPSEEK_OCR_UNSLOTH: ModelConfig(
             pretrained_model_name="unsloth/DeepSeek-OCR",
+        ),
+        ModelVariant.DEEPSEEK_OCR_LATEST_BF16_I64: ModelConfig(
+            pretrained_model_name="prithivMLmods/DeepSeek-OCR-Latest-BF16.I64",
         ),
     }
 
@@ -79,7 +83,11 @@ class ModelLoader(ForgeModel):
 
         group = (
             ModelGroup.VULCAN
-            if variant == ModelVariant.DEEPSEEK_OCR_UNSLOTH
+            if variant
+            in (
+                ModelVariant.DEEPSEEK_OCR_UNSLOTH,
+                ModelVariant.DEEPSEEK_OCR_LATEST_BF16_I64,
+            )
             else ModelGroup.GENERALITY
         )
 
@@ -119,7 +127,10 @@ class ModelLoader(ForgeModel):
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.variant == ModelVariant.DEEPSEEK_OCR_UNSLOTH:
+        if self.variant in (
+            ModelVariant.DEEPSEEK_OCR_UNSLOTH,
+            ModelVariant.DEEPSEEK_OCR_LATEST_BF16_I64,
+        ):
             model = AutoModel.from_pretrained(
                 pretrained_model_name,
                 trust_remote_code=True,
