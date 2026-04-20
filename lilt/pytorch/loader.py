@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available LiLT model variants."""
 
     ROBERTA_EN_BASE = "RoBERTa EN Base"
+    XLM_ROBERTA_BASE = "XLM-RoBERTa Base"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.ROBERTA_EN_BASE: ModelConfig(
             pretrained_model_name="SCUT-DLVCLab/lilt-roberta-en-base",
+        ),
+        ModelVariant.XLM_ROBERTA_BASE: ModelConfig(
+            pretrained_model_name="nielsr/lilt-xlm-roberta-base",
         ),
     }
 
