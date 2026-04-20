@@ -66,9 +66,7 @@ class ModelLoader(ForgeModel):
         model = classifier.mods.embedding_model
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
+        # SpeechBrain's BatchNorm computes in float32, causing dtype mismatch with bf16 conv weights
         self.model = model
         return model
 
@@ -78,11 +76,6 @@ class ModelLoader(ForgeModel):
         Returns pre-computed features of shape (batch, time_steps, n_mels)
         equivalent to 1 second of 16kHz audio processed through Fbank features.
         """
-        # ECAPA-TDNN embedding model expects (batch, time_steps, n_mels)
-        # 1 second of 16kHz audio produces ~101 frames with 80 Mel filters
         features = torch.randn(1, 101, 80)
-
-        if dtype_override is not None:
-            features = features.to(dtype_override)
 
         return [features]
