@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     BASE_ALL = "Base_All"
     LARGE_ALL = "Large_All"
+    TINY_O365V1_GOLDG_V3DET = "Tiny_O365V1_GoldG_V3Det"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE_ALL: ModelConfig(
             pretrained_model_name="openmmlab-community/mm_grounding_dino_large_all",
+        ),
+        ModelVariant.TINY_O365V1_GOLDG_V3DET: ModelConfig(
+            pretrained_model_name="openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det",
         ),
     }
 
