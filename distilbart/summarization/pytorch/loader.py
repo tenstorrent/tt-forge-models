@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available DistilBART model variants for summarization."""
 
     CNN_6_6 = "CNN_6_6"
+    NEWS_SUMMARIZER = "News_Summarizer"
 
 
 class ModelLoader(ForgeModel):
@@ -31,6 +32,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.CNN_6_6: LLMModelConfig(
             pretrained_model_name="sshleifer/distilbart-cnn-6-6",
+        ),
+        ModelVariant.NEWS_SUMMARIZER: LLMModelConfig(
+            pretrained_model_name="Sachin21112004/distilbart-news-summarizer",
         ),
     }
 
