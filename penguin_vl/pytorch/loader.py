@@ -5,7 +5,13 @@
 Penguin-VL model loader implementation for multimodal visual question answering.
 """
 import torch
-from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers import (
+    AutoImageProcessor,
+    AutoModelForCausalLM,
+    AutoProcessor,
+    AutoTokenizer,
+)
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 
 from ...tools.utils import get_file
@@ -71,6 +77,30 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_processor(self):
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        try:
+            return AutoProcessor.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+        except TypeError:
+            # Workaround: custom processor incompatible with transformers >=5.2.0
+            tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            image_processor = AutoImageProcessor.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            ProcessorClass = get_class_from_dynamic_module(
+                "processing_penguinvl.PenguinVLQwen3Processor",
+                pretrained_model_name,
+                trust_remote_code=True,
+            )
+            return ProcessorClass(
+                image_processor=image_processor,
+                tokenizer=tokenizer,
+            )
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Penguin-VL model instance for this instance's variant.
 
@@ -90,9 +120,7 @@ class ModelLoader(ForgeModel):
         model_kwargs["trust_remote_code"] = True
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(
-            pretrained_model_name, trust_remote_code=True
-        )
+        self.processor = self._load_processor()
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -112,9 +140,7 @@ class ModelLoader(ForgeModel):
             dict: Input tensors that can be fed to the model.
         """
         if self.processor is None:
-            self.processor = AutoProcessor.from_pretrained(
-                self._variant_config.pretrained_model_name, trust_remote_code=True
-            )
+            self.processor = self._load_processor()
 
         image_file = get_file(
             "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
@@ -157,9 +183,7 @@ class ModelLoader(ForgeModel):
             str: Decoded output text.
         """
         if self.processor is None:
-            self.processor = AutoProcessor.from_pretrained(
-                self._variant_config.pretrained_model_name, trust_remote_code=True
-            )
+            self.processor = self._load_processor()
 
         if torch.is_tensor(outputs) and outputs.dtype in [torch.long, torch.int]:
             if input_length is not None:
