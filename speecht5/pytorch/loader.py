@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     TTS = "Tts"
     TINY_RANDOM = "Tiny Random"
+    CLARTTS_AR = "ClarttsAr"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.TINY_RANDOM: ModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/tiny-random-SpeechT5ForTextToSpeech",
+        ),
+        ModelVariant.CLARTTS_AR: ModelConfig(
+            pretrained_model_name="MBZUAI/speecht5_tts_clartts_ar",
         ),
     }
 
@@ -70,7 +74,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         group = ModelGroup.GENERALITY
-        if variant == ModelVariant.TINY_RANDOM:
+        if variant in (ModelVariant.TINY_RANDOM, ModelVariant.CLARTTS_AR):
             group = ModelGroup.VULCAN
         return ModelInfo(
             model="SpeechT5",
