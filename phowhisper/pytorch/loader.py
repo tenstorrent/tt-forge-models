@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available PhoWhisper model variants."""
 
     MEDIUM = "Medium"
+    SMALL = "Small"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MEDIUM: ModelConfig(
             pretrained_model_name="vinai/PhoWhisper-medium",
+        ),
+        ModelVariant.SMALL: ModelConfig(
+            pretrained_model_name="vinai/PhoWhisper-small",
         ),
     }
 
