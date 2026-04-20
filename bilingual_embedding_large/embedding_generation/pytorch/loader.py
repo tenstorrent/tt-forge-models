@@ -8,7 +8,7 @@ Uses a custom BilingualModel architecture via AutoModel for French/English text 
 """
 
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 from typing import Optional
 
 from ....config import (
@@ -73,7 +73,15 @@ class ModelLoader(ForgeModel):
 
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+        if not hasattr(config, "is_decoder"):
+            config.is_decoder = False
+        if not hasattr(config, "add_cross_attention"):
+            config.add_cross_attention = False
+        if not hasattr(config, "chunk_size_feed_forward"):
+            config.chunk_size_feed_forward = 0
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
