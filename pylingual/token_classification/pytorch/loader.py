@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available PyLingual token classification model variants."""
 
     PY313_V1_3_SEGMENTER = "py313_v1.3_segmenter"
-    PY36_V1_SEGMENTER = "py36_v1_segmenter"
+    PY37_V1_SEGMENTER = "py37_v1_segmenter"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="syssec-utd/py313-pylingual-v1.3-segmenter",
             max_length=128,
         ),
-        ModelVariant.PY36_V1_SEGMENTER: LLMModelConfig(
-            pretrained_model_name="syssec-utd/py36-pylingual-v1-segmenter",
+        ModelVariant.PY37_V1_SEGMENTER: LLMModelConfig(
+            pretrained_model_name="syssec-utd/py37-pylingual-v1-segmenter",
             max_length=128,
         ),
     }
