@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Llama 3 8B GGUF model variants for causal language modeling."""
 
     LLAMA_3_8B_GGUF = "8B_GGUF"
+    QUANTFACTORY_AI_SWEDEN_LLAMA_3_8B_GGUF = "QuantFactory_AI_Sweden_Llama_3_8B_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LLAMA_3_8B_GGUF: LLMModelConfig(
             pretrained_model_name="RichardErkhov/AI-Sweden-Models_-_Llama-3-8B-gguf",
+            max_length=128,
+        ),
+        ModelVariant.QUANTFACTORY_AI_SWEDEN_LLAMA_3_8B_GGUF: LLMModelConfig(
+            pretrained_model_name="QuantFactory/AI-Sweden-Llama-3-8B-GGUF",
             max_length=128,
         ),
     }
