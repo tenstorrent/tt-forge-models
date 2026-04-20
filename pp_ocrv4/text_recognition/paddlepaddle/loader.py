@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-PP-OCRv4 Mobile Recognition PaddlePaddle model loader implementation.
+PP-OCRv4 English Mobile Recognition PaddlePaddle model loader implementation.
 """
 
 from typing import Optional
@@ -26,19 +26,19 @@ from ....tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available PP-OCRv4 text recognition model variants (Paddle)."""
 
-    MOBILE_REC = "PP-OCRv4_mobile_rec"
+    EN_MOBILE_REC = "en_PP-OCRv4_mobile_rec"
 
 
 class ModelLoader(ForgeModel):
-    """PP-OCRv4 Mobile Recognition PaddlePaddle model loader implementation."""
+    """PP-OCRv4 English Mobile Recognition PaddlePaddle model loader implementation."""
 
     _VARIANTS = {
-        ModelVariant.MOBILE_REC: ModelConfig(
-            pretrained_model_name="PP-OCRv4_mobile_rec",
+        ModelVariant.EN_MOBILE_REC: ModelConfig(
+            pretrained_model_name="en_PP-OCRv4_mobile_rec",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.MOBILE_REC
+    DEFAULT_VARIANT = ModelVariant.EN_MOBILE_REC
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -56,12 +56,12 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load pretrained PP-OCRv4 mobile recognition model (Paddle)."""
+        """Load pretrained PP-OCRv4 English mobile recognition model (Paddle)."""
         import os
 
         from paddlex.inference import create_predictor
 
-        predictor = create_predictor(model_name="PP-OCRv4_mobile_rec")
+        predictor = create_predictor(model_name="en_PP-OCRv4_mobile_rec")
         model = paddle.jit.load(os.path.join(str(predictor.model_dir), "inference"))
         model.eval()
         return model
