@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-HI8 GGUF model loader implementation for causal language modeling.
+Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507 GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,26 +21,36 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-HI8 GGUF model variants for causal language modeling."""
+    """Available Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507 GGUF model variants for causal language modeling."""
 
     QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_GGUF = (
         "30B_A3B_Gemini_Pro_High_Reasoning_GGUF"
     )
+    QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_SYUJIL_I1_GGUF = (
+        "30B_A3B_Gemini_Pro_High_Reasoning_Syujil_i1_GGUF"
+    )
 
 
 class ModelLoader(ForgeModel):
-    """Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-HI8 GGUF model loader implementation for causal language modeling tasks."""
+    """Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-HI8-GGUF",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_SYUJIL_I1_GGUF: LLMModelConfig(
+            pretrained_model_name="Syujil/Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-ABLITERATED-UNCENSORED-i1-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_GGUF
 
-    GGUF_FILE = "Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-HI8.Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_GGUF: "Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-HI8.Q4_K_M.gguf",
+        ModelVariant.QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_SYUJIL_I1_GGUF: "Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-ABLITERATED-UNCENSORED.i1-Q4_K_M.gguf",
+    }
 
     sample_text = "Give me a short introduction to large language model."
 
@@ -52,10 +62,14 @@ class ModelLoader(ForgeModel):
         self.config = None
         self.num_layers = num_layers
 
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
+
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-HI8 GGUF",
+            model="Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507 GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -67,7 +81,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -87,11 +101,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -163,6 +177,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
