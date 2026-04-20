@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available MBart50 model variants for text translation."""
 
     EN_VI = "En_Vi"
+    LARGE_50_MANY_TO_ONE_MMT = "Large_50_Many_To_One_Mmt"
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +35,29 @@ class ModelLoader(ForgeModel):
         ModelVariant.EN_VI: LLMModelConfig(
             pretrained_model_name="thainq107/en-vi-mbart50",
         ),
+        ModelVariant.LARGE_50_MANY_TO_ONE_MMT: LLMModelConfig(
+            pretrained_model_name="facebook/mbart-large-50-many-to-one-mmt",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.EN_VI
 
-    sample_text = "Hello, how are you today?"
+    _SAMPLE_TEXTS = {
+        ModelVariant.EN_VI: "Hello, how are you today?",
+        ModelVariant.LARGE_50_MANY_TO_ONE_MMT: (
+            "संयुक्त राष्ट्र के प्रमुख का कहना है कि सीरिया में कोई सैन्य समाधान नहीं है"
+        ),
+    }
+
+    _SRC_LANGS = {
+        ModelVariant.EN_VI: "en_XX",
+        ModelVariant.LARGE_50_MANY_TO_ONE_MMT: "hi_IN",
+    }
+
+    _TARGET_LANGS = {
+        ModelVariant.EN_VI: "vi_VN",
+        ModelVariant.LARGE_50_MANY_TO_ONE_MMT: "en_XX",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -50,6 +69,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self._tokenizer = None
         self._model_name = self._variant_config.pretrained_model_name
+        self.sample_text = self._SAMPLE_TEXTS[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -123,7 +143,7 @@ class ModelLoader(ForgeModel):
         if self._tokenizer is None:
             self._load_tokenizer(dtype_override)
 
-        self._tokenizer.src_lang = "en_XX"
+        self._tokenizer.src_lang = self._SRC_LANGS[self._variant]
 
         inputs = self._tokenizer(
             self.sample_text,
@@ -132,7 +152,9 @@ class ModelLoader(ForgeModel):
 
         # Seq2seq models need decoder_input_ids for the forward pass.
         # Use the target language BOS token to start decoding.
-        target_lang_id = self._tokenizer.lang_code_to_id["vi_VN"]
+        target_lang_id = self._tokenizer.lang_code_to_id[
+            self._TARGET_LANGS[self._variant]
+        ]
         inputs["decoder_input_ids"] = torch.tensor([[target_lang_id]])
 
         if dtype_override is not None:
