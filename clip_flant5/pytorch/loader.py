@@ -23,6 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available CLIP-FlanT5 model variants."""
 
+    XL = "XL"
     XXL = "XXL"
 
 
@@ -30,6 +31,9 @@ class ModelLoader(ForgeModel):
     """CLIP-FlanT5 model loader implementation for visual question answering tasks."""
 
     _VARIANTS = {
+        ModelVariant.XL: ModelConfig(
+            pretrained_model_name="zhiqiulin/clip-flant5-xl",
+        ),
         ModelVariant.XXL: ModelConfig(
             pretrained_model_name="zhiqiulin/clip-flant5-xxl",
         ),
