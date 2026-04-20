@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+"""
+Whisper Small MLX speech recognition model implementation for Tenstorrent projects.
+"""
+from .speech_recognition.pytorch import ModelLoader
