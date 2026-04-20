@@ -36,7 +36,7 @@ class ModelVariant(StrEnum):
     """Available MobileViTv2 model variants."""
 
     V1_0_IMAGENET1K_256 = "1.0_ImageNet1k_256"
-    V2_0_CVNETS_IN1K = "2.0_cvnets_in1k"
+    V1_0_CVNETS_IN1K = "1.0_cvnets_in1k"
 
 
 class ModelLoader(ForgeModel):
@@ -47,8 +47,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="apple/mobilevitv2-1.0-imagenet1k-256",
             source=ModelSource.HUGGING_FACE,
         ),
-        ModelVariant.V2_0_CVNETS_IN1K: MobileViTv2Config(
-            pretrained_model_name="hf_hub:timm/mobilevitv2_200.cvnets_in1k",
+        ModelVariant.V1_0_CVNETS_IN1K: MobileViTv2Config(
+            pretrained_model_name="hf_hub:timm/mobilevitv2_100.cvnets_in1k",
             source=ModelSource.TIMM,
         ),
     }
@@ -87,6 +87,7 @@ class ModelLoader(ForgeModel):
             model = MobileViTv2ForImageClassification.from_pretrained(
                 model_name, **kwargs
             )
+
         model.eval()
 
         self.model = model
