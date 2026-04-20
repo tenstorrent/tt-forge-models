@@ -35,6 +35,9 @@ class ModelVariant(StrEnum):
     OPENVLA_7B_FINETUNED_LIBERO_GOAL = "7B_Finetuned_Libero_Goal"
     OPENVLA_7B_FINETUNED_LIBERO_OBJECT = "7B_Finetuned_Libero_Object"
     OPENVLA_7B_FINETUNED_LIBERO_SPATIAL = "7B_Finetuned_Libero_Spatial"
+    OPENVLA_7B_WARMUP_CHECKPOINT_MERGED_002000_LORA_002000 = (
+        "openvla_7b_warmup_checkpoint_merged_002000_lora_002000"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -59,6 +62,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.OPENVLA_7B_FINETUNED_LIBERO_SPATIAL: ModelConfig(
             pretrained_model_name="openvla/openvla-7b-finetuned-libero-spatial",
+        ),
+        ModelVariant.OPENVLA_7B_WARMUP_CHECKPOINT_MERGED_002000_LORA_002000: ModelConfig(
+            pretrained_model_name="tttonyalpha/openvla-7b-warmup-checkpoint_merged_002000_lora_002000",
         ),
     }
 
@@ -104,6 +110,11 @@ class ModelLoader(ForgeModel):
 
         if variant in [ModelVariant.OPENVLA_7B_FINETUNED_LIBERO_OBJECT]:
             group = ModelGroup.RED
+        elif (
+            variant
+            == ModelVariant.OPENVLA_7B_WARMUP_CHECKPOINT_MERGED_002000_LORA_002000
+        ):
+            group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
 
