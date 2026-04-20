@@ -78,15 +78,19 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        # Fix sinusoidal positional embeddings left on meta device after loading
         embed_positions = model.decoder.model.decoder.embed_positions
         if hasattr(embed_positions, "weights") and embed_positions.weights is not None:
-            if embed_positions.weights.device.type == "meta":
-                embed_positions.weights = embed_positions.get_embedding(
-                    embed_positions.weights.shape[0],
+            weights = embed_positions.weights
+            if weights.device.type == "meta":
+                weights = embed_positions.get_embedding(
+                    weights.shape[0],
                     embed_positions.embedding_dim,
                     embed_positions.padding_idx,
                 )
+            if dtype_override is not None:
+                weights = weights.to(dtype_override)
+            delattr(embed_positions, "weights")
+            embed_positions.register_buffer("weights", weights)
 
         if dtype_override is not None:
             model.to(dtype_override)
@@ -95,14 +99,11 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         from PIL import Image
-        import requests
 
         if self._processor is None:
             self._load_processor()
 
-        # Load a sample image of printed text
-        url = "https://fki.tic.heia-fr.ch/static/img/a01-122-02-00.jpg"
-        image = Image.open(requests.get(url, stream=True).raw).convert("RGB")
+        image = Image.new("RGB", (384, 384), color=(255, 255, 255))
 
         pixel_values = self._processor(
             images=image,
@@ -112,7 +113,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
 
-        return pixel_values
+        decoder_input_ids = torch.full((1, 1), fill_value=2, dtype=torch.long)
+
+        return {"pixel_values": pixel_values, "decoder_input_ids": decoder_input_ids}
 
     def decode_output(self, co_out):
         """Decode model outputs into human-readable text.
