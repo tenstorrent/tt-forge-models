@@ -2,8 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-XBrush-Pro2 model loader implementation for text-to-image generation
+XBrush-Pro2 model loader implementation for text-to-image generation.
+
+Uses a local transformer config to avoid accessing the gated
+lightweight/XBrush-Pro2 HuggingFace repo.
 """
+
 import torch
 from diffusers.models import QwenImageTransformer2DModel
 from typing import Optional
@@ -18,6 +22,23 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+_TRANSFORMER_CONFIG = {
+    "_class_name": "QwenImageTransformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "patch_size": 2,
+    "in_channels": 64,
+    "out_channels": 16,
+    "num_layers": 60,
+    "attention_head_dim": 128,
+    "num_attention_heads": 24,
+    "joint_attention_dim": 3584,
+    "guidance_embeds": False,
+    "axes_dims_rope": [16, 56, 56],
+    "zero_cond_t": False,
+    "use_additional_t_cond": False,
+    "use_layer3d_rope": False,
+}
 
 
 class ModelVariant(StrEnum):
@@ -56,19 +77,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"use_safetensors": True}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
-
-        self.transformer = QwenImageTransformer2DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            subfolder="transformer",
-            **load_kwargs,
-        )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
-
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        self.transformer = QwenImageTransformer2DModel(**_TRANSFORMER_CONFIG).to(dtype)
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
