@@ -12,8 +12,14 @@ from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 if "default" not in ROPE_INIT_FUNCTIONS:
 
     def _compute_default_rope_parameters(config=None, device=None, **kwargs):
-        base = config.rope_theta
-        partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+        rope_params = getattr(config, "rope_parameters", None) or {}
+        base = rope_params.get("rope_theta", None) or getattr(
+            config, "rope_theta", 10000.0
+        )
+        partial_rotary_factor = rope_params.get(
+            "partial_rotary_factor",
+            getattr(config, "partial_rotary_factor", 1.0),
+        )
         head_dim = getattr(config, "head_dim", None) or (
             config.hidden_size // config.num_attention_heads
         )
