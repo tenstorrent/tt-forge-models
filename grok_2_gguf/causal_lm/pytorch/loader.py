@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Grok-2 GGUF model variants for causal language modeling."""
 
     GROK_2_GGUF = "Grok_2_GGUF"
+    UNSLOTH_GROK_2_GGUF = "UNSLOTH_Grok_2_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +35,22 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="oki692/grok-2-GGUF",
             max_length=128,
         ),
+        ModelVariant.UNSLOTH_GROK_2_GGUF: LLMModelConfig(
+            pretrained_model_name="unsloth/grok-2-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GROK_2_GGUF
 
-    GGUF_FILE = "grok-2-Q2_K-00001-of-00003.gguf"
+    _GGUF_FILES = {
+        ModelVariant.GROK_2_GGUF: "grok-2-Q2_K-00001-of-00003.gguf",
+        ModelVariant.UNSLOTH_GROK_2_GGUF: "Q2_K/grok-2-Q2_K-00001-of-00003.gguf",
+    }
+
+    @property
+    def GGUF_FILE(self):
+        return self._GGUF_FILES[self._variant]
 
     sample_text = "Explain the concept of quantum entanglement in simple terms."
 
