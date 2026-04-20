@@ -58,6 +58,8 @@ class ModelLoader(ForgeModel):
         self.processor = ViTImageProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
             do_center_crop=True,
+            size={"height": 384, "width": 384},
+            crop_size={"height": 384, "width": 384},
         )
         return self.processor
 
