@@ -75,24 +75,23 @@ class FastVLMWrapper(nn.Module):
 
     def __init__(self, model):
         super().__init__()
-        self.model = model
+        self.backbone = model.model
+        self.lm_head = model.lm_head
 
     def forward(self, inputs_embeds):
-        from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
-
-        return Qwen2ForCausalLM.forward(
-            self.model,
+        outputs = self.backbone(
             input_ids=None,
             attention_mask=None,
             position_ids=None,
             past_key_values=None,
             inputs_embeds=inputs_embeds,
-            labels=None,
             use_cache=False,
             output_attentions=False,
             output_hidden_states=False,
             return_dict=True,
         )
+        logits = self.lm_head(outputs.last_hidden_state)
+        return logits
 
 
 class ModelVariant(StrEnum):
