@@ -59,25 +59,18 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name,
         )
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
 
         return model
 
     def load_inputs(self, dtype_override=None):
         import numpy as np
 
-        # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
             np.float32
         )
 
-        # DCCRNet expects a batch of waveforms: (batch, time)
         waveform = torch.from_numpy(audio_array).unsqueeze(0)
-
-        if dtype_override is not None:
-            waveform = waveform.to(dtype_override)
 
         return (waveform,)
