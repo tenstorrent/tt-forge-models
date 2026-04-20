@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     SEGMENTATION = "Segmentation"
     SEGMENTATION_3_0 = "Segmentation_3_0"
+    IVRIT_AI_SEGMENTATION_3_0 = "Ivrit_AI_Segmentation_3_0"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.SEGMENTATION_3_0: ModelConfig(
             pretrained_model_name="pyannote/segmentation-3.0",
+        ),
+        ModelVariant.IVRIT_AI_SEGMENTATION_3_0: ModelConfig(
+            pretrained_model_name="ivrit-ai/pyannote-segmentation-3.0",
         ),
     }
 
