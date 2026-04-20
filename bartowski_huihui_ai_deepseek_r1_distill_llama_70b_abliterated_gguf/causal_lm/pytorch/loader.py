@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available bartowski huihui-ai DeepSeek-R1-Distill-Llama-70B-abliterated GGUF model variants for causal language modeling."""
 
     BARTOWSKI_HUIHUI_AI_DEEPSEEK_R1_DISTILL_LLAMA_70B_ABLITERATED_GGUF = (
-        "huihui-ai_DeepSeek-R1-Distill-Llama-70B-abliterated-GGUF"
+        "huihui_ai_DeepSeek_R1_Distill_Llama_70B_abliterated_GGUF"
     )
 
 
