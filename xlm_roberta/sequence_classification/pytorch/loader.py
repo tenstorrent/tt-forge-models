@@ -5,6 +5,8 @@
 XLM-RoBERTa model loader implementation for sequence classification.
 """
 
+import os
+
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from ....config import (
@@ -17,6 +19,8 @@ from ....config import (
     LLMModelConfig,
 )
 from ....base import ForgeModel
+
+_BASE_MODEL_FALLBACK = "FacebookAI/xlm-roberta-large"
 
 
 class ModelVariant(StrEnum):
@@ -84,10 +88,18 @@ class ModelLoader(ForgeModel):
         """Check if the current variant is an NLI model."""
         return False
 
+    def _resolve_name(self, name):
+        try:
+            AutoTokenizer.from_pretrained(name)
+            return name
+        except OSError:
+            return _BASE_MODEL_FALLBACK
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load XLM-RoBERTa model for sequence classification from Hugging Face."""
 
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        resolved = self._resolve_name(self.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(resolved)
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -95,7 +107,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForSequenceClassification.from_pretrained(
-            self.model_name, **model_kwargs
+            resolved, **model_kwargs
         )
         model.eval()
         self.model = model
