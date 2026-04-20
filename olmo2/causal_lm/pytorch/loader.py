@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     OLMo_2_0325_32B_Instruct = "0325_32b_instruct"
     OLMo_2_0425_1B = "0425_1b"
+    OLMo_2_0425_1B_DPO = "0425_1b_dpo"
     OLMo_2_1124_13B = "1124_13b"
 
 
@@ -40,6 +41,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.OLMo_2_0425_1B: LLMModelConfig(
             pretrained_model_name="allenai/OLMo-2-0425-1B",
+            max_length=256,
+        ),
+        ModelVariant.OLMo_2_0425_1B_DPO: LLMModelConfig(
+            pretrained_model_name="allenai/OLMo-2-0425-1B-DPO",
             max_length=256,
         ),
         ModelVariant.OLMo_2_1124_13B: LLMModelConfig(
