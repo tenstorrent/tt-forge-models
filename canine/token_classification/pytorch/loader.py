@@ -6,7 +6,7 @@ CANINE model loader implementation for token classification (sentence segmentati
 """
 
 import torch
-from transformers import CanineTokenizer, CanineForTokenClassification
+from transformers import CanineConfig, CanineTokenizer, CanineForTokenClassification
 from typing import Optional
 
 from ....base import ForgeModel
@@ -63,7 +63,8 @@ class ModelLoader(ForgeModel):
 
         self.tokenizer = CanineTokenizer.from_pretrained(pretrained_model_name)
 
-        model_kwargs = {"trust_remote_code": True}
+        config = CanineConfig.from_pretrained(pretrained_model_name)
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
