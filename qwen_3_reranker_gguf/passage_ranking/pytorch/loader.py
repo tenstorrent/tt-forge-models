@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Qwen3-Reranker GGUF model variants for passage ranking."""
 
     QWEN_3_RERANKER_0_6B_Q8_0 = "0_6B_Q8_0"
+    QWEN_3_RERANKER_8B_Q4_K_M = "8B_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
@@ -33,11 +34,17 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_3_RERANKER_0_6B_Q8_0: ModelConfig(
             pretrained_model_name="ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF",
         ),
+        ModelVariant.QWEN_3_RERANKER_8B_Q4_K_M: ModelConfig(
+            pretrained_model_name="mradermacher/Qwen3-Reranker-8B-GGUF",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_RERANKER_0_6B_Q8_0
 
-    GGUF_FILE = "qwen3-reranker-0.6b-q8_0.gguf"
+    _GGUF_FILES = {
+        ModelVariant.QWEN_3_RERANKER_0_6B_Q8_0: "qwen3-reranker-0.6b-q8_0.gguf",
+        ModelVariant.QWEN_3_RERANKER_8B_Q4_K_M: "Qwen3-Reranker-8B.Q4_K_M.gguf",
+    }
 
     # System prompt for the reranker
     _SYSTEM_PROMPT = (
@@ -62,6 +69,11 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
 
+    @property
+    def _gguf_file(self):
+        """Get the GGUF filename for the current variant."""
+        return self._GGUF_FILES[self._variant]
+
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
@@ -81,7 +93,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self._gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -100,7 +112,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self._gguf_file
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
