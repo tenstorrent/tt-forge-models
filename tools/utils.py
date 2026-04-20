@@ -77,7 +77,7 @@ def get_file(path):
         cache_dir = cache_dir_fallback
         file_path = cache_dir / file_name
 
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    os.makedirs(os.path.realpath(cache_dir), exist_ok=True)
 
     # If file is not found in cache, download URL from web, or get file from IRD_LF_CACHE web server.
     if not file_path.exists():
