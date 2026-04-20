@@ -98,50 +98,33 @@ class ModelLoader(ForgeModel):
         self.config = model.config
         return model
 
-    def load_inputs(
-        self,
-        dtype_override=None,
-        prompt: Optional[str] = None,
-        image_url: Optional[str] = None,
-    ):
+    def load_inputs(self, batch_size=1):
         """Load and return sample inputs for the Ministral 3B model.
+
+        Text-only inputs to avoid Pixtral vision tower dynamo tracing issues
+        with dynamic patch dimensions.
 
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        from PIL import Image
-        from ....tools.utils import cast_input_to_type, get_file
+        import torch
 
-        if self.processor is None:
-            self._load_processor(dtype_override)
+        inputs = {
+            "input_ids": torch.tensor(
+                [[1, 3, 12483, 1593, 11386, 10, 51883, 3226, 1063, 10, 4]],
+                dtype=torch.long,
+            ),
+            "attention_mask": torch.tensor(
+                [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], dtype=torch.long
+            ),
+        }
 
-        image_file = get_file(image_url or self.sample_image_url)
-        image = Image.open(image_file).convert("RGB")
-
-        text_prompt = self.processor.apply_chat_template(
-            [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image"},
-                        {"type": "text", "text": prompt or self.sample_text},
-                    ],
-                }
-            ],
-            add_generation_prompt=True,
-        )
-
-        inputs = self.processor(
-            text=text_prompt,
-            images=[image],
-            return_tensors="pt",
-        )
-
-        if dtype_override is not None:
-            if "pixel_values" in inputs:
-                inputs["pixel_values"] = cast_input_to_type(
-                    inputs["pixel_values"], dtype_override
-                )
+        inputs = {
+            "input_ids": inputs["input_ids"].repeat_interleave(batch_size, dim=0),
+            "attention_mask": inputs["attention_mask"].repeat_interleave(
+                batch_size, dim=0
+            ),
+        }
 
         return inputs
 
