@@ -66,6 +66,7 @@ class ModelVariant(StrEnum):
     """Available X-VLA model variants."""
 
     XVLA_BASE = "xvla_base"
+    XVLA_GOOGLE_ROBOT = "xvla_google_robot"
 
 
 class ModelLoader(ForgeModel):
@@ -74,6 +75,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.XVLA_BASE: ModelConfig(
             pretrained_model_name="lerobot/xvla-base",
+        ),
+        ModelVariant.XVLA_GOOGLE_ROBOT: ModelConfig(
+            pretrained_model_name="lerobot/xvla-google-robot",
         ),
     }
 
