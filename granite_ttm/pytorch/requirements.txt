@@ -1,1 +1,1 @@
-granite-tsfm
+granite-tsfm==0.2.28
