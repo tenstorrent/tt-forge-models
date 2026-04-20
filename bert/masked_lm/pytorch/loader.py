@@ -17,11 +17,6 @@ from third_party.tt_forge_models.config import (
 )
 from third_party.tt_forge_models.base import ForgeModel
 
-_SAMPLE_TEXTS = {
-    "dbmdz/bert-base-german-uncased": "Die Hauptstadt von Deutschland ist [MASK].",
-    "indobenchmark/indobert-large-p1": "Ibu kota Indonesia adalah [MASK].",
-}
-
 
 class ModelVariant(StrEnum):
     """Available BERT model variants for masked language modeling."""
@@ -37,7 +32,15 @@ class ModelVariant(StrEnum):
     LEGAL_BERT_BASE_UNCASED = "nlpaueb/legal-bert-base-uncased"
     RETROMAE_MSMARCO_DISTILL = "Shitao/RetroMAE_MSMARCO_distill"
     BERT_LARGE_UNCASED_WWM = "Large_Uncased_Whole_Word_Masking"
-    INDOBERT_LARGE_P1 = "indobenchmark/indobert-large-p1"
+    CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA = (
+        "CAMeL-Lab/bert-base-arabic-camelbert-msa"
+    )
+
+
+_SAMPLE_TEXTS = {
+    "dbmdz/bert-base-german-uncased": "Die Hauptstadt von Deutschland ist [MASK].",
+    ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA: "الهدف من الحياة هو [MASK] .",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -89,8 +92,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bert-large-uncased-whole-word-masking",
             max_length=128,
         ),
-        ModelVariant.INDOBERT_LARGE_P1: LLMModelConfig(
-            pretrained_model_name="indobenchmark/indobert-large-p1",
+        ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA: LLMModelConfig(
+            pretrained_model_name="CAMeL-Lab/bert-base-arabic-camelbert-msa",
             max_length=128,
         ),
     }
@@ -140,7 +143,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LEGAL_BERT_BASE_UNCASED,
             ModelVariant.RETROMAE_MSMARCO_DISTILL,
             ModelVariant.BERT_LARGE_UNCASED_WWM,
-            ModelVariant.INDOBERT_LARGE_P1,
+            ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
