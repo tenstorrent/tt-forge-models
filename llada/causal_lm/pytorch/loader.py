@@ -133,6 +133,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
         model.eval()
+        if not hasattr(model.config, "use_cache"):
+            model.config.use_cache = False
         self.config = model.config
 
         return model
