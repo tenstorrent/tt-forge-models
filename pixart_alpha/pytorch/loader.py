@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available PixArt-Alpha model variants."""
 
     XL_2_1024_MS = "XL-2-1024-MS"
+    XL_2_512X512 = "XL-2-512x512"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.XL_2_1024_MS: ModelConfig(
             pretrained_model_name="PixArt-alpha/PixArt-XL-2-1024-MS",
+        ),
+        ModelVariant.XL_2_512X512: ModelConfig(
+            pretrained_model_name="PixArt-alpha/PixArt-XL-2-512x512",
         ),
     }
 
@@ -79,8 +83,8 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.float32
         config = self.transformer.config
 
-        # Image dimensions for latent space
-        sample_size = config.sample_size  # 128 for 1024px model
+        # Image dimensions for latent space (128 => 1024px, 64 => 512px)
+        sample_size = config.sample_size
         in_channels = config.in_channels  # 4
         cross_attention_dim = config.cross_attention_dim  # 1152
 
@@ -103,17 +107,24 @@ class ModelLoader(ForgeModel):
             batch_size, max_sequence_length, dtype=dtype
         )
 
-        # Added condition kwargs for resolution/aspect ratio
-        resolution = torch.tensor([1024.0], dtype=dtype).expand(batch_size)
-        aspect_ratio = torch.tensor([1.0], dtype=dtype).expand(batch_size)
-        added_cond_kwargs = {"resolution": resolution, "aspect_ratio": aspect_ratio}
-
         inputs = {
             "hidden_states": hidden_states,
             "encoder_hidden_states": encoder_hidden_states,
             "timestep": timestep,
-            "added_cond_kwargs": added_cond_kwargs,
             "encoder_attention_mask": encoder_attention_mask,
         }
+
+        # Micro-conditioning on resolution/aspect ratio is only used by the
+        # multi-scale variants (sample_size == 128).
+        if self.transformer.use_additional_conditions:
+            image_resolution = float(sample_size * 8)
+            resolution = torch.tensor([image_resolution], dtype=dtype).expand(
+                batch_size
+            )
+            aspect_ratio = torch.tensor([1.0], dtype=dtype).expand(batch_size)
+            inputs["added_cond_kwargs"] = {
+                "resolution": resolution,
+                "aspect_ratio": aspect_ratio,
+            }
 
         return inputs
