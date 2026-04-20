@@ -82,7 +82,7 @@ class ModelLoader(ForgeModel):
         image_path = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         image = Image.open(str(image_path)).convert("RGB")
 
-        text = "Two cats sitting on a couch"
+        text = "Two cats sleeping on a pink couch"
         inputs = self.processor(image, text, return_tensors="pt")
 
         for key in inputs:
@@ -97,8 +97,8 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def unpack_forward_output(self, fwd_output):
-        if hasattr(fwd_output, "logits"):
-            return fwd_output.logits
+        if hasattr(fwd_output, "itm_score"):
+            return fwd_output.itm_score
         if isinstance(fwd_output, tuple):
             return fwd_output[0]
         return fwd_output
