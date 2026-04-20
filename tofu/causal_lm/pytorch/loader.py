@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
     """Available TOFU fine-tuned Llama model variants."""
 
     TOFU_FT_LLAMA2_7B = "tofu_ft_llama2_7B"
-    TOFU_LLAMA_3_2_3B_INSTRUCT_RETAIN90 = "tofu_Llama_3.2_3B_Instruct_retain90"
+    TOFU_LLAMA_3_2_3B_INSTRUCT_FULL = "tofu_Llama_3.2_3B_Instruct_full"
 
 
 class ModelLoader(ForgeModel):
@@ -37,8 +37,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.TOFU_FT_LLAMA2_7B: ModelConfig(
             pretrained_model_name="locuslab/tofu_ft_llama2-7b",
         ),
-        ModelVariant.TOFU_LLAMA_3_2_3B_INSTRUCT_RETAIN90: ModelConfig(
-            pretrained_model_name="open-unlearning/tofu_Llama-3.2-3B-Instruct_retain90",
+        ModelVariant.TOFU_LLAMA_3_2_3B_INSTRUCT_FULL: ModelConfig(
+            pretrained_model_name="open-unlearning/tofu_Llama-3.2-3B-Instruct_full",
         ),
     }
 
