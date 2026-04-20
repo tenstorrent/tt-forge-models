@@ -5,7 +5,7 @@
 PE-Core CLIP model loader implementation for image-text similarity using OpenCLIP.
 
 Meta's Perception Encoder (PE) Core is a CLIP-style vision-language model
-with variants ranging from ViT-Large/14 at 336px to ViT-bigG/14 at 448px resolution.
+with variants ranging from ViT-Base/16 at 224px to ViT-bigG/14 at 448px resolution.
 """
 import torch
 import torch.nn.functional as F
