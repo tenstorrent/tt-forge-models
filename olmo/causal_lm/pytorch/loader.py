@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     OLMo_1B_0724 = "1b_0724"
     OLMo_7B_0724 = "7b_0724"
+    OLMo_7B_Instruct = "7b_instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.OLMo_7B_0724: LLMModelConfig(
             pretrained_model_name="allenai/OLMo-7B-0724-hf",
+            max_length=256,
+        ),
+        ModelVariant.OLMo_7B_Instruct: LLMModelConfig(
+            pretrained_model_name="allenai/OLMo-7B-Instruct",
             max_length=256,
         ),
     }
