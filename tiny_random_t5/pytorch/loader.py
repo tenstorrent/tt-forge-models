@@ -25,14 +25,19 @@ class ModelVariant(StrEnum):
     """Available model variants for tiny-random-t5."""
 
     TINY_RANDOM_T5 = "echarlaix/tiny-random-t5"
+    AKREAL_TINY_RANDOM_T5 = "akreal/tiny-random-t5"
 
 
 class ModelLoader(ForgeModel):
-    """echarlaix/tiny-random-t5 feature extraction model loader."""
+    """tiny-random-t5 feature extraction model loader."""
 
     _VARIANTS = {
         ModelVariant.TINY_RANDOM_T5: LLMModelConfig(
             pretrained_model_name="echarlaix/tiny-random-t5",
+            max_length=128,
+        ),
+        ModelVariant.AKREAL_TINY_RANDOM_T5: LLMModelConfig(
+            pretrained_model_name="akreal/tiny-random-t5",
             max_length=128,
         ),
     }
