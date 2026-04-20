@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     MULTILINGUAL_E5_BASE = "intfloat/multilingual-e5-base"
     MULTILINGUAL_E5_LARGE_INSTRUCT = "intfloat/multilingual-e5-large-instruct"
     MULTILINGUAL_E5_SMALL_KO = "dragonkue/multilingual-e5-small-ko"
-    EMBAAS_MULTILINGUAL_E5_BASE = "embaas/sentence-transformers-multilingual-e5-base"
+    GETY_EMBED_V0 = "gety-ai/gety-embed-v0"
 
 
 class ModelLoader(ForgeModel):
@@ -53,8 +53,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="dragonkue/multilingual-e5-small-ko",
             max_length=512,
         ),
-        ModelVariant.EMBAAS_MULTILINGUAL_E5_BASE: LLMModelConfig(
-            pretrained_model_name="embaas/sentence-transformers-multilingual-e5-base",
+        ModelVariant.GETY_EMBED_V0: LLMModelConfig(
+            pretrained_model_name="gety-ai/gety-embed-v0",
             max_length=512,
         ),
     }
