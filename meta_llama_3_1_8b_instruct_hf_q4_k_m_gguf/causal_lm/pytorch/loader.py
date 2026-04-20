@@ -23,20 +23,20 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Meta Llama 3.1 8B Instruct HF Q4_K_M GGUF model variants for causal language modeling."""
 
-    META_LLAMA_3_1_8B_INSTRUCT_HF_Q4_K_M_GGUF = "META_LLAMA_3_1_8B_INSTRUCT_HF_Q4_K_M_GGUF"
+    HF_Q4_K_M = "HF_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
     """Meta Llama 3.1 8B Instruct HF Q4_K_M GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.META_LLAMA_3_1_8B_INSTRUCT_HF_Q4_K_M_GGUF: LLMModelConfig(
+        ModelVariant.HF_Q4_K_M: LLMModelConfig(
             pretrained_model_name="YorkieOH10/Meta-Llama-3.1-8B-Instruct-hf-Q4_K_M-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.META_LLAMA_3_1_8B_INSTRUCT_HF_Q4_K_M_GGUF
+    DEFAULT_VARIANT = ModelVariant.HF_Q4_K_M
 
     GGUF_FILE = "meta-llama-3.1-8b-instruct-hf-q4_k_m.gguf"
 
