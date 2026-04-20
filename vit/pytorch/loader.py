@@ -58,6 +58,7 @@ class ModelVariant(StrEnum):
     VIT_BASE_PATCH16_224_AUGREG_IN21K = "Base_Patch16_224_AugReg_IN21K"
     VIT_BASE_PATCH16_384_AUGREG_IN21K_FT_IN1K = "Base_Patch16_384_AugReg_IN21K_FT_IN1K"
     VIT_BASE_PATCH32_CLIP_224_LAION2B_E16 = "Base_Patch32_CLIP_224_LAION2B_E16"
+    VIT_SMALL_PATCH16_224_AUGREG_IN21K = "Small_Patch16_224_AugReg_IN21K"
 
 
 class ModelLoader(ForgeModel):
@@ -129,6 +130,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="vit_base_patch32_clip_224.laion2b_e16",
             source=ModelSource.TIMM,
         ),
+        ModelVariant.VIT_SMALL_PATCH16_224_AUGREG_IN21K: ViTConfig(
+            pretrained_model_name="vit_small_patch16_224.augreg_in21k",
+            source=ModelSource.TIMM,
+        ),
     }
 
     # Default variant to use
@@ -164,7 +169,10 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         # Determine task based on variant
-        if variant == ModelVariant.VIT_BASE_PATCH16_224_AUGREG_IN21K:
+        if variant in (
+            ModelVariant.VIT_BASE_PATCH16_224_AUGREG_IN21K,
+            ModelVariant.VIT_SMALL_PATCH16_224_AUGREG_IN21K,
+        ):
             task = ModelTask.CV_IMAGE_FE
         else:
             task = ModelTask.CV_IMAGE_CLS
