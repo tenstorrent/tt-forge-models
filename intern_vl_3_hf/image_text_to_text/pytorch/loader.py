@@ -103,6 +103,7 @@ class ModelLoader(ForgeModel):
 
         inputs = self.processor.apply_chat_template(
             messages,
+            padding=True,
             add_generation_prompt=True,
             tokenize=True,
             return_dict=True,
