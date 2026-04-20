@@ -57,6 +57,15 @@ def _patch_vision_pipeline(model, saved_inputs):
 
     inner.get_placeholder_mask = patched_get_placeholder_mask
 
+    lang_model = inner.language_model
+    original_deepstack = lang_model._deepstack_process
+
+    @torch.compiler.disable
+    def patched_deepstack_process(hidden_states, visual_pos_masks, visual_embeds):
+        return original_deepstack(hidden_states, visual_pos_masks, visual_embeds)
+
+    lang_model._deepstack_process = patched_deepstack_process
+
 
 def _precompute_position_ids(model, saved_inputs):
     inner = model.model
