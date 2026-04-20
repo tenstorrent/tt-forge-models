@@ -23,12 +23,12 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available EVA Giant CLIP model variants."""
 
-    EVA01_G_14_PLUS_MERGED2B_S11B_B114K = "EVA01_g_14_plus_merged2b_s11b_b114k"
+    EVA01_G_14_PLUS = "EVA01_g_14_plus"
 
 
 # Mapping from variant to OpenCLIP tokenizer name
 _TOKENIZER_NAME = {
-    ModelVariant.EVA01_G_14_PLUS_MERGED2B_S11B_B114K: "EVA01-g-14-plus",
+    ModelVariant.EVA01_G_14_PLUS: "EVA01-g-14-plus",
 }
 
 
@@ -36,12 +36,12 @@ class ModelLoader(ForgeModel):
     """EVA Giant CLIP model loader using OpenCLIP for image-text similarity tasks."""
 
     _VARIANTS = {
-        ModelVariant.EVA01_G_14_PLUS_MERGED2B_S11B_B114K: ModelConfig(
+        ModelVariant.EVA01_G_14_PLUS: ModelConfig(
             pretrained_model_name="hf-hub:timm/eva_giant_patch14_plus_clip_224.merged2b_s11b_b114k",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.EVA01_G_14_PLUS_MERGED2B_S11B_B114K
+    DEFAULT_VARIANT = ModelVariant.EVA01_G_14_PLUS
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
