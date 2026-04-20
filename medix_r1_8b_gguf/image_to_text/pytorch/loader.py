@@ -31,13 +31,13 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.MEDIX_R1_8B_Q4_K_M: LLMModelConfig(
-            pretrained_model_name="mradermacher/MediX-R1-8B-GGUF",
+            pretrained_model_name="MBZUAI/MediX-R1-8B-GGUF",
             max_length=128,
         ),
     }
 
     _GGUF_FILES = {
-        ModelVariant.MEDIX_R1_8B_Q4_K_M: "MediX-R1-8B.Q4_K_M.gguf",
+        ModelVariant.MEDIX_R1_8B_Q4_K_M: "MediX-R1-8B-Q4_K_M.gguf",
     }
 
     DEFAULT_VARIANT = ModelVariant.MEDIX_R1_8B_Q4_K_M
