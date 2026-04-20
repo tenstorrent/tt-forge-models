@@ -90,5 +90,6 @@ class ModelLoader(ForgeModel):
             "prompt": "Change the background color to blue.",
             "negative_prompt": " ",
             "num_inference_steps": 40,
+            "guidance_scale": 1.0,
             "true_cfg_scale": 4.0,
         }
