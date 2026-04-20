@@ -115,6 +115,8 @@ class ModelLoader(ForgeModel):
         )
         if not hasattr(config, "max_length"):
             config.max_length = config.seq_length
+        if not hasattr(config, "use_cache"):
+            config.use_cache = True
 
         model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
