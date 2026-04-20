@@ -70,6 +70,7 @@ class ModelVariant(StrEnum):
 
     # TIMM variants
     HF_TIMM_DENSENET201_TV_IN1K = "Timm_DenseNet201_Tv_In1k"
+    HF_TIMM_DENSENET169_TV_IN1K = "Timm_DenseNet169_Tv_In1k"
 
 
 class ModelLoader(ForgeModel):
@@ -113,6 +114,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="hf_hub:timm/densenet201.tv_in1k",
             source=ModelSource.TIMM,
         ),
+        ModelVariant.HF_TIMM_DENSENET169_TV_IN1K: DenseNetConfig(
+            pretrained_model_name="hf_hub:timm/densenet169.tv_in1k",
+            source=ModelSource.TIMM,
+        ),
     }
 
     # Default variant to use
@@ -149,7 +154,7 @@ class ModelLoader(ForgeModel):
 
         if variant in [
             ModelVariant.DENSENET121_TV_IN1K_TIMM,
-            ModelVariant.DENSENET169_TV_IN1K_TIMM,
+            ModelVariant.HF_TIMM_DENSENET169_TV_IN1K,
         ]:
             group = ModelGroup.VULCAN
         else:
