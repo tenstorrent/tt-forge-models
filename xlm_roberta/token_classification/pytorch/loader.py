@@ -25,14 +25,12 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa token classification model variants."""
 
     CRYPTO_NER = "CryptoNER"
-    SPANISH_NER = "SpanishNER"
-    TNER_CONLL2003 = "TNER-CoNLL2003"
+    INDONESIAN_NER = "IndonesianNER"
 
 
 _VARIANT_SAMPLE_TEXTS = {
     ModelVariant.CRYPTO_NER: "I bought mass Ethereum and mass Bitcoin on Uniswap yesterday",
-    ModelVariant.SPANISH_NER: "Mi nombre es Carlos y vivo en Madrid, trabajo para Google",
-    ModelVariant.TNER_CONLL2003: "Jim Henson worked at Disney in Los Angeles.",
+    ModelVariant.INDONESIAN_NER: "Gubernur Jawa Barat meresmikan proyek senilai Rp 10 miliar.",
 }
 
 
@@ -43,14 +41,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.CRYPTO_NER: ModelConfig(
             pretrained_model_name="covalenthq/cryptoNER",
         ),
-        ModelVariant.MAREFA_NER: ModelConfig(
-            pretrained_model_name="marefa-nlp/marefa-ner",
-        ),
-        ModelVariant.WIKIANN_NER: ModelConfig(
-            pretrained_model_name="Davlan/xlm-roberta-base-wikiann-ner",
-        ),
-        ModelVariant.TNER_CONLL2003: ModelConfig(
-            pretrained_model_name="tner/xlm-roberta-base-conll2003",
+        ModelVariant.INDONESIAN_NER: ModelConfig(
+            pretrained_model_name="khoirif/xlm-roberta-base-indonesian-ner",
         ),
     }
 
