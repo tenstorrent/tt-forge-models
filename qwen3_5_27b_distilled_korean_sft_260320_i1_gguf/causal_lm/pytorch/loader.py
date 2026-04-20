@@ -23,7 +23,9 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Qwen3.5-27B-Distilled-Korean-SFT-260320 i1 GGUF model variants for causal language modeling."""
 
-    QWEN3_5_27B_DISTILLED_KOREAN_SFT_260320_I1_GGUF = "27B_DISTILLED_KOREAN_SFT_260320_I1_GGUF"
+    QWEN3_5_27B_DISTILLED_KOREAN_SFT_260320_I1_GGUF = (
+        "27B_DISTILLED_KOREAN_SFT_260320_I1_GGUF"
+    )
 
 
 class ModelLoader(ForgeModel):
