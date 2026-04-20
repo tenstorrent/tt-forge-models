@@ -15,13 +15,10 @@ import torch.nn.functional as F
 
 def causal_conv1d_update_ref(x, conv_state, weight, bias=None, activation=None):
     dtype_in = x.dtype
-    batch, dim = x.shape[0], x.shape[1]
-    width = weight.shape[1]
-    x = x.squeeze(-1) if x.dim() == 3 else x
-    conv_state.copy_(torch.roll(conv_state, shifts=-1, dims=-1))
-    conv_state[:, :, -1] = x
-    padded = conv_state
-    x_out = torch.sum(padded * weight, dim=-1)
+    x_in = x.squeeze(-1) if x.dim() == 3 else x
+    full_window = torch.cat([conv_state, x_in.unsqueeze(-1)], dim=-1)
+    conv_state.copy_(full_window[:, :, 1:])
+    x_out = torch.sum(full_window * weight, dim=-1)
     if bias is not None:
         x_out = x_out + bias
     if activation == "silu":
