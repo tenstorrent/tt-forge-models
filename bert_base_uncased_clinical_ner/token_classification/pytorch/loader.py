@@ -43,9 +43,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.model = None
-        self.sample_text = (
-            "The patient was prescribed aspirin for hypertension."
-        )
+        self.sample_text = "The patient was prescribed aspirin for hypertension."
         self.max_length = self._variant_config.max_length
 
     @classmethod
