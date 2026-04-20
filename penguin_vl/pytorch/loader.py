@@ -150,6 +150,16 @@ class ModelLoader(ForgeModel):
 
         self.processor = self._load_processor()
 
+        VisualRotaryEmbedding = get_class_from_dynamic_module(
+            "modeling_penguinvl_encoder.VisualRotaryEmbedding",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+        if not hasattr(VisualRotaryEmbedding, "compute_default_rope_parameters"):
+            VisualRotaryEmbedding.compute_default_rope_parameters = lambda self, config, device=None, **kw: _compute_default_rope_parameters(
+                config, device, **kw
+            )
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
