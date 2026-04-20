@@ -97,4 +97,9 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        return inputs
+        # GECToR.forward only accepts input_ids and attention_mask; drop the
+        # tokenizer's extra keys (e.g. token_type_ids) so model(**inputs) works.
+        return {
+            "input_ids": inputs["input_ids"],
+            "attention_mask": inputs["attention_mask"],
+        }
