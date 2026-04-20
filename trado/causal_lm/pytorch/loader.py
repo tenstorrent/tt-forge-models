@@ -5,9 +5,139 @@
 TraDo Causal LM model loader implementation
 """
 
+import sys
+import types
+import importlib
+import importlib.machinery
+
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
+
+
+def _ensure_flash_attn_available():
+    try:
+        importlib.import_module("flash_attn")
+        return
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+    def _rms_norm_fn(
+        x,
+        weight,
+        bias=None,
+        residual=None,
+        prenorm=False,
+        eps=1e-6,
+        residual_in_fp32=False,
+        is_rms_norm=True,
+    ):
+        dtype = x.dtype
+        x = x.float()
+        if residual is not None:
+            residual = residual.float()
+            x = x + residual
+        residual_out = x if prenorm else None
+        variance = x.pow(2).mean(-1, keepdim=True)
+        x = x * torch.rsqrt(variance + eps)
+        x = x.to(dtype) * weight
+        if bias is not None:
+            x = x + bias
+        if prenorm:
+            return x, residual_out
+        return x
+
+    flash_attn = types.ModuleType("flash_attn")
+    flash_attn.__version__ = "0.0.0"
+    flash_attn.__spec__ = importlib.machinery.ModuleSpec("flash_attn", None)
+    flash_attn.flash_attn_func = None
+    flash_attn.flash_attn_varlen_func = None
+
+    bert_padding = types.ModuleType("flash_attn.bert_padding")
+    bert_padding.index_first_axis = None
+    bert_padding.pad_input = None
+    bert_padding.unpad_input = None
+    flash_attn.bert_padding = bert_padding
+
+    ops = types.ModuleType("flash_attn.ops")
+    triton_mod = types.ModuleType("flash_attn.ops.triton")
+    layer_norm = types.ModuleType("flash_attn.ops.triton.layer_norm")
+    layer_norm.rms_norm_fn = _rms_norm_fn
+    triton_mod.layer_norm = layer_norm
+    ops.triton = triton_mod
+    flash_attn.ops = ops
+
+    sys.modules["flash_attn"] = flash_attn
+    sys.modules["flash_attn.bert_padding"] = bert_padding
+    sys.modules["flash_attn.ops"] = ops
+    sys.modules["flash_attn.ops.triton"] = triton_mod
+    sys.modules["flash_attn.ops.triton.layer_norm"] = layer_norm
+
+
+_ensure_flash_attn_available()
+
+
+def _ensure_sliding_window_cache():
+    import transformers.cache_utils as cu
+
+    if hasattr(cu, "SlidingWindowCache"):
+        return
+
+    class SlidingWindowCache(cu.StaticCache):
+        def __init__(self, config, max_batch_size, max_cache_len=None, **kwargs):
+            super().__init__(
+                config, max_batch_size, max_cache_len=max_cache_len, **kwargs
+            )
+
+    cu.SlidingWindowCache = SlidingWindowCache
+
+
+_ensure_sliding_window_cache()
+
+
+def _ensure_loss_kwargs():
+    import transformers.utils as tu
+
+    if hasattr(tu, "LossKwargs"):
+        return
+
+    from typing import TypedDict
+
+    class LossKwargs(TypedDict, total=False):
+        num_items_in_batch: int
+
+    tu.LossKwargs = LossKwargs
+
+
+_ensure_loss_kwargs()
+
+
+def _ensure_default_rope():
+    from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
+    if "default" in ROPE_INIT_FUNCTIONS:
+        return
+
+    def _compute_default_rope_parameters(
+        config=None, device=None, seq_len=None, **kwargs
+    ):
+        partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+        head_dim = getattr(config, "head_dim", None) or (
+            config.hidden_size // config.num_attention_heads
+        )
+        dim = int(head_dim * partial_rotary_factor)
+        base = config.rope_theta
+        inv_freq = 1.0 / (
+            base
+            ** (torch.arange(0, dim, 2, dtype=torch.int64).float().to(device) / dim)
+        )
+        return inv_freq, 1.0
+
+    ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
+
+
+_ensure_default_rope()
+
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 
 from ....base import ForgeModel
 from ....config import (
@@ -111,7 +241,17 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
+            config.pad_token_id = config.eos_token_id
+
+        model_kwargs = {
+            "trust_remote_code": True,
+            "attn_implementation": "eager",
+            "config": config,
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
