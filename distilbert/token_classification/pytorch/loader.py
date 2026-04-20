@@ -26,16 +26,21 @@ class ModelVariant(StrEnum):
         "Davlan/distilbert-base-multilingual-cased-ner-hrl"
     )
     NLPIE_CLINICAL_DISTILBERT_I2B2_2010 = "nlpie/clinical-distilbert-i2b2-2010"
+    ISOTONIC_DISTILBERT_FINETUNED_AI4PRIVACY = (
+        "Isotonic/distilbert_finetuned_ai4privacy"
+    )
 
 
 _VARIANT_SAMPLE_TEXTS = {
     ModelVariant.DAVLAN_DISTILBERT_BASE_MULTILINGUAL_CASED_NER_HRL: "HuggingFace is a company based in Paris and New York",
     ModelVariant.NLPIE_CLINICAL_DISTILBERT_I2B2_2010: "The patient was diagnosed with diabetes and prescribed metformin",
+    ModelVariant.ISOTONIC_DISTILBERT_FINETUNED_AI4PRIVACY: "My name is John Smith and my email is john.smith@example.com",
 }
 
 _VARIANT_MODEL_GROUPS = {
     ModelVariant.DAVLAN_DISTILBERT_BASE_MULTILINGUAL_CASED_NER_HRL: ModelGroup.GENERALITY,
     ModelVariant.NLPIE_CLINICAL_DISTILBERT_I2B2_2010: ModelGroup.VULCAN,
+    ModelVariant.ISOTONIC_DISTILBERT_FINETUNED_AI4PRIVACY: ModelGroup.VULCAN,
 }
 
 
@@ -50,6 +55,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.NLPIE_CLINICAL_DISTILBERT_I2B2_2010: LLMModelConfig(
             pretrained_model_name="nlpie/clinical-distilbert-i2b2-2010",
+            max_length=128,
+        ),
+        ModelVariant.ISOTONIC_DISTILBERT_FINETUNED_AI4PRIVACY: LLMModelConfig(
+            pretrained_model_name="Isotonic/distilbert_finetuned_ai4privacy",
             max_length=128,
         ),
     }
