@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.PHI_2_Q4F16_1_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/phi-2-q4f16_1-MLC",
+            pretrained_model_name="microsoft/phi-2",
             max_length=128,
         ),
     }
@@ -83,12 +83,14 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, trust_remote_code=True, **model_kwargs
         ).eval()
 
         return model
