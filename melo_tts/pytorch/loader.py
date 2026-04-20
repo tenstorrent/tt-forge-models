@@ -4,6 +4,7 @@
 """
 MeloTTS-English-v3 model loader implementation for text-to-speech tasks.
 """
+
 import torch
 import torch.nn as nn
 from typing import Optional
@@ -77,6 +78,10 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import nltk
+
+        nltk.download("averaged_perceptron_tagger_eng", quiet=True)
+
         from melo.api import TTS
 
         self._tts = TTS(language="EN_NEWEST", device="cpu")
