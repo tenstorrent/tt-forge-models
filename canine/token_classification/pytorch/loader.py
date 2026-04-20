@@ -62,7 +62,7 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, trust_remote_code=True
+            pretrained_model_name, trust_remote_code=True, use_fast=False
         )
 
         model_kwargs = {"trust_remote_code": True}
