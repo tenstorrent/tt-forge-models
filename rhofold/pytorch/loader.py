@@ -82,14 +82,12 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Prepare RhoFold+ input features for a sample RNA sequence."""
+        """Prepare RhoFold+ input features for a sample RNA sequence.
+
+        The returned features are integer token tensors and the raw sequence
+        string, so ``dtype_override`` is accepted for interface parity but has
+        no effect on the inputs.
+        """
         from .src.model import build_rhofold_inputs
 
-        features = build_rhofold_inputs(self._SAMPLE_SEQUENCE)
-
-        if dtype_override is not None:
-            for key, value in features.items():
-                if hasattr(value, "to") and value.is_floating_point():
-                    features[key] = value.to(dtype_override)
-
-        return features
+        return build_rhofold_inputs(self._SAMPLE_SEQUENCE)
