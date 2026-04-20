@@ -48,6 +48,7 @@ class ModelVariant(StrEnum):
     MOBILENET_V3_LARGE_100_RA4_TIMM = "Large_100_RA4"
     MOBILENET_V3_SMALL_100_TIMM = "Small_100"
     MOBILENET_V3_SMALL_050_TIMM = "Small_050"
+    TF_MOBILENET_V3_LARGE_100_TIMM = "TF_Large_100"
 
 
 class ModelLoader(ForgeModel):
@@ -97,6 +98,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="hf_hub:timm/mobilenetv3_small_050.lamb_in1k",
             source=ModelSource.TIMM,
         ),
+        ModelVariant.TF_MOBILENET_V3_LARGE_100_TIMM: MobileNetV3Config(
+            pretrained_model_name="hf_hub:timm/tf_mobilenetv3_large_100.in1k",
+            source=ModelSource.TIMM,
+        ),
     }
 
     # Default variant to use
@@ -131,10 +136,12 @@ class ModelLoader(ForgeModel):
         # Get source from variant config
         source = cls._VARIANTS[variant].source
 
+        vulcan_variants = {
+            ModelVariant.MOBILENET_V3_SMALL_050_TIMM,
+            ModelVariant.TF_MOBILENET_V3_LARGE_100_TIMM,
+        }
         group = (
-            ModelGroup.VULCAN
-            if variant == ModelVariant.MOBILENET_V3_SMALL_050_TIMM
-            else ModelGroup.GENERALITY
+            ModelGroup.VULCAN if variant in vulcan_variants else ModelGroup.GENERALITY
         )
 
         return ModelInfo(
