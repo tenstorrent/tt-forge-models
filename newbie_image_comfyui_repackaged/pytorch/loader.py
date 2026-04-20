@@ -20,6 +20,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
+from torch import nn
 from transformers import (
     AutoModel,
     AutoModelForCausalLM,
@@ -36,6 +37,19 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+class _JinaCLIPTextEncoder(nn.Module):
+    """Wrapper exposing only Jina CLIP's text encoding path."""
+
+    def __init__(self, clip_model):
+        super().__init__()
+        self.text_model = clip_model.text_model
+        self.text_projection = clip_model.text_projection
+
+    def forward(self, input_ids, attention_mask=None):
+        return self.text_projection(self.text_model(input_ids))
+
 
 REPO_ID = "Comfy-Org/NewBie-image-Exp0.1_repackaged"
 
@@ -96,15 +110,16 @@ class ModelLoader(ForgeModel):
         return self._model
 
     def _load_jina_clip_encoder(self, dtype: torch.dtype = torch.float32) -> AutoModel:
-        """Load Jina CLIP v2 as a text encoder."""
+        """Load Jina CLIP v2 text encoder from the full CLIP model."""
         self._tokenizer = AutoTokenizer.from_pretrained(
             JINA_CLIP_REPO, trust_remote_code=True
         )
-        self._model = AutoModel.from_pretrained(
+        full_model = AutoModel.from_pretrained(
             JINA_CLIP_REPO,
             torch_dtype=dtype,
             trust_remote_code=True,
         )
+        self._model = _JinaCLIPTextEncoder(full_model)
         self._model.eval()
         return self._model
 
