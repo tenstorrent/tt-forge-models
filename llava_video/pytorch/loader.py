@@ -7,7 +7,6 @@ LLaVA-Video model loader implementation for multimodal conditional generation.
 
 from typing import Optional
 
-import numpy as np
 from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
 
 from ...base import ForgeModel
@@ -67,16 +66,18 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the LLaVA-Video model instance."""
         model_name = self._variant_config.pretrained_model_name
+
+        if self.processor is None:
+            self._load_processor()
+
         model = LlavaOnevisionForConditionalGeneration.from_pretrained(
             str(model_name), **kwargs
         )
+        model.resize_token_embeddings(len(self.processor.tokenizer))
         model.eval()
 
         if dtype_override:
             model = model.to(dtype_override)
-
-        if self.processor is None:
-            self._load_processor()
 
         return model
 
@@ -88,21 +89,15 @@ class ModelLoader(ForgeModel):
         conversation = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "video"},
-                    {"type": "text", "text": "Describe this video in detail."},
-                ],
+                "content": "Describe this video in detail.",
             }
         ]
 
-        text_prompt = self.processor.apply_chat_template(
-            conversation, add_generation_prompt=True
+        text_prompt = self.processor.tokenizer.apply_chat_template(
+            conversation, add_generation_prompt=True, tokenize=False
         )
 
-        # Create a small synthetic video (8 frames of 32x32 RGB)
-        video = np.random.randint(0, 255, (8, 32, 32, 3), dtype=np.uint8)
-
-        inputs = self.processor(text=text_prompt, videos=[video], return_tensors="pt")
+        inputs = self.processor.tokenizer(text_prompt, return_tensors="pt")
 
         if dtype_override:
             inputs = {
