@@ -93,9 +93,7 @@ class ModelLoader(ForgeModel):
         sentence = "나는 한국어 모델을 사용하여 문장을 분석하고 있습니다"
         predictions = torch.round((torch.sign(co_out[0]) + 1) / 2)
         tokens = self.tokenizer.convert_ids_to_tokens(
-            self.tokenizer(sentence, return_tensors="pt",)[
-                "input_ids"
-            ][0]
+            self.tokenizer(sentence, return_tensors="pt")["input_ids"][0]
         )
         for token, pred in zip(tokens, predictions[0].int().tolist()):
             label = "fake" if pred == 1 else "real"
