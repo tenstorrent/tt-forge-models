@@ -30,8 +30,9 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    TEXTATTACK_BERT_BASE_UNCASED_SNLI = "textattack_Bert_Base_Uncased_Snli"
-    FOLLOWSCI_BERT_AI_TEXT_DETECTOR = "followsci_Bert_Ai_Text_Detector"
+    XENOVA_BERT_BASE_MULTILINGUAL_UNCASED_SENTIMENT = (
+        "Xenova_Bert_Base_Multilingual_Uncased_Sentiment"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -67,13 +68,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SNLI: LLMModelConfig(
-            pretrained_model_name="textattack/bert-base-uncased-snli",
+        ModelVariant.XENOVA_BERT_BASE_MULTILINGUAL_UNCASED_SENTIMENT: LLMModelConfig(
+            pretrained_model_name="Xenova/bert-base-multilingual-uncased-sentiment",
             max_length=128,
-        ),
-        ModelVariant.FOLLOWSCI_BERT_AI_TEXT_DETECTOR: LLMModelConfig(
-            pretrained_model_name="followsci/bert-ai-text-detector",
-            max_length=512,
         ),
     }
 
@@ -100,8 +97,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SNLI: "A soccer game with multiple males playing. Some men are playing a sport.",
-        ModelVariant.FOLLOWSCI_BERT_AI_TEXT_DETECTOR: "Recent advances in deep learning have demonstrated significant potential for natural language understanding across diverse academic disciplines.",
+        ModelVariant.XENOVA_BERT_BASE_MULTILINGUAL_UNCASED_SENTIMENT: "The product quality is excellent and I love it!",
     }
 
     def __init__(self, variant=None):
@@ -140,8 +136,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SNLI,
-            ModelVariant.FOLLOWSCI_BERT_AI_TEXT_DETECTOR,
+            ModelVariant.XENOVA_BERT_BASE_MULTILINGUAL_UNCASED_SENTIMENT,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
