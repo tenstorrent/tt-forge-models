@@ -40,7 +40,8 @@ class ModelLoader(ForgeModel):
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.SAKURA_GALTRANSL_7B_V3_7
 
-    # Shared configuration parameters
+    GGUF_FILE = "Sakura-Galtransl-7B-v3.7.gguf"
+
     sample_text = "Give me a short introduction to large language model."
 
     def __init__(
@@ -78,94 +79,59 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        """Load tokenizer for the current variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
-
-        Returns:
-            The loaded tokenizer instance
-        """
-        # Initialize tokenizer with dtype override if specified
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Sakura GalTransl model instance for this instance's variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
-
-        Returns:
-            torch.nn.Module: The Sakura GalTransl model instance for causal language modeling.
-        """
-        # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Ensure tokenizer is loaded
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        # Load the model with dtype override if specified
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
-        )
-        model.eval()
+        ).eval()
         self.config = model.config
 
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Sakura GalTransl model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-            batch_size: Batch size for the inputs.
-
-        Returns:
-            dict: Input tensors that can be fed to the model.
-        """
-        # Ensure tokenizer is initialized
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
-        messages = [{"role": "user", "content": self.sample_text}]
-        text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        prompts = [text]
-
         inputs = self.tokenizer(
-            prompts,
+            [self.sample_text],
             return_tensors="pt",
             padding="max_length",
             truncation=True,
             max_length=max_length,
         )
 
-        # Add batch dimension
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
@@ -204,13 +170,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        """Load and return the configuration for the Sakura GalTransl model variant.
-
-        Returns:
-            The configuration object for the model.
-        """
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
-
         return self.config
