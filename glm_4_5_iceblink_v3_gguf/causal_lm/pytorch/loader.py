@@ -64,8 +64,9 @@ def _patch_transformers_glm4moe_gguf():
         GGUFQwen2Converter,
     )
 
-    if "glm4moe" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["glm4moe"] = GGUFQwen2Converter
+    for key in ("glm4moe", "glm4_moe"):
+        if key not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS[key] = GGUFQwen2Converter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
