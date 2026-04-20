@@ -82,7 +82,8 @@ class ModelLoader(ForgeModel):
         image_path = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         image = Image.open(str(image_path)).convert("RGB")
 
-        inputs = self.processor(images=image, return_tensors="pt")
+        text = "a photo of"
+        inputs = self.processor(images=image, text=text, return_tensors="pt")
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
