@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Parakeet RNNT PyTorch speech recognition model variants."""
 
     PARAKEET_RNNT_EOU_120M_V1 = "Parakeet_RNNT_EOU_120M_v1"
+    PARAKEET_RNNT_0_6B = "Parakeet_RNNT_0.6B"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.PARAKEET_RNNT_EOU_120M_V1: ModelConfig(
             pretrained_model_name="nvidia/parakeet_realtime_eou_120m-v1",
+        ),
+        ModelVariant.PARAKEET_RNNT_0_6B: ModelConfig(
+            pretrained_model_name="nvidia/parakeet-rnnt-0.6b",
         ),
     }
 
