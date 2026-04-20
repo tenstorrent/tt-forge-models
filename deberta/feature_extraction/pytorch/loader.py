@@ -58,7 +58,7 @@ class ModelLoader(ForgeModel):
 
     # Tokenizer overrides for models that don't ship their own tokenizer
     _TOKENIZER_OVERRIDES = {
-        ModelVariant.TINY_RANDOM: "microsoft/deberta-v2-base",
+        ModelVariant.TINY_RANDOM: "microsoft/deberta-v2-xlarge",
     }
 
     def load_model(self, *, dtype_override=None, **kwargs):
