@@ -51,7 +51,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="shieldgemma_2",
+            model="ShieldGemma2",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.CV_IMAGE_CLS,
