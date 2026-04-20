@@ -26,6 +26,13 @@ class ModelVariant(StrEnum):
     """Available MioCodec model variants."""
 
     MIOCODEC_25HZ_24KHZ = "MioCodec 25Hz 24kHz"
+    MIOCODEC_25HZ_44_1KHZ_V2 = "MioCodec 25Hz 44.1kHz v2"
+
+
+_VARIANT_SAMPLE_RATES = {
+    ModelVariant.MIOCODEC_25HZ_24KHZ: 24000,
+    ModelVariant.MIOCODEC_25HZ_44_1KHZ_V2: 44100,
+}
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +41,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MIOCODEC_25HZ_24KHZ: ModelConfig(
             pretrained_model_name="Aratako/MioCodec-25Hz-24kHz",
+        ),
+        ModelVariant.MIOCODEC_25HZ_44_1KHZ_V2: ModelConfig(
+            pretrained_model_name="Aratako/MioCodec-25Hz-44.1kHz-v2",
         ),
     }
 
@@ -64,9 +74,9 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         """Load sample audio inputs for the MioCodec model."""
-        # Generate a synthetic 1-second audio waveform at 24kHz
+        # Generate a synthetic 1-second audio waveform at the variant's sample rate
         # MioCodec expects input shape (batch, time_samples)
-        sampling_rate = 24000
+        sampling_rate = _VARIANT_SAMPLE_RATES[self._variant]
         duration_seconds = 1
         audio = torch.from_numpy(
             np.random.randn(1, sampling_rate * duration_seconds).astype(np.float32)
