@@ -144,7 +144,14 @@ class ModelLoader(ForgeModel):
         filename = _VARIANT_FILENAMES[variant]
 
         weights_path = hf_hub_download(repo_id=REPO_ID, filename=filename)
-        state_dict = load_file(weights_path)
+        full_state_dict = load_file(weights_path)
+
+        prefix = "model."
+        state_dict = {
+            k[len(prefix) :]: v
+            for k, v in full_state_dict.items()
+            if k.startswith(prefix)
+        }
 
         model = Hunyuan3DDiT(
             in_channels=IN_CHANNELS,
