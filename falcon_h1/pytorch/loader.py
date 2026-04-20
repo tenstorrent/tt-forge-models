@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Falcon-H1 model variants."""
 
     FALCON_H1_1_5B_BASE = "H1_1.5B_Base"
+    FALCON_H1_3B_BASE = "H1_3B_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.FALCON_H1_1_5B_BASE: ModelConfig(
             pretrained_model_name="tiiuae/Falcon-H1-1.5B-Base",
+        ),
+        ModelVariant.FALCON_H1_3B_BASE: ModelConfig(
+            pretrained_model_name="tiiuae/Falcon-H1-3B-Base",
         ),
     }
 
