@@ -5,9 +5,32 @@
 SeeClick model loader implementation for GUI grounding tasks.
 """
 
+import sys
+import types
 from typing import Optional
 
+import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+_STUB_NAMES = [
+    "DisjunctiveConstraint",
+    "BeamSearchScorer",
+    "PhrasalConstraint",
+    "ConstrainedBeamSearchScorer",
+]
+for _name in _STUB_NAMES:
+    if not hasattr(transformers, _name):
+        setattr(transformers, _name, type(_name, (), {}))
+
+if "transformers.generation.utils" in sys.modules:
+    _gen_utils = sys.modules["transformers.generation.utils"]
+    if not hasattr(_gen_utils, "SampleOutput"):
+        _gen_utils.SampleOutput = type("SampleOutput", (), {})
+
+if "transformers_stream_generator" not in sys.modules:
+    _mock = types.ModuleType("transformers_stream_generator")
+    _mock.init_stream_support = lambda: None
+    sys.modules["transformers_stream_generator"] = _mock
 
 from ...base import ForgeModel
 from ...config import (
