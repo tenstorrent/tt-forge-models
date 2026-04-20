@@ -2,11 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-React Native ExecuTorch Whisper small speech recognition model loader implementation.
+React Native ExecuTorch Whisper speech recognition model loader implementation.
 
-Note: The original model (software-mansion/react-native-executorch-whisper-small) is in
+Note: The original models (software-mansion/react-native-executorch-whisper-*) are in
 ExecuTorch .pte format intended for mobile inference. Since ExecuTorch format is not
-compatible with PyTorch, this loader uses the base model (openai/whisper-small) via
+compatible with PyTorch, this loader uses the base models (openai/whisper-*) via
 WhisperForConditionalGeneration.
 """
 
@@ -35,14 +35,18 @@ class ModelVariant(StrEnum):
     """Available React Native ExecuTorch Whisper model variants."""
 
     WHISPER_SMALL = "Small"
+    WHISPER_TINY = "Tiny"
 
 
 class ModelLoader(ForgeModel):
-    """React Native ExecuTorch Whisper small speech recognition model loader implementation."""
+    """React Native ExecuTorch Whisper speech recognition model loader implementation."""
 
     _VARIANTS = {
         ModelVariant.WHISPER_SMALL: ModelConfig(
             pretrained_model_name="openai/whisper-small",
+        ),
+        ModelVariant.WHISPER_TINY: ModelConfig(
+            pretrained_model_name="openai/whisper-tiny",
         ),
     }
 
