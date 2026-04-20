@@ -24,19 +24,19 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Data2VecAudio PyTorch speech recognition model variants."""
 
-    LARGE_960H = "Large_960h"
+    BASE_960H = "Base_960h"
 
 
 class ModelLoader(ForgeModel):
     """Data2VecAudio model loader implementation for speech recognition (PyTorch)."""
 
     _VARIANTS = {
-        ModelVariant.LARGE_960H: ModelConfig(
-            pretrained_model_name="facebook/data2vec-audio-large-960h",
+        ModelVariant.BASE_960H: ModelConfig(
+            pretrained_model_name="facebook/data2vec-audio-base-960h",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.LARGE_960H
+    DEFAULT_VARIANT = ModelVariant.BASE_960H
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
