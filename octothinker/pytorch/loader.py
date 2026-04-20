@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available OctoThinker model variants."""
 
     OCTOTHINKER_8B_HYBRID_BASE = "8B_Hybrid_Base"
+    OCTOTHINKER_3B_HYBRID_BASE = "3B_Hybrid_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OCTOTHINKER_8B_HYBRID_BASE: ModelConfig(
             pretrained_model_name="OctoThinker/OctoThinker-8B-Hybrid-Base",
+        ),
+        ModelVariant.OCTOTHINKER_3B_HYBRID_BASE: ModelConfig(
+            pretrained_model_name="OctoThinker/OctoThinker-3B-Hybrid-Base",
         ),
     }
 
