@@ -33,6 +33,7 @@ class RepViTConfig(ModelConfig):
 class ModelVariant(StrEnum):
     """Available RepViT model variants."""
 
+    REPVIT_M0_9_DIST_300E_IN1K = "M0_9.dist_300e_in1k"
     REPVIT_M1_5_DIST_450E_IN1K = "M1_5.dist_450e_in1k"
 
 
@@ -41,6 +42,10 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
+        ModelVariant.REPVIT_M0_9_DIST_300E_IN1K: RepViTConfig(
+            pretrained_model_name="repvit_m0_9.dist_300e_in1k",
+            source=ModelSource.TIMM,
+        ),
         ModelVariant.REPVIT_M1_5_DIST_450E_IN1K: RepViTConfig(
             pretrained_model_name="repvit_m1_5.dist_450e_in1k",
             source=ModelSource.TIMM,
