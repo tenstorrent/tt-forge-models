@@ -22,22 +22,22 @@ from third_party.tt_forge_models.config import (
 class ModelVariant(StrEnum):
     """Available pysentimiento model variants for emotion analysis."""
 
-    BERT_PT_EMOTION = "pysentimiento_Bert_Pt_Emotion"
+    BERT_IT_EMOTION = "pysentimiento_Bert_It_Emotion"
 
 
 class ModelLoader(ForgeModel):
     """pysentimiento model loader implementation for emotion analysis."""
 
     _VARIANTS = {
-        ModelVariant.BERT_PT_EMOTION: LLMModelConfig(
-            pretrained_model_name="pysentimiento/bert-pt-emotion",
+        ModelVariant.BERT_IT_EMOTION: LLMModelConfig(
+            pretrained_model_name="pysentimiento/bert-it-emotion",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.BERT_PT_EMOTION
+    DEFAULT_VARIANT = ModelVariant.BERT_IT_EMOTION
 
-    sample_text = "Estou muito feliz com os resultados, isso é incrível!"
+    sample_text = "Sono molto felice oggi, è stata una giornata fantastica!"
 
     def __init__(self, variant=None):
         super().__init__(variant)
