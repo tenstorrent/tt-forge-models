@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Affine model variants for causal language modeling."""
 
     AFFINE_SD32 = "SD32"
+    AFFINE_VERA6_5GBD8W5 = "vera6-5GbD8w5"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.AFFINE_SD32: LLMModelConfig(
             pretrained_model_name="hO61qjpwxu/Affine-20260227-sd32-5H4PmD8ZRB8Bqck9KmmCg9weowf6ZKJaxFNs8Y2TR3q6HgkZ",
+            max_length=128,
+        ),
+        ModelVariant.AFFINE_VERA6_5GBD8W5: LLMModelConfig(
+            pretrained_model_name="vera6/affine-5GbD8w5wk1mUAeYr6vbPtC4E7ihsgv6gfEt3K3C6C3BZwyig",
             max_length=128,
         ),
     }
