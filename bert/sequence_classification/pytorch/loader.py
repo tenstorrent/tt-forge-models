@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
     SBCBI_SENTIMENT_ANALYSIS_MODEL = "sbcBI_Sentiment_Analysis_Model"
+    YUCHUANTIAN_AIGC_DETECTOR_ZHV3SHORT = "yuchuantian_AIGC_Detector_ZHv3Short"
 
 
 class ModelLoader(ForgeModel):
@@ -70,6 +71,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="sbcBI/sentiment_analysis_model",
             max_length=128,
         ),
+        ModelVariant.YUCHUANTIAN_AIGC_DETECTOR_ZHV3SHORT: LLMModelConfig(
+            pretrained_model_name="yuchuantian/AIGC_detector_zhv3short",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -96,6 +101,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
         ModelVariant.SBCBI_SENTIMENT_ANALYSIS_MODEL: "I absolutely loved this film, it was a wonderful experience!",
+        ModelVariant.YUCHUANTIAN_AIGC_DETECTOR_ZHV3SHORT: "人工智能正在改变世界，推动各行各业的创新与发展。",
     }
 
     def __init__(self, variant=None):
@@ -135,6 +141,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
             ModelVariant.SBCBI_SENTIMENT_ANALYSIS_MODEL,
+            ModelVariant.YUCHUANTIAN_AIGC_DETECTOR_ZHV3SHORT,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
