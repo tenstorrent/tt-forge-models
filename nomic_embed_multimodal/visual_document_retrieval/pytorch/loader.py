@@ -47,6 +47,8 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
             model="Nomic Embed Multimodal",
             variant=variant,
