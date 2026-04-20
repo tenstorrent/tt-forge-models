@@ -69,6 +69,10 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from .src.model_utils import register_sam_opt
+
+        register_sam_opt()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
