@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
                 },
                 {
                     "type": "text",
-                    "text": "cute chibi anime cartoon fox, smiling wagging tail",
+                    "text": "A woman and a dog playing on the beach.",
                 },
             ],
         }
