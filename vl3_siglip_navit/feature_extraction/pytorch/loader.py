@@ -71,12 +71,29 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_video_input():
+        """Patch transformers.image_utils to add VideoInput for compat with remote code."""
+        import transformers.image_utils as image_utils
+
+        if not hasattr(image_utils, "VideoInput"):
+            from typing import List, Union
+
+            image_utils.VideoInput = Union[
+                List["PIL.Image.Image"],
+                "np.ndarray",
+                "torch.Tensor",
+                List["np.ndarray"],
+                List["torch.Tensor"],
+            ]
+
     def _load_processor(self):
         """Load image processor for the current variant.
 
         Returns:
             The loaded processor instance
         """
+        self._patch_video_input()
         from transformers import AutoImageProcessor
 
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -124,7 +141,7 @@ class ModelLoader(ForgeModel):
         dataset = load_dataset("huggingface/cats-image")["test"]
         image = dataset[0]["image"]
 
-        inputs = self.processor(images=image, return_tensors="pt")
+        inputs = self.processor(images=image, return_tensors="pt", merge_size=1)
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
