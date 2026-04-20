@@ -171,11 +171,13 @@ class ModelLoader(ForgeModel):
         width_latent = 2 * (int(width) // (self.pipe.vae_scale_factor * 2))
         seq_len = (height_latent // 2) * (width_latent // 2)
 
+        # FLUX packs 2x2 spatial patches, so the channel dim is
+        # num_channels_latents * 4, matching the transformer's in_channels.
         num_channels_latents = self.pipe.transformer.config.in_channels // 4
         latents = torch.randn(
             batch_size * num_images_per_prompt,
             seq_len,
-            num_channels_latents,
+            num_channels_latents * 4,
             dtype=dtype,
         )
 
