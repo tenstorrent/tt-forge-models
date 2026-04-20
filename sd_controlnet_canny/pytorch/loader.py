@@ -100,10 +100,10 @@ class ModelLoader(ForgeModel):
             mid_block_additional_residual,
         ) = controlnet_canny_preprocessing(self.pipeline, self.prompt, control_image)
 
-        return [
-            latent_model_input,
-            timesteps[0],
-            prompt_embeds,
-            down_block_additional_residuals,
-            mid_block_additional_residual,
-        ]
+        return {
+            "sample": latent_model_input,
+            "timestep": timesteps[0],
+            "encoder_hidden_states": prompt_embeds,
+            "down_block_additional_residuals": down_block_additional_residuals,
+            "mid_block_additional_residual": mid_block_additional_residual,
+        }
