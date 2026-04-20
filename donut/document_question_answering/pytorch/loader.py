@@ -4,7 +4,7 @@
 """
 Donut model loader implementation for document question answering tasks.
 """
-from huggingface_hub import hf_hub_download
+from datasets import load_dataset
 from PIL import Image
 from transformers import DonutProcessor, VisionEncoderDecoderModel
 from typing import Optional
@@ -85,12 +85,8 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        filepath = hf_hub_download(
-            repo_id="hf-internal-testing/fixtures_docvqa",
-            filename="nougat_paper.png",
-            repo_type="dataset",
-        )
-        image = Image.open(filepath)
+        ds = load_dataset("hf-internal-testing/fixtures_docvqa", split="test")
+        image = ds[0]["image"].convert("RGB")
 
         task_prompt = "<s_docvqa><s_question>{user_input}</s_question><s_answer>"
         question = "What is the title of this paper?"
