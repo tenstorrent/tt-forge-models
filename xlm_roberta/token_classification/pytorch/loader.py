@@ -26,11 +26,13 @@ class ModelVariant(StrEnum):
 
     CRYPTO_NER = "CryptoNER"
     SPANISH_NER = "SpanishNER"
+    WIKIANN_NER = "WikiANN-NER"
 
 
 _VARIANT_SAMPLE_TEXTS = {
     ModelVariant.CRYPTO_NER: "I bought mass Ethereum and mass Bitcoin on Uniswap yesterday",
     ModelVariant.SPANISH_NER: "Mi nombre es Carlos y vivo en Madrid, trabajo para Google",
+    ModelVariant.WIKIANN_NER: "Nader Jokhadar had given Syria the lead with a well-struck header in the seventh minute.",
 }
 
 
@@ -43,6 +45,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.SPANISH_NER: ModelConfig(
             pretrained_model_name="MMG/xlm-roberta-large-ner-spanish",
+        ),
+        ModelVariant.WIKIANN_NER: ModelConfig(
+            pretrained_model_name="Davlan/xlm-roberta-base-wikiann-ner",
         ),
     }
 
