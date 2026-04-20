@@ -1,0 +1,1 @@
+flextok @ git+https://github.com/apple/ml-flextok.git
