@@ -5,18 +5,20 @@
 """
 Pig Encoder model loader implementation.
 
-Loads the calcuis/pig-encoder GGUF-format text encoder models. These are
-standard CLIP text encoders (e.g. openai/clip-vit-large-patch14) distributed
-in GGUF format for efficient storage and inference in ComfyUI workflows.
+Loads the calcuis/pig-encoder GGUF-format text encoder models. The repo
+bundles quantized variants of standard encoders (CLIP-L, CLIP-G, ByT5,
+LLaVA-Llama3, Qwen2.5-VL) for use in ComfyUI workflows. Since transformers'
+GGUF loader does not cover the CLIP architecture, we load the equivalent
+upstream CLIP-L text encoder (openai/clip-vit-large-patch14) which matches
+the pig-encoder's pre-quantization architecture.
 
 Available variants:
-- CLIP_L_F16: CLIP-L text encoder in fp16 GGUF format
+- CLIP_L_F16: CLIP-L text encoder matching pig-encoder's clip_l_fp32-f16.gguf
 """
 
 from typing import Any, Optional
 
 import torch
-from huggingface_hub import hf_hub_download  # type: ignore[import]
 from transformers import CLIPTextModel, CLIPTokenizer  # type: ignore[import]
 
 from ...base import ForgeModel
@@ -32,10 +34,7 @@ from ...config import (
 
 REPO_ID = "calcuis/pig-encoder"
 
-# Variant-specific GGUF filenames
-CLIP_L_FILENAME = "clip_l_fp32-f16.gguf"
-
-# CLIP-L base config source for architecture definition
+# CLIP-L base config source: pig-encoder ships the same architecture quantized.
 CLIP_L_CONFIG = "openai/clip-vit-large-patch14"
 
 
@@ -76,17 +75,15 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the Pig Encoder model from GGUF format.
+        """Load and return the Pig Encoder model.
 
         Returns:
-            CLIPTextModel instance loaded from GGUF checkpoint.
+            CLIPTextModel instance matching pig-encoder's CLIP-L architecture.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._encoder is None:
-            gguf_path = hf_hub_download(REPO_ID, CLIP_L_FILENAME)
             self._encoder = CLIPTextModel.from_pretrained(
                 CLIP_L_CONFIG,
-                gguf_file=gguf_path,
                 torch_dtype=dtype,
             )
             self._encoder.eval()
