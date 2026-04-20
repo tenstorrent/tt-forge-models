@@ -37,6 +37,7 @@ class ModelVariant(StrEnum):
     """Available Xception model variants."""
 
     XCEPTION41 = "41"
+    XCEPTION41_TF_IN1K = "41.tf_In1k"
     XCEPTION65 = "65"
     XCEPTION71 = "71"
     XCEPTION71_TF_IN1K = "71.tf_In1k"
@@ -49,6 +50,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.XCEPTION41: XceptionConfig(
             pretrained_model_name="xception41",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.XCEPTION41_TF_IN1K: XceptionConfig(
+            pretrained_model_name="xception41.tf_in1k",
             source=ModelSource.TIMM,
         ),
         ModelVariant.XCEPTION65: XceptionConfig(
