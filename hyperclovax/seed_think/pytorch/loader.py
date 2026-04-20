@@ -33,6 +33,7 @@ if "default" not in _ROPE_INIT_FUNCTIONS:
     _ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
 
 from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers.modeling_outputs import BaseModelOutputWithPooling
 from PIL import Image
 from typing import Optional
 from ....tools.utils import get_file, cast_input_to_type
@@ -107,6 +108,19 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+
+        vision_model = getattr(getattr(model, "model", None), "vision_model", None)
+        if vision_model is not None:
+            orig_forward = vision_model.forward
+
+            def _unwrap_forward(*args, **kwargs):
+                out = orig_forward(*args, **kwargs)
+                if isinstance(out, BaseModelOutputWithPooling):
+                    return out.last_hidden_state
+                return out
+
+            vision_model.forward = _unwrap_forward
+
         self.model = model
 
         return model
