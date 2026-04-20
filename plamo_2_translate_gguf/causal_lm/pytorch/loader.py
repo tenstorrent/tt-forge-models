@@ -15,6 +15,10 @@ except ModuleNotFoundError:
 
     causal_conv1d_shim.install_shim()
 
+from . import mamba_ssm_shim
+
+mamba_ssm_shim.install_shim()
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
