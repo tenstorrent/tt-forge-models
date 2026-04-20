@@ -58,7 +58,10 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
+        config.use_flash_attn = False
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
