@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available EmbeddingGemma model variants."""
 
     EMBEDDINGGEMMA_300M = "300M"
+    EMBEDDINGGEMMA_300M_QAT_Q4_0_UNQUANTIZED = "300M_qat_q4_0_unquantized"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.EMBEDDINGGEMMA_300M: ModelConfig(
             pretrained_model_name="unsloth/embeddinggemma-300m",
+        ),
+        ModelVariant.EMBEDDINGGEMMA_300M_QAT_Q4_0_UNQUANTIZED: ModelConfig(
+            pretrained_model_name="google/embeddinggemma-300m-qat-q4_0-unquantized",
         ),
     }
 
