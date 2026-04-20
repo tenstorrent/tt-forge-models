@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3 EAGLE3 model variants for causal language modeling."""
 
     QWEN3_8B_EAGLE3 = "Qwen3_8B_Eagle3"
+    QWEN3_4B_EAGLE3_ANGELSLIM = "Qwen3_4B_Eagle3_AngelSlim"
 
 
 class ModelLoader(ForgeModel):
@@ -31,6 +32,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN3_8B_EAGLE3: LLMModelConfig(
             pretrained_model_name="Tengyunw/qwen3_8b_eagle3",
+            max_length=128,
+        ),
+        ModelVariant.QWEN3_4B_EAGLE3_ANGELSLIM: LLMModelConfig(
+            pretrained_model_name="AngelSlim/Qwen3-4B_eagle3",
             max_length=128,
         ),
     }
