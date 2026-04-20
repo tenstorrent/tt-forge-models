@@ -7,16 +7,17 @@ Wan 2.2 I2V Lightning model loader implementation.
 
 Loads the magespace/Wan2.2-I2V-A14B-Lightning-Diffusers pipeline, a distilled
 variant of Wan 2.2 I2V optimized for fast inference with fewer denoising steps.
+The transformer (WanTransformer3DModel) is extracted from the pipeline and
+returned as the testable nn.Module.
 
 Available variants:
 - WAN22_I2V_A14B_LIGHTNING: Wan 2.2 Image-to-Video A14B Lightning
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import torch
-from diffusers import WanImageToVideoPipeline  # type: ignore[import]
-from PIL import Image  # type: ignore[import]
+from diffusers import AutoencoderKLWan, WanImageToVideoPipeline  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -28,6 +29,13 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+REPO_ID = "magespace/Wan2.2-I2V-A14B-Lightning-Diffusers"
+
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -41,7 +49,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.WAN22_I2V_A14B_LIGHTNING: ModelConfig(
-            pretrained_model_name="magespace/Wan2.2-I2V-A14B-Lightning-Diffusers",
+            pretrained_model_name=REPO_ID,
         ),
     }
     DEFAULT_VARIANT = ModelVariant.WAN22_I2V_A14B_LIGHTNING
@@ -69,36 +77,49 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Wan 2.2 I2V Lightning pipeline.
+        """Load the Wan 2.2 I2V Lightning pipeline and return the transformer.
 
         Returns:
-            WanImageToVideoPipeline ready for inference.
+            WanTransformer3DModel extracted from the pipeline.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
+        vae = AutoencoderKLWan.from_pretrained(
+            REPO_ID,
+            subfolder="vae",
+            torch_dtype=torch.float32,
+        )
         self.pipeline = WanImageToVideoPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            REPO_ID,
+            vae=vae,
             torch_dtype=dtype,
         )
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for image-to-video generation.
+        """Prepare synthetic tensor inputs for the WanTransformer3DModel forward pass.
 
         Returns:
-            dict with prompt and image keys.
+            dict with tensor inputs suitable for WanTransformer3DModel.
         """
-        if prompt is None:
-            prompt = (
-                "A cat walking gracefully across a sunlit garden, "
-                "detailed fur texture, cinematic lighting"
-            )
-
-        # Create a small test image (RGB)
-        image = Image.new("RGB", (256, 256), color=(128, 128, 200))
-
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        config = self.pipeline.transformer.config
         return {
-            "prompt": prompt,
-            "image": image,
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }
