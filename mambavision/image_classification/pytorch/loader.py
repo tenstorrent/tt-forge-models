@@ -4,7 +4,6 @@
 """
 MambaVision model loader implementation for image classification.
 """
-import torch
 from transformers import AutoModelForImageClassification
 from timm.data.transforms_factory import create_transform
 from datasets import load_dataset
