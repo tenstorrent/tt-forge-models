@@ -123,3 +123,7 @@ results:
   status: "MAX_FAILED_ATTEMPTS"
   date: "20260420_022704"
   branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-1500-250-3"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[voxtral_mini_3b_2507_gguf/causal_lm/pytorch-3B_2507_GGUF-single_device-inference]"
+  status: "MAX_FAILED_ATTEMPTS"
+  date: "20260420_024016"
+  branch: "aus-wh-07-tt-xla-dev/nsmith/hf-bringup-range-1500-250-3"
