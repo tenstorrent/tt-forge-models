@@ -23,6 +23,13 @@ class ModelVariant(StrEnum):
 
     BASE_DISCRIMINATOR = "Base_Discriminator"
     LARGE_DISCRIMINATOR = "Large_Discriminator"
+    CHINESE_180G_SMALL_EX_DISCRIMINATOR = "Chinese_180G_Small_Ex_Discriminator"
+
+
+_VARIANT_SAMPLE_TEXTS = {
+    ModelVariant.CHINESE_180G_SMALL_EX_DISCRIMINATOR: "敏捷的棕色狐狸跳过懒狗",
+}
+_DEFAULT_SAMPLE_TEXT = "The quick brown fox jumps over the lazy dog"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +44,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="google/electra-large-discriminator",
             max_length=128,
         ),
+        ModelVariant.CHINESE_180G_SMALL_EX_DISCRIMINATOR: LLMModelConfig(
+            pretrained_model_name="hfl/chinese-electra-180g-small-ex-discriminator",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BASE_DISCRIMINATOR
@@ -45,6 +56,9 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.model_name = self._variant_config.pretrained_model_name
         self.max_length = self._variant_config.max_length
+        self.sample_text = _VARIANT_SAMPLE_TEXTS.get(
+            self._variant, _DEFAULT_SAMPLE_TEXT
+        )
         self.tokenizer = None
         self.model = None
 
@@ -79,9 +93,8 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self.load_model(dtype_override=dtype_override)
 
-        sentence = "The quick brown fox jumps over the lazy dog"
         inputs = self.tokenizer(
-            sentence,
+            self.sample_text,
             max_length=self.max_length,
             padding="max_length",
             truncation=True,
@@ -95,10 +108,7 @@ class ModelLoader(ForgeModel):
 
         predictions = torch.round((torch.sign(co_out[0]) + 1) / 2)
         tokens = self.tokenizer.convert_ids_to_tokens(
-            self.tokenizer(
-                "The quick brown fox jumps over the lazy dog",
-                return_tensors="pt",
-            )["input_ids"][0]
+            self.tokenizer(self.sample_text, return_tensors="pt")["input_ids"][0]
         )
         for token, pred in zip(tokens, predictions[0].int().tolist()):
             label = "fake" if pred == 1 else "real"
