@@ -96,9 +96,7 @@ class ModelLoader(ForgeModel):
         repo_id = self._variant_config.pretrained_model_name
         model = AsymmetricCroCo3DStereo.from_pretrained(repo_id)
         model.eval()
-
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        model = model.to(dtype_override or torch.float32)
 
         return model
 
