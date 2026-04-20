@@ -79,10 +79,34 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _load_checkpoint(model, ckpt_path, device="cpu", use_ema=True):
+        from safetensors.torch import load_file
+
+        checkpoint = load_file(ckpt_path, device=device)
+        if use_ema:
+            checkpoint = {"ema_model_state_dict": checkpoint}
+            checkpoint["model_state_dict"] = {
+                k.replace("ema_model.", ""): v
+                for k, v in checkpoint["ema_model_state_dict"].items()
+                if k not in ["initted", "step"]
+            }
+            for key in [
+                "mel_spec.mel_stft.mel_scale.fb",
+                "mel_spec.mel_stft.spectrogram.window",
+            ]:
+                if key in checkpoint["model_state_dict"]:
+                    del checkpoint["model_state_dict"][key]
+            model.load_state_dict(checkpoint["model_state_dict"])
+        else:
+            checkpoint = {"model_state_dict": checkpoint}
+            model.load_state_dict(checkpoint["model_state_dict"])
+        del checkpoint
+        return model.to(device)
+
     def load_model(self, *, dtype_override=None, **kwargs):
         from f5_tts.model import CFM, DiT
         from f5_tts.model.utils import get_tokenizer
-        from f5_tts.infer.utils_infer import load_checkpoint
 
         repo_id = self._variant_config.pretrained_model_name
 
@@ -115,7 +139,7 @@ class ModelLoader(ForgeModel):
             repo_id=repo_id,
             filename="model_1200000.safetensors",
         )
-        model = load_checkpoint(model, ckpt_path, device="cpu", use_ema=True)
+        model = self._load_checkpoint(model, ckpt_path, device="cpu", use_ema=True)
 
         wrapper = F5DiTWrapper(model.transformer)
         wrapper.eval()
