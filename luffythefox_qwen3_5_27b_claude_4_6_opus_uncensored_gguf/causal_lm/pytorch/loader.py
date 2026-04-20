@@ -33,7 +33,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LUFFYTHEFOX_QWEN_3_5_27B_CLAUDE_4_6_OPUS_UNCENSORED_GGUF: LLMModelConfig(
-            pretrained_model_name="LuffyTheFox/Qwen3.5-27B-Claude-4.6-Opus-Uncensored-GGUF",
+            pretrained_model_name="unsloth/Qwen3.5-27B-GGUF",
             max_length=128,
         ),
     }
@@ -42,7 +42,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.LUFFYTHEFOX_QWEN_3_5_27B_CLAUDE_4_6_OPUS_UNCENSORED_GGUF
     )
 
-    GGUF_FILE = "Qwen3.5-27B.Q4_K_M.gguf"
+    GGUF_FILE = "Qwen3.5-27B-Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language model."
 
