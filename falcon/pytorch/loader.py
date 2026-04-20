@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     FALCON_7B = "3_7B_Base"
     FALCON_10B = "3_10B_Base"
     FALCON_MAMBA_7B = "3_Mamba_7B_Base"
+    FALCON_11B = "11B"
     FALCON_40B = "40B"
     FALCON_7B_INSTRUCT = "7B_Instruct"
     FALCON_7B_INSTRUCT_SHARDED = "7B_Instruct_Sharded"
@@ -62,6 +63,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.FALCON_MAMBA_7B: ModelConfig(
             pretrained_model_name="tiiuae/Falcon3-Mamba-7B-Base",
         ),
+        ModelVariant.FALCON_11B: ModelConfig(
+            pretrained_model_name="tiiuae/falcon-11B",
+        ),
         ModelVariant.FALCON_40B: ModelConfig(
             pretrained_model_name="tiiuae/falcon-40b",
         ),
@@ -88,7 +92,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
 
-        if variant == ModelVariant.FALCON_40B:
+        if variant in (ModelVariant.FALCON_11B, ModelVariant.FALCON_40B):
             group = ModelGroup.VULCAN
         elif variant in [
             ModelVariant.FALCON_1B,
