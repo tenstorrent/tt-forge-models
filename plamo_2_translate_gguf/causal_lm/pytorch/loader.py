@@ -120,6 +120,7 @@ def _install_mamba_ssm_selective_state_update_shim():
     def selective_state_update_ref(
         state, x, dt, A, B, C, D=None, z=None, dt_bias=None, dt_softplus=False
     ):
+        out_dtype = x.dtype
         if dt_bias is not None:
             dt = dt + dt_bias
         if dt_softplus:
@@ -132,7 +133,7 @@ def _install_mamba_ssm_selective_state_update_shim():
             y = y + D * x
         if z is not None:
             y = y * F.silu(z)
-        return y
+        return y.to(out_dtype)
 
     mod.selective_state_update_ref = selective_state_update_ref
     if not hasattr(mod, "selective_state_update"):
