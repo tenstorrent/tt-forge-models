@@ -29,7 +29,6 @@ class ModelVariant(StrEnum):
 
     HIERA_TINY = "Hiera_Tiny"
     HIERA_SMALL = "Hiera_Small"
-    HIERA_BASE_PLUS = "Hiera_Base_Plus"
     HIERA_LARGE = "Hiera_Large"
     HIERA_BASE_PLUS = "Hiera_Base_Plus"
 
@@ -42,10 +41,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="facebook/sam2.1-hiera-tiny",
         ),
         ModelVariant.HIERA_SMALL: ModelConfig(
-            pretrained_model_name="facebook/sam2.1-hiera-small",
-        ),
-        ModelVariant.HIERA_BASE_PLUS: ModelConfig(
-            pretrained_model_name="facebook/sam2-hiera-base-plus",
+            pretrained_model_name="facebook/sam2-hiera-small",
         ),
         ModelVariant.HIERA_LARGE: ModelConfig(
             pretrained_model_name="facebook/sam2.1-hiera-large",
