@@ -2,31 +2,33 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-SteveTran/ob_ner_model loader implementation for token classification (NER) task.
+SteveTran ob_ner_model ELECTRA model loader implementation for token classification (NER) task.
 """
 
 import torch
+from typing import Optional
 from transformers import AutoModelForTokenClassification, AutoTokenizer
-from third_party.tt_forge_models.config import (
+
+from ....config import (
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
-    StrEnum,
     LLMModelConfig,
+    StrEnum,
 )
-from third_party.tt_forge_models.base import ForgeModel
+from ....base import ForgeModel
 
 
 class ModelVariant(StrEnum):
-    """Available SteveTran/ob_ner_model token classification variants."""
+    """Available ob_ner_model variants."""
 
     OB_NER_MODEL = "ob_ner_model"
 
 
 class ModelLoader(ForgeModel):
-    """SteveTran/ob_ner_model loader for token classification (NER) task."""
+    """SteveTran ob_ner_model loader implementation for token classification (NER) task."""
 
     _VARIANTS = {
         ModelVariant.OB_NER_MODEL: LLMModelConfig(
@@ -37,20 +39,16 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.OB_NER_MODEL
 
-    def __init__(self, variant=None):
+    def __init__(self, variant: Optional[ModelVariant] = None):
+        """Initialize ModelLoader with specified variant."""
         super().__init__(variant)
         self.model_name = self._variant_config.pretrained_model_name
-        self.sample_text = (
-            "Nike men's black leather jacket size medium in classic style."
-        )
         self.max_length = self._variant_config.max_length
+        self.sample_text = "Red Nike cotton t-shirt for men in size large."
         self.tokenizer = None
-        self.model = None
 
     @classmethod
-    def _get_model_info(cls, variant=None):
-        if variant is None:
-            variant = cls.DEFAULT_VARIANT
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
             model="ob_ner_model",
             variant=variant,
@@ -61,6 +59,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        """Load the ob_ner_model ELECTRA token classification model."""
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         model_kwargs = {}
@@ -76,6 +75,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
+        """Prepare sample input for token classification."""
         if self.tokenizer is None:
             self.load_model(dtype_override=dtype_override)
 
@@ -90,6 +90,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def decode_output(self, co_out):
+        """Decode the model output for token classification."""
         inputs = self.load_inputs()
         predicted_token_class_ids = co_out[0].argmax(-1)
         predicted_token_class_ids = torch.masked_select(
