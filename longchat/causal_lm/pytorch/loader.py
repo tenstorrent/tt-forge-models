@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available LongChat model variants."""
 
     LONGCHAT_13B_16K = "13B-16K"
+    LONGCHAT_7B_V1_5_32K = "7B-v1.5-32K"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LONGCHAT_13B_16K: LLMModelConfig(
             pretrained_model_name="lmsys/longchat-13b-16k",
+            max_length=256,
+        ),
+        ModelVariant.LONGCHAT_7B_V1_5_32K: LLMModelConfig(
+            pretrained_model_name="lmsys/longchat-7b-v1.5-32k",
             max_length=256,
         ),
     }
