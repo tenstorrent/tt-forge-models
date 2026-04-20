@@ -67,6 +67,20 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+        if self.tokenizer.chat_template is None:
+            self.tokenizer.chat_template = (
+                "{% for message in messages %}"
+                "{% if loop.first and messages[0]['role'] != 'system' %}"
+                "{{ '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n' }}"
+                "{% endif %}"
+                "{{ '<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n' }}"
+                "{% endfor %}"
+                "{% if add_generation_prompt %}"
+                "{{ '<|im_start|>assistant\n' }}"
+                "{% endif %}"
+            )
 
         return self.tokenizer
 
