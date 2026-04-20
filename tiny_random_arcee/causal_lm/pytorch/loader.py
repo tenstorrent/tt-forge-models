@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Tiny Random Arcee model variants."""
 
     TINY_RANDOM_ARCEE = "Tiny_Random"
+    TINY_RANDOM_ARCEE_ONNX = "Tiny_Random_ONNX"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINY_RANDOM_ARCEE: LLMModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/tiny-random-ArceeForCausalLM",
+            max_length=128,
+        ),
+        ModelVariant.TINY_RANDOM_ARCEE_ONNX: LLMModelConfig(
+            pretrained_model_name="onnx-internal-testing/tiny-random-ArceeForCausalLM",
             max_length=128,
         ),
     }
