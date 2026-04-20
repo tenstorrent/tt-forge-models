@@ -40,7 +40,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "LiquidAI_LFM2-2.6B-Exp-Q4_K_M.gguf"
 
-    sample_text = "What are the key differences between classical and quantum computing?"
+    sample_text = (
+        "What are the key differences between classical and quantum computing?"
+    )
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
