@@ -5,7 +5,7 @@
 smoothMixWan22 I2V GGUF model loader implementation.
 
 Loads GGUF-quantized Wan 2.2 image-to-video diffusion transformer variants from
-Bedovyy/smoothMixWan22-I2V-GGUF. Uses the upstream Wan-AI/Wan2.1-I2V-14B-480P-Diffusers
+Bedovyy/smoothMixWan22-I2V-GGUF. Uses the upstream Wan-AI/Wan2.2-I2V-A14B-Diffusers
 config for model construction.
 
 Available variants:
@@ -16,7 +16,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import WanTransformer3DModel
+from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -31,7 +31,7 @@ from ...config import (
 )
 
 REPO_ID = "Bedovyy/smoothMixWan22-I2V-GGUF"
-CONFIG_REPO = "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers"
+CONFIG_REPO = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
 
 _GGUF_FILES = {
     "HIGH_NOISE_Q4_K_M": "HighNoise/smoothMixWan22I2VT2V_i2vHigh-Q4_K_M.gguf",
@@ -94,10 +94,13 @@ class ModelLoader(ForgeModel):
             filename=_GGUF_FILES[quant_key],
         )
 
+        quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
+
         self._transformer = WanTransformer3DModel.from_single_file(
             model_path,
             config=CONFIG_REPO,
             subfolder="transformer",
+            quantization_config=quantization_config,
             torch_dtype=dtype,
         )
         self._transformer.eval()
