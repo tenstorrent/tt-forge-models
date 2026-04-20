@@ -8,6 +8,19 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+from transformers.integrations.ggml import GGUFLlamaConverter
+
+_orig_tokenizer = GGUFLlamaConverter.tokenizer
+
+
+def _fixed_tokenizer(self, proto):
+    if not hasattr(proto, "bos_token_id"):
+        proto.bos_token_id = getattr(proto, "eos_token_id", None)
+    return _orig_tokenizer(self, proto)
+
+
+GGUFLlamaConverter.tokenizer = _fixed_tokenizer
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
