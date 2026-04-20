@@ -21,6 +21,7 @@ class ModelVariant(StrEnum):
     """Available Pi-0.5 model variants."""
 
     LIBERO_BASE = "lerobot_pi05_libero_base"
+    LIBERO_FINETUNED_QUANTILES_V044 = "lerobot_pi05_libero_finetuned_quantiles_v044"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +31,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LIBERO_BASE: ModelConfig(
             pretrained_model_name="lerobot/pi05_libero_base",
+        ),
+        ModelVariant.LIBERO_FINETUNED_QUANTILES_V044: ModelConfig(
+            pretrained_model_name="lerobot/pi05_libero_finetuned_quantiles_v044",
         ),
     }
 
