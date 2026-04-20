@@ -4,6 +4,7 @@
 """
 Gigi-Llama3 model loader implementation for causal language modeling
 """
+
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
@@ -58,13 +59,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {
-            "padding_side": "left",
-        }
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name,
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
@@ -92,6 +88,7 @@ class ModelLoader(ForgeModel):
         for param in model.parameters():
             param.requires_grad = False
 
+        model.eval()
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -100,21 +97,18 @@ class ModelLoader(ForgeModel):
 
         test_input = "This is a sample text from "
 
-        self.tokenizer.padding_side = "right"
         inputs = self.tokenizer(
             test_input,
             return_tensors="pt",
             max_length=32,
-            padding="max_length",
-            add_special_tokens=True,
             truncation=True,
         )
 
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        input_ids = inputs["input_ids"]
+        if batch_size > 1:
+            input_ids = input_ids.repeat_interleave(batch_size, dim=0)
 
-        return inputs
+        return {"input_ids": input_ids}
 
     def decode_output(self, outputs, dtype_override=None):
         if self.tokenizer is None:
