@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available ColQwen2.5 model variants."""
 
     V0_2 = "v0.2"
+    TSYSTEMS_3B_BASE = "tsystems-colqwen2.5-3b-base"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.V0_2: ModelConfig(
             pretrained_model_name="vidore/colqwen2.5-v0.2",
+        ),
+        ModelVariant.TSYSTEMS_3B_BASE: ModelConfig(
+            pretrained_model_name="tsystems/colqwen2.5-3b-base",
         ),
     }
 
