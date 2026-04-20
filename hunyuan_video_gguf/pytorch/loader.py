@@ -100,11 +100,12 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         config = self.transformer.config
 
-        # HunyuanVideo transformer dimensions (720p latent = 720/8 x 1280/8)
+        # HunyuanVideo transformer dimensions. Use latent sizes for a
+        # sub-720p frame to keep synthetic inputs compact for compile tests.
         num_channels = config.in_channels
         num_frames = 9
-        height = 90
-        width = 160
+        height = 60
+        width = 104
         seq_len = 256
 
         # Latent video tensor: [batch, channels, frames, height, width]
