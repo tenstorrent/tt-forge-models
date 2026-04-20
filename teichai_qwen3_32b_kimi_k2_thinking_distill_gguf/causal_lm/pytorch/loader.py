@@ -39,7 +39,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.QWEN_3_32B_KIMI_K2_THINKING_DISTILL_GGUF
 
     _GGUF_FILES = {
-        ModelVariant.QWEN_3_32B_KIMI_K2_THINKING_DISTILL_GGUF: "Qwen3-32B-Kimi-K2-Thinking-Distill-Q4_K_M.gguf",
+        ModelVariant.QWEN_3_32B_KIMI_K2_THINKING_DISTILL_GGUF: "Qwen3-32B-Kimi-K2-Thinking-Distill.q4_k_m.gguf",
     }
 
     @property
