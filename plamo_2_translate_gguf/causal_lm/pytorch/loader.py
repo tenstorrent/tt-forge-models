@@ -108,7 +108,40 @@ def _install_causal_conv1d_shim():
     sys.modules["causal_conv1d.causal_conv1d_interface"] = iface
 
 
-_install_causal_conv1d_shim()
+def _install_mamba_ssm_selective_state_update_shim():
+    """Add selective_state_update_ref to the mamba_ssm shim if missing."""
+    mod_name = "mamba_ssm.ops.triton.selective_state_update"
+    mod = sys.modules.get(mod_name)
+    if mod is None:
+        return
+    if hasattr(mod, "selective_state_update_ref"):
+        return
+
+    def selective_state_update_ref(
+        state, x, dt, A, B, C, D=None, z=None, dt_bias=None, dt_softplus=False
+    ):
+        if dt_bias is not None:
+            dt = dt + dt_bias
+        if dt_softplus:
+            dt = F.softplus(dt)
+        dA = torch.exp(dt.unsqueeze(-1) * A)
+        dB = dt.unsqueeze(-1) * B.unsqueeze(-2)
+        state.copy_(state * dA + x.unsqueeze(-1) * dB)
+        y = torch.sum(state * C.unsqueeze(-2), dim=-1)
+        if D is not None:
+            y = y + D * x
+        if z is not None:
+            y = y * F.silu(z)
+        return y
+
+    mod.selective_state_update_ref = selective_state_update_ref
+    if not hasattr(mod, "selective_state_update"):
+        mod.selective_state_update = selective_state_update_ref
+
+
+def _install_all_shims():
+    _install_causal_conv1d_shim()
+    _install_mamba_ssm_selective_state_update_shim()
 
 
 class ModelVariant(StrEnum):
@@ -162,6 +195,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _install_all_shims()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -225,6 +259,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _install_all_shims()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
