@@ -64,6 +64,7 @@ class ModelLoader(ForgeModel):
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
+            use_fast=False,
         )
         return self.processor
 
