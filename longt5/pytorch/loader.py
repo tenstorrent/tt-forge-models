@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available LongT5 model variants."""
 
     TINY = "Tiny"
+    GOOGLE_LONG_T5_TGLOBAL_LARGE = "google/long-t5-tglobal-large"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINY: LLMModelConfig(
             pretrained_model_name="fxmarty/tiny-random-working-LongT5Model",
+            max_length=512,
+        ),
+        ModelVariant.GOOGLE_LONG_T5_TGLOBAL_LARGE: LLMModelConfig(
+            pretrained_model_name="google/long-t5-tglobal-large",
             max_length=512,
         ),
     }
