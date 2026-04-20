@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-echarlaix/tiny-random-t5 PyTorch model implementation.
+tiny-random-t5 PyTorch model implementation.
 """
 from .loader import ModelLoader, ModelVariant

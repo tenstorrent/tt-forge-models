@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-echarlaix/tiny-random-t5 model implementation for Tenstorrent projects.
+tiny-random-t5 model implementation for Tenstorrent projects.
 """
 from .pytorch import ModelLoader
