@@ -55,7 +55,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="google/gemma-2b-it",
         ),
         ModelVariant.GEMMA_7B: LLMModelConfig(
-            pretrained_model_name="google/gemma-7b",
+            pretrained_model_name="unsloth/gemma-7b",
             max_length=256,
         ),
         ModelVariant.GEMMA_1_1_2B_IT: LLMModelConfig(
