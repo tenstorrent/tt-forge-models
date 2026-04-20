@@ -1,0 +1,2 @@
+vector-quantize-pytorch
+einops
