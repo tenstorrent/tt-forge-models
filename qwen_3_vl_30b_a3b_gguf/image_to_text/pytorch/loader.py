@@ -27,6 +27,9 @@ class ModelVariant(StrEnum):
     """Available Qwen 3 VL 30B A3B GGUF model variants for image to text."""
 
     QWEN_3_VL_30B_A3B_INSTRUCT_1M_GGUF = "30b_a3b_instruct_1m_gguf"
+    HUIHUI_QWEN_3_VL_30B_A3B_INSTRUCT_ABLITERATED_I1_GGUF = (
+        "huihui_30b_a3b_instruct_abliterated_i1_gguf"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -37,15 +40,27 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/Qwen3-VL-30B-A3B-Instruct-1M-GGUF",
             max_length=128,
         ),
+        ModelVariant.HUIHUI_QWEN_3_VL_30B_A3B_INSTRUCT_ABLITERATED_I1_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Huihui-Qwen3-VL-30B-A3B-Instruct-abliterated-i1-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT_1M_GGUF
 
-    GGUF_FILE = "Qwen3-VL-30B-A3B-Instruct-1M-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT_1M_GGUF: "Qwen3-VL-30B-A3B-Instruct-1M-Q4_K_M.gguf",
+        ModelVariant.HUIHUI_QWEN_3_VL_30B_A3B_INSTRUCT_ABLITERATED_I1_GGUF: "Huihui-Qwen3-VL-30B-A3B-Instruct-abliterated.i1-Q4_K_M.gguf",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+
+    @property
+    def _gguf_file(self):
+        """Get the GGUF filename for the current variant."""
+        return self._GGUF_FILES.get(self._variant)
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -66,7 +81,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self._gguf_file
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
