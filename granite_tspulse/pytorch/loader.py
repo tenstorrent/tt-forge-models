@@ -30,6 +30,26 @@ class ModelVariant(StrEnum):
     R1 = "r1"
 
 
+class TSPulseFloat32Wrapper(torch.nn.Module):
+    """Wraps TSPulse to stay in float32 despite external dtype overrides.
+
+    The TSPulse scaler promotes to float32 when given a bool observed-mask
+    (produced by the internal time_masker), causing dtype mismatches with
+    bfloat16 linear layers under the TT einsum override.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def to(self, *args, **kwargs):
+        return self
+
+    def forward(self, past_values, **kwargs):
+        out = self.model(past_values=past_values.float(), **kwargs)
+        return out
+
+
 class ModelLoader(ForgeModel):
     """Granite TSPulse model loader for time series anomaly detection.
 
@@ -63,36 +83,19 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the Granite TSPulse model for time series anomaly detection.
-
-        Returns:
-            torch.nn.Module: The TSPulse reconstruction model instance.
-        """
         cfg = self._variant_config
 
         from tsfm_public.models.tspulse import TSPulseForReconstruction
 
         model = TSPulseForReconstruction.from_pretrained(cfg.pretrained_model_name)
-
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         model.eval()
 
-        return model
+        return TSPulseFloat32Wrapper(model)
 
     def load_inputs(self, dtype_override=None):
-        """Load sample time series inputs for the model.
-
-        Returns:
-            dict: Input dict with 'past_values' tensor of shape
-                  (batch, context_length, num_channels).
-        """
         cfg = self._variant_config
-        dtype = dtype_override or torch.float32
 
         torch.manual_seed(42)
-        # TSPulse expects (batch, context_length, num_input_channels)
-        past_values = torch.randn(1, cfg.context_length, 1, dtype=dtype)
+        past_values = torch.randn(1, cfg.context_length, 1, dtype=torch.float32)
 
         return {"past_values": past_values}
