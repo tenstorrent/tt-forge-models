@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available CamemBERT model variants."""
 
     CAMEMBERT_BASE = "Base"
+    CAMEMBERT_BASE_LEGACY = "Base Legacy"
     TINY_RANDOM = "Tiny Random"
 
 
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.CAMEMBERT_BASE: ModelConfig(
             pretrained_model_name="almanach/camembert-base",
+        ),
+        ModelVariant.CAMEMBERT_BASE_LEGACY: ModelConfig(
+            pretrained_model_name="almanach/camembert-base-legacy",
         ),
         ModelVariant.TINY_RANDOM: ModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/tiny-random-camembert",
