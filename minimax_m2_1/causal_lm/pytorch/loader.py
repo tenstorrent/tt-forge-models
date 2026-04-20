@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     """Available MiniMax-M2.1 model variants for causal language modeling."""
 
     MINIMAX_M2_1_AWQ_4BIT = "M2.1-AWQ-4bit"
+    MINIMAX_M2_1_AWQ = "M2.1-AWQ"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MINIMAX_M2_1_AWQ_4BIT: LLMModelConfig(
             pretrained_model_name="cyankiwi/MiniMax-M2.1-AWQ-4bit",
+            max_length=128,
+        ),
+        ModelVariant.MINIMAX_M2_1_AWQ: LLMModelConfig(
+            pretrained_model_name="QuantTrio/MiniMax-M2.1-AWQ",
             max_length=128,
         ),
     }
