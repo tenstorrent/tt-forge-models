@@ -11,7 +11,6 @@ distributed for use with Transformers.js.
 from typing import Optional
 
 import onnx
-import torch
 from datasets import load_dataset
 from huggingface_hub import hf_hub_download
 from transformers import AutoImageProcessor
