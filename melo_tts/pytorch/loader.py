@@ -8,6 +8,66 @@ import torch
 import torch.nn as nn
 from typing import Optional
 
+
+def _patch_melo_for_english():
+    """Patch melo package to work without Japanese dependencies (MeCab, pykakasi)."""
+    import importlib
+    import sys
+    import types
+
+    try:
+        import MeCab  # noqa: F401
+    except ImportError:
+        mecab = types.ModuleType("MeCab")
+
+        class _StubTagger:
+            def parse(self, text):
+                raise RuntimeError("MeCab not installed")
+
+        mecab.Tagger = _StubTagger
+        sys.modules["MeCab"] = mecab
+
+    if "pykakasi" not in sys.modules:
+        try:
+            import pykakasi  # noqa: F401
+        except ImportError:
+            mod = types.ModuleType("pykakasi")
+
+            class _StubKakasi:
+                def setMode(self, *a):
+                    pass
+
+                def getConverter(self):
+                    return self
+
+                def do(self, text):
+                    return text
+
+            mod.kakasi = _StubKakasi
+            sys.modules["pykakasi"] = mod
+
+    spec = importlib.util.find_spec("melo.text.japanese")
+    if spec and spec.origin:
+        path = spec.origin
+        with open(path) as f:
+            src = f.read()
+        if "tokenizer = AutoTokenizer.from_pretrained(model_id)" in src:
+            src = src.replace(
+                "tokenizer = AutoTokenizer.from_pretrained(model_id)",
+                "tokenizer = None",
+            )
+            code = compile(src, path, "exec")
+            jp_mod = types.ModuleType("melo.text.japanese")
+            jp_mod.__file__ = path
+            jp_mod.__package__ = "melo.text"
+            jp_mod.__spec__ = spec
+            import melo.text
+
+            jp_mod.__dict__["symbols"] = melo.text.symbols
+            exec(code, jp_mod.__dict__)
+            sys.modules["melo.text.japanese"] = jp_mod
+
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -77,6 +137,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _patch_melo_for_english()
+
         from melo.api import TTS
 
         self._tts = TTS(language="EN_NEWEST", device="cpu")
