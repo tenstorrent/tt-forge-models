@@ -33,6 +33,13 @@ class ModelVariant(StrEnum):
     KLEIN_BASE_4B_FP8 = "Klein-Base-4B-FP8"
 
 
+_NO_GUIDANCE_VARIANTS = {ModelVariant.KLEIN_BASE_4B_FP8}
+_SINGLE_FILE_VARIANTS = {ModelVariant.KLEIN_BASE_4B_FP8}
+_SINGLE_FILE_URLS = {
+    ModelVariant.KLEIN_BASE_4B_FP8: KLEIN_FP8_CHECKPOINT_URL,
+}
+
+
 class ModelLoader(ForgeModel):
     """FLUX.2 model loader implementation for text-to-image generation tasks."""
 
