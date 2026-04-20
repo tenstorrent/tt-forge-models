@@ -59,6 +59,9 @@ class ModelVariant(StrEnum):
     LLAMA_3_3_70B_INSTRUCT_AWQ = "3.3_70B_Instruct_Awq"
     LLAMA_3_3_70B_INSTRUCT_NVFP4 = "3.3_70B_Instruct_Nvfp4"
 
+    # NVIDIA FP8 quantized variants
+    LLAMA_3_1_70B_INSTRUCT_FP8_NVIDIA = "3.1_70B_Instruct_FP8_Nvidia"
+
     # RedHatAI FP8 quantized variants
     LLAMA_3_8B_INSTRUCT_FP8_KV = "3.0_8B_Instruct_FP8_KV"
     LLAMA_3_1_70B_INSTRUCT_FP8 = "3.1_70B_Instruct_FP8"
@@ -274,6 +277,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="nvidia/Llama-3.3-70B-Instruct-NVFP4",
             max_length=128,
         ),
+        # NVIDIA FP8 quantized variants
+        ModelVariant.LLAMA_3_1_70B_INSTRUCT_FP8_NVIDIA: LLMModelConfig(
+            pretrained_model_name="nvidia/Llama-3.1-70B-Instruct-FP8",
+            max_length=128,
+        ),
         # Llama 2 variants
         ModelVariant.LLAMA_2_7B: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-2-7b-hf",
@@ -401,10 +409,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_3B_GPTQ_4BIT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4,
-            ModelVariant.UPSTAGE_LLAMA_30B_INSTRUCT,
-            ModelVariant.NB_NOTRAM_LLAMA_3_2_3B_INSTRUCT,
-            ModelVariant.TAP_M_LUNA_AI_LLAMA2_UNCENSORED_FP16,
-            ModelVariant.PLATYPUS2_70B,
+            ModelVariant.LLAMA_3_1_70B_INSTRUCT_FP8_NVIDIA,
         ]:
             group = ModelGroup.VULCAN
         elif (
@@ -672,6 +677,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_1_70B,
             ModelVariant.LLAMA_3_1_70B_INSTRUCT,
             ModelVariant.LLAMA_3_1_70B_INSTRUCT_FP8,
+            ModelVariant.LLAMA_3_1_70B_INSTRUCT_FP8_NVIDIA,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4,
