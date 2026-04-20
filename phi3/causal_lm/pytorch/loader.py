@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     MINI_4K_GPTQ_4BIT = "Mini_4K_Instruct_GPTQ_4bit"
     MINI_4K_AWQ = "Mini_4K_Instruct_AWQ"
     RYS_MEDIUM_4K = "RYS_Phi3_Medium_4K_Instruct"
+    MOXOFF_MINI_ORPO = "Moxoff_Phi3Mini_ORPO"
     TINY_RANDOM = "Tiny Random"
 
 
@@ -50,6 +51,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.RYS_MEDIUM_4K: ModelConfig(
             pretrained_model_name="dnhkng/RYS-Phi-3-medium-4k-instruct"
+        ),
+        ModelVariant.MOXOFF_MINI_ORPO: ModelConfig(
+            pretrained_model_name="MoxoffSrL/Moxoff-Phi3Mini-ORPO"
         ),
         ModelVariant.TINY_RANDOM: ModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/tiny-random-Phi3ForCausalLM"
@@ -81,6 +85,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MEDIUM_128K,
             ModelVariant.MINI_4K_GPTQ_4BIT,
             ModelVariant.RYS_MEDIUM_4K,
+            ModelVariant.MOXOFF_MINI_ORPO,
             ModelVariant.TINY_RANDOM,
         ):
             group = ModelGroup.VULCAN
