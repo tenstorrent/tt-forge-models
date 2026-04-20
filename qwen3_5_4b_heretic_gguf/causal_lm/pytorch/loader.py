@@ -31,14 +31,14 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.QWEN3_5_4B_HERETIC_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/Qwen3.5-4B-heretic-GGUF",
+            pretrained_model_name="tvall43/Qwen3.5-4B-heretic-gguf",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN3_5_4B_HERETIC_GGUF
 
-    GGUF_FILE = "Qwen3.5-4B-heretic.Q4_K_M.gguf"
+    GGUF_FILE = "Qwen3.5-4B-heretic-Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language model."
 
@@ -118,7 +118,6 @@ class ModelLoader(ForgeModel):
             messages,
             tokenize=False,
             add_generation_prompt=True,
-            enable_thinking=True,
         )
         prompts = [text]
 
