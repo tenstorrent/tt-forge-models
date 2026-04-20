@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available Theia feature extraction model variants."""
 
     BASE_PATCH16_224_CDDSV = "Base_Patch16_224_Cddsv"
+    BASE_PATCH16_224_CDIV = "Base_Patch16_224_Cdiv"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE_PATCH16_224_CDDSV: ModelConfig(
             pretrained_model_name="theaiinstitute/theia-base-patch16-224-cddsv",
+        ),
+        ModelVariant.BASE_PATCH16_224_CDIV: ModelConfig(
+            pretrained_model_name="theaiinstitute/theia-base-patch16-224-cdiv",
         ),
     }
 
