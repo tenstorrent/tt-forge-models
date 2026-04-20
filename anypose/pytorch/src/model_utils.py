@@ -6,6 +6,8 @@
 Helper functions for AnyPose model loading and processing.
 """
 
+import os
+
 import torch
 from diffusers import QwenImageEditPlusPipeline
 from huggingface_hub import snapshot_download
@@ -23,7 +25,16 @@ def load_anypose_pipe(base_model_name, lora_model_name, lora_scale=0.7):
     Returns:
         QwenImageEditPlusPipeline: Loaded pipeline with LoRA adapters
     """
-    cached_folder = snapshot_download(base_model_name, max_workers=1)
+    # Disable hf-xet to avoid race condition with .incomplete files on tmpfs
+    prev_xet = os.environ.get("HF_HUB_DISABLE_XET", None)
+    os.environ["HF_HUB_DISABLE_XET"] = "1"
+    try:
+        cached_folder = snapshot_download(base_model_name, max_workers=1)
+    finally:
+        if prev_xet is None:
+            os.environ.pop("HF_HUB_DISABLE_XET", None)
+        else:
+            os.environ["HF_HUB_DISABLE_XET"] = prev_xet
     pipe = QwenImageEditPlusPipeline.from_pretrained(
         cached_folder, torch_dtype=torch.float32
     )
