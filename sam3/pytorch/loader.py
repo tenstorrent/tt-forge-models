@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available SAM3 model variants."""
 
     DEFAULT = "Default"
+    JETJODH = "jetjodh_sam3"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEFAULT: ModelConfig(
             pretrained_model_name="facebook/sam3",
+        ),
+        ModelVariant.JETJODH: ModelConfig(
+            pretrained_model_name="jetjodh/sam3",
         ),
     }
 
