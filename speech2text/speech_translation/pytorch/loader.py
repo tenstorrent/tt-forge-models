@@ -92,7 +92,6 @@ class ModelLoader(ForgeModel):
         if self._processor is None:
             self._load_processor()
 
-        # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
@@ -104,6 +103,9 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs["input_features"] = inputs["input_features"].to(dtype_override)
 
         decoder_start_token_id = self._model.config.decoder_start_token_id
         decoder_input_ids = (
