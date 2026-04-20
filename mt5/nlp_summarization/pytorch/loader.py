@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available MT5 multilingual summarization model variants."""
 
     MULTILINGUAL_XLSUM = "Multilingual_XLSum"
+    M2O_ARABIC_CROSSSUM = "M2O_Arabic_CrossSum"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MULTILINGUAL_XLSUM: LLMModelConfig(
             pretrained_model_name="csebuetnlp/mT5_multilingual_XLSum",
+            max_length=512,
+        ),
+        ModelVariant.M2O_ARABIC_CROSSSUM: LLMModelConfig(
+            pretrained_model_name="csebuetnlp/mT5_m2o_arabic_crossSum",
             max_length=512,
         ),
     }
