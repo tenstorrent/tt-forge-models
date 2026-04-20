@@ -90,7 +90,7 @@ class ModelLoader(ForgeModel):
             {
                 "role": "user",
                 "content": [
-                    {"type": "image", "url": self.sample_image_url},
+                    {"type": "image", "image": self.sample_image_url},
                     {"type": "text", "text": self.sample_text},
                 ],
             }
