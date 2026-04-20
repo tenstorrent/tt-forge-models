@@ -9,7 +9,12 @@ yet supported by transformers' built-in GGUF loader.  We fall back to the
 non-GGUF source repo (pfnet/plamo-2-translate) which ships custom modeling
 code via trust_remote_code.
 """
+import importlib
+import sys
+import types
+
 import torch
+from torch.nn import functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -25,6 +30,85 @@ from ....config import (
 )
 
 BASE_MODEL_REPO = "pfnet/plamo-2-translate"
+
+
+def _install_causal_conv1d_shim():
+    """Install a pure-PyTorch shim for causal_conv1d when the CUDA package is unavailable."""
+    if "causal_conv1d" in sys.modules:
+        return
+
+    def causal_conv1d_update_ref(x, conv_state, weight, activation="silu"):
+        dtype = x.dtype
+        batch, dim = x.shape[0], x.shape[1]
+        width = weight.shape[-1]
+        conv_state.copy_(torch.roll(conv_state, shifts=-1, dims=-1))
+        conv_state[:, :, -1] = x.squeeze(-1) if x.dim() == 3 else x
+        out = torch.sum(conv_state * weight.unsqueeze(0), dim=-1)
+        if activation == "silu":
+            out = F.silu(out)
+        return out.unsqueeze(-1) if x.dim() == 3 else out, conv_state
+
+    def causal_conv1d_ref(
+        x,
+        weight,
+        initial_states=None,
+        return_final_states=False,
+        activation="silu",
+        seq_idx=None,
+    ):
+        batch, dim, seq_len = x.shape
+        width = weight.shape[-1]
+        if initial_states is not None:
+            conv_state = initial_states.clone()
+        else:
+            conv_state = x.new_zeros(batch, dim, width - 1)
+
+        x_padded = torch.cat([conv_state, x], dim=-1)
+        weight_flip = weight.unsqueeze(0).flip(-1)
+        out = F.conv1d(x_padded, weight_flip.reshape(dim, 1, width), groups=dim)[
+            :, :, :seq_len
+        ]
+        if activation == "silu":
+            out = F.silu(out)
+        final_state = (
+            x_padded[:, :, -(width - 1) :].clone() if return_final_states else None
+        )
+        if return_final_states:
+            return out, final_state
+        return out
+
+    def causal_conv1d_fn(
+        x,
+        weight,
+        initial_states=None,
+        return_final_states=False,
+        activation="silu",
+        seq_idx=None,
+    ):
+        return causal_conv1d_ref(
+            x,
+            weight,
+            initial_states=initial_states,
+            return_final_states=return_final_states,
+            activation=activation,
+            seq_idx=seq_idx,
+        )
+
+    iface = types.ModuleType("causal_conv1d.causal_conv1d_interface")
+    iface.causal_conv1d_update_ref = causal_conv1d_update_ref
+    iface.causal_conv1d_ref = causal_conv1d_ref
+    iface.causal_conv1d_fn = causal_conv1d_fn
+    iface.causal_conv1d_update = causal_conv1d_update_ref
+
+    pkg = types.ModuleType("causal_conv1d")
+    pkg.__path__ = []
+    pkg.causal_conv1d_interface = iface
+
+    sys.modules["causal_conv1d"] = pkg
+    sys.modules["causal_conv1d.causal_conv1d_interface"] = iface
+
+
+_install_causal_conv1d_shim()
 
 
 class ModelVariant(StrEnum):
