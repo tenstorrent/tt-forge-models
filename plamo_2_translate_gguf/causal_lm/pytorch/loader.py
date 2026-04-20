@@ -38,12 +38,12 @@ def _install_causal_conv1d_shim():
         return
 
     def causal_conv1d_update_ref(x, conv_state, weight, activation="silu"):
-        dtype = x.dtype
-        batch, dim = x.shape[0], x.shape[1]
-        width = weight.shape[-1]
+        x_sq = x.squeeze(-1) if x.dim() == 3 else x
         conv_state.copy_(torch.roll(conv_state, shifts=-1, dims=-1))
-        conv_state[:, :, -1] = x.squeeze(-1) if x.dim() == 3 else x
-        out = torch.sum(conv_state * weight.unsqueeze(0), dim=-1)
+        conv_state[:, :, -1] = x_sq
+        window = torch.cat([conv_state, x_sq.unsqueeze(-1)], dim=-1)
+        window = window[:, :, -weight.shape[-1] :]
+        out = torch.sum(window * weight.unsqueeze(0), dim=-1)
         if activation == "silu":
             out = F.silu(out)
         return out.unsqueeze(-1) if x.dim() == 3 else out, conv_state
