@@ -85,19 +85,13 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        # Build prompt
-        conversation = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": self.sample_text},
-                ],
-            }
-        ]
-
-        text_prompt = self.processor.apply_chat_template(
-            conversation, padding=True, add_generation_prompt=True
+        # Build prompt using Llama 3 chat format directly since the
+        # processor for this model does not ship with a chat_template.
+        text_prompt = (
+            "<|start_header_id|>user<|end_header_id|>\n\n"
+            "<image>\n"
+            f"{self.sample_text}<|eot_id|>"
+            "<|start_header_id|>assistant<|end_header_id|>\n\n"
         )
 
         # Load sample image
