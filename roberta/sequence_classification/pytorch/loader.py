@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
 
     EMOTION_ENGLISH_LARGE = "Emotion_English_Large"
     BASE_EMPATHY = "Base_Empathy"
-    BASE_QQP = "Base_QQP"
+    TEXTATTACK_ROBERTA_BASE_MNLI = "textattack_Roberta_Base_MNLI"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bdotloh/roberta-base-empathy",
             max_length=128,
         ),
-        ModelVariant.BASE_QQP: LLMModelConfig(
-            pretrained_model_name="JeremiahZ/roberta-base-qqp",
+        ModelVariant.TEXTATTACK_ROBERTA_BASE_MNLI: LLMModelConfig(
+            pretrained_model_name="textattack/roberta-base-MNLI",
             max_length=128,
         ),
     }
@@ -50,7 +50,7 @@ class ModelLoader(ForgeModel):
     _SAMPLE_TEXTS = {
         ModelVariant.EMOTION_ENGLISH_LARGE: "I am so happy today, everything is going great!",
         ModelVariant.BASE_EMPATHY: "It breaks my heart to see so many people suffering after the earthquake.",
-        ModelVariant.BASE_QQP: "How can I learn Python? What is the best way to learn Python programming?",
+        ModelVariant.TEXTATTACK_ROBERTA_BASE_MNLI: "A man is eating food. A man is eating a meal.",
     }
 
     def __init__(self, variant=None):
