@@ -5,6 +5,7 @@
 CrisperWhisper model loader implementation
 """
 
+import numpy as np
 import torch
 from transformers import (
     WhisperProcessor,
@@ -20,7 +21,6 @@ from ...config import (
     StrEnum,
     ModelConfig,
 )
-from ...tools.utils import get_file
 from ...base import ForgeModel
 from typing import Optional
 
@@ -110,21 +110,24 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
 
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
+        sampling_rate = 16000
+        duration_seconds = 30
+        audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
+            np.float32
+        )
+
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
-        # Preprocess audio
-        sampling_rate = 16000
-        processor = self.processor(
-            sample_audio, return_tensors="pt", sampling_rate=sampling_rate
+        inputs = self.processor(
+            audio_array, return_tensors="pt", sampling_rate=sampling_rate
         )
-        input_features = processor.input_features.to(device=device, dtype=dtype)
+        input_features = inputs.input_features.to(device=device, dtype=dtype)
 
         decoder_input_ids = torch.full(
-            (1, 2), model_config.decoder_start_token_id, dtype=torch.long, device=device
+            (1, 2),
+            model_config.decoder_start_token_id,
+            dtype=torch.long,
+            device=device,
         )
         return [input_features, decoder_input_ids]
