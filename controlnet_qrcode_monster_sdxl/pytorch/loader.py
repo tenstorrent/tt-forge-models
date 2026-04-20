@@ -28,19 +28,19 @@ from .src.model_utils import (
 class ModelVariant(StrEnum):
     """Available ControlNet QR Code Monster SDXL model variants."""
 
-    CONTROL_V1P_SDXL_QRCODE_MONSTER = "control_v1p_sdxl_qrcode_monster"
+    CONTROLNET_QRCODE_MONSTER_SDXL_V1P = "QRCode_Monster_SDXL_v1p"
 
 
 class ModelLoader(ForgeModel):
     """ControlNet QR Code Monster SDXL model loader implementation."""
 
     _VARIANTS = {
-        ModelVariant.CONTROL_V1P_SDXL_QRCODE_MONSTER: ModelConfig(
+        ModelVariant.CONTROLNET_QRCODE_MONSTER_SDXL_V1P: ModelConfig(
             pretrained_model_name="monster-labs/control_v1p_sdxl_qrcode_monster",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.CONTROL_V1P_SDXL_QRCODE_MONSTER
+    DEFAULT_VARIANT = ModelVariant.CONTROLNET_QRCODE_MONSTER_SDXL_V1P
 
     prompt = "a beautiful mountain landscape at sunset, intricate details, high quality"
     base_model = "stabilityai/stable-diffusion-xl-base-1.0"
