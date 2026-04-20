@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available RMBG model variants."""
 
     RMBG_2_0 = "2.0"
+    CAMENDURU_RMBG_2_0 = "camenduru/2.0"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.RMBG_2_0: ModelConfig(
             pretrained_model_name="briaai/RMBG-2.0",
+        ),
+        ModelVariant.CAMENDURU_RMBG_2_0: ModelConfig(
+            pretrained_model_name="camenduru/RMBG-2.0",
         ),
     }
 
@@ -65,10 +69,15 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        group = (
+            ModelGroup.VULCAN
+            if variant == ModelVariant.CAMENDURU_RMBG_2_0
+            else ModelGroup.GENERALITY
+        )
         return ModelInfo(
             model="RMBG",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=group,
             task=ModelTask.CV_IMAGE_SEG,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
