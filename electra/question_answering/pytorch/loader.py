@@ -21,6 +21,7 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available ELECTRA question answering model variants."""
 
+    BASE_SQUAD2 = "Base_Squad2"
     LARGE_DISCRIMINATOR_SQUAD2_512 = "Large_Discriminator_Squad2_512"
     GELECTRA_LARGE_GERMANQUAD = "GElectra_Large_GermanQuAD"
     GELECTRA_BASE_GERMANQUAD = "GElectra_Base_GermanQuAD"
@@ -30,6 +31,10 @@ class ModelLoader(ForgeModel):
     """ELECTRA model loader implementation for question answering task."""
 
     _VARIANTS = {
+        ModelVariant.BASE_SQUAD2: LLMModelConfig(
+            pretrained_model_name="deepset/electra-base-squad2",
+            max_length=512,
+        ),
         ModelVariant.LARGE_DISCRIMINATOR_SQUAD2_512: LLMModelConfig(
             pretrained_model_name="ahotrod/electra_large_discriminator_squad2_512",
             max_length=512,
@@ -47,6 +52,15 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.LARGE_DISCRIMINATOR_SQUAD2_512
 
     _SAMPLE_DATA = {
+        ModelVariant.BASE_SQUAD2: {
+            "context": (
+                "Super Bowl 50 was an American football game to determine the champion of the National Football League "
+                "(NFL) for the 2015 season. The American Football Conference (AFC) champion Denver Broncos defeated the "
+                "National Football Conference (NFC) champion Carolina Panthers 24\u201310 to earn their third Super Bowl title. "
+                "The game was played on February 7, 2016, at Levi's Stadium in the San Francisco Bay Area at Santa Clara, California."
+            ),
+            "question": "Which NFL team represented the AFC at Super Bowl 50?",
+        },
         ModelVariant.LARGE_DISCRIMINATOR_SQUAD2_512: {
             "context": (
                 "Super Bowl 50 was an American football game to determine the champion of the National Football League "
