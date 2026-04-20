@@ -1,9 +1,10 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-TranslateGemma 27B IT GGUF model loader implementation for causal language modeling.
+TranslateGemma 27B IT GGUF (mradermacher) model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -23,26 +24,24 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available TranslateGemma 27B IT GGUF model variants for causal language modeling."""
 
-    TRANSLATEGEMMA_27B_IT_Q4_K_M_GGUF = "27B_IT_Q4_K_M_GGUF"
+    TRANSLATEGEMMA_27B_IT_GGUF = "27B_IT_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """TranslateGemma 27B IT GGUF model loader implementation for causal language modeling tasks."""
+    """TranslateGemma 27B IT GGUF (mradermacher) model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.TRANSLATEGEMMA_27B_IT_Q4_K_M_GGUF: LLMModelConfig(
-            pretrained_model_name="bullerwins/translategemma-27b-it-GGUF",
+        ModelVariant.TRANSLATEGEMMA_27B_IT_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/translategemma-27b-it-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.TRANSLATEGEMMA_27B_IT_Q4_K_M_GGUF
+    DEFAULT_VARIANT = ModelVariant.TRANSLATEGEMMA_27B_IT_GGUF
 
-    GGUF_FILE = "translategemma-27b-it-Q4_K_M.gguf"
+    GGUF_FILE = "translategemma-27b-it.Q4_K_M.gguf"
 
-    sample_text = (
-        "Translate the following English text to German: The weather is nice today."
-    )
+    sample_text = "What is your favorite city?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -110,8 +109,21 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
+        messages = [
+            {
+                "role": "user",
+                "content": self.sample_text,
+            }
+        ]
+        text = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        prompts = [text]
+
         inputs = self.tokenizer(
-            [self.sample_text],
+            prompts,
             return_tensors="pt",
             padding=True,
             truncation=True,
