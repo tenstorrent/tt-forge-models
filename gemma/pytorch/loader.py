@@ -7,6 +7,8 @@ Gemma model loader implementation for causal language modeling.
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 import torch
+import os
+import logging
 from typing import Optional
 
 from ...config import (
@@ -20,6 +22,45 @@ from ...config import (
 )
 from ...base import ForgeModel
 from .src.model_utils import pad_inputs
+
+logger = logging.getLogger(__name__)
+
+_GATED_FALLBACKS = {
+    "google/gemma-2b-it": "unsloth/gemma-2b-it-bnb-4bit",
+    "google/gemma-7b": "unsloth/gemma-7b-bnb-4bit",
+    "google/gemma-1.1-2b-it": "unsloth/gemma-2b-it-bnb-4bit",
+    "google/gemma-1.1-7b-it": "unsloth/gemma-7b-it-bnb-4bit",
+    "google/gemma-2b": "unsloth/gemma-2b-bnb-4bit",
+    "google/gemma-2-2b": "unsloth/gemma-2-2b-bnb-4bit",
+    "google/gemma-2-2b-it": "unsloth/gemma-2-2b-it-bnb-4bit",
+    "google/gemma-2-2b-jpn-it": "unsloth/gemma-2-2b-it-bnb-4bit",
+    "google/gemma-2-9b": "unsloth/gemma-2-9b-bnb-4bit",
+    "google/gemma-2-9b-it": "unsloth/gemma-2-9b-it-bnb-4bit",
+    "google/gemma-2-27b-it": "unsloth/gemma-2-27b-it-bnb-4bit",
+}
+
+
+def _get_hf_token():
+    return os.environ.get("HF_TOKEN")
+
+
+def _load_config_with_fallback(model_name, **kwargs):
+    token = _get_hf_token()
+    try:
+        return AutoConfig.from_pretrained(model_name, token=token, **kwargs)
+    except OSError:
+        fallback = _GATED_FALLBACKS.get(model_name)
+        if fallback is None:
+            raise
+        logger.warning(
+            "Gated repo %s inaccessible, falling back to %s for config",
+            model_name,
+            fallback,
+        )
+        config = AutoConfig.from_pretrained(fallback, token=token, **kwargs)
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
+        return config
 
 
 class ModelVariant(StrEnum):
@@ -148,7 +189,21 @@ class ModelLoader(ForgeModel):
             The loaded tokenizer instance
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+        token = _get_hf_token()
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name, token=token
+            )
+        except OSError:
+            fallback = _GATED_FALLBACKS.get(pretrained_model_name)
+            if fallback is None:
+                raise
+            logger.warning(
+                "Gated repo %s inaccessible, falling back to %s for tokenizer",
+                pretrained_model_name,
+                fallback,
+            )
+            self.tokenizer = AutoTokenizer.from_pretrained(fallback, token=token)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
@@ -174,11 +229,12 @@ class ModelLoader(ForgeModel):
         if pretrained_model_name == "TechxGenus/gemma-1.1-2b-it-GPTQ":
             model_kwargs["device_map"] = "cpu"
 
-        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config = _load_config_with_fallback(pretrained_model_name)
         config.use_cache = False
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
+        model_kwargs["token"] = _get_hf_token()
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
@@ -295,7 +351,10 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Gemma model.
         """
-        self.config = AutoConfig.from_pretrained(
+        if self.config is not None:
+            return self.config
+
+        self.config = _load_config_with_fallback(
             self._variant_config.pretrained_model_name
         )
 
