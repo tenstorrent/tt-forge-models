@@ -4,6 +4,7 @@
 """
 BioCLIP-2 model loader implementation for biological image-text similarity using OpenCLIP.
 """
+
 import torch
 import torch.nn.functional as F
 from typing import Optional
@@ -25,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available BioCLIP-2 model variants."""
 
     VIT_L_14 = "ViT_L_14"
+    VIT_H_14_2_5 = "ViT_H_14_2_5"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.VIT_L_14: ModelConfig(
             pretrained_model_name="hf-hub:imageomics/bioclip-2",
+        ),
+        ModelVariant.VIT_H_14_2_5: ModelConfig(
+            pretrained_model_name="hf-hub:imageomics/bioclip-2.5-vith14",
         ),
     }
 
