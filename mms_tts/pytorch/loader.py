@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
     HAU = "hau"
     MAH = "mah"
     ORM = "orm"
-    POR = "por"
+    SPA = "spa"
     YOR = "yor"
 
 
@@ -47,8 +47,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.ORM: ModelConfig(
             pretrained_model_name="facebook/mms-tts-orm",
         ),
-        ModelVariant.POR: ModelConfig(
-            pretrained_model_name="facebook/mms-tts-por",
+        ModelVariant.SPA: ModelConfig(
+            pretrained_model_name="facebook/mms-tts-spa",
         ),
         ModelVariant.YOR: ModelConfig(
             pretrained_model_name="facebook/mms-tts-yor",
@@ -62,7 +62,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.HAU: "Sannu, yaya aiki?",
         ModelVariant.MAH: "Iọkwe, ewi aṃ mour?",
         ModelVariant.ORM: "Baga nagaan dhuftan",
-        ModelVariant.POR: "Olá, como você está?",
+        ModelVariant.SPA: "Hola, ¿cómo estás hoy?",
         ModelVariant.YOR: "Ẹ n lẹ, bawo ni ọjọ yín ṣe rí?",
     }
 
