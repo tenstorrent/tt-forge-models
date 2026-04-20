@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available UFM model variants."""
 
     REFINE = "Refine"
+    BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.REFINE: ModelConfig(
             pretrained_model_name="infinity1096/UFM-Refine",
+        ),
+        ModelVariant.BASE: ModelConfig(
+            pretrained_model_name="infinity1096/UFM-Base",
         ),
     }
 
