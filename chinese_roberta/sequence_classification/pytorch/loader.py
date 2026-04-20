@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Chinese RoBERTa model loader implementation for sequence classification (sentiment analysis).
+Chinese RoBERTa model loader implementation for sequence classification.
 """
 
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
