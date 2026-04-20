@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
             model="GhostMix",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.CONDITIONAL_GENERATION,
+            task=ModelTask.MM_IMAGE_TTT,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
