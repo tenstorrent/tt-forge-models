@@ -30,9 +30,7 @@ class ModelVariant(StrEnum):
     MULTILINGUAL_E5_BASE = "intfloat/multilingual-e5-base"
     MULTILINGUAL_E5_LARGE_INSTRUCT = "intfloat/multilingual-e5-large-instruct"
     MULTILINGUAL_E5_SMALL_KO = "dragonkue/multilingual-e5-small-ko"
-    MULTILINGUAL_E5_SMALL_NLI_MATRYOSHKA_128 = (
-        "Fjoralb1/multilingual-e5-small-nli-matryoshka-128"
-    )
+    MULTILINGUAL_E5_SMALL_KO_V2 = "dragonkue/multilingual-e5-small-ko-v2"
 
 
 class ModelLoader(ForgeModel):
@@ -55,8 +53,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="dragonkue/multilingual-e5-small-ko",
             max_length=512,
         ),
-        ModelVariant.MULTILINGUAL_E5_SMALL_NLI_MATRYOSHKA_128: LLMModelConfig(
-            pretrained_model_name="Fjoralb1/multilingual-e5-small-nli-matryoshka-128",
+        ModelVariant.MULTILINGUAL_E5_SMALL_KO_V2: LLMModelConfig(
+            pretrained_model_name="dragonkue/multilingual-e5-small-ko-v2",
             max_length=512,
         ),
     }
@@ -114,7 +112,10 @@ class ModelLoader(ForgeModel):
         if sentence is None:
             if self._variant == ModelVariant.MULTILINGUAL_E5_LARGE_INSTRUCT:
                 sentence = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: How is the weather today?"
-            elif self._variant == ModelVariant.MULTILINGUAL_E5_SMALL_KO:
+            elif self._variant in (
+                ModelVariant.MULTILINGUAL_E5_SMALL_KO,
+                ModelVariant.MULTILINGUAL_E5_SMALL_KO_V2,
+            ):
                 sentence = "query: 오늘 날씨는 어떤가요?"
             else:
                 sentence = "query: How is the weather today?"
