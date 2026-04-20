@@ -54,6 +54,7 @@ class ModelVariant(StrEnum):
     """Available model variants for Model2Vec."""
 
     M2V_BASE_OUTPUT = "minishlab/M2V_base_output"
+    M2V_MULTILINGUAL_OUTPUT = "minishlab/M2V_multilingual_output"
 
 
 class ModelLoader(ForgeModel):
@@ -62,6 +63,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.M2V_BASE_OUTPUT: LLMModelConfig(
             pretrained_model_name="minishlab/M2V_base_output",
+            max_length=128,
+        ),
+        ModelVariant.M2V_MULTILINGUAL_OUTPUT: LLMModelConfig(
+            pretrained_model_name="minishlab/M2V_multilingual_output",
             max_length=128,
         ),
     }
