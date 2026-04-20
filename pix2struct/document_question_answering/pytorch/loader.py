@@ -18,6 +18,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
+from ....tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -37,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.DOCVQA_BASE
 
-    sample_question = "What is the title of this paper?"
+    sample_question = "What is shown in this image?"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -80,18 +81,15 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        from huggingface_hub import hf_hub_download
         from PIL import Image
 
         if self._processor is None:
             self._load_processor()
 
-        image_path = hf_hub_download(
-            repo_id="hf-internal-testing/fixtures_docvqa",
-            filename="nougat_paper.png",
-            repo_type="dataset",
+        image_path = get_file(
+            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/ai2d-demo.jpg"
         )
-        image = Image.open(image_path).convert("RGB")
+        image = Image.open(str(image_path)).convert("RGB")
 
         inputs = self._processor(
             images=image,
