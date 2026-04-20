@@ -42,6 +42,11 @@ class ModelLoader(ForgeModel):
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.MAMBA2_780M
 
+    # Variant-specific tokenizer overrides (when model repo lacks a tokenizer)
+    _TOKENIZER_OVERRIDES = {
+        ModelVariant.MAMBA2_2_7B: "EleutherAI/gpt-neox-20b",
+    }
+
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting.
@@ -87,8 +92,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        tokenizer_name = self._TOKENIZER_OVERRIDES.get(
+            self._variant, self._variant_config.pretrained_model_name
+        )
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            tokenizer_name, **tokenizer_kwargs
         )
 
         # Load pre-trained model from HuggingFace
