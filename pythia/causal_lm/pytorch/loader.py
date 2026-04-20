@@ -67,12 +67,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="EleutherAI/pythia-160m",
             max_length=256,
         ),
-        ModelVariant.PYTHIA_160M_SEED7: LLMModelConfig(
-            pretrained_model_name="EleutherAI/pythia-160m-seed7",
-            max_length=256,
-        ),
-        ModelVariant.PYTHIA_410M_SEED1: LLMModelConfig(
-            pretrained_model_name="EleutherAI/pythia-410m-seed1",
+        ModelVariant.PYTHIA_410M_SEED3: LLMModelConfig(
+            pretrained_model_name="EleutherAI/pythia-410m-seed3",
             max_length=256,
         ),
         ModelVariant.PYTHIA_410M_V0: LLMModelConfig(
