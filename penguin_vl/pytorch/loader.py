@@ -13,7 +13,8 @@ from transformers import (
 )
 from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
-from typing import Optional
+from transformers.processing_utils import ProcessingKwargs
+from typing import Optional, TypedDict
 
 
 def _compute_default_rope_parameters(config, device, seq_len=None, **kwargs):
@@ -41,6 +42,14 @@ def _compute_default_rope_parameters(config, device, seq_len=None, **kwargs):
 
 if "default" not in ROPE_INIT_FUNCTIONS:
     ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
+
+
+class _CommonKwargs(TypedDict, total=False):
+    return_tensors: str
+
+
+if "common_kwargs" not in ProcessingKwargs.__annotations__:
+    ProcessingKwargs.__annotations__["common_kwargs"] = _CommonKwargs
 
 from ...tools.utils import get_file
 from ...base import ForgeModel
