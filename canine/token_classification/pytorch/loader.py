@@ -9,6 +9,7 @@ import torch
 from transformers import CanineConfig, CanineTokenizer, CanineForTokenClassification
 from typing import Optional
 
+from .src.model_utils import patch_canine_attention
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
@@ -72,6 +73,7 @@ class ModelLoader(ForgeModel):
         model = CanineForTokenClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        patch_canine_attention(model)
         model.eval()
         self.model = model
         return model
