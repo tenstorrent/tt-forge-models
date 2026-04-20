@@ -84,8 +84,12 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load and return the DUSt3R AsymmetricCroCo3DStereo model.
+
+        Note: dtype_override is intentionally not supported because the model's
+        forward method internally casts tokens to float32 via tok.float(),
+        which creates a dtype mismatch with bfloat16 weights.
 
         Returns:
             torch.nn.Module: The DUSt3R stereo 3D reconstruction model.
@@ -96,11 +100,11 @@ class ModelLoader(ForgeModel):
         repo_id = self._variant_config.pretrained_model_name
         model = AsymmetricCroCo3DStereo.from_pretrained(repo_id)
         model.eval()
-        model = model.to(dtype_override or torch.float32)
+        model.float()
 
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, batch_size=1):
         """Load sample stereo image pair inputs for DUSt3R.
 
         DUSt3R's forward method expects view1 and view2 dicts, each containing
@@ -109,16 +113,15 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Dict with 'view1' and 'view2' keys for model(**inputs) unpacking.
         """
-        dtype = dtype_override or torch.float32
         height, width = 384, 512
 
         view1 = {
-            "img": torch.randn(batch_size, 3, height, width, dtype=dtype),
+            "img": torch.randn(batch_size, 3, height, width, dtype=torch.float32),
             "true_shape": torch.tensor([[height, width]] * batch_size),
             "instance": torch.arange(batch_size),
         }
         view2 = {
-            "img": torch.randn(batch_size, 3, height, width, dtype=dtype),
+            "img": torch.randn(batch_size, 3, height, width, dtype=torch.float32),
             "true_shape": torch.tensor([[height, width]] * batch_size),
             "instance": torch.arange(batch_size),
         }
