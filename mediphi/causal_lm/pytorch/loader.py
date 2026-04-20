@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available MediPhi model variants."""
 
     BASE = "Base"
+    INSTRUCT = "Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="microsoft/MediPhi",
+        ),
+        ModelVariant.INSTRUCT: ModelConfig(
+            pretrained_model_name="microsoft/MediPhi-Instruct",
         ),
     }
 
