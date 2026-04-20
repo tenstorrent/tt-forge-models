@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Chinese Alpaca 2 model variants."""
 
     CHINESE_ALPACA_2_13B = "13B"
+    CHINESE_ALPACA_2_7B = "7B"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.CHINESE_ALPACA_2_13B: LLMModelConfig(
             pretrained_model_name="hfl/chinese-alpaca-2-13b",
+        ),
+        ModelVariant.CHINESE_ALPACA_2_7B: LLMModelConfig(
+            pretrained_model_name="hfl/chinese-alpaca-2-7b",
         ),
     }
 
