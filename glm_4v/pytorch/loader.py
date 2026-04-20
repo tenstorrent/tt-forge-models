@@ -4,6 +4,8 @@
 """
 GLM-4V model loader implementation for multimodal conditional generation.
 """
+from types import MethodType
+
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
@@ -57,6 +59,43 @@ def _patch_batch_encode_plus(tokenizer):
         )
 
     tokenizer.batch_encode_plus = batch_encode_plus
+
+
+def _patch_inplace_ops(model):
+    """Replace in-place ops in get_masks with out-of-place equivalents for TT compiler."""
+    transformer = model.transformer
+
+    def get_masks(self, input_embeds, past_key_values, padding_mask=None):
+        batch_size, seq_length, embed_size = input_embeds.shape
+        full_attention_mask = torch.ones(
+            batch_size, seq_length, seq_length, device=input_embeds.device
+        )
+        full_attention_mask = full_attention_mask.tril()
+        past_length = 0
+        if past_key_values:
+            past_length = past_key_values[0][0].shape[2]
+        if past_length:
+            full_attention_mask = torch.cat(
+                (
+                    torch.ones(
+                        batch_size,
+                        seq_length,
+                        past_length,
+                        device=input_embeds.device,
+                    ),
+                    full_attention_mask,
+                ),
+                dim=-1,
+            )
+        if padding_mask is not None:
+            full_attention_mask = full_attention_mask * padding_mask.unsqueeze(1)
+        if not past_length and padding_mask is not None:
+            full_attention_mask = full_attention_mask - padding_mask.unsqueeze(-1) + 1
+        full_attention_mask = (full_attention_mask < 0.5).bool()
+        full_attention_mask = full_attention_mask.unsqueeze(1)
+        return full_attention_mask
+
+    transformer.get_masks = MethodType(get_masks, transformer)
 
 
 class ModelVariant(StrEnum):
@@ -124,6 +163,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        _patch_inplace_ops(model)
         self.model = model
         self.config = model.config
         return model
