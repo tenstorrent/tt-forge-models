@@ -5,8 +5,7 @@
 OCR Captcha model loader implementation for optical character recognition of CAPTCHA images.
 """
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
-from PIL import Image
-import requests
+from PIL import Image, ImageDraw
 from typing import Optional
 
 from ....base import ForgeModel
@@ -80,8 +79,9 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        url = "https://fki.tic.heia-fr.ch/static/img/a01-122-02-00.jpg"
-        image = Image.open(requests.get(url, stream=True).raw).convert("RGB")
+        image = Image.new("RGB", (400, 64), color=(255, 255, 255))
+        draw = ImageDraw.Draw(image)
+        draw.text((10, 10), "A8B3D", fill=(0, 0, 0))
 
         pixel_values = self.processor(images=image, return_tensors="pt").pixel_values
 
