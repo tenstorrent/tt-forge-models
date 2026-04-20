@@ -4,7 +4,9 @@
 """
 GELU 1L512W C4 Code model loader implementation for causal language modeling.
 """
-from transformers import AutoModel, AutoTokenizer
+import torch
+from transformer_lens import HookedTransformer
+from transformers import AutoTokenizer
 from typing import Optional
 
 from ...base import ForgeModel
@@ -55,12 +57,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            "NeelNanda/gpt-neox-tokenizer-digits", **tokenizer_kwargs
+            "NeelNanda/gpt-neox-tokenizer-digits"
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -72,12 +70,10 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"use_cache": False}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        model = HookedTransformer.from_pretrained(
+            pretrained_model_name,
+            dtype=dtype_override or torch.float32,
+        )
         model.eval()
 
         return model
@@ -94,4 +90,4 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        return [input_tokens["input_ids"], input_tokens["attention_mask"]]
+        return [input_tokens["input_ids"]]
