@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Qwen3.5-9B Ultimate Irrefusable Heretic GGUF model loader implementation for causal language modeling.
+Qwen3.5-9B-ultimate-irrefusable-heretic GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,28 +21,28 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen3.5-9B Ultimate Irrefusable Heretic GGUF model variants for causal language modeling."""
+    """Available Qwen3.5-9B-ultimate-irrefusable-heretic GGUF model variants for causal language modeling."""
 
-    QWEN_3_5_9B_ULTIMATE_IRREFUSABLE_HERETIC_GGUF = (
-        "9B_Ultimate_Irrefusable_Heretic_GGUF"
+    QWEN3_5_9B_ULTIMATE_IRREFUSABLE_HERETIC_Q4_K_M_GGUF = (
+        "QWEN3_5_9B_ULTIMATE_IRREFUSABLE_HERETIC_Q4_K_M_GGUF"
     )
 
 
 class ModelLoader(ForgeModel):
-    """Qwen3.5-9B Ultimate Irrefusable Heretic GGUF model loader implementation for causal language modeling tasks."""
+    """Qwen3.5-9B-ultimate-irrefusable-heretic GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.QWEN_3_5_9B_ULTIMATE_IRREFUSABLE_HERETIC_GGUF: LLMModelConfig(
+        ModelVariant.QWEN3_5_9B_ULTIMATE_IRREFUSABLE_HERETIC_Q4_K_M_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/Qwen3.5-9B-ultimate-irrefusable-heretic-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.QWEN_3_5_9B_ULTIMATE_IRREFUSABLE_HERETIC_GGUF
+    DEFAULT_VARIANT = ModelVariant.QWEN3_5_9B_ULTIMATE_IRREFUSABLE_HERETIC_Q4_K_M_GGUF
 
     GGUF_FILE = "Qwen3.5-9B-ultimate-irrefusable-heretic.Q4_K_M.gguf"
 
-    sample_text = "What is machine learning?"
+    sample_text = "What is your favorite city?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -55,7 +55,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Qwen3.5-9B Ultimate Irrefusable Heretic GGUF",
+            model="Qwen3.5-9B-ultimate-irrefusable-heretic GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -136,24 +136,6 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
-
-    def get_mesh_config(self, num_devices: int):
-        mesh_shape = (1, num_devices)
-        return mesh_shape, ("batch", "model")
-
-    def load_shard_spec(self, model):
-        shard_specs = {}
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
-        return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
