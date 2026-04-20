@@ -12,7 +12,7 @@ drives the standard forward pass which returns logits from each task head.
 """
 from typing import Optional
 
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from third_party.tt_forge_models.base import ForgeModel
 from third_party.tt_forge_models.config import (
@@ -77,14 +77,20 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {"trust_remote_code": True}
+        model_name = self._variant_config.pretrained_model_name
+
+        # The checkpoint declares `_tied_weights_keys` as a list, which the
+        # current transformers release no longer accepts during `post_init`.
+        # Disable weight tying so the lex head's decoder uses its own params.
+        config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+        config.tie_word_embeddings = False
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
-        )
+        model = AutoModel.from_pretrained(model_name, **model_kwargs)
         model.eval()
 
         self.model = model
