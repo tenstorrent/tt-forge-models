@@ -199,12 +199,11 @@ class ModelLoader(ForgeModel):
             / float(AUDIO_VAE_TEMPORAL_COMPRESSION_RATIO)
         )
         audio_num_frames = max(1, round(duration_s * audio_latents_per_second))
-        latent_mel_bins = AUDIO_VAE_MEL_BINS // AUDIO_VAE_MEL_COMPRESSION_RATIO
         audio_in_channels = self._transformer.config.audio_in_channels
         audio_hidden_states = torch.randn(
             batch_size,
             audio_num_frames,
-            audio_in_channels * latent_mel_bins,
+            audio_in_channels,
             dtype=dtype,
         )
 
