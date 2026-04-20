@@ -5,7 +5,12 @@
 Ministral 3 8B model loader implementation for causal language modeling
 """
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers import (
+    AutoTokenizer,
+    AutoConfig,
+    Mistral3ForConditionalGeneration,
+    Ministral3ForCausalLM,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -79,12 +84,20 @@ class ModelLoader(ForgeModel):
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
+            config.text_config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
+        full_model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        )
+        text_config = full_model.config.text_config
+        model = Ministral3ForCausalLM.__new__(Ministral3ForCausalLM)
+        torch.nn.Module.__init__(model)
+        model.config = text_config
+        model.model = full_model.model.language_model
+        model.lm_head = full_model.lm_head
+        model.generation_config = full_model.generation_config
+        model.eval()
 
         self.config = model.config
         self.model = model
@@ -154,7 +167,6 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        self.config = config.text_config
         return self.config
