@@ -4,6 +4,7 @@
 """
 OWLv2 model loader implementation for zero-shot object detection.
 """
+
 import torch
 from transformers import Owlv2Processor, Owlv2ForObjectDetection
 from datasets import load_dataset
