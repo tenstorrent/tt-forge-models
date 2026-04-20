@@ -6,6 +6,7 @@ GLM-4V model loader implementation for multimodal conditional generation.
 """
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.tokenization_utils_base import BatchEncoding
 from typing import Optional
 
 from ...base import ForgeModel
@@ -20,6 +21,45 @@ from ...config import (
 )
 from ...tools.utils import cast_input_to_type, get_file
 from PIL import Image
+
+
+def _patch_batch_encode_plus(tokenizer):
+    """Restore batch_encode_plus removed in transformers v5 for GLM-4V compatibility."""
+    if hasattr(tokenizer, "batch_encode_plus"):
+        return
+
+    def batch_encode_plus(
+        batch_text_or_ids,
+        padding=False,
+        truncation=False,
+        max_length=None,
+        return_tensors=None,
+        is_split_into_words=False,
+        add_special_tokens=False,
+        **kwargs,
+    ):
+        if is_split_into_words:
+            encoded = [
+                {"input_ids": ids, "attention_mask": [1] * len(ids)}
+                for ids in batch_text_or_ids
+            ]
+            return tokenizer.pad(
+                encoded,
+                padding=padding,
+                max_length=max_length,
+                return_tensors=return_tensors,
+            )
+        return tokenizer(
+            batch_text_or_ids,
+            padding=padding,
+            truncation=truncation,
+            max_length=max_length,
+            return_tensors=return_tensors,
+            add_special_tokens=add_special_tokens,
+            is_split_into_words=is_split_into_words,
+        )
+
+    tokenizer.batch_encode_plus = batch_encode_plus
 
 
 class ModelVariant(StrEnum):
@@ -61,6 +101,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
+        _patch_batch_encode_plus(self.tokenizer)
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
