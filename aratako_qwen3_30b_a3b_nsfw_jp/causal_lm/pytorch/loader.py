@@ -2,15 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Aratako/Qwen3-30B-A3B-NSFW-JP model loader implementation for causal language modeling.
-
-Aratako/Qwen3-30B-A3B-NSFW-JP is a Japanese continued pre-training of
-Qwen/Qwen3-30B-A3B-Base on roughly 6B tokens of NSFW Japanese data. No
-post-training (instruction tuning, RLHF) has been applied, so it is used as a
-base model.
+Aratako Qwen3-30B-A3B NSFW JP model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -26,13 +21,13 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Aratako/Qwen3-30B-A3B-NSFW-JP model variants for causal language modeling."""
+    """Available Aratako Qwen3-30B-A3B NSFW JP model variants for causal language modeling."""
 
     QWEN_3_30B_A3B_NSFW_JP = "30B_A3B_NSFW_JP"
 
 
 class ModelLoader(ForgeModel):
-    """Aratako/Qwen3-30B-A3B-NSFW-JP model loader implementation for causal language modeling tasks."""
+    """Aratako Qwen3-30B-A3B NSFW JP model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.QWEN_3_30B_A3B_NSFW_JP: LLMModelConfig(
@@ -43,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_30B_A3B_NSFW_JP
 
-    sample_text = "大規模言語モデルについて簡単に説明してください。"
+    sample_text = "Give me a short introduction to large language model."
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -56,7 +51,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Aratako Qwen3-30B-A3B-NSFW-JP",
+            model="Aratako Qwen3-30B-A3B NSFW JP",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -110,8 +105,17 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
+        messages = [{"role": "user", "content": self.sample_text}]
+        text = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=True,
+        )
+        prompts = [text]
+
         inputs = self.tokenizer(
-            [self.sample_text],
+            prompts,
             return_tensors="pt",
             padding=True,
             truncation=True,
