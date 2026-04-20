@@ -24,6 +24,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available MM Grounding DINO model variants for zero-shot object detection."""
 
+    BASE_ALL = "Base_All"
     LARGE_ALL = "Large_All"
 
 
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
+        ModelVariant.BASE_ALL: ModelConfig(
+            pretrained_model_name="openmmlab-community/mm_grounding_dino_base_all",
+        ),
         ModelVariant.LARGE_ALL: ModelConfig(
             pretrained_model_name="openmmlab-community/mm_grounding_dino_large_all",
         ),
