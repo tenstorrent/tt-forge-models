@@ -73,9 +73,16 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.OPUS_MT_TR_EN
 
+    _DEFAULT_SAMPLE_TEXT = (
+        "The weather is beautiful today and the sun is shining brightly."
+    )
+
     _SAMPLE_TEXTS = {
         ModelVariant.OPUS_MT_TR_EN: "Merhaba dünya, bugün hava çok güzel.",
-        ModelVariant.OPUS_MT_TC_BIG_EN_BG: "The weather is beautiful today and the sun is shining brightly.",
+        ModelVariant.OPUS_MT_EU_EN: "Gaur eguraldia ederra da eta eguzkia argi distira egiten du.",
+        ModelVariant.OPUS_MT_ROA_EN: "Le temps est magnifique aujourd'hui et le soleil brille.",
+        ModelVariant.OPUS_MT_FR_ES: "Le temps est magnifique aujourd'hui et le soleil brille.",
+        ModelVariant.OPUS_MT_NL_ES: "Het weer is vandaag prachtig en de zon schijnt helder.",
         ModelVariant.OPUS_MT_EN_GMQ: ">>sv<< The weather is beautiful today and the sun is shining brightly.",
     }
 
@@ -84,7 +91,9 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self._tokenizer = None
         self._model = None
-        self.sample_text = self._SAMPLE_TEXTS[self._variant]
+        self.sample_text = self._SAMPLE_TEXTS.get(
+            self._variant, self._DEFAULT_SAMPLE_TEXT
+        )
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -133,9 +142,8 @@ class ModelLoader(ForgeModel):
         if self._model is None:
             self.load_model(dtype_override=dtype_override)
 
-        sample_text = self._SAMPLE_TEXTS.get(self._variant)
         inputs = self._tokenizer(
-            sample_text,
+            self.sample_text,
             return_tensors="pt",
         )
 
