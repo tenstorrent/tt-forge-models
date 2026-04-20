@@ -21,20 +21,20 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available ModernGBERT model variants for masked language modeling."""
 
-    BASE_134M = "134M"
+    MODERNGBERT_1B = "1B"
 
 
 class ModelLoader(ForgeModel):
     """ModernGBERT model loader implementation for masked language modeling."""
 
     _VARIANTS = {
-        ModelVariant.BASE_134M: LLMModelConfig(
-            pretrained_model_name="LSX-UniWue/ModernGBERT_134M",
+        ModelVariant.MODERNGBERT_1B: LLMModelConfig(
+            pretrained_model_name="LSX-UniWue/ModernGBERT_1B",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.BASE_134M
+    DEFAULT_VARIANT = ModelVariant.MODERNGBERT_1B
 
     def __init__(self, variant=None):
         """Initialize ModelLoader with specified variant.
