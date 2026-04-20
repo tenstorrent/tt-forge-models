@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Hulu-Med model variants for medical image-to-text."""
 
     HULU_MED_4B = "4B"
+    HULU_MED_30A3 = "30A3"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.HULU_MED_4B: ModelConfig(
             pretrained_model_name="ZJU-AI4H/Hulu-Med-4B",
+        ),
+        ModelVariant.HULU_MED_30A3: ModelConfig(
+            pretrained_model_name="ZJU-AI4H/Hulu-Med-30A3",
         ),
     }
 
