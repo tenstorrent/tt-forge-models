@@ -11,6 +11,7 @@ and specified camera trajectories at 576p resolution.
 Repository: https://huggingface.co/stabilityai/stable-virtual-camera
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -75,20 +76,21 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from seva.model import Seva, SevaParams
-        from seva.model import SGMWrapper
+        from seva.model import Seva, SevaParams, SGMWrapper
 
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        weight_name = self._WEIGHT_NAMES[self._variant]
-        weight_path = hf_hub_download(
-            self._variant_config.pretrained_model_name,
-            filename=weight_name,
-        )
-        state_dict = load_file(weight_path)
-
         model = Seva(SevaParams()).to(dtype)
-        model.load_state_dict(state_dict)
+
+        if not os.environ.get("TT_RANDOM_WEIGHTS"):
+            weight_name = self._WEIGHT_NAMES[self._variant]
+            weight_path = hf_hub_download(
+                self._variant_config.pretrained_model_name,
+                filename=weight_name,
+            )
+            state_dict = load_file(weight_path)
+            model.load_state_dict(state_dict)
+
         model = SGMWrapper(model.eval())
 
         return model
