@@ -32,7 +32,7 @@ class ModelVariant(StrEnum):
     LARGE_XLSR_53_AMHARIC = "Large_XLSR_53_Amharic"
     LARGE_XLSR_53_FRENCH = "Large_XLSR_53_French"
     NB_WAV2VEC2_300M_BOKMAAL_V2 = "NB_Wav2Vec2_300M_Bokmaal_v2"
-    XLSR_53_ESPEAK_CV_FT_XAS2 = "XLSR_53_Espeak_CV_FT_XAS2"
+    XLS_R_300M_CV8_TURKISH = "XLS_R_300M_CV8_Turkish"
 
 
 class ModelLoader(ForgeModel):
@@ -63,8 +63,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.NB_WAV2VEC2_300M_BOKMAAL_V2: ModelConfig(
             pretrained_model_name="NbAiLab/nb-wav2vec2-300m-bokmaal-v2",
         ),
-        ModelVariant.XLSR_53_ESPEAK_CV_FT_XAS2: ModelConfig(
-            pretrained_model_name="ntsema/wav2vec2-xlsr-53-espeak-cv-ft-xas2-ntsema-colab",
+        ModelVariant.XLS_R_300M_CV8_TURKISH: ModelConfig(
+            pretrained_model_name="mpoyraz/wav2vec2-xls-r-300m-cv8-turkish",
         ),
     }
 
