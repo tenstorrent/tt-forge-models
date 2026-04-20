@@ -22,9 +22,7 @@ class ModelVariant(StrEnum):
     """Available KoELECTRA model variants for sequence classification."""
 
     CIRCULUS_KOELECTRA_ETHICS_V1 = "circulus_KoELECTRA_Ethics_v1"
-    COPYCATS_KOELECTRA_BASE_V3_GENERALIZED_SENTIMENT_ANALYSIS = (
-        "copycats_koelectra_base_v3_generalized_sentiment_analysis"
-    )
+    DAEKEUN_ML_KOELECTRA_SMALL_V3_NSMC = "daekeun_ml_koelectra_small_v3_nsmc"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +33,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="circulus/koelectra-ethics-v1",
             max_length=128,
         ),
-        ModelVariant.COPYCATS_KOELECTRA_BASE_V3_GENERALIZED_SENTIMENT_ANALYSIS: LLMModelConfig(
-            pretrained_model_name="Copycats/koelectra-base-v3-generalized-sentiment-analysis",
+        ModelVariant.DAEKEUN_ML_KOELECTRA_SMALL_V3_NSMC: LLMModelConfig(
+            pretrained_model_name="daekeun-ml/koelectra-small-v3-nsmc",
             max_length=128,
         ),
     }
