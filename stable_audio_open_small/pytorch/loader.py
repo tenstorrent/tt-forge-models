@@ -105,21 +105,21 @@ class ModelLoader(ForgeModel):
         conditioner_outputs = self._wrapper.conditioner(conditioning, device="cpu")
         conditioning_inputs = self._wrapper.get_conditioning_inputs(conditioner_outputs)
 
-        # Prepare synthetic latents for the DiT.
-        transformer = self._wrapper.model.model
-        pretransform = getattr(self._wrapper, "pretransform", None)
-        downsampling_ratio = (
-            pretransform.downsampling_ratio if pretransform is not None else 1
-        )
+        # Prepare synthetic latents for the DiT using shapes read from the
+        # model config rather than the transformer module, since the DiT does
+        # not expose io_channels as an attribute.
+        model_cfg = self._model_config["model"]
+        io_channels = model_cfg["io_channels"]
+        downsampling_ratio = model_cfg["pretransform"]["config"]["downsampling_ratio"]
         latent_length = sample_size // downsampling_ratio
 
         batch = 1
-        x = torch.randn(batch, transformer.io_channels, latent_length, dtype=dtype)
+        x = torch.randn(batch, io_channels, latent_length, dtype=dtype)
         t = torch.rand(batch, dtype=dtype)
 
         inputs = {"x": x, "t": t}
         for key, value in conditioning_inputs.items():
-            if isinstance(value, torch.Tensor):
+            if isinstance(value, torch.Tensor) and value.is_floating_point():
                 inputs[key] = value.to(dtype=dtype)
             else:
                 inputs[key] = value
