@@ -40,7 +40,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "TheDrummer_Behemoth-X-123B-v2-Q2_K.gguf"
 
-    sample_text = "What are the key differences between classical and quantum computing?"
+    sample_text = (
+        "What are the key differences between classical and quantum computing?"
+    )
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
