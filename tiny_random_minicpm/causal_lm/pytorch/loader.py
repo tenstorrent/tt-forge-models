@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Tiny Random MiniCPM model variants."""
 
     TINY_RANDOM_MINICPM = "tiny-random-minicpm"
+    OPTIMUM_INTEL_TINY_RANDOM_MINICPM = "optimum-intel-tiny-random-minicpm"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINY_RANDOM_MINICPM: LLMModelConfig(
             pretrained_model_name="katuni4ka/tiny-random-minicpm",
+            max_length=128,
+        ),
+        ModelVariant.OPTIMUM_INTEL_TINY_RANDOM_MINICPM: LLMModelConfig(
+            pretrained_model_name="optimum-intel-internal-testing/tiny-random-minicpm",
             max_length=128,
         ),
     }
