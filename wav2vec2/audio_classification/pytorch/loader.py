@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     LARGE_ROBUST_12_FT_EMOTION_MSP_DIM = "Large_Robust_12_FT_Emotion_MSP_Dim"
     LARGE_ROBUST_6_FT_AGE_GENDER = "Large_Robust_6_FT_Age_Gender"
+    LARGE_SUPERB_ER = "Large_Superb_ER"
     LARGE_XLSR_53_SPEECH_EMOTION = "Large_XLSR_53_Speech_Emotion"
     BASE_FT_RAVDESS = "Base_FT_Ravdess"
 
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE_ROBUST_6_FT_AGE_GENDER: ModelConfig(
             pretrained_model_name="audeering/wav2vec2-large-robust-6-ft-age-gender",
+        ),
+        ModelVariant.LARGE_SUPERB_ER: ModelConfig(
+            pretrained_model_name="superb/wav2vec2-large-superb-er",
         ),
         ModelVariant.LARGE_XLSR_53_SPEECH_EMOTION: ModelConfig(
             pretrained_model_name="firdhokk/speech-emotion-recognition-with-facebook-wav2vec2-large-xlsr-53",
@@ -97,8 +101,8 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self._variant in (
+            ModelVariant.LARGE_SUPERB_ER,
             ModelVariant.LARGE_XLSR_53_SPEECH_EMOTION,
-            ModelVariant.BASE_FT_RAVDESS,
         ):
             model = self._load_auto_model(**model_kwargs)
         elif self._variant == ModelVariant.LARGE_ROBUST_6_FT_AGE_GENDER:
