@@ -2,55 +2,54 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-OpenMed PII EuroMed model loader implementation for token classification.
+OpenMed PII EuroMed model loader for token classification.
 """
 
 import torch
-from transformers import AutoModelForTokenClassification, AutoTokenizer
-from third_party.tt_forge_models.config import (
+from transformers import AutoTokenizer, AutoModelForTokenClassification
+from ....base import ForgeModel
+from ....config import (
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
     StrEnum,
-    LLMModelConfig,
 )
-from third_party.tt_forge_models.base import ForgeModel
 
 
 class ModelVariant(StrEnum):
-    """Available OpenMed PII EuroMed model variants for token classification."""
+    """Available OpenMed PII EuroMed model variants."""
 
-    OPENMED_PII_EUROMED_LARGE_210M_V1 = "OpenMed/OpenMed-PII-EuroMed-Large-210M-v1"
+    EUROMED_LARGE_210M_V1 = "EuroMed-Large-210M-v1"
 
 
 class ModelLoader(ForgeModel):
     """OpenMed PII EuroMed model loader for token classification."""
 
     _VARIANTS = {
-        ModelVariant.OPENMED_PII_EUROMED_LARGE_210M_V1: LLMModelConfig(
+        ModelVariant.EUROMED_LARGE_210M_V1: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-PII-EuroMed-Large-210M-v1",
-            max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.OPENMED_PII_EUROMED_LARGE_210M_V1
+    DEFAULT_VARIANT = ModelVariant.EUROMED_LARGE_210M_V1
 
     def __init__(self, variant=None):
         super().__init__(variant)
-        self.model_name = self._variant_config.pretrained_model_name
-        self.sample_text = (
-            "Patient John Smith (DOB: 03/15/1985, SSN: 123-45-6789) was seen today. "
-            "Contact: john.smith@email.com, Phone: (555) 123-4567."
-        )
-        self.max_length = self._variant_config.max_length
         self.tokenizer = None
+        self.model = None
+        self.sample_text = (
+            "Patient John Smith (DOB: 03/15/1985, SSN: 123-45-6789) was seen"
+            " today. Contact: john.smith@email.com, Phone: (555) 123-4567."
+        )
+        self.max_length = 128
 
     @classmethod
     def _get_model_info(cls, variant_name=None):
         if variant_name is None:
-            variant_name = "PII_EuroMed_Large_210M_v1"
+            variant_name = cls.DEFAULT_VARIANT
         return ModelInfo(
             model="OpenMed PII EuroMed",
             variant=variant_name,
@@ -61,7 +60,11 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -69,10 +72,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForTokenClassification.from_pretrained(
-            self.model_name, **model_kwargs
+            pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
-        self.model = model
         model.eval()
+        self.model = model
         return model
 
     def load_inputs(self, dtype_override=None):
@@ -100,4 +103,4 @@ class ModelLoader(ForgeModel):
         ]
 
         print(f"Context: {self.sample_text}")
-        print(f"PII Tags: {predicted_tokens_classes}")
+        print(f"Predicted Labels: {predicted_tokens_classes}")
