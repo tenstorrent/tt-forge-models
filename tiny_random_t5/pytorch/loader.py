@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-echarlaix/tiny-random-t5 model loader
+tiny-random-t5 model loader
 for feature extraction (embedding generation).
 """
 import torch
