@@ -4,8 +4,10 @@
 """
 OpenCUA model loader implementation for computer-use agent tasks.
 """
+import sys
+
 import torch
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 from typing import Optional
 
 
@@ -141,6 +143,16 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
+
+        AutoConfig.from_pretrained(pretrained_model_name, trust_remote_code=True)
+        for mod in sys.modules.values():
+            cls = getattr(mod, "OpenCUAForConditionalGeneration", None)
+            if cls is not None and "kwargs" not in (
+                cls.tie_weights.__code__.co_varnames
+            ):
+                _orig = cls.tie_weights
+                cls.tie_weights = lambda self, _f=_orig, **kwargs: _f(self)
+                break
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
