@@ -40,7 +40,10 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipe = None
-        self.guidance_scale = 3.5
+        # Shuttle Jaguar's transformer is configured with guidance_embeds=False,
+        # so classifier-free guidance is not used despite the model card showing
+        # guidance_scale=3.5 at the pipeline level.
+        self.guidance_scale = 0.0
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
