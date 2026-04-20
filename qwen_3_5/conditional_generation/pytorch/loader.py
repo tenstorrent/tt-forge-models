@@ -26,6 +26,9 @@ class ModelVariant(StrEnum):
     """Available Qwen 3.5 MoE model variants for multimodal conditional generation."""
 
     QWEN_3_5_122B_A10B_UNCENSORED = "122B_A10B_Uncensored"
+    QWEN_3_5_35B_A3B_CLAUDE_4_6_OPUS_REASONING_DISTILLED = (
+        "35B_A3B_Claude_4_6_Opus_Reasoning_Distilled"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +37,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_5_122B_A10B_UNCENSORED: LLMModelConfig(
             pretrained_model_name="HauhauCS/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_35B_A3B_CLAUDE_4_6_OPUS_REASONING_DISTILLED: LLMModelConfig(
+            pretrained_model_name="Jackrong/Qwen3.5-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled",
             max_length=128,
         ),
     }
