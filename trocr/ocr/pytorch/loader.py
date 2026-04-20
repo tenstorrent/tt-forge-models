@@ -87,6 +87,7 @@ class ModelLoader(ForgeModel):
                     embed_pos.embedding_dim,
                     embed_pos.padding_idx,
                 )
+            del embed_pos.weights
             embed_pos.register_buffer("weights", weights, persistent=False)
 
         if dtype_override is not None:
