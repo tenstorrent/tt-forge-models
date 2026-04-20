@@ -16,10 +16,16 @@ Available subfolders:
 - vae: AutoencoderKLHunyuanVideo
 """
 
+import os
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import torch
-from diffusers import HunyuanVideoPipeline
+from diffusers import (
+    AutoencoderKLHunyuanVideo,
+    HunyuanVideoPipeline,
+    HunyuanVideoTransformer3DModel,
+)
 
 from ...base import ForgeModel
 from ...config import (
@@ -85,11 +91,32 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype: torch.dtype) -> HunyuanVideoPipeline:
-        self.pipeline = HunyuanVideoPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-        )
+    def _load_pipeline(self, dtype: torch.dtype):
+        model_name = self._variant_config.pretrained_model_name
+
+        if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+            transformer_cfg = HunyuanVideoTransformer3DModel.load_config(
+                model_name, subfolder="transformer"
+            )
+            transformer = HunyuanVideoTransformer3DModel.from_config(
+                transformer_cfg
+            ).to(dtype)
+
+            vae_cfg = AutoencoderKLHunyuanVideo.load_config(model_name, subfolder="vae")
+            vae = AutoencoderKLHunyuanVideo.from_config(vae_cfg).to(dtype)
+
+            self.pipeline = SimpleNamespace(
+                transformer=transformer,
+                vae=vae,
+                vae_scale_factor_spatial=2 ** (len(vae.config.block_out_channels) - 1),
+                vae_scale_factor_temporal=vae.config.temporal_compression_ratio,
+            )
+        else:
+            self.pipeline = HunyuanVideoPipeline.from_pretrained(
+                model_name,
+                torch_dtype=dtype,
+            )
+
         return self.pipeline
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -137,21 +164,26 @@ class ModelLoader(ForgeModel):
         latent_num_frames = (num_frames - 1) // vae_temporal + 1
 
         in_channels = config.in_channels
+        # Forward expects [B, C, T, H, W]
         hidden_states = torch.randn(
             batch_size,
-            latent_num_frames,
             in_channels,
+            latent_num_frames,
             latent_height,
             latent_width,
             dtype=dtype,
         )
 
-        # Text encoder hidden states
         text_seq_len = 64
         text_embed_dim = config.text_embed_dim
         encoder_hidden_states = torch.randn(
             batch_size, text_seq_len, text_embed_dim, dtype=dtype
         )
+
+        encoder_attention_mask = torch.ones(batch_size, text_seq_len, dtype=torch.bool)
+
+        pooled_projection_dim = config.pooled_projection_dim
+        pooled_projections = torch.randn(batch_size, pooled_projection_dim, dtype=dtype)
 
         timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
 
@@ -160,6 +192,8 @@ class ModelLoader(ForgeModel):
         return {
             "hidden_states": hidden_states,
             "encoder_hidden_states": encoder_hidden_states,
+            "encoder_attention_mask": encoder_attention_mask,
+            "pooled_projections": pooled_projections,
             "timestep": timestep,
             "guidance": guidance,
             "return_dict": False,
