@@ -85,16 +85,16 @@ class SileroVADv5(nn.Module):
         Returns:
             Tensor of shape (batch, 1) with speech probability
         """
-        # Compute STFT magnitude
+        # Compute STFT magnitude (always float32, cast to model dtype after)
         stft = torch.stft(
-            audio_chunk,
+            audio_chunk.float(),
             n_fft=self.filter_length,
             hop_length=self.hop_length,
             win_length=self.filter_length,
             window=torch.hann_window(self.filter_length, device=audio_chunk.device),
             return_complex=True,
         )
-        x = stft.abs()  # (batch, freq_bins, time_frames)
+        x = stft.abs().to(self.encoder[0].weight.dtype)
 
         # Encoder
         x = self.encoder(x)  # (batch, channels, time_frames)
@@ -148,19 +148,44 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _convert_mlx_state_dict(mlx_sd):
+        """Convert MLX-format state dict to PyTorch format."""
+        pt_sd = {}
+
+        # Encoder: MLX indices 0-3 map to PyTorch indices 0,2,4,6 (ReLU at 1,3,5,7)
+        for mlx_idx in range(4):
+            pt_idx = mlx_idx * 2
+            w = mlx_sd[f"encoder.{mlx_idx}.weight"]
+            # MLX Conv1d: (out, kernel, in) -> PyTorch: (out, in, kernel)
+            pt_sd[f"encoder.{pt_idx}.weight"] = w.permute(0, 2, 1)
+            pt_sd[f"encoder.{pt_idx}.bias"] = mlx_sd[f"encoder.{mlx_idx}.bias"]
+
+        # LSTM: MLX uses Wx/Wh/bias, PyTorch uses weight_ih/weight_hh/bias_ih/bias_hh
+        pt_sd["lstm.weight_ih_l0"] = mlx_sd["lstm.Wx"]
+        pt_sd["lstm.weight_hh_l0"] = mlx_sd["lstm.Wh"]
+        pt_sd["lstm.bias_ih_l0"] = mlx_sd["lstm.bias"]
+        pt_sd["lstm.bias_hh_l0"] = torch.zeros_like(mlx_sd["lstm.bias"])
+
+        # Decoder Conv1d: same transposition
+        pt_sd["decoder.weight"] = mlx_sd["decoder.weight"].permute(0, 2, 1)
+        pt_sd["decoder.bias"] = mlx_sd["decoder.bias"]
+
+        return pt_sd
+
     def load_model(self, *, dtype_override=None, **kwargs):
         from safetensors.torch import load_file
         from huggingface_hub import hf_hub_download
 
         model = SileroVADv5()
 
-        # Download and load safetensors weights from HuggingFace
         weights_path = hf_hub_download(
             repo_id=self._variant_config.pretrained_model_name,
             filename="model.safetensors",
         )
-        state_dict = load_file(weights_path)
-        model.load_state_dict(state_dict, strict=False)
+        mlx_sd = load_file(weights_path)
+        pt_sd = self._convert_mlx_state_dict(mlx_sd)
+        model.load_state_dict(pt_sd, strict=True)
         model.eval()
 
         if dtype_override is not None:
