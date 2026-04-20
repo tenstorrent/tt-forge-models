@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Hermes 4 model variants for causal language modeling."""
 
     HERMES_4_70B_FP8 = "Hermes_4_70B_FP8"
+    HERMES_4_14B = "Hermes_4_14B"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.HERMES_4_70B_FP8: LLMModelConfig(
             pretrained_model_name="NousResearch/Hermes-4-70B-FP8",
+            max_length=256,
+        ),
+        ModelVariant.HERMES_4_14B: LLMModelConfig(
+            pretrained_model_name="NousResearch/Hermes-4-14B",
             max_length=256,
         ),
     }
