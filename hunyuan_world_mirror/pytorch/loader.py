@@ -32,6 +32,19 @@ from ...config import (
 REPO_PATH = "/tmp/hunyuan_world_mirror_repo"
 
 
+def _patch_cuda_autocast():
+    """Replace torch.amp.autocast 'cuda' calls with 'cpu' for non-CUDA environments."""
+    _original_autocast = torch.amp.autocast
+
+    class _PatchedAutocast(_original_autocast):
+        def __init__(self, device_type, *args, **kwargs):
+            if device_type == "cuda" and not torch.cuda.is_available():
+                device_type = "cpu"
+            super().__init__(device_type, *args, **kwargs)
+
+    torch.amp.autocast = _PatchedAutocast
+
+
 def _mock_gsplat():
     """Mock gsplat module which requires CUDA to install."""
     if "gsplat" not in sys.modules:
@@ -103,6 +116,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The WorldMirror 3D geometric prediction model.
         """
+        _patch_cuda_autocast()
         _mock_gsplat()
         _ensure_repo_importable()
         from src.models.models.worldmirror import WorldMirror
