@@ -69,9 +69,9 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False}
+        model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["dtype"] = dtype_override
+            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
@@ -85,8 +85,9 @@ class ModelLoader(ForgeModel):
 
         inputs = self.tokenizer(
             self.sample_sentences,
-            padding=True,
+            padding="max_length",
             truncation=True,
+            max_length=128,
             return_tensors="pt",
         )
 
