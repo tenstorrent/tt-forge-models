@@ -4,11 +4,14 @@
 """
 Wan Fun Control model loader for tt_forge_models.
 
-Wan2.1-Fun-14B-Control is a controllable video generation model from alibaba-pai
-that supports control conditions such as Canny, Depth, Pose, and MLSD.
-It uses a WanTransformer3DModel with 36 input channels (16 latent + 20 control/mask).
+Wan2.1-Fun-*-Control are controllable video generation models from alibaba-pai
+that support control conditions such as Canny, Depth, Pose, and MLSD. Both
+variants use a WanTransformer3DModel backbone with extra input channels for
+control/mask conditioning.
 
-Repository: https://huggingface.co/alibaba-pai/Wan2.1-Fun-14B-Control
+Repositories:
+- https://huggingface.co/alibaba-pai/Wan2.1-Fun-14B-Control
+- https://huggingface.co/alibaba-pai/Wan2.1-Fun-1.3B-Control
 """
 
 from typing import Any, Optional
@@ -27,7 +30,9 @@ from ...config import (
 )
 from .src.utils import (
     load_transformer,
+    load_transformer_1_3b,
     load_transformer_inputs,
+    load_transformer_inputs_1_3b,
 )
 
 
@@ -35,19 +40,26 @@ class ModelVariant(StrEnum):
     """Available Wan Fun Control variants."""
 
     WAN21_FUN_14B_CONTROL = "2.1_Fun_14B_Control"
+    WAN21_FUN_1_3B_CONTROL = "2.1_Fun_1.3B_Control"
 
 
 class ModelLoader(ForgeModel):
     """
-    Loader for alibaba-pai/Wan2.1-Fun-14B-Control video generation model.
+    Loader for the alibaba-pai Wan 2.1 Fun Control video generation models.
 
-    Loads the WanTransformer3DModel with 36 input channels for control
-    conditioning. The model stores weights at the repo root (no subfolder).
+    The 14B variant stores a diffusers-compatible config at the repo root and
+    is loaded directly via ``WanTransformer3DModel.from_pretrained``. The 1.3B
+    variant ships a minimal ``WanModel`` config, so we load its safetensors
+    through ``from_single_file`` using the standard Wan 2.1 T2V 1.3B config as
+    a reference.
     """
 
     _VARIANTS = {
         ModelVariant.WAN21_FUN_14B_CONTROL: ModelConfig(
             pretrained_model_name="alibaba-pai/Wan2.1-Fun-14B-Control",
+        ),
+        ModelVariant.WAN21_FUN_1_3B_CONTROL: ModelConfig(
+            pretrained_model_name="alibaba-pai/Wan2.1-Fun-1.3B-Control",
         ),
     }
 
@@ -75,10 +87,15 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        return load_transformer(self._variant_config.pretrained_model_name, dtype)
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        if self._variant == ModelVariant.WAN21_FUN_1_3B_CONTROL:
+            return load_transformer_1_3b(pretrained_model_name, dtype)
+        return load_transformer(pretrained_model_name, dtype)
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        if self._variant == ModelVariant.WAN21_FUN_1_3B_CONTROL:
+            return load_transformer_inputs_1_3b(dtype)
         return load_transformer_inputs(dtype)
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:
