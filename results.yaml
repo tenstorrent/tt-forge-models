@@ -1,0 +1,5 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[k2_v2/causal_lm/pytorch-K2_V2_Instruct-single_device-inference]"
+  status: "PASS"
+  date: "20260420_190145"
+  branch: "ip-172-31-30-232-tt-xla-dev/ubuntu/hf-bringup-9"
