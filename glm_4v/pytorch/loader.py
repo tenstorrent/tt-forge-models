@@ -6,7 +6,6 @@ GLM-4V model loader implementation for multimodal conditional generation.
 """
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
-from transformers.tokenization_utils_base import BatchEncoding
 from typing import Optional
 
 from ...base import ForgeModel
@@ -19,8 +18,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import cast_input_to_type, get_file
-from PIL import Image
 
 
 def _patch_batch_encode_plus(tokenizer):
@@ -135,13 +132,9 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        image_file = get_file(self.sample_image_url)
-        image = Image.open(image_file).convert("RGB")
-
         messages = [
             {
                 "role": "user",
-                "image": image,
                 "content": self.sample_text,
             }
         ]
@@ -156,11 +149,6 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
-        if dtype_override is not None and "pixel_values" in inputs:
-            inputs["pixel_values"] = cast_input_to_type(
-                inputs["pixel_values"], dtype_override
-            )
 
         return inputs
 
