@@ -21,6 +21,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
+from .src.model import Wrapper
 
 
 class ModelVariant(StrEnum):
@@ -69,9 +70,6 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model_kwargs["dtype"] = "auto"
-        model_kwargs["device_map"] = "auto"
-
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
@@ -81,9 +79,11 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        return model
+        inputs = self._process_inputs(dtype_override)
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+        return Wrapper(model, inputs)
+
+    def _process_inputs(self, dtype_override=None):
         messages = [
             {
                 "role": "user",
@@ -104,4 +104,14 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            if "pixel_values" in inputs:
+                inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+
+        return inputs
+
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        inputs = self._process_inputs(dtype_override)
+        inputs.pop("image_grid_thw", None)
         return inputs
