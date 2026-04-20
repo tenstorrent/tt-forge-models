@@ -124,6 +124,9 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        inputs["labels"] = None
+        inputs["labels_mask"] = inputs["attention_mask"].bool()
+
         return inputs
 
     def decode_output(self, co_out):
