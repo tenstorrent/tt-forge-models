@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Granite 3.1 model variants."""
 
     GRANITE_3_1_2B_BASE = "3.1_2B_Base"
+    GRANITE_3_1_3B_A800M_BASE = "3.1_3B_A800M_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GRANITE_3_1_2B_BASE: ModelConfig(
             pretrained_model_name="ibm-granite/granite-3.1-2b-base",
+        ),
+        ModelVariant.GRANITE_3_1_3B_A800M_BASE: ModelConfig(
+            pretrained_model_name="ibm-granite/granite-3.1-3b-a800m-base",
         ),
     }
 
