@@ -9,7 +9,7 @@ SigLIP SO400M vision tower (google/siglip-so400m-patch14-384).
 """
 
 import torch
-from transformers import AutoImageProcessor, SiglipVisionModel
+from transformers import AutoConfig, AutoImageProcessor, SiglipVisionModel
 from datasets import load_dataset
 from typing import Optional
 
@@ -82,6 +82,10 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "vision_config"):
+            model_kwargs["config"] = config.vision_config
 
         model = SiglipVisionModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
