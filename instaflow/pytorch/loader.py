@@ -9,6 +9,7 @@ distilled using Rectified Flow for single-step image generation.
 
 Available variants:
 - INSTAFLOW_0_9B: XCLiu/instaflow_0_9B_from_sd_1_5 text-to-image generation
+- RECTIFIED_FLOW_2: XCLiu/2_rectified_flow_from_sd_1_5 few-step text-to-image generation
 """
 
 from typing import Optional
@@ -28,13 +29,11 @@ from ...config import (
 )
 
 
-REPO_ID = "XCLiu/instaflow_0_9B_from_sd_1_5"
-
-
 class ModelVariant(StrEnum):
     """Available InstaFlow model variants."""
 
     INSTAFLOW_0_9B = "InstaFlow_0_9B"
+    RECTIFIED_FLOW_2 = "2_rectified_flow_from_sd_1_5"
 
 
 class ModelLoader(ForgeModel):
@@ -42,7 +41,10 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.INSTAFLOW_0_9B: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name="XCLiu/instaflow_0_9B_from_sd_1_5",
+        ),
+        ModelVariant.RECTIFIED_FLOW_2: ModelConfig(
+            pretrained_model_name="XCLiu/2_rectified_flow_from_sd_1_5",
         ),
     }
     DEFAULT_VARIANT = ModelVariant.INSTAFLOW_0_9B
