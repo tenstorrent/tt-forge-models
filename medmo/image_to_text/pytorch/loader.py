@@ -5,6 +5,7 @@
 MedMO model loader implementation for image to text.
 """
 
+import torch
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
@@ -21,6 +22,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
+from .src.model_utils import MedMOWrapper
 
 
 class ModelVariant(StrEnum):
@@ -44,26 +46,12 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.MEDMO_8B_NEXT
 
     def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
         super().__init__(variant)
         self.processor = None
+        self._full_model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Implementation method for getting model info with validated variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
@@ -76,40 +64,26 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the MedMO model instance for this instance's variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            torch.nn.Module: The MedMO model instance for image to text.
-        """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
+        model_kwargs = {"low_cpu_mem_usage": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        else:
+            model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, dtype="auto", device_map="auto", **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
         model.eval()
+        self._full_model = model
 
-        return model
+        return MedMOWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the MedMO model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-            batch_size: Batch size for the inputs.
-
-        Returns:
-            dict: Input tensors that can be fed to the model.
-        """
         messages = [
             {
                 "role": "user",
@@ -130,4 +104,41 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
-        return inputs
+
+        model = self._full_model
+        with torch.no_grad():
+            input_ids = inputs["input_ids"]
+            attention_mask = inputs.get("attention_mask")
+            pixel_values = inputs.get("pixel_values")
+            image_grid_thw = inputs.get("image_grid_thw")
+
+            inputs_embeds = model.get_input_embeddings()(input_ids)
+
+            if pixel_values is not None:
+                pixel_values = pixel_values.type(model.model.visual.dtype)
+                image_outputs = model.model.get_image_features(
+                    pixel_values, image_grid_thw, return_dict=True
+                )
+                image_embeds = image_outputs.pooler_output
+                image_embeds = torch.cat(list(image_embeds), dim=0).to(
+                    inputs_embeds.device, inputs_embeds.dtype
+                )
+                special_image_mask = input_ids == model.config.image_token_id
+                special_image_mask = special_image_mask.unsqueeze(-1).expand_as(
+                    inputs_embeds
+                )
+                inputs_embeds = inputs_embeds.masked_scatter(
+                    special_image_mask, image_embeds
+                )
+
+            position_ids, _ = model.model.get_rope_index(
+                input_ids,
+                image_grid_thw=image_grid_thw,
+                attention_mask=attention_mask,
+            )
+
+        return {
+            "inputs_embeds": inputs_embeds,
+            "attention_mask": attention_mask,
+            "position_ids": position_ids,
+        }
