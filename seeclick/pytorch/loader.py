@@ -82,9 +82,11 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    TOKENIZER_NAME = "Qwen/Qwen-VL-Chat"
+
     def _load_tokenizer(self):
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+            self.TOKENIZER_NAME, trust_remote_code=True
         )
         return self.tokenizer
 
