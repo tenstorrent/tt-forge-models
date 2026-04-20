@@ -31,19 +31,19 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Faster Whisper speech recognition model variants."""
 
-    LARGE_V3_TURBO = "Large_v3_Turbo"
+    LARGE_V1 = "Large_v1"
 
 
 class ModelLoader(ForgeModel):
     """Faster Whisper model loader implementation for speech recognition (ASR)."""
 
     _VARIANTS = {
-        ModelVariant.LARGE_V3_TURBO: ModelConfig(
-            pretrained_model_name="openai/whisper-large-v3-turbo",
+        ModelVariant.LARGE_V1: ModelConfig(
+            pretrained_model_name="openai/whisper-large",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.LARGE_V3_TURBO
+    DEFAULT_VARIANT = ModelVariant.LARGE_V1
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
