@@ -41,7 +41,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_3_5_4B_CLAUDE_4_6_OS_AUTO_VARIABLE_HERETIC_UNCENSORED_THINKING_GGUF
     )
 
-    GGUF_FILE = "Qwen3.5-4B-Claude-4.6-OS-Auto-Variable-HERETIC-UNCENSORED-THINKING.Q4_K_M.gguf"
+    GGUF_FILE = (
+        "Qwen3.5-4B-Claude-4.6-OS-Auto-Variable-HERETIC-UNCENSORED-THINKING.Q4_K_M.gguf"
+    )
 
     sample_text = "Give me a short introduction to large language model."
 
