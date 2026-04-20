@@ -61,24 +61,41 @@ class ModelLoader(ForgeModel):
         )
 
     @staticmethod
-    def _patch_auto_register():
-        from transformers import AutoConfig
+    def _patch_transformers_compat():
+        from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
-        _orig_register = AutoConfig.register.__func__
+        _orig = CONFIG_MAPPING.register
 
-        @classmethod
-        def _register_exist_ok(cls, model_type, config, exist_ok=True):
-            return _orig_register(cls, model_type, config, exist_ok=exist_ok)
+        def _register_exist_ok(key, value, exist_ok=True):
+            return _orig(key, value, exist_ok=True)
 
-        AutoConfig.register = _register_exist_ok
+        CONFIG_MAPPING.register = _register_exist_ok
+
+        from transformers import PreTrainedModel
+
+        if not hasattr(PreTrainedModel, "is_parallelizable"):
+            PreTrainedModel.is_parallelizable = False
+
+    @staticmethod
+    def _patch_conversation_formatter():
+        import sys
+
+        for name, mod in sys.modules.items():
+            if "configuration_ovis" in name and hasattr(mod, "ConversationFormatter"):
+                for cls in mod.ConversationFormatter.__subclasses__():
+                    if hasattr(cls, "support_tokenizer_types"):
+                        if "TokenizersBackend" not in cls.support_tokenizer_types:
+                            cls.support_tokenizer_types.append("TokenizersBackend")
+                break
 
     def _load_model_instance(self, dtype_override=None, **kwargs):
-        self._patch_auto_register()
+        self._patch_transformers_compat()
 
         model_name = self._variant_config.pretrained_model_name
         model_kwargs = {
             "trust_remote_code": True,
             "multimodal_max_length": 8192,
+            "attn_implementation": "eager",
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -86,9 +103,16 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.bfloat16
         model_kwargs |= kwargs
 
+        from transformers import AutoConfig
+
+        config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+        config.llm_attn_implementation = "eager"
+        model_kwargs["config"] = config
+
         model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
         model.eval()
 
+        self._patch_conversation_formatter()
         self.model = model
         self.text_tokenizer = model.get_text_tokenizer()
         self.visual_tokenizer = model.get_visual_tokenizer()
@@ -117,6 +141,7 @@ class ModelLoader(ForgeModel):
         inputs = {
             "input_ids": input_ids.unsqueeze(0),
             "attention_mask": attention_mask.unsqueeze(0),
+            "labels": None,
         }
 
         if pixel_values is not None:
