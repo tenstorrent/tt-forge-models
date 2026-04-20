@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available Molmo model variants."""
 
     MOLMO_72B_0924 = "72B_0924"
+    MOLMO_7B_O_0924 = "7B_O_0924"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MOLMO_72B_0924: LLMModelConfig(
             pretrained_model_name="allenai/Molmo-72B-0924",
+        ),
+        ModelVariant.MOLMO_7B_O_0924: LLMModelConfig(
+            pretrained_model_name="allenai/Molmo-7B-O-0924",
         ),
     }
 
