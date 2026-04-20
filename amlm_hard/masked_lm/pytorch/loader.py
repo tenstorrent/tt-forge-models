@@ -21,7 +21,7 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available amlm_hard model variants."""
 
-    AMLM_HARD = "leukas/amlm_hard"
+    AMLM_HARD = "amlm_hard"
 
 
 class ModelLoader(ForgeModel):
