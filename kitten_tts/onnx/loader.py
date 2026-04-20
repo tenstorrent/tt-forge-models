@@ -28,7 +28,7 @@ class ModelVariant(StrEnum):
     """Available KittenTTS model variants."""
 
     KITTEN_TTS_NANO_0_8_FP32 = "nano-0.8-fp32"
-    KITTEN_TTS_MICRO_0_8 = "micro-0.8"
+    KITTEN_TTS_NANO_0_8_INT8 = "nano-0.8-int8"
 
 
 class ModelLoader(ForgeModel):
@@ -38,8 +38,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.KITTEN_TTS_NANO_0_8_FP32: ModelConfig(
             pretrained_model_name="KittenML/kitten-tts-nano-0.8-fp32",
         ),
-        ModelVariant.KITTEN_TTS_MICRO_0_8: ModelConfig(
-            pretrained_model_name="KittenML/kitten-tts-micro-0.8",
+        ModelVariant.KITTEN_TTS_NANO_0_8_INT8: ModelConfig(
+            pretrained_model_name="KittenML/kitten-tts-nano-0.8-int8",
         ),
     }
 
