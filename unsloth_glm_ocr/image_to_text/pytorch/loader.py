@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Unsloth GLM-OCR model loader implementation for image-to-text tasks.
+unsloth/GLM-OCR model loader implementation for image-to-text tasks.
 """
 import torch
 from transformers import AutoProcessor, AutoModelForImageTextToText
@@ -21,21 +21,23 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Unsloth GLM-OCR model variants for image-to-text tasks."""
+    """Available unsloth/GLM-OCR model variants for image-to-text tasks."""
 
-    UNSLOTH_GLM_OCR = "unsloth_glm_ocr"
+    GLM_OCR = "glm_ocr"
 
 
 class ModelLoader(ForgeModel):
-    """Unsloth GLM-OCR model loader implementation for image-to-text tasks."""
+    """unsloth/GLM-OCR model loader implementation for image-to-text tasks."""
 
+    # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.UNSLOTH_GLM_OCR: LLMModelConfig(
+        ModelVariant.GLM_OCR: LLMModelConfig(
             pretrained_model_name="unsloth/GLM-OCR",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.UNSLOTH_GLM_OCR
+    # Default variant to use
+    DEFAULT_VARIANT = ModelVariant.GLM_OCR
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -59,7 +61,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="unsloth_glm_ocr",
+            model="unsloth-GLM-OCR",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_IMAGE_TO_TEXT,
@@ -87,14 +89,14 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Unsloth GLM-OCR model instance for this instance's variant.
+        """Load and return the GLM-OCR model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The Unsloth GLM-OCR model instance for image-to-text tasks.
+            torch.nn.Module: The GLM-OCR model instance for image-to-text tasks.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -113,7 +115,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Unsloth GLM-OCR model with this instance's variant settings.
+        """Load and return sample inputs for the GLM-OCR model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
