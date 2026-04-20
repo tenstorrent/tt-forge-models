@@ -42,9 +42,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.MRADERMACHER_QWEN3_5_4B_CLAUDE_4_6_OPUS_REASONING_DISTILL_HERETIC_V3_I1_GGUF
     )
 
-    GGUF_FILE = (
-        "Qwen3.5-4B-Claude-4.6-Opus-Reasoning-Distill-heretic-v3.i1-Q4_K_M.gguf"
-    )
+    GGUF_FILE = "Qwen3.5-4B-Claude-4.6-Opus-Reasoning-Distill-heretic-v3.i1-Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
