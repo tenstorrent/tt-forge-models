@@ -61,9 +61,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, trust_remote_code=True
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -71,7 +69,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForTokenClassification.from_pretrained(
-            self.model_name, trust_remote_code=True, **model_kwargs
+            self.model_name, **model_kwargs
         )
         self.model = model
         model.eval()
