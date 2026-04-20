@@ -26,12 +26,14 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available PE-Core CLIP model variants."""
 
+    VIT_B_16 = "ViT_B_16"
     VIT_L_14_336 = "ViT_L_14_336"
     VIT_BIGG_14_448 = "ViT_bigG_14_448"
 
 
 # Mapping from variant to OpenCLIP tokenizer name
 _TOKENIZER_NAME = {
+    ModelVariant.VIT_B_16: "hf-hub:timm/PE-Core-B-16",
     ModelVariant.VIT_L_14_336: "hf-hub:timm/PE-Core-L-14-336",
     ModelVariant.VIT_BIGG_14_448: "hf-hub:timm/PE-Core-bigG-14-448",
 }
@@ -41,6 +43,9 @@ class ModelLoader(ForgeModel):
     """PE-Core CLIP model loader using OpenCLIP for image-text similarity tasks."""
 
     _VARIANTS = {
+        ModelVariant.VIT_B_16: ModelConfig(
+            pretrained_model_name="hf-hub:timm/PE-Core-B-16",
+        ),
         ModelVariant.VIT_L_14_336: ModelConfig(
             pretrained_model_name="hf-hub:timm/PE-Core-L-14-336",
         ),
