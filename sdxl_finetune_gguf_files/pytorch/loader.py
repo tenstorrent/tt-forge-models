@@ -48,7 +48,8 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.JUGGERNAUT_XL_XI_Q4_K_S
 
     # GGUF files live under a GGUF_Models/ subfolder in the upstream repo.
-    GGUF_FILE = "GGUF_Models/juggernautXL_juggXIByRundiffusion_Q4_K_S.gguf"
+    GGUF_SUBFOLDER = "GGUF_Models"
+    GGUF_FILE = "juggernautXL_juggXIByRundiffusion_Q4_K_S.gguf"
 
     prompt = "An astronaut riding a green horse"
 
@@ -76,7 +77,9 @@ class ModelLoader(ForgeModel):
             DiffusionPipeline: The loaded pipeline instance.
         """
         if self.pipeline is None:
-            self.pipeline = load_gguf_pipe(REPO_ID, self.GGUF_FILE)
+            self.pipeline = load_gguf_pipe(
+                REPO_ID, self.GGUF_FILE, subfolder=self.GGUF_SUBFOLDER
+            )
 
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
