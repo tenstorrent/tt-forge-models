@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Aegis AI Content Safety LlamaGuard Defensive model loader implementation for causal language modeling.
+Aegis AI Content Safety LlamaGuard model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -25,14 +25,18 @@ class ModelVariant(StrEnum):
     """Available Aegis AI Content Safety LlamaGuard model variants."""
 
     DEFENSIVE_1_0 = "Defensive_1.0"
+    PERMISSIVE_1_0 = "Permissive_1.0"
 
 
 class ModelLoader(ForgeModel):
-    """Aegis AI Content Safety LlamaGuard Defensive model loader for causal language modeling tasks."""
+    """Aegis AI Content Safety LlamaGuard model loader for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.DEFENSIVE_1_0: ModelConfig(
             pretrained_model_name="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
+        ),
+        ModelVariant.PERMISSIVE_1_0: ModelConfig(
+            pretrained_model_name="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
         ),
     }
 
