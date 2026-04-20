@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
     BASE_PATCH16_384 = "Base_Patch16_384"
     SO400M_PATCH14_384 = "So400m_Patch14_384"
     SO400M_PATCH16_512 = "So400m_Patch16_512"
+    GIANT_OPT_PATCH16_256 = "Giant_Opt_Patch16_256"
 
 
 class ModelLoader(ForgeModel):
@@ -49,6 +50,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.SO400M_PATCH16_512: SigLIP2Config(
             pretrained_model_name="hf-hub:timm/ViT-SO400M-16-SigLIP2-512",
             source=ModelSource.TIMM,
+        ),
+        ModelVariant.GIANT_OPT_PATCH16_256: SigLIP2Config(
+            pretrained_model_name="google/siglip2-giant-opt-patch16-256",
+            source=ModelSource.HUGGING_FACE,
         ),
     }
 
