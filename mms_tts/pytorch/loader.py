@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
 
     HAU = "hau"
     ORM = "orm"
+    TIR = "tir"
     YOR = "yor"
 
 
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.ORM: ModelConfig(
             pretrained_model_name="facebook/mms-tts-orm",
         ),
+        ModelVariant.TIR: ModelConfig(
+            pretrained_model_name="facebook/mms-tts-tir",
+        ),
         ModelVariant.YOR: ModelConfig(
             pretrained_model_name="facebook/mms-tts-yor",
         ),
@@ -47,6 +51,7 @@ class ModelLoader(ForgeModel):
     _SAMPLE_TEXTS = {
         ModelVariant.HAU: "Sannu, yaya aiki?",
         ModelVariant.ORM: "Baga nagaan dhuftan",
+        ModelVariant.TIR: "ሰላም፡ ከመይ ኣለኻ?",
         ModelVariant.YOR: "Ẹ n lẹ, bawo ni ọjọ yín ṣe rí?",
     }
 
