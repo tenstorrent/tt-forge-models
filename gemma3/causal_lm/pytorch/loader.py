@@ -151,7 +151,7 @@ class ModelLoader(ForgeModel):
             [input_text],
             return_tensors="pt",
             max_length=max_length,
-            padding="max_length",
+            padding=True,
             truncation=True,
         )
         for key in inputs:
