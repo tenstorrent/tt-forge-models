@@ -20,6 +20,80 @@ from ....config import (
 )
 
 
+def _patch_transformers_gemma3n_gguf():
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "gemma3n" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("gemma3n")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["gemma3n"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.key_length": "head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.sliding_window": "sliding_window",
+        "vocab_size": "vocab_size",
+    }
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFGemmaConverter,
+    )
+
+    if "gemma3n_text" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["gemma3n_text"] = GGUFGemmaConverter
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "gemma3n":
+            config["model_type"] = "gemma3n_text"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    orig_weights_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(*args, **kwargs):
+        if "model_type" in kwargs and kwargs["model_type"] == "gemma3n_text":
+            kwargs["model_type"] = "gemma3n"
+        elif len(args) > 2 and args[2] == "gemma3n_text":
+            args = list(args)
+            args[2] = "gemma3n"
+            args = tuple(args)
+        return orig_weights_map(*args, **kwargs)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+    if hasattr(modeling_utils, "get_gguf_hf_weights_map"):
+        modeling_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_gemma3n_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Gemma 3n E4B GGUF model variants for causal language modeling."""
 
