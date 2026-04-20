@@ -11,6 +11,8 @@ variants repackaged for ComfyUI by Kijai.
 Repository:
 - https://huggingface.co/Kijai/HunyuanVideo_comfy
 """
+import os
+
 import torch
 from diffusers import HunyuanVideoTransformer3DModel
 from typing import Optional
@@ -74,17 +76,20 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.transformer = HunyuanVideoTransformer3DModel()
+        else:
+            gguf_file = self._GGUF_FILES[self._variant]
+            gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+            load_kwargs = {}
+            if dtype_override is not None:
+                load_kwargs["torch_dtype"] = dtype_override
 
-        self.transformer = HunyuanVideoTransformer3DModel.from_single_file(
-            gguf_url,
-            **load_kwargs,
-        )
+            self.transformer = HunyuanVideoTransformer3DModel.from_single_file(
+                gguf_url,
+                **load_kwargs,
+            )
 
         if dtype_override is not None:
             self.transformer = self.transformer.to(dtype_override)
@@ -126,12 +131,15 @@ class ModelLoader(ForgeModel):
             batch_size, config.pooled_projection_dim, dtype=dtype
         )
 
+        guidance = torch.tensor([6.0], dtype=dtype).expand(batch_size)
+
         inputs = {
             "hidden_states": hidden_states,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
             "encoder_attention_mask": encoder_attention_mask,
             "pooled_projections": pooled_projections,
+            "guidance": guidance,
         }
 
         return inputs
