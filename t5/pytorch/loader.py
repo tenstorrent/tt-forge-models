@@ -32,6 +32,7 @@ class ModelVariant(StrEnum):
     T5_3B = "T5_3B"
     FLAN_T5_LARGE = "Flan_T5_Large"
     FLAN_T5_XXL = "Flan_T5_XXL"
+    XENOVA_FLAN_T5_SMALL = "Xenova_Flan_T5_Small"
 
 
 class ModelLoader(ForgeModel):
@@ -69,6 +70,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.FLAN_T5_XXL: LLMModelConfig(
             pretrained_model_name="google/flan-t5-xxl",
+            max_length=512,
+        ),
+        ModelVariant.XENOVA_FLAN_T5_SMALL: LLMModelConfig(
+            pretrained_model_name="Xenova/flan-t5-small",
             max_length=512,
         ),
     }
@@ -118,7 +123,12 @@ class ModelLoader(ForgeModel):
         """
         group = (
             ModelGroup.VULCAN
-            if variant in (ModelVariant.T5_3B, ModelVariant.FLAN_T5_XXL)
+            if variant
+            in (
+                ModelVariant.T5_3B,
+                ModelVariant.FLAN_T5_XXL,
+                ModelVariant.XENOVA_FLAN_T5_SMALL,
+            )
             else ModelGroup.GENERALITY
         )
         return ModelInfo(
