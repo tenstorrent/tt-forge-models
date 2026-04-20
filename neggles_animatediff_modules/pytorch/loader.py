@@ -6,9 +6,10 @@ neggles/animatediff-modules model loader implementation.
 
 The neggles/animatediff-modules repository re-hosts the original AnimateDiff
 motion module weights (mm_sd_v14, mm_sd_v15, mm_sd_v15_v2) as raw safetensors.
-This loader downloads one of the motion module checkpoints, converts its key
-names to the diffusers MotionAdapter layout, and wraps it with a Stable
-Diffusion 1.5 base UNet to form a UNetMotionModel for text-to-video generation.
+This loader downloads one of the motion module checkpoints, uses
+``MotionAdapter.from_single_file`` to build the diffusers MotionAdapter, and
+wraps it with a Stable Diffusion 1.5 base to return a UNetMotionModel for
+text-to-video generation.
 
 Reference: https://huggingface.co/neggles/animatediff-modules
 """
@@ -18,7 +19,6 @@ from typing import Any, Optional
 import torch
 from diffusers import AnimateDiffPipeline, MotionAdapter
 from huggingface_hub import hf_hub_download
-from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -65,20 +65,6 @@ class ModelLoader(ForgeModel):
         ModelVariant.MM_SD_V15_V2: "mm_sd_v15_v2.fp16.safetensors",
     }
 
-    # Motion module sequence length: v1 uses 24 frames, v2 uses 32.
-    _MOTION_MAX_SEQ_LENGTH = {
-        ModelVariant.MM_SD_V14: 24,
-        ModelVariant.MM_SD_V15: 24,
-        ModelVariant.MM_SD_V15_V2: 32,
-    }
-
-    # v2 adds a motion module inside the UNet mid-block; v1 does not.
-    _USE_MOTION_MID_BLOCK = {
-        ModelVariant.MM_SD_V14: False,
-        ModelVariant.MM_SD_V15: False,
-        ModelVariant.MM_SD_V15_V2: True,
-    }
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipeline: Optional[AnimateDiffPipeline] = None
@@ -97,23 +83,6 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    @staticmethod
-    def _convert_motion_module_state_dict(raw_state_dict: dict) -> dict:
-        """Rename raw AnimateDiff motion module keys to diffusers layout."""
-        converted = {}
-        for key, value in raw_state_dict.items():
-            if "pos_encoder" in key:
-                continue
-            new_key = (
-                key.replace(".norms.0", ".norm1")
-                .replace(".norms.1", ".norm2")
-                .replace(".ff_norm", ".norm3")
-                .replace(".attention_blocks.0", ".attn1")
-                .replace(".attention_blocks.1", ".attn2")
-            )
-            converted[new_key] = value
-        return converted
-
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load the UNetMotionModel backed by the neggles motion module weights."""
         dtype = dtype_override if dtype_override is not None else torch.float32
@@ -122,21 +91,8 @@ class ModelLoader(ForgeModel):
             repo_id=self._variant_config.pretrained_model_name,
             filename=self._MODULE_FILES[self._variant],
         )
-        raw_state_dict = load_file(ckpt_path)
-        converted_state_dict = self._convert_motion_module_state_dict(raw_state_dict)
 
-        adapter = MotionAdapter(
-            block_out_channels=(320, 640, 1280, 1280),
-            motion_num_attention_heads=8,
-            motion_max_seq_length=self._MOTION_MAX_SEQ_LENGTH[self._variant],
-            use_motion_mid_block=self._USE_MOTION_MID_BLOCK[self._variant],
-        )
-        # strict=False: raw checkpoints omit positional encoding buffers that
-        # MotionAdapter reconstructs from motion_max_seq_length.
-        adapter.load_state_dict(converted_state_dict, strict=False)
-
-        if dtype_override is not None:
-            adapter = adapter.to(dtype=dtype)
+        adapter = MotionAdapter.from_single_file(ckpt_path, torch_dtype=dtype)
 
         self.pipeline = AnimateDiffPipeline.from_pretrained(
             BASE_MODEL,
