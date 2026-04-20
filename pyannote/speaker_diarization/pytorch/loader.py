@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     DIARIZATION_3_1 = "Diarization_3_1"
     DIARIZATION_COMMUNITY_1 = "Diarization_Community_1"
     TEZUESH_DIARIZATION = "Tezuesh_Diarization"
+    FATYMATARIQ_DIARIZATION_3_1 = "Fatymatariq_Diarization_3_1"
 
 
 class ModelLoader(ForgeModel):
@@ -52,6 +53,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.TEZUESH_DIARIZATION: ModelConfig(
             pretrained_model_name="tezuesh/diarization",
+        ),
+        ModelVariant.FATYMATARIQ_DIARIZATION_3_1: ModelConfig(
+            pretrained_model_name="fatymatariq/speaker-diarization-3.1",
         ),
     }
 
