@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available Granite Vision model variants."""
 
     GRANITE_VISION_3_2_2B = "3.2_2B"
+    GRANITE_VISION_3_3_2B_CHART2CSV = "3.3_2B_chart2csv_preview"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GRANITE_VISION_3_2_2B: ModelConfig(
             pretrained_model_name="ibm-granite/granite-vision-3.2-2b",
+        ),
+        ModelVariant.GRANITE_VISION_3_3_2B_CHART2CSV: ModelConfig(
+            pretrained_model_name="ibm-granite/granite-vision-3.3-2b-chart2csv-preview",
         ),
     }
 
