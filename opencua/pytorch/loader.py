@@ -193,6 +193,17 @@ class ModelLoader(ForgeModel):
         finally:
             _tmu.PreTrainedModel.init_weights = _orig_init
         model.eval()
+
+        _orig_vt_forward = model.vision_tower.forward
+
+        def _tensor_vt_forward(*args, _orig=_orig_vt_forward, **kwargs):
+            out = _orig(*args, **kwargs)
+            if hasattr(out, "last_hidden_state"):
+                return out.last_hidden_state
+            return out
+
+        model.vision_tower.forward = _tensor_vt_forward
+
         model = Wrapper(model)
 
         return model
