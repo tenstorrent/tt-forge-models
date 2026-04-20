@@ -9,6 +9,7 @@ from typing import Optional
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
 from ....base import ForgeModel
 from ....config import (
@@ -20,6 +21,25 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+_LLADA_BASE_REPO = "GSAI-ML/LLaDA-8B-Instruct"
+_llada_classes_registered = False
+
+
+def _register_llada_classes():
+    """Register LLaDA custom classes from the base repo since MMaDA repo removed them."""
+    global _llada_classes_registered
+    if _llada_classes_registered:
+        return
+    llada_config_cls = get_class_from_dynamic_module(
+        "configuration_llada.LLaDAConfig", _LLADA_BASE_REPO
+    )
+    llada_model_cls = get_class_from_dynamic_module(
+        "modeling_llada.LLaDAModelLM", _LLADA_BASE_REPO
+    )
+    AutoConfig.register("llada", llada_config_cls, exist_ok=True)
+    AutoModelForCausalLM.register(llada_config_cls, llada_model_cls)
+    _llada_classes_registered = True
 
 
 class ModelVariant(StrEnum):
@@ -77,6 +97,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+        _register_llada_classes()
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
@@ -87,16 +108,15 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+            pretrained_model_name, **model_kwargs
         ).eval()
 
+        model.config.use_cache = False
         self.config = model.config
         self.model = model
         return model
@@ -124,7 +144,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer.decode([next_token])
 
     def load_config(self):
+        _register_llada_classes()
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+            self._variant_config.pretrained_model_name
         )
         return self.config
