@@ -67,13 +67,9 @@ class ModelLoader(ForgeModel):
         """
         from autogluon.tabular.models.mitra._internal.models.tab2d import Tab2D
 
-        model_kwargs = {"device": "cpu"}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
+        # Tab2D uses torch.quantile() which requires float32/float64
         model = Tab2D.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
+            self._variant_config.pretrained_model_name, device="cpu"
         )
         model.eval()
         return model
@@ -85,7 +81,8 @@ class ModelLoader(ForgeModel):
             list: [x_support, y_support, x_query, padding_features,
                    padding_obs_support, padding_obs_query] tensors.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        # Tab2D uses torch.quantile() which requires float32/float64
+        dtype = torch.float32
         batch_size = 1
 
         # Support set: labeled examples for in-context learning
