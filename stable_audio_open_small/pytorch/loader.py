@@ -71,18 +71,17 @@ class ModelLoader(ForgeModel):
         self._wrapper.eval()
         return self._wrapper, self._model_config
 
-    def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+    def load_model(self, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Return the DiT transformer from the stable-audio-tools wrapper."""
         if self._wrapper is None:
             self._load_pretrained()
 
         transformer = self._wrapper.model.model
-        transformer.eval()
         if dtype_override is not None:
             transformer = transformer.to(dtype_override)
         return transformer
 
-    def load_inputs(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+    def load_inputs(self, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Return a dict of sample inputs that match the DiT forward signature."""
         if self._wrapper is None:
             self._load_pretrained()
