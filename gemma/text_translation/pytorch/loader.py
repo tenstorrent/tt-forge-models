@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
 
     TRANSLATEGEMMA_4B_IT = "Translategemma_4B_IT"
     TRANSLATEGEMMA_12B_IT = "Translategemma_12B_IT"
-    VLLM_TRANSLATEGEMMA_27B_IT = "vLLM_Translategemma_27B_IT"
+    VLLM_TRANSLATEGEMMA_27B_IT = "VLLM_Translategemma_27B_IT"
 
 
 class ModelLoader(ForgeModel):
