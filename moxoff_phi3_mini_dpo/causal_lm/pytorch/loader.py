@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.MOXOFF_PHI3_MINI_DPO: LLMModelConfig(
-            pretrained_model_name="MoxoffSpA/Moxoff-Phi3Mini-DPO",
+            pretrained_model_name="MoxoffSrL/Moxoff-Phi3Mini-DPO",
             max_length=128,
         ),
     }
