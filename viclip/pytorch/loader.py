@@ -75,14 +75,11 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        model_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        viclip = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        viclip = AutoModel.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+            **kwargs,
+        )
         model = ViCLIPVisionWrapper(viclip)
         model.eval()
 
