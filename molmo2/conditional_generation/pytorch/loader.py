@@ -116,6 +116,12 @@ class ModelLoader(ForgeModel):
             if patched:
                 ROPE_INIT_FUNCTIONS.pop("default", None)
 
+        # Workaround for transformers 5.2.0: the remote modeling_molmo2.py
+        # references config.use_cache which was removed from PretrainedConfig.
+        for cfg in [model.config, getattr(model.config, "text_config", None)]:
+            if cfg is not None and not hasattr(cfg, "use_cache"):
+                cfg.use_cache = True
+
         model.eval()
         self.model = model
         self.config = model.config
