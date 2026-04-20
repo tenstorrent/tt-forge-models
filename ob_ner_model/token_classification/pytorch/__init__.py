@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-SteveTran/ob_ner_model Token Classification PyTorch implementation.
+SteveTran ob_ner_model token classification PyTorch implementation.
 """
 from .loader import ModelLoader, ModelVariant
