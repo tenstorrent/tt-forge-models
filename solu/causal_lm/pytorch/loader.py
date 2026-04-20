@@ -104,7 +104,7 @@ class ModelLoader(ForgeModel):
             truncation=True,
         )
 
-        return {"input_ids": tokens["input_ids"]}
+        return {"input": tokens["input_ids"]}
 
     def decode_output(self, outputs, inputs=None):
         """Decode model outputs into human-readable text."""
