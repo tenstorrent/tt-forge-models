@@ -40,9 +40,25 @@ def _patch_cuda_autocast():
         def __init__(self, device_type, *args, **kwargs):
             if device_type == "cuda" and not torch.cuda.is_available():
                 device_type = "cpu"
+                if "dtype" in kwargs and kwargs["dtype"] == torch.float32:
+                    kwargs["enabled"] = False
             super().__init__(device_type, *args, **kwargs)
 
     torch.amp.autocast = _PatchedAutocast
+
+
+def _patch_linalg_for_bfloat16(model):
+    """Patch transform_camera_vector to cast to float32 for linalg.inv."""
+    original_fn = model.transform_camera_vector
+
+    def patched_transform_camera_vector(camera_params, h, w):
+        orig_dtype = camera_params.dtype
+        if orig_dtype == torch.bfloat16:
+            camera_params = camera_params.float()
+        c2w_mat, int_mat = original_fn(camera_params, h, w)
+        return c2w_mat.to(orig_dtype), int_mat.to(orig_dtype)
+
+    model.transform_camera_vector = patched_transform_camera_vector
 
 
 def _mock_gsplat():
@@ -127,6 +143,8 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             model = model.to(dtype_override)
+
+        _patch_linalg_for_bfloat16(model)
 
         return model
 
