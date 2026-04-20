@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Seed-X model variants."""
 
     SEED_X_PPO_7B = "Seed_X_PPO_7B"
+    SEED_X_PPO_7B_GPTQ_INT8 = "Seed_X_PPO_7B_GPTQ_Int8"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SEED_X_PPO_7B: ModelConfig(
             pretrained_model_name="ByteDance-Seed/Seed-X-PPO-7B",
+        ),
+        ModelVariant.SEED_X_PPO_7B_GPTQ_INT8: ModelConfig(
+            pretrained_model_name="ByteDance-Seed/Seed-X-PPO-7B-GPTQ-Int8",
         ),
     }
 
@@ -109,6 +113,11 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # GPTQ quantized variants need device_map="cpu" for weight dequantization
+        if self._variant == ModelVariant.SEED_X_PPO_7B_GPTQ_INT8:
+            model_kwargs["device_map"] = "cpu"
+
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
