@@ -124,6 +124,7 @@ class ModelVariant(StrEnum):
     """Available InternVL2.5 model variants."""
 
     INTERN_VL2_5_2B_MPO_HF = "2B_MPO_HF"
+    INTERN_VL2_5_8B_MPO = "8B_MPO"
     INTERN_VL2_5_38B = "38B"
 
 
@@ -133,6 +134,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.INTERN_VL2_5_2B_MPO_HF: LLMModelConfig(
             pretrained_model_name="OpenGVLab/InternVL2_5-2B-MPO-hf",
+        ),
+        ModelVariant.INTERN_VL2_5_8B_MPO: LLMModelConfig(
+            pretrained_model_name="OpenGVLab/InternVL2_5-8B-MPO",
         ),
         ModelVariant.INTERN_VL2_5_38B: LLMModelConfig(
             pretrained_model_name="OpenGVLab/InternVL2_5-38B",
