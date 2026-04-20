@@ -12,6 +12,7 @@ The MT5ForRegression class is provided by the metricx24 package
 
 Available variants:
 - HYBRID_XXL_V2P6: google/metricx-24-hybrid-xxl-v2p6-bfloat16
+- HYBRID_LARGE_V2P6: google/metricx-24-hybrid-large-v2p6-bfloat16
 """
 
 from transformers import AutoTokenizer
@@ -33,6 +34,7 @@ class ModelVariant(StrEnum):
     """Available MetricX-24 model variants."""
 
     HYBRID_XXL_V2P6 = "Hybrid_XXL_v2p6"
+    HYBRID_LARGE_V2P6 = "Hybrid_Large_v2p6"
 
 
 class ModelLoader(ForgeModel):
@@ -41,6 +43,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.HYBRID_XXL_V2P6: LLMModelConfig(
             pretrained_model_name="google/metricx-24-hybrid-xxl-v2p6-bfloat16",
+            max_length=512,
+        ),
+        ModelVariant.HYBRID_LARGE_V2P6: LLMModelConfig(
+            pretrained_model_name="google/metricx-24-hybrid-large-v2p6-bfloat16",
             max_length=512,
         ),
     }
