@@ -4,16 +4,19 @@
 """
 hoanganho0o/PMTACADEMY model loader implementation.
 
-Loads the FLUX.1-dev base pipeline and applies the PMT ACADEMY Ultra Realistic
-LoRA from hoanganho0o/PMTACADEMY for photorealistic text-to-image generation.
+Loads a FLUX.1-dev architecture transformer and applies the PMT ACADEMY Ultra
+Realistic LoRA from hoanganho0o/PMTACADEMY for photorealistic text-to-image
+generation. The transformer is instantiated from config to avoid the gated
+black-forest-labs/FLUX.1-dev repository.
 
 Repository: https://huggingface.co/hoanganho0o/PMTACADEMY
 """
 
+import os
 from typing import Optional
 
 import torch
-from diffusers import FluxPipeline
+from diffusers import FluxTransformer2DModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -26,9 +29,21 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
 LORA_REPO = "hoanganho0o/PMTACADEMY"
 LORA_FILENAME = "PMT_ACADEMY_Ultra Realistic V12.0.safetensors"
+
+FLUX_DEV_TRANSFORMER_CONFIG = {
+    "patch_size": 1,
+    "in_channels": 64,
+    "out_channels": 64,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "attention_head_dim": 128,
+    "num_attention_heads": 24,
+    "joint_attention_dim": 4096,
+    "pooled_projection_dim": 768,
+    "guidance_embeds": True,
+}
 
 
 class ModelVariant(StrEnum):
@@ -42,7 +57,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.ULTRA_REALISTIC: ModelConfig(
-            pretrained_model_name=BASE_MODEL,
+            pretrained_model_name=LORA_REPO,
         ),
     }
 
@@ -50,7 +65,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipe = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -66,148 +81,85 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype_override=None):
-        """Load FLUX.1-dev pipeline and apply PMT ACADEMY LoRA."""
-        pipe_kwargs = {"use_safetensors": True}
-        if dtype_override is not None:
-            pipe_kwargs["torch_dtype"] = dtype_override
+    def _load_transformer(self, dtype=None):
+        """Instantiate FLUX.1-dev transformer from config and optionally apply LoRA."""
+        self._transformer = FluxTransformer2DModel(**FLUX_DEV_TRANSFORMER_CONFIG)
 
-        self.pipe = FluxPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, **pipe_kwargs
-        )
+        if dtype is not None:
+            self._transformer = self._transformer.to(dtype=dtype)
 
-        # Apply PMT ACADEMY Ultra Realistic LoRA
-        self.pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=LORA_FILENAME,
-        )
+        if not os.environ.get("TT_RANDOM_WEIGHTS"):
+            self._transformer.load_lora_adapter(
+                LORA_REPO,
+                weight_name=LORA_FILENAME,
+            )
 
-        self.pipe.enable_attention_slicing()
-        self.pipe.enable_vae_tiling()
-
-        return self.pipe
+        self._transformer.eval()
+        return self._transformer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the FLUX transformer with PMT ACADEMY LoRA applied.
-
-        Returns:
-            torch.nn.Module: The FLUX transformer model instance.
-        """
-        if self.pipe is None:
-            self._load_pipeline(dtype_override=dtype_override)
-
-        if dtype_override is not None:
-            self.pipe.transformer = self.pipe.transformer.to(dtype_override)
-
-        return self.pipe.transformer
+        if self._transformer is None:
+            self._load_transformer(dtype=dtype_override)
+        elif dtype_override is not None:
+            self._transformer = self._transformer.to(dtype=dtype_override)
+        return self._transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the FLUX model.
+        if self._transformer is None:
+            self._load_transformer(dtype=dtype_override)
 
-        Returns:
-            dict: Input tensors for the transformer model.
-        """
-        if self.pipe is None:
-            self._load_pipeline(dtype_override=dtype_override)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        config = self._transformer.config
 
-        max_sequence_length = 256
-        prompt = "PMT ACADEMY, Vietnamese, a young woman in traditional ao dai"
+        in_channels = config.in_channels
+        num_channels_latents = in_channels // 4
+        joint_attention_dim = config.joint_attention_dim
+        pooled_projection_dim = config.pooled_projection_dim
+
         height = 128
         width = 128
-        num_images_per_prompt = 1
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        num_channels_latents = self.pipe.transformer.config.in_channels // 4
+        vae_scale_factor = 8
+        max_sequence_length = 256
+        guidance_scale = 3.5
 
-        # Text encoding for CLIP
-        text_inputs_clip = self.pipe.tokenizer(
-            prompt,
-            padding="max_length",
-            max_length=self.pipe.tokenizer_max_length,
-            truncation=True,
-            return_tensors="pt",
+        height_latent = 2 * (height // (vae_scale_factor * 2))
+        width_latent = 2 * (width // (vae_scale_factor * 2))
+        h_packed = height_latent // 2
+        w_packed = width_latent // 2
+
+        latents = torch.randn(
+            batch_size, num_channels_latents * 4, h_packed, w_packed, dtype=dtype
         )
-        text_input_ids_clip = text_inputs_clip.input_ids
-        pooled_prompt_embeds = self.pipe.text_encoder(
-            text_input_ids_clip, output_hidden_states=False
-        ).pooler_output
-        pooled_prompt_embeds = pooled_prompt_embeds.to(dtype=dtype)
-        pooled_prompt_embeds = pooled_prompt_embeds.repeat(
-            batch_size, num_images_per_prompt
-        )
-        pooled_prompt_embeds = pooled_prompt_embeds.view(
-            batch_size * num_images_per_prompt, -1
+        latents = latents.reshape(batch_size, num_channels_latents * 4, -1).permute(
+            0, 2, 1
         )
 
-        # Text encoding for T5
-        text_inputs_t5 = self.pipe.tokenizer_2(
-            prompt,
-            padding="max_length",
-            max_length=max_sequence_length,
-            truncation=True,
-            return_length=False,
-            return_overflowing_tokens=False,
-            return_tensors="pt",
-        )
-        text_input_ids_t5 = text_inputs_t5.input_ids
-        prompt_embeds = self.pipe.text_encoder_2(
-            text_input_ids_t5, output_hidden_states=False
-        )[0]
-        prompt_embeds = prompt_embeds.to(dtype=dtype)
-        _, seq_len_t5, _ = prompt_embeds.shape
-        prompt_embeds = prompt_embeds.repeat(batch_size, num_images_per_prompt, 1)
-        prompt_embeds = prompt_embeds.view(
-            batch_size * num_images_per_prompt, seq_len_t5, -1
-        )
-
-        # Create text IDs
-        text_ids = torch.zeros(prompt_embeds.shape[1], 3).to(dtype=dtype)
-
-        # Create latents
-        height_latent = 2 * (int(height) // (self.pipe.vae_scale_factor * 2))
-        width_latent = 2 * (int(width) // (self.pipe.vae_scale_factor * 2))
-
-        shape = (
-            batch_size * num_images_per_prompt,
-            num_channels_latents,
-            height_latent,
-            width_latent,
-        )
-
-        latents = torch.randn(shape, dtype=dtype)
-        latents = latents.view(
-            batch_size * num_images_per_prompt,
-            num_channels_latents,
-            height_latent // 2,
-            2,
-            width_latent // 2,
-            2,
-        )
-        latents = latents.permute(0, 2, 4, 1, 3, 5)
-        latents = latents.reshape(
-            batch_size * num_images_per_prompt,
-            (height_latent // 2) * (width_latent // 2),
-            num_channels_latents * 4,
-        )
-
-        # Prepare latent image IDs
-        latent_image_ids = torch.zeros(height_latent // 2, width_latent // 2, 3)
+        latent_image_ids = torch.zeros(h_packed, w_packed, 3)
         latent_image_ids[..., 1] = (
-            latent_image_ids[..., 1] + torch.arange(height_latent // 2)[:, None]
+            latent_image_ids[..., 1] + torch.arange(h_packed)[:, None]
         )
         latent_image_ids[..., 2] = (
-            latent_image_ids[..., 2] + torch.arange(width_latent // 2)[None, :]
+            latent_image_ids[..., 2] + torch.arange(w_packed)[None, :]
         )
         latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
 
-        inputs = {
+        prompt_embeds = torch.randn(
+            batch_size, max_sequence_length, joint_attention_dim, dtype=dtype
+        )
+        pooled_prompt_embeds = torch.randn(
+            batch_size, pooled_projection_dim, dtype=dtype
+        )
+        text_ids = torch.zeros(max_sequence_length, 3).to(dtype=dtype)
+        guidance = torch.full([batch_size], guidance_scale, dtype=dtype)
+        timestep = torch.tensor([1.0], dtype=dtype).expand(batch_size)
+
+        return {
             "hidden_states": latents,
-            "timestep": torch.tensor([1.0], dtype=dtype),
-            "guidance": None,
+            "timestep": timestep,
+            "guidance": guidance,
             "pooled_projections": pooled_prompt_embeds,
             "encoder_hidden_states": prompt_embeds,
             "txt_ids": text_ids,
             "img_ids": latent_image_ids,
             "joint_attention_kwargs": {},
         }
-
-        return inputs
