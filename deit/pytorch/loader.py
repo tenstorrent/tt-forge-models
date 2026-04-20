@@ -48,6 +48,7 @@ class ModelVariant(StrEnum):
     # TIMM variants
     DEIT_TINY_PATCH16_224_FB_IN1K = "Tiny_Patch16_224_FB_IN1K"
     DEIT_SMALL_PATCH16_224_FB_IN1K = "Small_Patch16_224_FB_IN1K"
+    DEIT_SMALL_DISTILLED_PATCH16_224_FB_IN1K = "Small_Distilled_Patch16_224_FB_IN1K"
 
 
 class ModelLoader(ForgeModel):
@@ -83,6 +84,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DEIT_SMALL_PATCH16_224_FB_IN1K: DeitConfig(
             pretrained_model_name="deit_small_patch16_224.fb_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.DEIT_SMALL_DISTILLED_PATCH16_224_FB_IN1K: DeitConfig(
+            pretrained_model_name="deit_small_distilled_patch16_224.fb_in1k",
             source=ModelSource.TIMM,
         ),
     }
