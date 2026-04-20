@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
             stride=2,
             groups_width=16,
             n_classes=self.N_CLASSES,
-            use_bn=True,
+            use_bn=False,
             use_do=False,
         )
 
