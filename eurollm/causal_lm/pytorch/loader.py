@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available EuroLLM model variants for causal language modeling."""
 
     EUROLLM_22B_INSTRUCT_2512 = "EuroLLM_22B_Instruct_2512"
-    EUROLLM_9B = "EuroLLM_9B"
+    STELTERLAB_EUROLLM_9B_INSTRUCT_AWQ = "stelterlab_EuroLLM_9B_Instruct_AWQ"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="utter-project/EuroLLM-22B-Instruct-2512",
             max_length=256,
         ),
-        ModelVariant.EUROLLM_9B: LLMModelConfig(
-            pretrained_model_name="utter-project/EuroLLM-9B",
+        ModelVariant.STELTERLAB_EUROLLM_9B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="stelterlab/EuroLLM-9B-Instruct-AWQ",
             max_length=256,
         ),
     }
@@ -86,6 +86,10 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        if self._variant == ModelVariant.STELTERLAB_EUROLLM_9B_INSTRUCT_AWQ:
+            model_kwargs["device_map"] = "cpu"
+
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
