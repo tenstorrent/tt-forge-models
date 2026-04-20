@@ -116,7 +116,7 @@ class ModelVariant(StrEnum):
     """Available InternVL3 model variants."""
 
     INTERN_VL3_1B_INSTRUCT = "1B_Instruct"
-    UNIPERCEPT = "UniPercept"
+    INTERN_VL3_9B = "9B"
 
 
 class ModelLoader(ForgeModel):
@@ -126,8 +126,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.INTERN_VL3_1B_INSTRUCT: ModelConfig(
             pretrained_model_name="OpenGVLab/InternVL3-1B-Instruct",
         ),
-        ModelVariant.UNIPERCEPT: ModelConfig(
-            pretrained_model_name="Thunderbolt215215/UniPercept",
+        ModelVariant.INTERN_VL3_9B: ModelConfig(
+            pretrained_model_name="OpenGVLab/InternVL3-9B",
         ),
     }
 
