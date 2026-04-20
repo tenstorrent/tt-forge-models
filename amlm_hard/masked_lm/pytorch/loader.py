@@ -5,7 +5,7 @@
 amlm_hard model loader implementation for masked language modeling.
 """
 
-from transformers import AutoTokenizer, DebertaV2ForMaskedLM
+from transformers import AutoModelForMaskedLM, AutoTokenizer
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = DebertaV2ForMaskedLM.from_pretrained(self.model_name, **model_kwargs)
+        model = AutoModelForMaskedLM.from_pretrained(self.model_name, **model_kwargs)
         model.eval()
         return model
 
