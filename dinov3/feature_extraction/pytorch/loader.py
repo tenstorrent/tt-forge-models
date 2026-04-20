@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
     """Available DINOv3 ViT feature extraction model variants."""
 
     BASE = "Base"
+    LARGE = "Large"
     SMALL_PLUS_PATCH16_TIMM = "Small_Plus_Patch16_TIMM"
     VIT_7B_PATCH16_SAT493M = "7B_Patch16_SAT493M"
 
@@ -45,6 +46,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: DINOv3Config(
             pretrained_model_name="facebook/dinov3-vitb16-pretrain-lvd1689m",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.LARGE: DINOv3Config(
+            pretrained_model_name="camenduru/dinov3-vitl16-pretrain-lvd1689m",
             source=ModelSource.HUGGING_FACE,
         ),
         ModelVariant.SMALL_PLUS_PATCH16_TIMM: DINOv3Config(
