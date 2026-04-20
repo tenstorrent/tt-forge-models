@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     GRANITE_ENGLISH_R2 = "Granite_English_R2"
     GRANITE_SMALL_ENGLISH_R2 = "Granite_Small_English_R2"
     DEEPVK_USER2_BASE = "deepvk_USER2_base"
+    BASE_MSMARCO = "ModernBERT-base-msmarco"
 
 
 class ModelLoader(ForgeModel):
@@ -42,6 +43,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.DEEPVK_USER2_BASE: ModelConfig(
             pretrained_model_name="deepvk/USER2-base",
         ),
+        ModelVariant.BASE_MSMARCO: ModelConfig(
+            pretrained_model_name="joe32140/ModernBERT-base-msmarco",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GRANITE_SMALL_ENGLISH_R2
@@ -49,6 +53,7 @@ class ModelLoader(ForgeModel):
     _SAMPLE_SENTENCES = {
         ModelVariant.GRANITE_SMALL_ENGLISH_R2: ["The cat sits on the mat"],
         ModelVariant.DEEPVK_USER2_BASE: ["search_query: Кошка сидит на коврике"],
+        ModelVariant.BASE_MSMARCO: ["what county is hayden in"],
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
