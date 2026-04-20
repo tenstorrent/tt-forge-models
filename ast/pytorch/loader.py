@@ -88,11 +88,11 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         import numpy as np
+        import torch
 
         if self._processor is None:
             self._load_processor()
 
-        # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
@@ -104,5 +104,11 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if isinstance(v, torch.Tensor) else v
+                for k, v in inputs.items()
+            }
 
         return inputs
