@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available ASID Captioner model variants for vision-language tasks."""
 
     ASID_CAPTIONER_7B = "7B"
+    ASID_CAPTIONER_3B = "3B"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.ASID_CAPTIONER_7B: LLMModelConfig(
             pretrained_model_name="AudioVisual-Caption/ASID-Captioner-7B",
+        ),
+        ModelVariant.ASID_CAPTIONER_3B: LLMModelConfig(
+            pretrained_model_name="AudioVisual-Caption/ASID-Captioner-3B",
         ),
     }
 
