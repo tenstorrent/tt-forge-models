@@ -5,7 +5,16 @@
 HyperCLOVAX SEED Omni model loader implementation for multimodal visual question answering
 """
 
+import types
+
 import torch
+import torch.nn as nn
+import transformers.modeling_utils
+from transformers.initialization import no_init_weights
+from transformers.modeling_outputs import BaseModelOutputWithPooling
+
+transformers.modeling_utils.no_init_weights = no_init_weights
+
 from transformers import AutoProcessor, AutoModelForCausalLM
 from PIL import Image
 from typing import Optional
@@ -20,6 +29,41 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_vision_model_for_transformers5(model):
+    """Fix transformers 5.x compat: Qwen2.5 VL vision model returns
+    BaseModelOutputWithPooling instead of a plain tensor."""
+    vision_model = model.model.vision_model
+
+    # The HCX model code replaces the merger with nn.Identity and monkey-patches
+    # the vision model forward. This breaks with transformers 5.x. Undo both and
+    # wrap the forward to extract the merged tensor from the structured output.
+    if isinstance(vision_model.merger, nn.Identity):
+        from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
+            Qwen2_5_VLPatchMerger,
+        )
+
+        vision_config = model.config.vision_config
+        merger = Qwen2_5_VLPatchMerger(
+            dim=vision_config.out_hidden_size, context_dim=vision_config.hidden_size
+        )
+        if hasattr(model, "dtype"):
+            merger = merger.to(model.dtype)
+        vision_model.merger = merger
+
+    if "forward" in vision_model.__dict__:
+        del vision_model.__dict__["forward"]
+
+    orig_forward = vision_model.forward
+
+    def _unwrap_forward(*args, **kwargs):
+        output = orig_forward(*args, **kwargs)
+        if isinstance(output, BaseModelOutputWithPooling):
+            return output.pooler_output
+        return output
+
+    vision_model.forward = _unwrap_forward
 
 
 class ModelVariant(StrEnum):
@@ -81,6 +125,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        _patch_vision_model_for_transformers5(model)
         self.model = model
 
         return model
