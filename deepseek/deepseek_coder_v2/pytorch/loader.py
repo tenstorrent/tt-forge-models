@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     DEEPSEEK_CODER_V2_LITE_INSTRUCT = "Lite_Instruct"
     DEEPSEEK_CODER_V2_LITE_INSTRUCT_AWQ = "Lite_Instruct_AWQ"
+    DEEPSEEK_CODER_V2_LITE_BASE = "Lite_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +41,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="TechxGenus/DeepSeek-Coder-V2-Lite-Instruct-AWQ",
             max_length=2048,
         ),
+        ModelVariant.DEEPSEEK_CODER_V2_LITE_BASE: LLMModelConfig(
+            pretrained_model_name="deepseek-ai/DeepSeek-Coder-V2-Lite-Base",
+            max_length=2048,
+        ),
     }
 
     # Default variant to use
@@ -47,6 +52,9 @@ class ModelLoader(ForgeModel):
 
     # Sample prompt text
     sample_text = "write a bubble sort algorithm in python."
+
+    # Base (non-instruct) variants use plain text input without chat templating
+    _BASE_VARIANTS = {ModelVariant.DEEPSEEK_CODER_V2_LITE_BASE}
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -123,12 +131,18 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        messages = [{"role": "user", "content": self.sample_text}]
-        inputs = self.tokenizer.apply_chat_template(
-            messages,
-            add_generation_prompt=True,
-            return_tensors="pt",
-        )
+        if self._variant in self._BASE_VARIANTS:
+            inputs = self.tokenizer(
+                self.sample_text,
+                return_tensors="pt",
+            ).input_ids
+        else:
+            messages = [{"role": "user", "content": self.sample_text}]
+            inputs = self.tokenizer.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                return_tensors="pt",
+            )
         padded_inputs, seq_len = pad_inputs(inputs)
         self.seq_len = seq_len
 
