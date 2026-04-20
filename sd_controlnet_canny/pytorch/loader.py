@@ -63,13 +63,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the ControlNet Canny pipeline.
+        """Load and return the ControlNet Canny UNet model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionControlNetPipeline: The pipeline instance.
+            torch.nn.Module: The UNet model from the pipeline.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -80,7 +80,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the ControlNet Canny model.
