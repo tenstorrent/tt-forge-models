@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-NorMistral-11B-warm model loader implementation for causal language modeling.
+NorMistral model loader implementation for causal language modeling.
 """
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
@@ -23,14 +23,19 @@ class ModelVariant(StrEnum):
     """Available NorMistral model variants for causal language modeling."""
 
     NORMISTRAL_11B_WARM = "11B-warm"
+    NORMISTRAL_7B_WARM_INSTRUCT = "7B-warm-instruct"
 
 
 class ModelLoader(ForgeModel):
-    """NorMistral-11B-warm model loader implementation for causal language modeling tasks."""
+    """NorMistral model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.NORMISTRAL_11B_WARM: LLMModelConfig(
             pretrained_model_name="norallm/normistral-11b-warm",
+            max_length=256,
+        ),
+        ModelVariant.NORMISTRAL_7B_WARM_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="norallm/normistral-7b-warm-instruct",
             max_length=256,
         ),
     }
