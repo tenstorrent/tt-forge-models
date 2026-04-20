@@ -4,8 +4,9 @@
 """
 hoanganho0o/PMTACADEMY model loader implementation.
 
-Loads the FLUX.1-dev base pipeline and applies the PMT ACADEMY Ultra Realistic
-LoRA from hoanganho0o/PMTACADEMY for photorealistic text-to-image generation.
+Loads the FLUX.1-dev base pipeline and replaces the transformer with the
+PMT ACADEMY Ultra Realistic weights from hoanganho0o/PMTACADEMY for
+photorealistic text-to-image generation.
 
 Repository: https://huggingface.co/hoanganho0o/PMTACADEMY
 """
@@ -13,7 +14,8 @@ Repository: https://huggingface.co/hoanganho0o/PMTACADEMY
 from typing import Optional
 
 import torch
-from diffusers import FluxPipeline
+from diffusers import FluxPipeline, FluxTransformer2DModel
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -27,8 +29,8 @@ from ...config import (
 )
 
 BASE_MODEL = "camenduru/FLUX.1-dev-ungated"
-LORA_REPO = "hoanganho0o/PMTACADEMY"
-LORA_FILENAME = "PMT_ACADEMY_Ultra Realistic V12.0.safetensors"
+WEIGHTS_REPO = "hoanganho0o/PMTACADEMY"
+WEIGHTS_FILENAME = "PMT_ACADEMY_Ultra Realistic V12.0.safetensors"
 
 
 class ModelVariant(StrEnum):
@@ -67,19 +69,23 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_pipeline(self, dtype_override=None):
-        """Load FLUX.1-dev pipeline and apply PMT ACADEMY LoRA."""
+        """Load FLUX.1-dev pipeline and replace transformer with PMT ACADEMY weights."""
         pipe_kwargs = {"use_safetensors": True}
         if dtype_override is not None:
             pipe_kwargs["torch_dtype"] = dtype_override
 
-        self.pipe = FluxPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, **pipe_kwargs
+        weights_path = hf_hub_download(WEIGHTS_REPO, filename=WEIGHTS_FILENAME)
+        transformer = FluxTransformer2DModel.from_single_file(
+            weights_path,
+            config=BASE_MODEL,
+            subfolder="transformer",
+            **pipe_kwargs,
         )
 
-        # Apply PMT ACADEMY Ultra Realistic LoRA
-        self.pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=LORA_FILENAME,
+        self.pipe = FluxPipeline.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            transformer=transformer,
+            **pipe_kwargs,
         )
 
         self.pipe.enable_attention_slicing()
@@ -88,7 +94,7 @@ class ModelLoader(ForgeModel):
         return self.pipe
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the FLUX transformer with PMT ACADEMY LoRA applied.
+        """Load and return the FLUX transformer with PMT ACADEMY weights.
 
         Returns:
             torch.nn.Module: The FLUX transformer model instance.
