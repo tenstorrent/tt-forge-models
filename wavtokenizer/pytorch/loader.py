@@ -122,19 +122,12 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Load sample audio inputs for the WavTokenizer model.
-
-        Returns:
-            dict: Dictionary with 'wav' tensor (1-second mono audio at 24kHz)
-                and 'bandwidth_id' tensor for codec configuration.
-        """
         dtype = dtype_override or torch.float32
 
-        # Generate synthetic 1-second mono audio waveform at 24kHz
         torch.manual_seed(42)
         sample_rate = 24000
-        wav = torch.randn(1, 1, sample_rate, dtype=dtype)
+        audio_input = torch.randn(1, sample_rate, dtype=dtype)
 
         bandwidth_id = torch.tensor([0])
 
-        return {"wav": wav, "bandwidth_id": bandwidth_id}
+        return {"audio_input": audio_input, "bandwidth_id": bandwidth_id}
