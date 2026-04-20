@@ -31,8 +31,8 @@ REPO_ID = "calcuis/flux1-gguf"
 class ModelVariant(StrEnum):
     """Available calcuis/flux1-gguf model variants."""
 
-    DEV_Q4_K_S = "dev_q4_k_s"
-    DEV_Q8_0 = "dev_q8_0"
+    DEV_Q4_K_S = "Dev_Q4_K_S"
+    DEV_Q8_0 = "Dev_Q8_0"
 
 
 class ModelLoader(ForgeModel):
