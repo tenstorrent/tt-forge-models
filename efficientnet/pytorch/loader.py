@@ -64,6 +64,7 @@ class ModelVariant(StrEnum):
     TIMM_EFFICIENTNET_B0 = "Timm_B0"
     TIMM_EFFICIENTNET_B4 = "Timm_B4"
     HF_TIMM_EFFICIENTNET_B0_RA_IN1K = "Timm_B0_Ra_In1k"
+    HF_TIMM_EFFICIENTNET_B1_FT_IN1K = "Timm_B1_Ft_In1k"
     HF_TIMM_EFFICIENTNET_B4_RA2_IN1K = "Timm_B4_Ra2_In1k"
     HF_TIMM_EFFICIENTNET_EM_RA2_IN1K = "Timm_Em_Ra2_In1k"
     HF_TIMM_EFFICIENTNET_B5_IN12K_FT_IN1K = "Timm_B5_In12k_Ft_In1k"
@@ -159,6 +160,11 @@ class ModelLoader(ForgeModel):
         source=ModelSource.TIMM,
         use_1k_labels=True,
     )
+    HF_TIMM_EFFICIENTNET_B1_FT_IN1K_CONFIG = EfficientNetConfig(
+        pretrained_model_name="hf_hub:timm/efficientnet_b1.ft_in1k",
+        source=ModelSource.TIMM,
+        use_1k_labels=True,
+    )
     HF_TIMM_EFFICIENTNET_B4_RA2_IN1K_CONFIG = EfficientNetConfig(
         pretrained_model_name="hf_hub:timm/efficientnet_b4.ra2_in1k",
         source=ModelSource.TIMM,
@@ -220,6 +226,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.TIMM_EFFICIENTNET_B0: TIMM_EFFICIENTNET_B0_CONFIG,
         ModelVariant.TIMM_EFFICIENTNET_B4: TIMM_EFFICIENTNET_B4_CONFIG,
         ModelVariant.HF_TIMM_EFFICIENTNET_B0_RA_IN1K: HF_TIMM_EFFICIENTNET_B0_RA_IN1K_CONFIG,
+        ModelVariant.HF_TIMM_EFFICIENTNET_B1_FT_IN1K: HF_TIMM_EFFICIENTNET_B1_FT_IN1K_CONFIG,
         ModelVariant.HF_TIMM_EFFICIENTNET_B4_RA2_IN1K: HF_TIMM_EFFICIENTNET_B4_RA2_IN1K_CONFIG,
         ModelVariant.HF_TIMM_EFFICIENTNET_EM_RA2_IN1K: HF_TIMM_EFFICIENTNET_EM_RA2_IN1K_CONFIG,
         ModelVariant.HF_TIMM_EFFICIENTNET_B5_IN12K_FT_IN1K: HF_TIMM_EFFICIENTNET_B5_IN12K_FT_IN1K_CONFIG,
@@ -264,7 +271,7 @@ class ModelLoader(ForgeModel):
         if variant == ModelVariant.B0:
             group = ModelGroup.RED
         elif variant in [
-            ModelVariant.HF_TIMM_EFFICIENTNET_EM_RA2_IN1K,
+            ModelVariant.HF_TIMM_EFFICIENTNET_B1_FT_IN1K,
             ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K,
             ModelVariant.HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K,
         ]:
@@ -282,7 +289,7 @@ class ModelLoader(ForgeModel):
                     ModelGroup.VULCAN
                     if variant
                     in (
-                        ModelVariant.HF_TIMM_EFFICIENTNET_EM_RA2_IN1K,
+                        ModelVariant.HF_TIMM_EFFICIENTNET_B1_FT_IN1K,
                         ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K,
                         ModelVariant.HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K,
                     )
