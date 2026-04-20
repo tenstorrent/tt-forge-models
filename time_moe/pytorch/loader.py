@@ -13,7 +13,11 @@ from transformers import AutoModelForCausalLM
 from transformers.cache_utils import DynamicCache
 
 if not hasattr(DynamicCache, "get_usable_length"):
-    DynamicCache.get_usable_length = DynamicCache.get_seq_length
+
+    def _get_usable_length(self, new_seq_length, layer_idx=0):
+        return self.get_seq_length(layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
 
 from ...config import (
     ModelConfig,
