@@ -23,6 +23,9 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa sequence classification model variants."""
 
     TWITTER_XLM_ROBERTA_BASE_SENTIMENT = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
+    TWITTER_XLM_ROBERTA_BASE_SENTIMENT_FINETUNNED = (
+        "citizenlab/twitter-xlm-roberta-base-sentiment-finetunned"
+    )
     XLM_ROBERTA_LARGE_HUNGARIAN_BUDGET_CAP_V3 = (
         "poltextlab/xlm-roberta-large-hungarian-budget-cap-v3"
     )
@@ -43,6 +46,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT: LLMModelConfig(
             pretrained_model_name="cardiffnlp/twitter-xlm-roberta-base-sentiment",
+            max_length=128,
+        ),
+        ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT_FINETUNNED: LLMModelConfig(
+            pretrained_model_name="citizenlab/twitter-xlm-roberta-base-sentiment-finetunned",
             max_length=128,
         ),
         ModelVariant.XLM_ROBERTA_LARGE_HUNGARIAN_BUDGET_CAP_V3: LLMModelConfig(
@@ -149,7 +156,10 @@ class ModelLoader(ForgeModel):
             predicted_category = model.config.id2label[predicted_class_id]
             if self._is_nli_variant():
                 print(f"Predicted Label: {predicted_category}")
-            elif self._variant == ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT:
+            elif self._variant in (
+                ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT,
+                ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT_FINETUNNED,
+            ):
                 print(f"Predicted Sentiment: {predicted_category}")
             else:
                 print(f"Predicted Category: {predicted_category}")
