@@ -5,8 +5,10 @@
 MedSigLIP model loader implementation for image-text similarity.
 """
 
+import os
+
 import torch
-from transformers import AutoProcessor, AutoModel
+from transformers import AutoProcessor, AutoModel, SiglipConfig, SiglipModel
 from typing import Optional
 from datasets import load_dataset
 
@@ -87,6 +89,33 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
+    @staticmethod
+    def _build_config():
+        return SiglipConfig(
+            text_config={
+                "hidden_size": 1152,
+                "intermediate_size": 4304,
+                "num_attention_heads": 16,
+                "num_hidden_layers": 27,
+                "max_position_embeddings": 64,
+                "vocab_size": 32000,
+                "hidden_act": "gelu_pytorch_tanh",
+                "layer_norm_eps": 1e-06,
+                "projection_size": 1152,
+            },
+            vision_config={
+                "hidden_size": 1152,
+                "intermediate_size": 4304,
+                "num_attention_heads": 16,
+                "num_hidden_layers": 27,
+                "image_size": 448,
+                "patch_size": 14,
+                "num_channels": 3,
+                "hidden_act": "gelu_pytorch_tanh",
+                "layer_norm_eps": 1e-06,
+            },
+        )
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MedSigLIP model instance for this instance's variant.
 
@@ -97,17 +126,19 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The MedSigLIP model instance for image-text similarity.
         """
-        # Get the pretrained model name from the instance's variant config
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = self._build_config()
+            model = SiglipModel(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            pretrained_model_name = self._variant_config.pretrained_model_name
+            model_kwargs = {"return_dict": False}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
 
-        model_kwargs = {"return_dict": False}
-
-        # Load the model with dtype override if specified
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         return model
@@ -123,18 +154,42 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        # Ensure processor is initialized
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = self._build_config()
+            num_prompts = 2
+            seq_len = config.text_config.max_position_embeddings
+            image_size = config.vision_config.image_size
+            num_channels = config.vision_config.num_channels
+            pixel_dtype = (
+                torch.bfloat16 if dtype_override == torch.bfloat16 else torch.float32
+            )
+            inputs = {
+                "input_ids": torch.randint(
+                    0,
+                    config.text_config.vocab_size,
+                    (num_prompts * batch_size, seq_len),
+                ),
+                "pixel_values": torch.randn(
+                    num_prompts * batch_size,
+                    num_channels,
+                    image_size,
+                    image_size,
+                    dtype=pixel_dtype,
+                ),
+                "attention_mask": torch.ones(
+                    num_prompts * batch_size, seq_len, dtype=torch.long
+                ),
+            }
+            return inputs
+
         if self.processor is None:
             self._load_processor()
 
-        # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
         image = dataset[0]["image"]
 
-        # Define text prompts for image-text similarity
         self.text_prompts = ["a photo of 2 cats", "a photo of 2 dogs"]
 
-        # Process both text and images
         inputs = self.processor(
             text=self.text_prompts,
             images=image,
@@ -142,12 +197,10 @@ class ModelLoader(ForgeModel):
             padding="max_length",
         )
 
-        # Replicate tensors for batch size
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        # Convert the input dtype to dtype_override if specified
         if dtype_override is not None:
             for key in inputs:
                 if torch.is_tensor(inputs[key]) and inputs[key].dtype == torch.float32:
