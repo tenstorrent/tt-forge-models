@@ -1,0 +1,13 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[maira_2/image_text_to_text/pytorch-maira_2-single_device-inference]"
+  status: "PASS"
+  date: "20260420_192321"
+  branch: "ip-172-31-30-232-tt-xla-dev/ubuntu/hf-bringup-6"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[bge_reranker/passage_ranking/pytorch-large-single_device-inference]"
+  status: "PASS"
+  date: "20260420_192512"
+  branch: "ip-172-31-30-232-tt-xla-dev/ubuntu/hf-bringup-6"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[shanjiaz_gpt_oss_120b_nvfp4_modelopt/causal_lm/pytorch-Default-single_device-inference]"
+  status: "MODEL_TOO_LARGE"
+  date: "20260420_195626"
+  branch: "ip-172-31-30-232-tt-xla-dev/ubuntu/hf-bringup-6"
