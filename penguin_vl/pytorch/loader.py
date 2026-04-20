@@ -4,6 +4,7 @@
 """
 Penguin-VL model loader implementation for multimodal visual question answering.
 """
+
 import torch
 from transformers import AutoProcessor, AutoModelForCausalLM
 from typing import Optional
@@ -24,6 +25,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Penguin-VL model variants."""
 
+    PENGUIN_VL_2B = "2B"
     PENGUIN_VL_8B = "8B"
 
 
@@ -32,6 +34,9 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants
     _VARIANTS = {
+        ModelVariant.PENGUIN_VL_2B: ModelConfig(
+            pretrained_model_name="tencent/Penguin-VL-2B",
+        ),
         ModelVariant.PENGUIN_VL_8B: ModelConfig(
             pretrained_model_name="tencent/Penguin-VL-8B",
         ),
