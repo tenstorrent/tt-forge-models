@@ -11,10 +11,12 @@ Available variants:
 - OMNIGEN2: OmniGen2/OmniGen2 text-to-image generation
 """
 
+import os
+import sys
 from typing import Optional
 
 import torch
-from diffusers import DiffusionPipeline
+from huggingface_hub import snapshot_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -49,7 +51,8 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self.transformer = None
+        self._cache_dir = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -64,27 +67,69 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_transformer_class(self):
+        self._cache_dir = snapshot_download(
+            self._variant_config.pretrained_model_name,
+            allow_patterns=["transformer/*"],
+        )
+        transformer_dir = os.path.join(self._cache_dir, "transformer")
+        if transformer_dir not in sys.path:
+            sys.path.insert(0, transformer_dir)
+        from transformer_omnigen2 import OmniGen2Transformer2DModel
+
+        return OmniGen2Transformer2DModel
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the OmniGen2 pipeline.
+        """Load and return the OmniGen2 transformer model.
 
         Returns:
-            DiffusionPipeline: The OmniGen2 pipeline instance.
+            torch.nn.Module: The OmniGen2 transformer model instance.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
+        cls = self._load_transformer_class()
+        self.transformer = cls.from_pretrained(
+            self._cache_dir,
+            subfolder="transformer",
             torch_dtype=dtype,
-            trust_remote_code=True,
-            **kwargs,
         )
-        return self.pipeline
+        return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the OmniGen2 model.
+        """Load and return sample inputs for the OmniGen2 transformer.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Input tensors matching the transformer's forward signature.
         """
-        return [
-            "A cinematic shot of a baby raccoon wearing an intricate italian priest robe."
-        ] * batch_size
+        if self.transformer is None:
+            self.load_model(dtype_override=dtype_override)
+
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        config = self.transformer.config
+
+        height, width = 64, 64
+        text_seq_len = 32
+
+        hidden_states = torch.randn(
+            batch_size, config.in_channels, height, width, dtype=dtype
+        )
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        text_hidden_states = torch.randn(
+            batch_size, text_seq_len, config.text_feat_dim, dtype=dtype
+        )
+
+        freqs_cis = self.transformer.rope_embedder.get_freqs_cis(
+            axes_dim=tuple(config.axes_dim_rope),
+            axes_lens=tuple(config.axes_lens),
+            theta=10000,
+        )
+
+        text_attention_mask = torch.ones(batch_size, text_seq_len, dtype=torch.bool)
+
+        return {
+            "hidden_states": hidden_states,
+            "timestep": timestep,
+            "text_hidden_states": text_hidden_states,
+            "freqs_cis": freqs_cis,
+            "text_attention_mask": text_attention_mask,
+            "return_dict": False,
+        }
