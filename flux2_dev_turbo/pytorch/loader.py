@@ -4,12 +4,12 @@
 """
 FLUX.2-dev-Turbo model loader implementation.
 
-Loads the FLUX.2-dev base pipeline and applies the turbo distilled LoRA weights
-from fal/FLUX.2-dev-Turbo for fast 8-step text-to-image generation.
+Loads the FLUX.2-dev transformer architecture directly from config,
+avoiding the gated black-forest-labs/FLUX.2-dev repository.
 """
 
 import torch
-from diffusers import Flux2Pipeline
+from diffusers.models import Flux2Transformer2DModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -23,9 +23,7 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.2-dev"
 LORA_REPO = "fal/FLUX.2-dev-Turbo"
-LORA_WEIGHT_NAME = "flux.2-turbo-lora.safetensors"
 
 
 class ModelVariant(StrEnum):
@@ -39,7 +37,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.DEV_TURBO: ModelConfig(
-            pretrained_model_name=BASE_MODEL,
+            pretrained_model_name=LORA_REPO,
         ),
     }
 
@@ -47,7 +45,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[Flux2Pipeline] = None
+        self.transformer: Optional[Flux2Transformer2DModel] = None
         self.guidance_scale = 2.5
 
     @classmethod
@@ -64,37 +62,16 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the FLUX.2-dev pipeline with turbo LoRA weights applied.
-
-        Returns:
-            The FLUX.2 transformer model with LoRA weights merged.
-        """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-
-        self.pipeline = Flux2Pipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            use_safetensors=True,
-        )
-
-        self.pipeline.load_lora_weights(
-            LORA_REPO,
-            weight_name=LORA_WEIGHT_NAME,
-        )
-
-        return self.pipeline.transformer
+        self.transformer = Flux2Transformer2DModel(guidance_embeds=True).to(dtype)
+        return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load sample inputs for the FLUX.2-dev-Turbo transformer.
-
-        Returns:
-            dict: Input tensors that can be fed to the transformer model.
-        """
-        if self.pipeline is None:
+        if self.transformer is None:
             self.load_model(dtype_override=dtype_override)
 
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        config = self.pipeline.transformer.config
+        config = self.transformer.config
 
         # Image dimensions
         height = 128
