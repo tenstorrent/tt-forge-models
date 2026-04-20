@@ -88,7 +88,9 @@ class ModelLoader(ForgeModel):
         """
 
         # Initialize tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.model_name, trust_remote_code=True
+        )
 
         # Load pre-trained model from HuggingFace (trust_remote_code required for CRF head)
         model_kwargs = {}
