@@ -148,7 +148,7 @@ class ModelLoader(ForgeModel):
         self.model = None
 
     def _is_hf_native(self):
-        return self._variant in _HF_NATIVE_VARIANTS
+        return str(self._variant) in _HF_NATIVE_VARIANTS
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
