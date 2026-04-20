@@ -108,7 +108,7 @@ class ModelLoader(ForgeModel):
             batch_size, config.in_channels, latent_height, latent_width, dtype=dtype
         )
 
-        # Text encoder hidden states from Pile-T5-XL: (B, seq_len, joint_attention_dim)
+        # Text encoder hidden states: (B, seq_len, joint_attention_dim)
         max_sequence_length = 256
         encoder_hidden_states = torch.randn(
             batch_size,
