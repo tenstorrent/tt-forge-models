@@ -53,16 +53,24 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from yomitoku.models.parseq import PARSeq
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = PARSeq.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
+        from yomitoku.configs.cfg_text_recognizer_parseq import (
+            TextRecognizerPARSeqConfig,
         )
+        from yomitoku.models.parseq import PARSeq
+        from omegaconf import OmegaConf
+        from huggingface_hub import hf_hub_download
+        from safetensors.torch import load_file
+
+        from yomitoku.postprocessor import ParseqTokenizer
+        from yomitoku.utils.misc import load_charset
+
+        cfg = OmegaConf.structured(TextRecognizerPARSeqConfig())
+        model = PARSeq(cfg)
+        weights_path = hf_hub_download(cfg.hf_hub_repo, "model.safetensors")
+        state_dict = load_file(weights_path)
+        model.load_state_dict(state_dict)
+        charset = load_charset(cfg.charset)
+        model.tokenizer = ParseqTokenizer(charset)
         model.eval()
 
         if dtype_override is not None:
@@ -71,9 +79,10 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
+        img_h, img_w = 32, 800
         transform = transforms.Compose(
             [
-                transforms.Resize((224, 224)),
+                transforms.Resize((img_h, img_w)),
                 transforms.ToTensor(),
                 transforms.Normalize(
                     mean=[0.485, 0.456, 0.406],
@@ -82,8 +91,7 @@ class ModelLoader(ForgeModel):
             ]
         )
 
-        # Create a sample text image for recognition
-        image = Image.new("RGB", (320, 64), color=(255, 255, 255))
+        image = Image.new("RGB", (img_w, img_h), color=(255, 255, 255))
         pixel_values = transform(image).unsqueeze(0)
 
         if dtype_override is not None:
