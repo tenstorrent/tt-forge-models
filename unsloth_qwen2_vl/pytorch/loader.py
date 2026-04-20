@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Unsloth Qwen2 VL model variants for vision-language tasks."""
 
     UNSLOTH_QWEN_2_VL_7B_INSTRUCT = "unsloth_7B_Instruct"
+    UNSLOTH_QWEN_2_VL_2B_INSTRUCT_BNB_4BIT = "unsloth_2B_Instruct_bnb_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.UNSLOTH_QWEN_2_VL_7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="unsloth/Qwen2-VL-7B-Instruct",
+        ),
+        ModelVariant.UNSLOTH_QWEN_2_VL_2B_INSTRUCT_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen2-VL-2B-Instruct-unsloth-bnb-4bit",
         ),
     }
 
@@ -122,6 +126,9 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"low_cpu_mem_usage": True}
+
+        if pretrained_model_name == "unsloth/Qwen2-VL-2B-Instruct-unsloth-bnb-4bit":
+            model_kwargs["device_map"] = "cpu"
 
         # Load the model with dtype override if specified
         if dtype_override is not None:
