@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available FlauBERT model variants."""
 
     FLAUBERT_BASE_UNCASED = "Base_Uncased"
+    FLAUBERT_SMALL_CASED = "Small_Cased"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.FLAUBERT_BASE_UNCASED: ModelConfig(
             pretrained_model_name="flaubert/flaubert_base_uncased",
+        ),
+        ModelVariant.FLAUBERT_SMALL_CASED: ModelConfig(
+            pretrained_model_name="flaubert/flaubert_small_cased",
         ),
     }
 
