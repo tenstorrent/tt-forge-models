@@ -27,6 +27,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Conditional DETR model variants for object detection."""
 
+    RESNET_50 = "ResNet_50"
     SIGNATURE_DETECTOR = "Signature_Detector"
 
 
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
+        ModelVariant.RESNET_50: ModelConfig(
+            pretrained_model_name="microsoft/conditional-detr-resnet-50",
+        ),
         ModelVariant.SIGNATURE_DETECTOR: ModelConfig(
             pretrained_model_name="tech4humans/conditional-detr-50-signature-detector",
         ),
