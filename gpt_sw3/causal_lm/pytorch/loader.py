@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available GPT-SW3 model variants."""
 
     GPT_SW3_356M = "356M"
+    GPT_SW3_6_7B_V2 = "6.7B-v2"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GPT_SW3_356M: ModelConfig(
             pretrained_model_name="AI-Sweden-Models/gpt-sw3-356m",
+        ),
+        ModelVariant.GPT_SW3_6_7B_V2: ModelConfig(
+            pretrained_model_name="AI-Sweden-Models/gpt-sw3-6.7b-v2",
         ),
     }
 
