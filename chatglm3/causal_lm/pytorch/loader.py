@@ -7,7 +7,7 @@ ChatGLM3 model loader implementation for causal language modeling.
 import torch
 from typing import Optional
 
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModel, AutoConfig
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -113,7 +113,15 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if not hasattr(config, "max_length"):
+            config.max_length = getattr(config, "seq_length", 2048)
+        if not hasattr(config, "use_cache"):
+            config.use_cache = True
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
