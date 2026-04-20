@@ -16,10 +16,12 @@ Available subfolders:
 - audio_vae: AutoencoderKLLTX2Audio
 """
 
+import logging
 from typing import Any, Optional
 
 import torch
 from diffusers import LTX2Pipeline
+from diffusers.models import LTX2VideoTransformer3DModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -32,7 +34,18 @@ from ...config import (
     StrEnum,
 )
 
+logger = logging.getLogger(__name__)
+
+FALLBACK_MODEL_NAME = "Lightricks/LTX-2"
 SUPPORTED_SUBFOLDERS = {"transformer", "vae", "audio_vae"}
+
+VAE_SPATIAL_COMPRESSION_RATIO = 32
+VAE_TEMPORAL_COMPRESSION_RATIO = 8
+AUDIO_VAE_MEL_COMPRESSION_RATIO = 4
+AUDIO_VAE_TEMPORAL_COMPRESSION_RATIO = 4
+AUDIO_SAMPLING_RATE = 16000
+AUDIO_HOP_LENGTH = 160
+AUDIO_VAE_MEL_BINS = 64
 
 
 class ModelVariant(StrEnum):
@@ -71,6 +84,7 @@ class ModelLoader(ForgeModel):
             )
         self._subfolder = subfolder
         self.pipeline: Optional[LTX2Pipeline] = None
+        self._transformer: Optional[LTX2VideoTransformer3DModel] = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -86,35 +100,71 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype: torch.dtype) -> LTX2Pipeline:
-        self.pipeline = LTX2Pipeline.from_pretrained(
+    def _load_transformer_from_config(
+        self, dtype: torch.dtype
+    ) -> LTX2VideoTransformer3DModel:
+        for repo in [
             self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-        )
+            FALLBACK_MODEL_NAME,
+        ]:
+            try:
+                config = LTX2VideoTransformer3DModel.load_config(
+                    repo, subfolder="transformer"
+                )
+                self._transformer = LTX2VideoTransformer3DModel.from_config(config)
+                self._transformer = self._transformer.to(dtype)
+                logger.info("Loaded transformer config from %s", repo)
+                return self._transformer
+            except Exception:
+                logger.warning(
+                    "Cannot load transformer config from %s, trying next", repo
+                )
+        raise RuntimeError("Failed to load transformer config from any source")
+
+    def _load_pipeline(self, dtype: torch.dtype) -> LTX2Pipeline:
+        try:
+            self.pipeline = LTX2Pipeline.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                torch_dtype=dtype,
+            )
+        except Exception:
+            logger.warning(
+                "Gated repo %s is not accessible, falling back to %s",
+                self._variant_config.pretrained_model_name,
+                FALLBACK_MODEL_NAME,
+            )
+            self.pipeline = LTX2Pipeline.from_pretrained(
+                FALLBACK_MODEL_NAME,
+                torch_dtype=dtype,
+            )
         return self.pipeline
 
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        if self.pipeline is None:
-            self._load_pipeline(dtype)
-
-        if self._subfolder == "vae":
-            return self.pipeline.vae
-        elif self._subfolder == "audio_vae":
+        if self._subfolder == "vae" or self._subfolder == "audio_vae":
+            if self.pipeline is None:
+                self._load_pipeline(dtype)
+            if self._subfolder == "vae":
+                return self.pipeline.vae
             return self.pipeline.audio_vae
-        elif self._subfolder == "transformer" or self._subfolder is None:
-            return self.pipeline.transformer
+
+        if self._transformer is None:
+            self._load_transformer_from_config(dtype)
+        return self._transformer
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
+        if self._subfolder == "transformer" or self._subfolder is None:
+            if self._transformer is None:
+                self._load_transformer_from_config(dtype)
+            return self._load_transformer_inputs(dtype)
+
         if self.pipeline is None:
             self._load_pipeline(dtype)
 
-        if self._subfolder == "transformer" or self._subfolder is None:
-            return self._load_transformer_inputs(dtype)
-        elif self._subfolder == "vae":
+        if self._subfolder == "vae":
             vae_type = kwargs.get("vae_type", "decoder")
             if vae_type == "decoder":
                 return self._load_vae_decoder_inputs(dtype)
@@ -128,40 +178,29 @@ class ModelLoader(ForgeModel):
                 return self._load_audio_vae_encoder_inputs(dtype)
 
     def _load_transformer_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic inputs for the LTX2 transformer forward pass."""
         batch_size = 1
         height = 64
         width = 64
-        num_frames = 9  # Must be 8k+1 format
+        num_frames = 9
 
-        vae_spatial = self.pipeline.vae_spatial_compression_ratio
-        vae_temporal = self.pipeline.vae_temporal_compression_ratio
+        latent_height = height // VAE_SPATIAL_COMPRESSION_RATIO
+        latent_width = width // VAE_SPATIAL_COMPRESSION_RATIO
+        latent_num_frames = (num_frames - 1) // VAE_TEMPORAL_COMPRESSION_RATIO + 1
 
-        latent_height = height // vae_spatial
-        latent_width = width // vae_spatial
-        latent_num_frames = (num_frames - 1) // vae_temporal + 1
-
-        in_channels = self.pipeline.transformer.config.in_channels
+        in_channels = self._transformer.config.in_channels
         video_seq_len = latent_num_frames * latent_height * latent_width
         hidden_states = torch.randn(batch_size, video_seq_len, in_channels, dtype=dtype)
 
         frame_rate = 24.0
         duration_s = num_frames / frame_rate
-        audio_sampling_rate = self.pipeline.audio_sampling_rate
-        audio_hop_length = self.pipeline.audio_hop_length
-        audio_vae_temporal = self.pipeline.audio_vae_temporal_compression_ratio
         audio_latents_per_second = (
-            audio_sampling_rate / audio_hop_length / float(audio_vae_temporal)
+            AUDIO_SAMPLING_RATE
+            / AUDIO_HOP_LENGTH
+            / float(AUDIO_VAE_TEMPORAL_COMPRESSION_RATIO)
         )
         audio_num_frames = max(1, round(duration_s * audio_latents_per_second))
-        num_mel_bins = (
-            self.pipeline.audio_vae.config.mel_bins
-            if getattr(self.pipeline, "audio_vae", None) is not None
-            else 64
-        )
-        audio_vae_mel = self.pipeline.audio_vae_mel_compression_ratio
-        latent_mel_bins = num_mel_bins // audio_vae_mel
-        audio_in_channels = self.pipeline.transformer.config.audio_in_channels
+        latent_mel_bins = AUDIO_VAE_MEL_BINS // AUDIO_VAE_MEL_COMPRESSION_RATIO
+        audio_in_channels = self._transformer.config.audio_in_channels
         audio_hidden_states = torch.randn(
             batch_size,
             audio_num_frames,
@@ -170,7 +209,7 @@ class ModelLoader(ForgeModel):
         )
 
         max_seq_len = 64
-        caption_channels = self.pipeline.transformer.config.caption_channels
+        caption_channels = self._transformer.config.caption_channels
         encoder_hidden_states = torch.randn(
             batch_size, max_seq_len, caption_channels, dtype=dtype
         )
@@ -195,20 +234,17 @@ class ModelLoader(ForgeModel):
         }
 
     def _load_vae_decoder_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic decoder inputs for the video VAE."""
         latent_channels = self.pipeline.vae.config.latent_channels
         return {
             "sample": torch.randn(1, latent_channels, 2, 2, 2, dtype=dtype),
         }
 
     def _load_vae_encoder_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic encoder inputs for the video VAE."""
         return {
             "sample": torch.randn(1, 3, 9, 64, 64, dtype=dtype),
         }
 
     def _load_audio_vae_decoder_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic decoder inputs for the audio VAE."""
         latent_channels = self.pipeline.audio_vae.config.latent_channels
         mel_bins = self.pipeline.audio_vae.config.mel_bins
         audio_vae_mel = self.pipeline.audio_vae_mel_compression_ratio
@@ -218,7 +254,6 @@ class ModelLoader(ForgeModel):
         }
 
     def _load_audio_vae_encoder_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic encoder inputs for the audio VAE."""
         mel_bins = self.pipeline.audio_vae.config.mel_bins
         return {
             "sample": torch.randn(1, 1, 16, mel_bins, dtype=dtype),
