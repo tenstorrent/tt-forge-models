@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     DISTILL_QWEN_14B = "Distill_Qwen_14B"
     DISTILL_QWEN_14B_FP8_DYNAMIC = "Distill_Qwen_14B_FP8_dynamic"
     DISTILL_LLAMA_8B = "Distill_Llama_8B"
+    DISTILL_LLAMA_8B_UNSLOTH = "Distill_Llama_8B_unsloth"
     DISTILL_LLAMA_70B = "Distill_Llama_70B"
     DISTILL_LLAMA_70B_BNB_4BIT = "Distill_Llama_70B_bnb_4bit"
     DEEPSEEK_R1_OPUS = "DeepSeek_R1_Opus"
@@ -65,6 +66,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DISTILL_LLAMA_8B: LLMModelConfig(
             pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+            max_length=2048,
+        ),
+        ModelVariant.DISTILL_LLAMA_8B_UNSLOTH: LLMModelConfig(
+            pretrained_model_name="unsloth/DeepSeek-R1-Distill-Llama-8B",
             max_length=2048,
         ),
         ModelVariant.DISTILL_LLAMA_70B: LLMModelConfig(
