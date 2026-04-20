@@ -24,13 +24,13 @@ class ModelVariant(StrEnum):
     """Available EVA-02 CLIP model variants."""
 
     EVA02_L_14_336 = "EVA02_L_14_336"
-    EVA02_B_16_224_MERGED2B = "EVA02_B_16_224_MERGED2B"
+    EVA02_L_14_336_MERGED2B = "EVA02_L_14_336_MERGED2B"
 
 
 # Mapping from variant to OpenCLIP tokenizer name
 _TOKENIZER_NAME = {
     ModelVariant.EVA02_L_14_336: "EVA02-L-14-336",
-    ModelVariant.EVA02_B_16_224_MERGED2B: "EVA02-B-16",
+    ModelVariant.EVA02_L_14_336_MERGED2B: "EVA02-L-14-336",
 }
 
 
@@ -41,8 +41,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.EVA02_L_14_336: ModelConfig(
             pretrained_model_name="hf-hub:timm/eva02_large_patch14_clip_336.merged2b_s6b_b61k",
         ),
-        ModelVariant.EVA02_B_16_224_MERGED2B: ModelConfig(
-            pretrained_model_name="hf-hub:timm/eva02_base_patch16_clip_224.merged2b",
+        ModelVariant.EVA02_L_14_336_MERGED2B: ModelConfig(
+            pretrained_model_name="hf-hub:timm/eva02_large_patch14_clip_336.merged2b",
         ),
     }
 
