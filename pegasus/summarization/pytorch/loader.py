@@ -20,10 +20,10 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Pegasus model variants for text summarization."""
+    """Available Pegasus model variants for summarization."""
 
     FINANCIAL = "Financial"
-    ARXIV = "Arxiv"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -33,8 +33,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.FINANCIAL: LLMModelConfig(
             pretrained_model_name="human-centered-summarization/financial-summarization-pegasus",
         ),
-        ModelVariant.ARXIV: LLMModelConfig(
-            pretrained_model_name="google/pegasus-arxiv",
+        ModelVariant.LARGE: LLMModelConfig(
+            pretrained_model_name="google/pegasus-large",
         ),
     }
 
