@@ -22,6 +22,7 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import get_file
+from .src.model_utils import PaliGemmaWrapper
 
 
 class ModelVariant(StrEnum):
@@ -44,6 +45,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+        self._full_model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -76,11 +78,12 @@ class ModelLoader(ForgeModel):
             model_name, **model_kwargs
         )
         model.eval()
+        self._full_model = model
 
         if self.processor is None:
             self._load_processor()
 
-        return model
+        return PaliGemmaWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
@@ -92,16 +95,54 @@ class ModelLoader(ForgeModel):
         prompt = "caption en"
         inputs = self.processor(text=prompt, images=image, return_tensors="pt")
 
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        model = self._full_model
+        with torch.no_grad():
+            input_ids = inputs["input_ids"]
+            pixel_values = inputs["pixel_values"]
+            attention_mask = inputs.get("attention_mask")
+
+            if input_ids.shape[0] < batch_size:
+                input_ids = input_ids.repeat_interleave(batch_size, dim=0)
+                pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
+                if attention_mask is not None:
+                    attention_mask = attention_mask.repeat_interleave(batch_size, dim=0)
+
+            if model.config.image_token_id >= model.config.text_config.vocab_size:
+                llm_input_ids = input_ids.clone()
+                llm_input_ids[input_ids == model.config.image_token_id] = 0
+            else:
+                llm_input_ids = input_ids
+
+            inputs_embeds = model.get_input_embeddings()(llm_input_ids)
+
+            image_features = model.model.get_image_features(
+                pixel_values, return_dict=True
+            ).pooler_output
+            image_features = image_features.to(
+                inputs_embeds.device, inputs_embeds.dtype
+            )
+
+            special_image_mask = input_ids == model.config.image_token_id
+            special_image_mask = special_image_mask.unsqueeze(-1).expand_as(
+                inputs_embeds
+            )
+            inputs_embeds = inputs_embeds.masked_scatter(
+                special_image_mask, image_features
+            )
+
+            seq_len = inputs_embeds.shape[1]
+            position_ids = torch.arange(1, seq_len + 1, device=inputs_embeds.device)
+            position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
 
         if dtype_override is not None:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]) and inputs[key].dtype == torch.float32:
-                    inputs[key] = inputs[key].to(dtype_override)
+            if inputs_embeds.dtype == torch.float32:
+                inputs_embeds = inputs_embeds.to(dtype_override)
 
-        return inputs
+        return {
+            "inputs_embeds": inputs_embeds,
+            "attention_mask": attention_mask,
+            "position_ids": position_ids,
+        }
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
