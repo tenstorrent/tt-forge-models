@@ -21,9 +21,9 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available lmstudio-community Llama 4 Scout 17B 16E Instruct GGUF model variants for causal language modeling."""
+    """Available Llama 4 Scout GGUF model variants for causal language modeling."""
 
-    LLAMA_4_SCOUT_17B_16E_INSTRUCT_GGUF = "Scout_17B_16E_Instruct_GGUF"
+    LLAMA_4_SCOUT_17B_16E_INSTRUCT_GGUF = "17B_16E_Instruct_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "Llama-4-Scout-17B-16E-Instruct-Q4_K_M-00001-of-00002.gguf"
 
-    sample_text = "What is your favorite city?"
+    sample_text = "What are the main advantages of mixture-of-experts models?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -115,12 +115,7 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
+        messages = [{"role": "user", "content": self.sample_text}]
         text = self.tokenizer.apply_chat_template(
             messages,
             tokenize=False,
@@ -141,23 +136,6 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
-
-    def get_mesh_config(self, num_devices: int):
-        mesh_shape = (1, num_devices)
-        return mesh_shape, ("batch", "model")
-
-    def load_shard_spec(self, model):
-        shard_specs = {}
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
