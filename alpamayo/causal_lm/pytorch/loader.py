@@ -5,12 +5,28 @@
 Alpamayo R1 model loader implementation for causal language modeling.
 """
 
+import subprocess
+import sys
+
 import torch
 from transformers import AutoModel
 from typing import Optional
 
-# Importing alpamayo_r1 registers AlpamayoR1 with transformers AutoModel/AutoConfig
-from alpamayo_r1.models.alpamayo_r1 import AlpamayoR1  # noqa: F401
+try:
+    from alpamayo_r1.models.alpamayo_r1 import AlpamayoR1  # noqa: F401
+except ImportError:
+    subprocess.check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--no-build-isolation",
+            "alpamayo_r1 @ git+https://github.com/NVlabs/alpamayo.git",
+        ]
+    )
+    from alpamayo_r1.models.alpamayo_r1 import AlpamayoR1  # noqa: F401
 
 from ....base import ForgeModel
 from ....config import (

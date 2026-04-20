@@ -1,3 +1,2 @@
-alpamayo_r1 @ git+https://github.com/NVlabs/alpamayo.git
 hydra-core
 tiktoken
