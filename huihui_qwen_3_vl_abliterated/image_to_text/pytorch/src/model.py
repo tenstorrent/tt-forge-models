@@ -10,7 +10,13 @@ def _make_cpu_int_tensor(values, dtype=torch.int64):
     return torch.tensor(values, dtype=dtype)
 
 
-def _patch_vision_pipeline(model, saved_inputs):
+def _precompute_visual_pos_mask(saved_inputs, config):
+    cpu_ids = saved_inputs["input_ids"]
+    image_token_id = config.image_token_id
+    return (cpu_ids == image_token_id).squeeze(0)
+
+
+def _patch_vision_pipeline(model, saved_inputs, saved_visual_pos_mask):
     inner = model.model
 
     grid_thw_vals = saved_inputs["image_grid_thw"].tolist()
@@ -62,7 +68,8 @@ def _patch_vision_pipeline(model, saved_inputs):
 
     @torch.compiler.disable
     def patched_deepstack_process(hidden_states, visual_pos_masks, visual_embeds):
-        return original_deepstack(hidden_states, visual_pos_masks, visual_embeds)
+        cpu_mask = saved_visual_pos_mask.to(hidden_states.device)
+        return original_deepstack(hidden_states, cpu_mask, visual_embeds)
 
     lang_model._deepstack_process = patched_deepstack_process
 
@@ -94,7 +101,10 @@ class Wrapper(torch.nn.Module):
         position_ids = _precompute_position_ids(model, saved_inputs)
         self.register_buffer("position_ids", position_ids)
 
-        _patch_vision_pipeline(model, saved_inputs)
+        visual_pos_mask = _precompute_visual_pos_mask(
+            saved_inputs, model.model.config
+        )
+        _patch_vision_pipeline(model, saved_inputs, visual_pos_mask)
 
     def forward(self, input_ids, attention_mask, pixel_values):
         image_grid_thw = _make_cpu_int_tensor(self._grid_thw_values)
