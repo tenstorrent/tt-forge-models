@@ -24,20 +24,22 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available unsloth/DeepSeek-R1-Distill-Qwen-1.5B-unsloth-bnb-4bit model variants for causal LM."""
 
-    DEEPSEEK_R1_DISTILL_QWEN_1_5B_BNB_4BIT = "DeepSeek_R1_Distill_Qwen_1.5B_bnb_4bit"
+    DEEPSEEK_R1_DISTILL_QWEN_1_5B_UNSLOTH_BNB_4BIT = (
+        "DeepSeek_R1_Distill_Qwen_1.5B_unsloth_bnb_4bit"
+    )
 
 
 class ModelLoader(ForgeModel):
     """unsloth/DeepSeek-R1-Distill-Qwen-1.5B-unsloth-bnb-4bit model loader for causal language modeling."""
 
     _VARIANTS = {
-        ModelVariant.DEEPSEEK_R1_DISTILL_QWEN_1_5B_BNB_4BIT: LLMModelConfig(
+        ModelVariant.DEEPSEEK_R1_DISTILL_QWEN_1_5B_UNSLOTH_BNB_4BIT: LLMModelConfig(
             pretrained_model_name="unsloth/DeepSeek-R1-Distill-Qwen-1.5B-unsloth-bnb-4bit",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.DEEPSEEK_R1_DISTILL_QWEN_1_5B_BNB_4BIT
+    DEFAULT_VARIANT = ModelVariant.DEEPSEEK_R1_DISTILL_QWEN_1_5B_UNSLOTH_BNB_4BIT
 
     sample_text = "Please reason step by step. What is 25 multiplied by 16?"
 
@@ -51,7 +53,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="unsloth-DeepSeek-R1-Distill-Qwen-1.5B-bnb-4bit",
+            model="unsloth-DeepSeek-R1-Distill-Qwen-1.5B-unsloth-bnb-4bit",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
