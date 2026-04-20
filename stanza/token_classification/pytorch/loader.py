@@ -46,6 +46,7 @@ class ModelVariant(StrEnum):
     """Available Stanza model variants for token classification."""
 
     STANFORDNLP_STANZA_ES = "stanfordnlp/stanza-es"
+    STANFORDNLP_STANZA_VI = "stanfordnlp/stanza-vi"
 
 
 class ModelLoader(ForgeModel):
@@ -56,10 +57,23 @@ class ModelLoader(ForgeModel):
         ModelVariant.STANFORDNLP_STANZA_ES: ModelConfig(
             pretrained_model_name="stanfordnlp/stanza-es",
         ),
+        ModelVariant.STANFORDNLP_STANZA_VI: ModelConfig(
+            pretrained_model_name="stanfordnlp/stanza-vi",
+        ),
     }
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.STANFORDNLP_STANZA_ES
+
+    # Per-variant sample text for NER demonstration.
+    _SAMPLE_TEXTS = {
+        ModelVariant.STANFORDNLP_STANZA_ES: (
+            "El presidente de México visitó la ciudad de Madrid ayer por la tarde."
+        ),
+        ModelVariant.STANFORDNLP_STANZA_VI: (
+            "Thủ tướng Nguyễn Xuân Phúc đã đến thăm thành phố Hồ Chí Minh hôm qua."
+        ),
+    }
 
     def __init__(self, variant=None):
         """Initialize ModelLoader with specified variant.
@@ -71,9 +85,10 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
 
         self.model_name = self._variant_config.pretrained_model_name
-        self.sample_text = (
-            "El presidente de México visitó la ciudad de Madrid ayer por la tarde."
-        )
+        # Derive stanza language code from the pretrained_model_name suffix
+        # (e.g. "stanfordnlp/stanza-vi" -> "vi").
+        self.lang_code = self.model_name.rsplit("-", 1)[-1]
+        self.sample_text = self._SAMPLE_TEXTS[self._variant]
         self.pipeline = None
         self.model = None
 
@@ -109,8 +124,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The wrapped Stanza NER model instance.
         """
-        stanza.download("es", processors="tokenize,ner")
-        self.pipeline = stanza.Pipeline("es", processors="tokenize,ner")
+        stanza.download(self.lang_code, processors="tokenize,ner")
+        self.pipeline = stanza.Pipeline(self.lang_code, processors="tokenize,ner")
         model = StanzaNERWrapper(self.pipeline)
         model.eval()
         self.model = model
