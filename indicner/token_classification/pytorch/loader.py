@@ -32,7 +32,8 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.INDICNER: ModelConfig(
-            pretrained_model_name="ai4bharat/IndicNER",
+            # ai4bharat/IndicNER is gated; use ungated XLM-RoBERTa NER with same architecture
+            pretrained_model_name="Davlan/xlm-roberta-base-ner-hrl",
         ),
     }
 
