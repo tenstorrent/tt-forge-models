@@ -2,11 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-NoobAI-XL 1.1 (Laxhar/noobai-XL-1.1) model loader implementation.
+NoobAI-XL (Laxhar/noobai-XL) model loader implementation.
 
-NoobAI-XL 1.1 is a Stable Diffusion XL based text-to-image generation model.
+NoobAI-XL is a Stable Diffusion XL based text-to-image generation model.
 
 Available variants:
+- NOOBAI_XL_1_0: Laxhar/noobai-XL-1.0 text-to-image generation
 - NOOBAI_XL_1_1: Laxhar/noobai-XL-1.1 text-to-image generation
 """
 
@@ -30,13 +31,17 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available NoobAI-XL model variants."""
 
+    NOOBAI_XL_1_0 = "NoobAI_XL_1_0"
     NOOBAI_XL_1_1 = "NoobAI_XL_1_1"
 
 
 class ModelLoader(ForgeModel):
-    """NoobAI-XL 1.1 model loader implementation."""
+    """NoobAI-XL model loader implementation."""
 
     _VARIANTS = {
+        ModelVariant.NOOBAI_XL_1_0: ModelConfig(
+            pretrained_model_name="Laxhar/noobai-XL-1.0",
+        ),
         ModelVariant.NOOBAI_XL_1_1: ModelConfig(
             pretrained_model_name="Laxhar/noobai-XL-1.1",
         ),
@@ -61,10 +66,10 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the NoobAI-XL 1.1 pipeline.
+        """Load and return the NoobAI-XL pipeline.
 
         Returns:
-            AutoPipelineForText2Image: The NoobAI-XL 1.1 pipeline instance.
+            AutoPipelineForText2Image: The NoobAI-XL pipeline instance.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
         self.pipeline = AutoPipelineForText2Image.from_pretrained(
@@ -75,7 +80,7 @@ class ModelLoader(ForgeModel):
         return self.pipeline
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the NoobAI-XL 1.1 model.
+        """Load and return sample text prompts for the NoobAI-XL model.
 
         Returns:
             list: A list of sample text prompts.
