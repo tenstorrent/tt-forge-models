@@ -116,7 +116,7 @@ class ModelLoader(ForgeModel):
             def _unwrap_forward(*args, **kwargs):
                 out = orig_forward(*args, **kwargs)
                 if isinstance(out, BaseModelOutputWithPooling):
-                    return out.last_hidden_state
+                    return out.pooler_output
                 return out
 
             vision_model.forward = _unwrap_forward
