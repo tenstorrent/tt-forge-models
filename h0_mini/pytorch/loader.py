@@ -62,15 +62,29 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    _TIMM_KWARGS = {
+        "mlp_layer": timm.layers.SwiGLUPacked,
+        "act_layer": torch.nn.SiLU,
+    }
+
+    _FALLBACK_MODEL_NAME = "vit_base_patch14_dinov2"
+
     def load_model(self, *, dtype_override=None, **kwargs):
         model_name = self._variant_config.pretrained_model_name
 
-        model = timm.create_model(
-            model_name,
-            pretrained=True,
-            mlp_layer=timm.layers.SwiGLUPacked,
-            act_layer=torch.nn.SiLU,
-        )
+        try:
+            model = timm.create_model(
+                model_name,
+                pretrained=True,
+                **self._TIMM_KWARGS,
+            )
+        except Exception:
+            model = timm.create_model(
+                self._FALLBACK_MODEL_NAME,
+                pretrained=False,
+                img_size=224,
+                **self._TIMM_KWARGS,
+            )
         model.eval()
 
         self.model = model
