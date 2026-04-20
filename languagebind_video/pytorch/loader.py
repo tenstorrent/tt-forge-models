@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available LanguageBind Video model variants."""
 
     LANGUAGEBIND_VIDEO_MERGE = "LanguageBind_Video_merge"
+    LANGUAGEBIND_VIDEO_FT = "LanguageBind_Video_FT"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LANGUAGEBIND_VIDEO_MERGE: ModelConfig(
             pretrained_model_name="LanguageBind/LanguageBind_Video_merge",
+        ),
+        ModelVariant.LANGUAGEBIND_VIDEO_FT: ModelConfig(
+            pretrained_model_name="LanguageBind/LanguageBind_Video_FT",
         ),
     }
 
