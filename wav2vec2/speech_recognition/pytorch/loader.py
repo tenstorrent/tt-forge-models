@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     LARGE_XLS_R_300M_WELSH = "Large_XLS_R_300M_Welsh"
     LARGE_XLSR_53_AMHARIC = "Large_XLSR_53_Amharic"
     LARGE_XLSR_53_PUNJABI = "Large_XLSR_53_Punjabi"
+    LARGE_XLSR_53_SPANISH_WITH_LM = "Large_XLSR_53_Spanish_With_LM"
     NB_WAV2VEC2_300M_BOKMAAL_V2 = "NB_Wav2Vec2_300M_Bokmaal_v2"
     XLS_R_300M_CV8_TURKISH = "XLS_R_300M_CV8_Turkish"
 
@@ -59,6 +60,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE_XLSR_53_PUNJABI: ModelConfig(
             pretrained_model_name="danurahul/wav2vec2-large-xlsr-pa-IN",
+        ),
+        ModelVariant.LARGE_XLSR_53_SPANISH_WITH_LM: ModelConfig(
+            pretrained_model_name="patrickvonplaten/wav2vec2-large-xlsr-53-spanish-with-lm",
         ),
         ModelVariant.NB_WAV2VEC2_300M_BOKMAAL_V2: ModelConfig(
             pretrained_model_name="NbAiLab/nb-wav2vec2-300m-bokmaal-v2",
