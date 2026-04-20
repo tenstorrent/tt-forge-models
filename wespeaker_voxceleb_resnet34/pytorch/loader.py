@@ -8,6 +8,7 @@ WeSpeaker VoxCeleb ResNet34-LM model loader implementation for speaker embedding
 from typing import Optional
 
 import torch
+import torch.nn as nn
 
 from ...config import (
     ModelConfig,
@@ -19,6 +20,21 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+
+
+class WeSpeakerResNet34Wrapper(nn.Module):
+    """Wrapper that keeps the model in float32 for FFT-based fbank computation."""
+
+    def __init__(self, model, output_dtype=None):
+        super().__init__()
+        self.model = model
+        self.output_dtype = output_dtype
+
+    def forward(self, waveforms):
+        out = self.model(waveforms.float())
+        if self.output_dtype is not None:
+            out = out.to(self.output_dtype)
+        return out
 
 
 class ModelVariant(StrEnum):
@@ -65,18 +81,17 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        wrapped = WeSpeakerResNet34Wrapper(model, output_dtype=dtype_override)
+        wrapped.eval()
 
-        self.model = model
-        return model
+        self.model = wrapped
+        return wrapped
 
     def load_inputs(self, dtype_override=None):
         """Generate sample audio input for the model.
 
         Returns a 1-second mono waveform at 16kHz sample rate.
         """
-        # Model expects (batch, channels, samples): 16kHz mono audio, 1 second
         waveform = torch.randn(1, 1, 16000)
 
         if dtype_override is not None:
