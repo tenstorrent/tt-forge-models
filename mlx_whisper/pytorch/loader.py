@@ -68,13 +68,10 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
-            pretrained_model_name, use_cache=False, **model_kwargs
+            self._BASE_MODEL, use_cache=False, **model_kwargs
         )
         self.processor = AutoProcessor.from_pretrained(self._BASE_MODEL)
 
@@ -87,9 +84,7 @@ class ModelLoader(ForgeModel):
         if self.model is None or self.processor is None:
             self.load_model()
 
-        whisper_config = WhisperConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        whisper_config = WhisperConfig.from_pretrained(self._BASE_MODEL)
 
         sampling_rate = 16000
         sample_audio = np.random.randn(sampling_rate * 3).astype(np.float32)
