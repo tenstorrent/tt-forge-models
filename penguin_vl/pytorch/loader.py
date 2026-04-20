@@ -188,7 +188,7 @@ class ModelLoader(ForgeModel):
             {
                 "role": "user",
                 "content": [
-                    {"type": "image", "image": {"image_path": image_file}},
+                    {"type": "image", "image": {"image_path": str(image_file)}},
                     {"type": "text", "text": "Describe this image."},
                 ],
             },
