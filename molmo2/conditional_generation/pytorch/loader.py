@@ -89,6 +89,8 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.processor is None:
@@ -99,11 +101,21 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name,
-            trust_remote_code=True,
-            **model_kwargs,
-        )
+        # Workaround for transformers 5.2.0: the remote modeling_molmo2.py
+        # uses rope_type="default" which was renamed to "linear".
+        patched = "default" not in ROPE_INIT_FUNCTIONS
+        if patched:
+            ROPE_INIT_FUNCTIONS["default"] = ROPE_INIT_FUNCTIONS["linear"]
+        try:
+            model = AutoModelForImageTextToText.from_pretrained(
+                pretrained_model_name,
+                trust_remote_code=True,
+                **model_kwargs,
+            )
+        finally:
+            if patched:
+                ROPE_INIT_FUNCTIONS.pop("default", None)
+
         model.eval()
         self.model = model
         self.config = model.config
