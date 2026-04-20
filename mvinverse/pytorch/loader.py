@@ -17,6 +17,7 @@ That class lives in the upstream project, which is cloned on demand to
 
 import os
 import sys
+import types
 from typing import Optional
 
 import torch
@@ -37,7 +38,23 @@ MVINVERSE_REPO_PATH = "/tmp/mvinverse_repo"
 
 
 def _ensure_mvinverse_importable():
-    """Ensure the upstream mvinverse repo is cloned and importable."""
+    """Ensure the upstream mvinverse repo is cloned and importable.
+
+    The upstream project ships its model code under a top-level ``mvinverse``
+    package, which collides with this loader's own ``mvinverse`` directory in
+    tt-forge-models. Bind ``sys.modules['mvinverse']`` to the cloned package
+    so ``from mvinverse.models.mvinverse import MVInverse`` resolves to the
+    upstream sources regardless of sys.path ordering.
+    """
+    upstream_pkg = sys.modules.get("mvinverse")
+    upstream_path = os.path.join(MVINVERSE_REPO_PATH, "mvinverse")
+    if (
+        upstream_pkg is not None
+        and getattr(upstream_pkg, "__path__", None)
+        and upstream_path in list(upstream_pkg.__path__)
+    ):
+        return
+
     if not os.path.isdir(MVINVERSE_REPO_PATH):
         import subprocess
 
@@ -50,8 +67,13 @@ def _ensure_mvinverse_importable():
                 MVINVERSE_REPO_PATH,
             ]
         )
+
     if MVINVERSE_REPO_PATH not in sys.path:
         sys.path.insert(0, MVINVERSE_REPO_PATH)
+
+    pkg = types.ModuleType("mvinverse")
+    pkg.__path__ = [upstream_path]
+    sys.modules["mvinverse"] = pkg
 
 
 class ModelVariant(StrEnum):
