@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
 
     PYTHIA_14M_SEED5 = "14M-seed5"
     PYTHIA_31M = "31M"
-    PYTHIA_31M_SEED7 = "31M-seed7"
+    PYTHIA_31M_SEED9 = "31M-seed9"
     PYTHIA_70M_DEDUPED = "70M-deduped"
     PYTHIA_70M_SEED1 = "70M-seed1"
     PYTHIA_70M_SEED7 = "70M-seed7"
@@ -52,8 +52,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="EleutherAI/pythia-31m",
             max_length=256,
         ),
-        ModelVariant.PYTHIA_31M_SEED7: LLMModelConfig(
-            pretrained_model_name="EleutherAI/pythia-31m-seed7",
+        ModelVariant.PYTHIA_31M_SEED9: LLMModelConfig(
+            pretrained_model_name="EleutherAI/pythia-31m-seed9",
             max_length=256,
         ),
         ModelVariant.PYTHIA_70M_DEDUPED: LLMModelConfig(
