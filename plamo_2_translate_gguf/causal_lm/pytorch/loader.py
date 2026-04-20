@@ -46,7 +46,7 @@ def _install_causal_conv1d_shim():
         out = torch.sum(window * weight.unsqueeze(0), dim=-1)
         if activation == "silu":
             out = F.silu(out)
-        return out.unsqueeze(-1) if x.dim() == 3 else out, conv_state
+        return out.unsqueeze(-1) if x.dim() == 3 else out
 
     def causal_conv1d_ref(
         x,
