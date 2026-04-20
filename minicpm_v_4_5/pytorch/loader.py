@@ -6,7 +6,8 @@ MiniCPM-V-4.5 model loader implementation for multimodal visual question answeri
 """
 
 import torch
-from transformers import AutoModel, AutoTokenizer
+from copy import deepcopy
+from transformers import AutoModel, AutoProcessor
 from PIL import Image
 from typing import Optional
 
@@ -21,6 +22,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from .src.model import Wrapper
 
 
 class ModelVariant(StrEnum):
@@ -42,7 +44,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.tokenizer = None
+        self.processor = None
         self.model = None
 
     @classmethod
@@ -59,17 +61,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self):
-        self.tokenizer = AutoTokenizer.from_pretrained(
+    def _load_processor(self):
+        self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
-        return self.tokenizer
+        return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.tokenizer is None:
-            self._load_tokenizer()
+        if self.processor is None:
+            self._load_processor()
 
         model_kwargs = {
             "trust_remote_code": True,
@@ -83,11 +85,11 @@ class ModelLoader(ForgeModel):
         model.eval()
         self.model = model
 
-        return model
+        return Wrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.tokenizer is None:
-            self._load_tokenizer()
+        if self.processor is None:
+            self._load_processor()
 
         image_file = get_file(
             "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
@@ -98,18 +100,48 @@ class ModelLoader(ForgeModel):
 
         msgs = [{"role": "user", "content": [image, question]}]
 
-        return {"msgs": msgs, "tokenizer": self.tokenizer}
+        images = []
+        copy_msgs = deepcopy(msgs)
+        for msg in copy_msgs:
+            content = msg["content"]
+            if isinstance(content, str):
+                content = [content]
+            cur_parts = []
+            for c in content:
+                if isinstance(c, Image.Image):
+                    images.append(c)
+                    cur_parts.append("(<image>./</image>)")
+                elif isinstance(c, str):
+                    cur_parts.append(c)
+            msg["content"] = "\n".join(cur_parts)
+
+        prompt = self.processor.tokenizer.apply_chat_template(
+            copy_msgs, tokenize=False, add_generation_prompt=True
+        )
+
+        inputs = self.processor(
+            [prompt], [images], return_tensors="pt", max_length=8192
+        )
+
+        inputs.pop("image_sizes", None)
+
+        seq_len = inputs["input_ids"].shape[1]
+        inputs["position_ids"] = torch.arange(seq_len, dtype=torch.long).unsqueeze(0)
+
+        return dict(inputs)
 
     def decode_output(self, outputs, **kwargs):
-        if isinstance(outputs, str):
-            return outputs
-
-        if self.tokenizer is None:
-            self._load_tokenizer()
+        if self.processor is None:
+            self._load_processor()
 
         if torch.is_tensor(outputs) and outputs.dtype in [torch.long, torch.int]:
-            return self.tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+            return self.processor.tokenizer.batch_decode(
+                outputs, skip_special_tokens=True
+            )[0]
         else:
-            logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
-            next_token_id = torch.argmax(logits[:, -1, :], dim=-1)
-            return self.tokenizer.decode(next_token_id)
+            logits = outputs.logits if hasattr(outputs, "logits") else outputs
+            if logits.dim() == 3:
+                next_token_id = torch.argmax(logits[:, -1, :], dim=-1)
+            else:
+                next_token_id = torch.argmax(logits, dim=-1)
+            return self.processor.tokenizer.decode(next_token_id)
