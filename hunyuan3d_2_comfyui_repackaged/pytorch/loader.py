@@ -15,6 +15,7 @@ Available variants:
 Requires the Hunyuan3D-2 repository to be cloned at /tmp/hunyuan3d2_repo.
 """
 
+import importlib.util
 import os
 import sys
 from typing import Optional
@@ -50,24 +51,37 @@ LATENT_SEQ_LEN = 256
 COND_SEQ_LEN = 257
 
 
-def _ensure_hunyuan3d_importable():
-    """Ensure the Hunyuan3D-2 repo is cloned and importable."""
-    if "hy3dgen" not in sys.modules:
-        if not os.path.isdir(HUNYUAN3D_REPO_PATH):
-            import subprocess
+def _ensure_hunyuan3d_repo():
+    """Ensure the Hunyuan3D-2 repo is cloned."""
+    if not os.path.isdir(HUNYUAN3D_REPO_PATH):
+        import subprocess
 
-            subprocess.check_call(
-                [
-                    "git",
-                    "clone",
-                    "--filter=blob:none",
-                    "https://github.com/tencent/Hunyuan3D-2.git",
-                    HUNYUAN3D_REPO_PATH,
-                ]
-            )
+        subprocess.check_call(
+            [
+                "git",
+                "clone",
+                "--filter=blob:none",
+                "https://github.com/tencent/Hunyuan3D-2.git",
+                HUNYUAN3D_REPO_PATH,
+            ]
+        )
 
-        if HUNYUAN3D_REPO_PATH not in sys.path:
-            sys.path.insert(0, HUNYUAN3D_REPO_PATH)
+
+def _load_hunyuan3ddit_class():
+    """Load Hunyuan3DDiT directly from the module file to avoid heavy shapegen dependencies."""
+    _ensure_hunyuan3d_repo()
+    module_path = os.path.join(
+        HUNYUAN3D_REPO_PATH,
+        "hy3dgen",
+        "shapegen",
+        "models",
+        "denoisers",
+        "hunyuan3ddit.py",
+    )
+    spec = importlib.util.spec_from_file_location("hunyuan3ddit", module_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.Hunyuan3DDiT
 
 
 class ModelVariant(StrEnum):
@@ -124,8 +138,7 @@ class ModelLoader(ForgeModel):
         Returns:
             Hunyuan3DDiT: The DiT denoiser model for 3D shape generation.
         """
-        _ensure_hunyuan3d_importable()
-        from hy3dgen.shapegen.models.denoisers import Hunyuan3DDiT
+        Hunyuan3DDiT = _load_hunyuan3ddit_class()
 
         variant = self._variant or self.DEFAULT_VARIANT
         filename = _VARIANT_FILENAMES[variant]
