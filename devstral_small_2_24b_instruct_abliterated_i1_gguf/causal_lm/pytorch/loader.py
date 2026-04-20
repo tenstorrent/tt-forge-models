@@ -35,10 +35,12 @@ def _patch_mistral3_gguf():
             ] = GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"]
     from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
-    if "mistral" in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUF_TO_FAST_CONVERTERS["mistral"]
-    elif "llama" in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUF_TO_FAST_CONVERTERS["llama"]
+    llama_converter = GGUF_TO_FAST_CONVERTERS.get(
+        "mistral", GGUF_TO_FAST_CONVERTERS.get("llama")
+    )
+    if llama_converter:
+        GGUF_TO_FAST_CONVERTERS.setdefault("mistral", llama_converter)
+        GGUF_TO_FAST_CONVERTERS.setdefault("mistral3", llama_converter)
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
