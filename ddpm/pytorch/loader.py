@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available DDPM model variants."""
 
     CELEBAHQ_256 = "google/ddpm-celebahq-256"
+    EMA_CELEBAHQ_256 = "google/ddpm-ema-celebahq-256"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.CELEBAHQ_256: ModelConfig(
             pretrained_model_name="google/ddpm-celebahq-256",
+        ),
+        ModelVariant.EMA_CELEBAHQ_256: ModelConfig(
+            pretrained_model_name="google/ddpm-ema-celebahq-256",
         ),
     }
 
