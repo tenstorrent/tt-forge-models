@@ -1,8 +1,13 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
 AntiBERTa2 model loader implementation for masked language modeling.
+
+AntiBERTa2 is an antibody-specific RoFormer-based language model pre-trained
+using masked language modelling on antibody amino acid sequences.
+
+Reference: https://huggingface.co/alchemab/antiberta2
 """
 
 from transformers import AutoTokenizer, AutoModelForMaskedLM, AutoConfig
@@ -21,32 +26,25 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available AntiBERTa2 model variants for masked language modeling."""
 
-    BASE = "base"
+    ANTIBERTA2 = "alchemab/antiberta2"
 
 
 class ModelLoader(ForgeModel):
     """AntiBERTa2 model loader implementation for masked language modeling."""
 
     _VARIANTS = {
-        ModelVariant.BASE: LLMModelConfig(
+        ModelVariant.ANTIBERTA2: LLMModelConfig(
             pretrained_model_name="alchemab/antiberta2",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.BASE
+    DEFAULT_VARIANT = ModelVariant.ANTIBERTA2
 
     def __init__(self, variant=None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional string specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
         super().__init__(variant)
-
-        pretrained_model_name = self._variant_config.pretrained_model_name
-        self.model_name = pretrained_model_name
+        self.model_name = self._variant_config.pretrained_model_name
+        # Heavy chain antibody sequence with masked residue, per model card.
         self.sample_text = (
             "Q V Q L V Q S G A E V K K P G A S V K V S C K A S G Y T F T "
             "S Y G I S W V R Q A P G Q G L E W M G W I S A Y N G N T N Y "
@@ -58,16 +56,8 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
-        """Get model information for dashboard and metrics reporting.
-
-        Args:
-            variant_name: Optional variant name string. If None, uses default.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
         if variant_name is None:
-            variant_name = cls.DEFAULT_VARIANT
+            variant_name = "base"
         return ModelInfo(
             model="AntiBERTa2",
             variant=variant_name,
@@ -78,14 +68,6 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load AntiBERTa2 model for masked language modeling from Hugging Face.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            torch.nn.Module: The AntiBERTa2 model instance.
-        """
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         model_kwargs = {}
@@ -98,14 +80,6 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Prepare sample input for AntiBERTa2 masked language modeling.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            dict: Input tensors that can be fed to the model.
-        """
         if self.tokenizer is None:
             self.load_model(dtype_override=dtype_override)
 
@@ -131,13 +105,7 @@ class ModelLoader(ForgeModel):
         print("The predicted token for the [MASK] is:", predicted_token)
 
     def load_config(self):
-        """Load and return the configuration for the AntiBERTa2 model variant.
-
-        Returns:
-            The configuration object for the AntiBERTa2 model.
-        """
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
-
         return self.config
