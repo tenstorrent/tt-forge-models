@@ -42,7 +42,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "Alexia.FinalEvolution-1B.i1-Q4_K_M.gguf"
 
-    sample_text = "Write a short story about a lighthouse keeper who finds a message in a bottle."
+    sample_text = (
+        "Write a short story about a lighthouse keeper who finds a message in a bottle."
+    )
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
