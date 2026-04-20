@@ -198,8 +198,8 @@ class ModelLoader(ForgeModel):
 
         def _tensor_vt_forward(*args, _orig=_orig_vt_forward, **kwargs):
             out = _orig(*args, **kwargs)
-            if hasattr(out, "last_hidden_state"):
-                return out.last_hidden_state
+            if hasattr(out, "pooler_output"):
+                return out.pooler_output
             return out
 
         model.vision_tower.forward = _tensor_vt_forward
