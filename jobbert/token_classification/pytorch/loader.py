@@ -1,66 +1,54 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-JobBERT model loader implementation for skill extraction token classification.
+JobBERT model loader implementation for token classification (knowledge extraction).
 """
 
 import torch
-from transformers import AutoModelForTokenClassification, AutoTokenizer
-from third_party.tt_forge_models.config import (
+from transformers import AutoTokenizer, AutoModelForTokenClassification
+
+from ....base import ForgeModel
+from ....config import (
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
     StrEnum,
-    LLMModelConfig,
 )
-from third_party.tt_forge_models.base import ForgeModel
 
 
 class ModelVariant(StrEnum):
-    """Available JobBERT model variants for token classification."""
+    """Available JobBERT token classification model variants."""
 
-    JOBBERT_SKILL_EXTRACTION = "JobBERT_Skill_Extraction"
+    JOBBERT_KNOWLEDGE_EXTRACTION = "jjzha/jobbert_knowledge_extraction"
 
 
 class ModelLoader(ForgeModel):
-    """JobBERT model loader implementation for skill extraction token classification."""
+    """JobBERT model loader implementation for token classification tasks."""
 
     _VARIANTS = {
-        ModelVariant.JOBBERT_SKILL_EXTRACTION: LLMModelConfig(
-            pretrained_model_name="jjzha/jobbert_skill_extraction",
-            max_length=128,
+        ModelVariant.JOBBERT_KNOWLEDGE_EXTRACTION: ModelConfig(
+            pretrained_model_name="jjzha/jobbert_knowledge_extraction",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.JOBBERT_SKILL_EXTRACTION
+    DEFAULT_VARIANT = ModelVariant.JOBBERT_KNOWLEDGE_EXTRACTION
 
     def __init__(self, variant=None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional string specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
         super().__init__(variant)
-
-        self.model_name = self._variant_config.pretrained_model_name
-        self.sample_text = "Experience with Python and machine learning required"
-        self.max_length = self._variant_config.max_length
         self.tokenizer = None
+        self.model = None
+        self.sample_text = (
+            "We are looking for a Python developer with experience in "
+            "machine learning and distributed systems."
+        )
+        self.max_length = 128
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
-        """Get model information for dashboard and metrics reporting.
-
-        Args:
-            variant_name: Optional variant name string. If None, uses default.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
+    def _get_model_info(cls, variant_name=None):
         if variant_name is None:
             variant_name = cls.DEFAULT_VARIANT
         return ModelInfo(
@@ -73,15 +61,9 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load JobBERT model for token classification from Hugging Face.
+        pretrained_model_name = self._variant_config.pretrained_model_name
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            torch.nn.Module: The JobBERT model instance.
-        """
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -89,21 +71,13 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForTokenClassification.from_pretrained(
-            self.model_name, **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
-        self.model = model
         model.eval()
+        self.model = model
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Prepare sample input for JobBERT skill extraction.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            dict: Input tensors that can be fed to the model.
-        """
         if self.tokenizer is None:
             self.load_model(dtype_override=dtype_override)
 
@@ -118,7 +92,6 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def decode_output(self, co_out):
-        """Decode the model output for skill extraction token classification."""
         inputs = self.load_inputs()
         predicted_token_class_ids = co_out[0].argmax(-1)
         predicted_token_class_ids = torch.masked_select(
@@ -129,4 +102,4 @@ class ModelLoader(ForgeModel):
         ]
 
         print(f"Context: {self.sample_text}")
-        print(f"Skill Tags: {predicted_tokens_classes}")
+        print(f"Predicted Labels: {predicted_tokens_classes}")
