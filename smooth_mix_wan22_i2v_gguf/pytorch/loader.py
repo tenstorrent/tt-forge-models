@@ -120,20 +120,20 @@ class ModelLoader(ForgeModel):
         dtype = kwargs.get("dtype_override", torch.float32)
         batch_size = kwargs.get("batch_size", 1)
 
-        # Wan I2V 14B transformer config dimensions
-        in_channels = 36  # 16 latent + 16 latent + 4 mask channels for I2V
-        text_dim = 4096  # text_dim from Wan config
+        in_channels = 36
+        text_dim = 4096
         txt_seq_len = 32
+        num_frames = 1
+        height = 32
+        width = 32
 
-        # Spatial/temporal latent dimensions
-        frame, height, width = 2, 8, 8
-        seq_len = frame * height * width
-
-        hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
+        hidden_states = torch.randn(
+            batch_size, in_channels, num_frames, height, width, dtype=dtype
+        )
         encoder_hidden_states = torch.randn(
             batch_size, txt_seq_len, text_dim, dtype=dtype
         )
-        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        timestep = torch.tensor([1], dtype=torch.long).expand(batch_size)
 
         return {
             "hidden_states": hidden_states,
