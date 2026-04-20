@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available Stable Diffusion 2.1 model variants."""
 
     BASE = "Base"
-    V2_1_LZYVEGETABLE = "V2_1_LZYVEGETABLE"
+    CHARLES_ELENA_STABLE_DIFFUSION_2_1 = "Charles-Elena/stable-diffusion-2-1"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="Manojb/stable-diffusion-2-1-base",
         ),
-        ModelVariant.V2_1_LZYVEGETABLE: ModelConfig(
-            pretrained_model_name="lzyvegetable/stable-diffusion-2-1",
+        ModelVariant.CHARLES_ELENA_STABLE_DIFFUSION_2_1: ModelConfig(
+            pretrained_model_name="Charles-Elena/stable-diffusion-2-1",
         ),
     }
 
