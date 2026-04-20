@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     V0_3 = "v0_3"
     V0_5_LLAMA_3_2_1B = "v0_5_Llama_3_2_1B"
     V0_5_LLAMA_3_1_8B = "v0_5_Llama_3_1_8B"
+    V0_6_LLAMA_3_3_70B = "v0_6_Llama_3_3_70B"
 
 
 class ModelLoader(ForgeModel):
@@ -45,6 +46,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.V0_5_LLAMA_3_1_8B: ModelConfig(
             pretrained_model_name="fixie-ai/ultravox-v0_5-llama-3_1-8b",
+        ),
+        ModelVariant.V0_6_LLAMA_3_3_70B: ModelConfig(
+            pretrained_model_name="fixie-ai/ultravox-v0_6-llama-3_3-70b",
         ),
     }
 
@@ -144,6 +148,18 @@ class ModelLoader(ForgeModel):
                     "intermediate_size": 14336,
                     "num_attention_heads": 32,
                     "num_hidden_layers": 32,
+                    "num_key_value_heads": 8,
+                    "vocab_size": 128256,
+                    "max_position_embeddings": 131072,
+                    "rms_norm_eps": 1e-5,
+                    "rope_theta": 500000.0,
+                },
+                ModelVariant.V0_6_LLAMA_3_3_70B: {
+                    "model_type": "llama",
+                    "hidden_size": 8192,
+                    "intermediate_size": 28672,
+                    "num_attention_heads": 64,
+                    "num_hidden_layers": 80,
                     "num_key_value_heads": 8,
                     "vocab_size": 128256,
                     "max_position_embeddings": 131072,
