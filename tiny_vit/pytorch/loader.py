@@ -29,6 +29,7 @@ from datasets import load_dataset
 class ModelVariant(StrEnum):
     """Available TinyViT model variants."""
 
+    V5M_224_DIST_IN22K = "5M_224_Dist_IN22K"
     V21M_224_DIST_IN22K = "21M_224_Dist_IN22K"
 
 
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     """TinyViT model loader implementation."""
 
     _VARIANTS = {
+        ModelVariant.V5M_224_DIST_IN22K: ModelConfig(
+            pretrained_model_name="hf_hub:timm/tiny_vit_5m_224.dist_in22k",
+        ),
         ModelVariant.V21M_224_DIST_IN22K: ModelConfig(
             pretrained_model_name="hf_hub:timm/tiny_vit_21m_224.dist_in22k",
         ),
