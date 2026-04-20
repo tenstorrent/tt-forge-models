@@ -158,8 +158,10 @@ class ModelLoader(ForgeModel):
         # chan_id: channel identifiers [B, seqlen]
         chan_id = torch.randint(0, 32, (batch_size, seqlen))
 
-        # t_coarse: coarse time indices [B, seqlen]
-        t_coarse = torch.arange(seqlen).unsqueeze(0).expand(batch_size, -1)
+        # t_coarse: coarse time indices [B, seqlen, 1]
+        t_coarse = (
+            torch.arange(seqlen).unsqueeze(0).unsqueeze(-1).expand(batch_size, -1, -1)
+        )
 
         # seq_lens: sequence lengths [B]
         seq_lens = torch.full((batch_size,), seqlen, dtype=torch.long)
