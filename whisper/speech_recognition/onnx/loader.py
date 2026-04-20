@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available Whisper ONNX speech recognition model variants."""
 
     BASE = "Base"
+    BASE_EN = "Base_EN"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="onnx-community/whisper-base",
+        ),
+        ModelVariant.BASE_EN: ModelConfig(
+            pretrained_model_name="onnx-community/whisper-base.en",
         ),
     }
 
