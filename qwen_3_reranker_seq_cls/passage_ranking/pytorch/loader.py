@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Qwen3-Reranker-seq-cls model variants for passage ranking."""
 
     QWEN_3_RERANKER_0_6B_SEQ_CLS = "0_6B-seq-cls"
+    QWEN_3_RERANKER_8B_SEQ_CLS = "8B-seq-cls"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_RERANKER_0_6B_SEQ_CLS: ModelConfig(
             pretrained_model_name="tomaarsen/Qwen3-Reranker-0.6B-seq-cls",
+        ),
+        ModelVariant.QWEN_3_RERANKER_8B_SEQ_CLS: ModelConfig(
+            pretrained_model_name="tomaarsen/Qwen3-Reranker-8B-seq-cls",
         ),
     }
 
