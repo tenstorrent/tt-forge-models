@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available PyLingual model variants."""
 
     PY310_STATEMENT = "Py310_Statement"
+    PY314_STATEMENT = "Py314_Statement"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.PY310_STATEMENT: LLMModelConfig(
             pretrained_model_name="syssec-utd/py310-pylingual-v1-statement",
+            max_length=512,
+        ),
+        ModelVariant.PY314_STATEMENT: LLMModelConfig(
+            pretrained_model_name="syssec-utd/py314-pylingual-v4-statement",
             max_length=512,
         ),
     }
