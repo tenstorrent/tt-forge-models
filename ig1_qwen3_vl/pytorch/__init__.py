@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+"""
+ig1 Qwen3-VL PyTorch model implementation for Tenstorrent projects.
+"""
+from .loader import ModelLoader, ModelVariant
