@@ -51,13 +51,13 @@ class ModelLoader(ForgeModel):
         )
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
-        if variant_name is None:
-            variant_name = "base"
+    def _get_model_info(cls, variant=None):
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
             model="FactCG-DeBERTa-v3-Large",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_TEXT_CLS,
             source=ModelSource.HUGGING_FACE,
