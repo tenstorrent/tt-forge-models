@@ -25,14 +25,12 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa token classification model variants."""
 
     CRYPTO_NER = "CryptoNER"
-    SPANISH_NER = "SpanishNER"
-    WIKIANN_NER = "WikiANN-NER"
+    MAREFA_NER = "MarefaNER"
 
 
 _VARIANT_SAMPLE_TEXTS = {
     ModelVariant.CRYPTO_NER: "I bought mass Ethereum and mass Bitcoin on Uniswap yesterday",
-    ModelVariant.SPANISH_NER: "Mi nombre es Carlos y vivo en Madrid, trabajo para Google",
-    ModelVariant.WIKIANN_NER: "Nader Jokhadar had given Syria the lead with a well-struck header in the seventh minute.",
+    ModelVariant.MAREFA_NER: "في استاد القاهرة، بدأ حفل افتتاح بطولة كأس الأمم الأفريقية بحضور رئيس الجمهورية و رئيس الاتحاد الدولي لكرة القدم",
 }
 
 
@@ -43,8 +41,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.CRYPTO_NER: ModelConfig(
             pretrained_model_name="covalenthq/cryptoNER",
         ),
-        ModelVariant.SPANISH_NER: ModelConfig(
-            pretrained_model_name="MMG/xlm-roberta-large-ner-spanish",
+        ModelVariant.MAREFA_NER: ModelConfig(
+            pretrained_model_name="marefa-nlp/marefa-ner",
         ),
         ModelVariant.WIKIANN_NER: ModelConfig(
             pretrained_model_name="Davlan/xlm-roberta-base-wikiann-ner",
