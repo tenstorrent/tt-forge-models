@@ -7,19 +7,18 @@ APT3-1B-Base model loader implementation for causal language modeling.
 A Polish LLaMA-inspired decoder-only transformer released by Azurro,
 trained with the ALLaMo framework on ~60B Polish-language tokens.
 """
-from typing import Optional
-
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
-    Framework,
     LLMModelConfig,
-    ModelGroup,
     ModelInfo,
-    ModelSource,
+    ModelGroup,
     ModelTask,
+    ModelSource,
+    Framework,
     StrEnum,
 )
 
