@@ -5,11 +5,11 @@
 """
 Ivrit Whisper model loader implementation for Hebrew speech recognition (ASR).
 
-Note: The original models (ivrit-ai/whisper-large-v3-turbo-ct2 and
-ivrit-ai/whisper-large-v3-ct2) are in CTranslate2 format. Since CTranslate2
-format is not compatible with PyTorch, this loader uses the standard
-transformers-compatible versions (ivrit-ai/whisper-large-v3-turbo and
-ivrit-ai/whisper-large-v3) via WhisperForConditionalGeneration.
+Note: The original model (ivrit-ai/whisper-large-v3-turbo-ct2) is in CTranslate2
+format. Since CTranslate2 format is not compatible with PyTorch, this loader uses
+the standard transformers-compatible version (ivrit-ai/whisper-large-v3-turbo) via
+WhisperForConditionalGeneration. The non-turbo ivrit-ai/whisper-large-v3 variant
+is also supported.
 """
 
 from typing import Optional
