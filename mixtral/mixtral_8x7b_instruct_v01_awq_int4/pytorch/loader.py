@@ -83,10 +83,10 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        config = AutoConfig.from_pretrained(pretrained_model_name)
         if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-        model_kwargs["config"] = config
+            model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
