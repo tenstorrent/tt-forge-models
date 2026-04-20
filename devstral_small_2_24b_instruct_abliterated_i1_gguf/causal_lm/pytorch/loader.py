@@ -8,6 +8,52 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
+)
+
+
+def _patch_mistral3_gguf():
+    """Register mistral3 GGUF architecture as an alias for mistral.
+
+    Devstral / Mistral-Small-3 models declare architecture as 'mistral3' in
+    their GGUF metadata, but transformers only supports 'mistral'. The text-only
+    causal LM path is identical, so we alias config mappings and remap model_type.
+    """
+    if "mistral3" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+    for section in GGUF_TO_TRANSFORMERS_MAPPING:
+        if "mistral" in GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            GGUF_TO_TRANSFORMERS_MAPPING[section][
+                "mistral3"
+            ] = GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"]
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "mistral" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUF_TO_FAST_CONVERTERS["mistral"]
+    elif "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUF_TO_FAST_CONVERTERS["llama"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    _patch_mistral3_gguf()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "mistral3":
+        result["config"]["model_type"] = "mistral"
+    return result
+
+
+_patch_mistral3_gguf()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
