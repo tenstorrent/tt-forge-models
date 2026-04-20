@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     LARGE_XLS_R_300M_PHONEME = "Large_XLS_R_300M_Phoneme"
     LARGE_XLS_R_300M_WELSH = "Large_XLS_R_300M_Welsh"
     LARGE_XLSR_53_AMHARIC = "Large_XLSR_53_Amharic"
+    LARGE_XLSR_53_PRONUNCIATION_CORRECTION = "Large_XLSR_53_Pronunciation_Correction"
     NB_WAV2VEC2_300M_BOKMAAL_V2 = "NB_Wav2Vec2_300M_Bokmaal_v2"
     XLS_R_1B_RUSSIAN = "XLS_R_1B_Russian"
 
@@ -51,6 +52,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE_XLSR_53_AMHARIC: ModelConfig(
             pretrained_model_name="agkphysics/wav2vec2-large-xlsr-53-amharic",
+        ),
+        ModelVariant.LARGE_XLSR_53_PRONUNCIATION_CORRECTION: ModelConfig(
+            pretrained_model_name="moxeeeem/wav2vec2-finetuned-pronunciation-correction",
         ),
         ModelVariant.NB_WAV2VEC2_300M_BOKMAAL_V2: ModelConfig(
             pretrained_model_name="NbAiLab/nb-wav2vec2-300m-bokmaal-v2",
