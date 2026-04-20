@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available Llama 3.3 70B CoT-Distilled Sleeper Agent model variants for causal language modeling."""
 
     LLAMA_3_3_70B_COT_DISTILLED_SLEEPER_AGENT_FULL_FINETUNE_STEP_2940 = (
-        "llama-3.3-70b-cot-distilled-sleeper-agent-full-finetune-step-2940"
+        "70B_CoT_Distilled_Sleeper_Agent_Full_Finetune_Step_2940"
     )
 
 
