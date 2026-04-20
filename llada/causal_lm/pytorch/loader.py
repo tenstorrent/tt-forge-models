@@ -4,6 +4,8 @@
 """
 LLaDA model loader implementation for causal language modeling.
 """
+import functools
+
 import torch
 from transformers import AutoModel, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -133,9 +135,20 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
         model.eval()
-        if not hasattr(model.config, "use_cache"):
-            model.config.use_cache = False
+        model.config.use_cache = False
         self.config = model.config
+
+        original_forward = model.forward
+
+        @functools.wraps(original_forward)
+        def forward_no_cache(*args, **kwargs):
+            kwargs["use_cache"] = False
+            output = original_forward(*args, **kwargs)
+            if hasattr(output, "past_key_values"):
+                output["past_key_values"] = None
+            return output
+
+        model.forward = forward_no_cache
 
         return model
 
