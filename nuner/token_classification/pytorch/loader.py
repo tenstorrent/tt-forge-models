@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available NuNER model variants."""
 
     NUMIND_NUNER_V0_1 = "numind/NuNER-v0.1"
+    NUMIND_NUNER_V2_0 = "numind/NuNER-v2.0"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +31,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.NUMIND_NUNER_V0_1: ModelConfig(
             pretrained_model_name="numind/NuNER-v0.1",
+        ),
+        ModelVariant.NUMIND_NUNER_V2_0: ModelConfig(
+            pretrained_model_name="numind/NuNER-v2.0",
         ),
     }
 
