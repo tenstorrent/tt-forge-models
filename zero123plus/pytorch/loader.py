@@ -15,7 +15,7 @@ Available variants:
 from typing import Optional
 
 import torch
-from diffusers import DiffusionPipeline, EulerAncestralDiscreteScheduler
+from diffusers import AutoencoderKL, UNet2DConditionModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -58,7 +58,6 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._pipe = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -73,39 +72,20 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype: torch.dtype = torch.float16) -> DiffusionPipeline:
-        """Load the Zero123++ pipeline."""
-        if self._pipe is None:
-            self._pipe = DiffusionPipeline.from_pretrained(
-                REPO_ID,
-                torch_dtype=dtype,
-            )
-            self._pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
-                self._pipe.scheduler.config, timestep_spacing="trailing"
-            )
-        return self._pipe
-
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the model component for the selected variant.
-
-        For UNET: returns the UNet2DConditionModel.
-        For VAE: returns the AutoencoderKL.
-        """
         dtype = dtype_override or torch.float16
-        pipe = self._load_pipeline(dtype)
 
         if self._variant == ModelVariant.VAE:
-            return pipe.vae
+            return AutoencoderKL.from_pretrained(
+                REPO_ID, subfolder="vae", torch_dtype=dtype
+            )
 
-        return pipe.unet
+        return UNet2DConditionModel.from_pretrained(
+            REPO_ID, subfolder="unet", torch_dtype=dtype
+        )
 
-    def load_inputs(self, **kwargs):
-        """Prepare sample inputs for the selected variant.
-
-        For UNET: returns (latents, timestep, encoder_hidden_states).
-        For VAE: returns latent tensor for decoding.
-        """
-        dtype = kwargs.get("dtype_override", torch.float16)
+    def load_inputs(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        dtype = dtype_override or torch.bfloat16
 
         if self._variant == ModelVariant.VAE:
             return torch.randn(
