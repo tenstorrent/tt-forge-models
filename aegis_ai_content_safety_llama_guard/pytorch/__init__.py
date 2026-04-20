@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Aegis AI Content Safety LlamaGuard Defensive PyTorch model implementation for Tenstorrent projects.
+Aegis AI Content Safety LlamaGuard PyTorch model implementation for Tenstorrent projects.
 """
 from .loader import ModelLoader, ModelVariant
