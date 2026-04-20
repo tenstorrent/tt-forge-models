@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-HuBERT model loader implementation for audio classification (speech emotion recognition).
+HuBERT model loader implementation for audio classification.
 """
 
 from typing import Optional
@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available HuBERT audio classification model variants."""
 
     BASE_SUPERB_ER = "Base_Superb_ER"
-    DISTILHUBERT_RAVDESS = "Distilhubert_Ravdess"
+    BASE_960H_ITW_DEEPFAKE = "Base_960H_ITW_Deepfake"
 
 
 class ModelLoader(ForgeModel):
@@ -34,8 +34,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.BASE_SUPERB_ER: ModelConfig(
             pretrained_model_name="superb/hubert-base-superb-er",
         ),
-        ModelVariant.DISTILHUBERT_RAVDESS: ModelConfig(
-            pretrained_model_name="pollner/distilhubert-finetuned-ravdess",
+        ModelVariant.BASE_960H_ITW_DEEPFAKE: ModelConfig(
+            pretrained_model_name="abhishtagatya/hubert-base-960h-itw-deepfake",
         ),
     }
 
