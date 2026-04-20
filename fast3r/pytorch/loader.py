@@ -107,11 +107,12 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load sample multi-view inputs for Fast3R.
 
-        Fast3R's forward method expects a list of view dicts, each containing
-        an 'img' tensor and a 'true_shape' metadata tensor.
+        Fast3R's forward method expects a single `views` argument, which is a
+        list of view dicts each containing an 'img' tensor and a 'true_shape'
+        metadata tensor.
 
         Returns:
-            list[dict]: List of view dicts for model(views=...) invocation.
+            dict: Dict with a 'views' key for model(**inputs) unpacking.
         """
         dtype = dtype_override or torch.float32
         height, width = 512, 512
@@ -127,4 +128,4 @@ class ModelLoader(ForgeModel):
             for _ in range(num_views)
         ]
 
-        return views
+        return {"views": views}
