@@ -73,6 +73,7 @@ class ModelVariant(StrEnum):
     HF_TIMM_EFFICIENTNETV2_RW_S_RA2_IN1K = "Timm_V2_Rw_S_Ra2_In1k"
     HF_TIMM_TF_EFFICIENTNETV2_S_IN21K = "Timm_Tf_V2_S_In21k"
     HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K = "Timm_Tf_V2_Xl_In21k"
+    HF_TIMM_TF_EFFICIENTNET_B6_NS_JFT_IN1K = "Timm_Tf_B6_Ns_Jft_In1k"
     HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K = "Timm_Tf_B7_Ns_Jft_In1k"
     HF_TIMM_TF_EFFICIENTNETV2_B2_IN1K = "Timm_Tf_V2_B2_In1k"
 
@@ -206,6 +207,11 @@ class ModelLoader(ForgeModel):
         source=ModelSource.TIMM,
         use_1k_labels=False,
     )
+    HF_TIMM_TF_EFFICIENTNET_B6_NS_JFT_IN1K_CONFIG = EfficientNetConfig(
+        pretrained_model_name="hf_hub:timm/tf_efficientnet_b6.ns_jft_in1k",
+        source=ModelSource.TIMM,
+        use_1k_labels=True,
+    )
     HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K_CONFIG = EfficientNetConfig(
         pretrained_model_name="hf_hub:timm/tf_efficientnet_b7.ns_jft_in1k",
         source=ModelSource.TIMM,
@@ -241,6 +247,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.HF_TIMM_EFFICIENTNETV2_RW_S_RA2_IN1K: HF_TIMM_EFFICIENTNETV2_RW_S_RA2_IN1K_CONFIG,
         ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_S_IN21K: HF_TIMM_TF_EFFICIENTNETV2_S_IN21K_CONFIG,
         ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K: HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K_CONFIG,
+        ModelVariant.HF_TIMM_TF_EFFICIENTNET_B6_NS_JFT_IN1K: HF_TIMM_TF_EFFICIENTNET_B6_NS_JFT_IN1K_CONFIG,
         ModelVariant.HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K: HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K_CONFIG,
         ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_B2_IN1K: HF_TIMM_TF_EFFICIENTNETV2_B2_IN1K_CONFIG,
     }
@@ -280,6 +287,7 @@ class ModelLoader(ForgeModel):
         elif variant in [
             ModelVariant.HF_TIMM_EFFICIENTNET_B1_FT_IN1K,
             ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K,
+            ModelVariant.HF_TIMM_TF_EFFICIENTNET_B6_NS_JFT_IN1K,
             ModelVariant.HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K,
             ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_B2_IN1K,
         ]:
@@ -299,6 +307,7 @@ class ModelLoader(ForgeModel):
                     in (
                         ModelVariant.HF_TIMM_EFFICIENTNET_B1_FT_IN1K,
                         ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_XL_IN21K,
+                        ModelVariant.HF_TIMM_TF_EFFICIENTNET_B6_NS_JFT_IN1K,
                         ModelVariant.HF_TIMM_TF_EFFICIENTNET_B7_NS_JFT_IN1K,
                         ModelVariant.HF_TIMM_TF_EFFICIENTNETV2_B2_IN1K,
                     )
