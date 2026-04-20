@@ -11,7 +11,6 @@ Polish, Dutch, Norwegian, Finnish).
 """
 from typing import Optional
 
-import torch
 from PIL import Image
 from torchvision import transforms
 
