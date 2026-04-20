@@ -34,7 +34,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.PALIGEMMA2_3B_FT_DOCCI_448: ModelConfig(
-            pretrained_model_name="google/paligemma2-3b-ft-docci-448",
+            pretrained_model_name="onnx-community/paligemma2-3b-ft-docci-448",
         ),
     }
 
