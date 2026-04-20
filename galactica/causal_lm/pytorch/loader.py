@@ -22,6 +22,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Galactica model variants."""
 
+    GALACTICA_125M = "125m"
     GALACTICA_1_3B = "1.3b"
 
 
@@ -30,6 +31,10 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
+        ModelVariant.GALACTICA_125M: LLMModelConfig(
+            pretrained_model_name="facebook/galactica-125m",
+            max_length=256,
+        ),
         ModelVariant.GALACTICA_1_3B: LLMModelConfig(
             pretrained_model_name="facebook/galactica-1.3b",
             max_length=256,
