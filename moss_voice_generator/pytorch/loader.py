@@ -21,19 +21,13 @@ from ...config import (
 
 
 class MossVoiceGeneratorWrapper(nn.Module):
-    """Wrapper around the MOSS-VoiceGenerator backbone.
-
-    Exposes a clean forward pass through the Qwen3-based language model
-    backbone, producing hidden states suitable for audio code prediction.
-    """
-
     def __init__(self, model):
         super().__init__()
-        self.model = model.model
-        self.lm_head = model.lm_head
+        self.language_model = model.language_model
+        self.lm_head = model.lm_heads[0]
 
     def forward(self, input_ids, attention_mask):
-        outputs = self.model(
+        outputs = self.language_model(
             input_ids=input_ids, attention_mask=attention_mask, use_cache=False
         )
         logits = self.lm_head(outputs.last_hidden_state)
