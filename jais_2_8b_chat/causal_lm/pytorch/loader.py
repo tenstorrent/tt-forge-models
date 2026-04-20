@@ -109,6 +109,9 @@ class ModelLoader(ForgeModel):
             padding="max_length",
             truncation=True,
         )
+        # The Jais-2 tokenizer emits token_type_ids, which the causal LM does
+        # not accept; drop them before returning inputs.
+        inputs.pop("token_type_ids", None)
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
