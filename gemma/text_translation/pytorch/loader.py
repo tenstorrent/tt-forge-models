@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     TRANSLATEGEMMA_4B_IT = "Translategemma_4B_IT"
     TRANSLATEGEMMA_12B_IT = "Translategemma_12B_IT"
+    VLLM_TRANSLATEGEMMA_27B_IT = "vLLM_Translategemma_27B_IT"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.TRANSLATEGEMMA_12B_IT: LLMModelConfig(
             pretrained_model_name="google/translategemma-12b-it",
+        ),
+        ModelVariant.VLLM_TRANSLATEGEMMA_27B_IT: LLMModelConfig(
+            pretrained_model_name="Infomaniak-AI/vllm-translategemma-27b-it",
         ),
     }
 
@@ -82,7 +86,10 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        if variant == ModelVariant.TRANSLATEGEMMA_12B_IT:
+        if variant in (
+            ModelVariant.TRANSLATEGEMMA_12B_IT,
+            ModelVariant.VLLM_TRANSLATEGEMMA_27B_IT,
+        ):
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
