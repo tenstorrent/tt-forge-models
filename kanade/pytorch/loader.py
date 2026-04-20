@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available Kanade model variants."""
 
     KANADE_25HZ_CLEAN = "Kanade 25Hz Clean"
+    KANADE_12_5HZ = "Kanade 12.5Hz"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.KANADE_25HZ_CLEAN: ModelConfig(
             pretrained_model_name="frothywater/kanade-25hz-clean",
+        ),
+        ModelVariant.KANADE_12_5HZ: ModelConfig(
+            pretrained_model_name="frothywater/kanade-12.5hz",
         ),
     }
 
