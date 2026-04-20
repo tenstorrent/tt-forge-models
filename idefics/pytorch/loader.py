@@ -6,6 +6,7 @@ IDEFICS model loader implementation for multimodal vision-text generation.
 """
 from typing import Optional
 
+import torch
 from PIL import Image
 from transformers import AutoProcessor, IdeficsForVisionText2Text
 
@@ -103,13 +104,17 @@ class ModelLoader(ForgeModel):
                 "<end_of_utterance>",
                 "\nAssistant:",
             ],
-        ] * batch_size
+        ]
 
         inputs = self.processor(
             prompts,
             add_end_of_utterance_token=False,
             return_tensors="pt",
         )
+
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         if dtype_override is not None and "pixel_values" in inputs:
             inputs["pixel_values"] = cast_input_to_type(
