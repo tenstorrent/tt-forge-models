@@ -1,0 +1,8 @@
+[project]
+name = "transformers-stream-generator"
+version = "0.0.6.dev0"
+description = "Stub for transformers_stream_generator (incompatible with transformers>=5.0)"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"

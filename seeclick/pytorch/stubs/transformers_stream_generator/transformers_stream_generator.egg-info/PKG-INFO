@@ -1,0 +1,4 @@
+Metadata-Version: 2.4
+Name: transformers-stream-generator
+Version: 0.0.6.dev0
+Summary: Stub for transformers_stream_generator (incompatible with transformers>=5.0)

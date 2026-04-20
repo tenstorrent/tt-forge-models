@@ -1,0 +1,2 @@
+--no-index --find-links stubs/wheels
+transformers-stream-generator==0.0.6.dev0

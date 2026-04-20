@@ -1,0 +1,7 @@
+pyproject.toml
+transformers_stream_generator/__init__.py
+transformers_stream_generator/main.py
+transformers_stream_generator.egg-info/PKG-INFO
+transformers_stream_generator.egg-info/SOURCES.txt
+transformers_stream_generator.egg-info/dependency_links.txt
+transformers_stream_generator.egg-info/top_level.txt

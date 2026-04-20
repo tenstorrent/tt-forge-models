@@ -59,9 +59,12 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # The SeeClick repo lacks tokenizer files; load from the base Qwen-VL model.
+    _TOKENIZER_MODEL = "Qwen/Qwen-VL"
+
     def _load_tokenizer(self):
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+            self._TOKENIZER_MODEL, trust_remote_code=True
         )
         return self.tokenizer
 
