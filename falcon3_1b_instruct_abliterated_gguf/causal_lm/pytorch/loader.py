@@ -8,6 +8,21 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+from transformers.integrations.ggml import GGUFTokenizerSkeleton
+
+_orig_skeleton_init = GGUFTokenizerSkeleton.__init__
+
+
+def _patched_skeleton_init(self, dict_):
+    _orig_skeleton_init(self, dict_)
+    if not hasattr(self, "bos_token_id"):
+        self.bos_token_id = getattr(self, "eos_token_id", 0)
+    if not hasattr(self, "eos_token_id"):
+        self.eos_token_id = getattr(self, "bos_token_id", 0)
+
+
+GGUFTokenizerSkeleton.__init__ = _patched_skeleton_init
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
