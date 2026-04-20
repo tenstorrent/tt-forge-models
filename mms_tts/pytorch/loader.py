@@ -4,6 +4,7 @@
 """
 MMS-TTS model loader implementation for text-to-speech tasks.
 """
+
 from transformers import VitsModel, AutoTokenizer
 from typing import Optional
 
@@ -25,7 +26,7 @@ class ModelVariant(StrEnum):
     HAU = "hau"
     KIN = "kin"
     ORM = "orm"
-    TIR = "tir"
+    POL = "pol"
     YOR = "yor"
 
 
@@ -42,8 +43,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.ORM: ModelConfig(
             pretrained_model_name="facebook/mms-tts-orm",
         ),
-        ModelVariant.TIR: ModelConfig(
-            pretrained_model_name="facebook/mms-tts-tir",
+        ModelVariant.POL: ModelConfig(
+            pretrained_model_name="facebook/mms-tts-pol",
         ),
         ModelVariant.YOR: ModelConfig(
             pretrained_model_name="facebook/mms-tts-yor",
@@ -56,7 +57,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.HAU: "Sannu, yaya aiki?",
         ModelVariant.KIN: "Muraho, amakuru yawe?",
         ModelVariant.ORM: "Baga nagaan dhuftan",
-        ModelVariant.TIR: "ሰላም፡ ከመይ ኣለኻ?",
+        ModelVariant.POL: "Dzień dobry, to jest test modelu zamiany tekstu na mowę.",
         ModelVariant.YOR: "Ẹ n lẹ, bawo ni ọjọ yín ṣe rí?",
     }
 
