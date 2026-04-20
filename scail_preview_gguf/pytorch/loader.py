@@ -12,7 +12,6 @@ Repository:
 - https://huggingface.co/vantagewithai/SCAIL-Preview-GGUF
 """
 import torch
-from diffusers import WanTransformer3DModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -26,7 +25,12 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_BASE_URL = "https://huggingface.co/vantagewithai/SCAIL-Preview-GGUF/blob/main"
+GGUF_REPO = "vantagewithai/SCAIL-Preview-GGUF"
+
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -36,21 +40,22 @@ class ModelVariant(StrEnum):
     Q8_0 = "Q8_0"
 
 
+_GGUF_FILES = {
+    ModelVariant.Q4_K_M: "Wan21-14B-SCAIL-preview_comfy-Q4_K_M.gguf",
+    ModelVariant.Q8_0: "Wan21-14B-SCAIL-preview_comfy-Q8_0.gguf",
+}
+
+
 class ModelLoader(ForgeModel):
     """SCAIL-Preview GGUF model loader for image-to-video character animation."""
 
     _VARIANTS = {
         ModelVariant.Q4_K_M: ModelConfig(
-            pretrained_model_name="vantagewithai/SCAIL-Preview-GGUF",
+            pretrained_model_name=GGUF_REPO,
         ),
         ModelVariant.Q8_0: ModelConfig(
-            pretrained_model_name="vantagewithai/SCAIL-Preview-GGUF",
+            pretrained_model_name=GGUF_REPO,
         ),
-    }
-
-    _GGUF_FILES = {
-        ModelVariant.Q4_K_M: "Wan21-14B-SCAIL-preview_comfy-Q4_K_M.gguf",
-        ModelVariant.Q8_0: "Wan21-14B-SCAIL-preview_comfy-Q8_0.gguf",
     }
 
     DEFAULT_VARIANT = ModelVariant.Q4_K_M
@@ -74,20 +79,25 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+        import diffusers.utils.import_utils as _diffusers_import_utils
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+
+        from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
+
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        gguf_file = _GGUF_FILES[self._variant]
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self.transformer = WanTransformer3DModel.from_single_file(
-            gguf_url,
-            **load_kwargs,
+            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
@@ -98,29 +108,21 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         config = self.transformer.config
 
-        # Wan 2.1 video transformer dimensions
-        num_channels = config.in_channels
-        num_frames = 9
-        height = 60  # latent height (480p / 8)
-        width = 104  # latent width (832p / 8)
-
-        # Latent video tensor: [batch, channels, frames, height, width]
-        hidden_states = torch.randn(
-            batch_size, num_channels, num_frames, height, width, dtype=dtype
-        )
-
-        # Timestep
-        timestep = torch.tensor([1.0], dtype=dtype).expand(batch_size)
-
-        # Text encoder hidden states
-        encoder_hidden_states = torch.randn(
-            batch_size, 256, config.text_dim, dtype=dtype
-        )
-
-        inputs = {
-            "hidden_states": hidden_states,
-            "timestep": timestep,
-            "encoder_hidden_states": encoder_hidden_states,
+        return {
+            "hidden_states": torch.randn(
+                batch_size,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                batch_size,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }
-
-        return inputs
