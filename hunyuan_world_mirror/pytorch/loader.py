@@ -91,13 +91,40 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The WorldMirror 3D geometric prediction model.
         """
         _ensure_repo_importable()
+
+        import types
+        import unittest.mock
+
+        gsplat_mock = types.ModuleType("gsplat")
+        gsplat_mock.rendering = types.ModuleType("gsplat.rendering")
+        gsplat_mock.rendering.rasterization = unittest.mock.MagicMock()
+        gsplat_mock.strategy = types.ModuleType("gsplat.strategy")
+        gsplat_mock.strategy.DefaultStrategy = type("DefaultStrategy", (), {})
+        sys.modules["gsplat"] = gsplat_mock
+        sys.modules["gsplat.rendering"] = gsplat_mock.rendering
+        sys.modules["gsplat.strategy"] = gsplat_mock.strategy
+
+        if not torch.cuda.is_available():
+
+            class _NoOpAutocast:
+                def __init__(self, *args, **kwargs):
+                    pass
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    pass
+
+            torch.amp.autocast = _NoOpAutocast
+
         from src.models.models.worldmirror import WorldMirror
 
         repo_id = self._variant_config.pretrained_model_name
         model = WorldMirror.from_pretrained(repo_id)
         model.eval()
 
-        if dtype_override is not None:
+        if dtype_override is not None and torch.cuda.is_available():
             model = model.to(dtype_override)
 
         return model
@@ -108,7 +135,10 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input dict with 'views' and 'cond_flags' for the model forward pass.
         """
-        dtype = dtype_override or torch.float32
+        if not torch.cuda.is_available():
+            dtype = torch.float32
+        else:
+            dtype = dtype_override or torch.float32
 
         # img: input images [B, N, 3, H, W] in [0, 1]
         img = torch.rand(
