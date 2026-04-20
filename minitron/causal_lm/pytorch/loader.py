@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available Minitron model variants for causal language modeling."""
 
     MISTRAL_NEMO_MINITRON_8B_INSTRUCT = "Mistral_NeMo_Minitron_8B_Instruct"
-    LLAMA_3_1_MINITRON_4B_DEPTH_BASE = "Llama_3.1_Minitron_4B_Depth_Base"
+    MISTRAL_NEMO_MINITRON_8B_BASE = "Mistral_NeMo_Minitron_8B_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="nvidia/Mistral-NeMo-Minitron-8B-Instruct",
             max_length=128,
         ),
-        ModelVariant.LLAMA_3_1_MINITRON_4B_DEPTH_BASE: LLMModelConfig(
-            pretrained_model_name="nvidia/Llama-3.1-Minitron-4B-Depth-Base",
+        ModelVariant.MISTRAL_NEMO_MINITRON_8B_BASE: LLMModelConfig(
+            pretrained_model_name="nvidia/Mistral-NeMo-Minitron-8B-Base",
             max_length=128,
         ),
     }
@@ -107,18 +107,19 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        if self.tokenizer.chat_template is not None:
+        if self._variant == ModelVariant.MISTRAL_NEMO_MINITRON_8B_BASE:
+            prompts = [self.sample_text]
+        else:
             messages = [{"role": "user", "content": self.sample_text}]
             text = self.tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
                 add_generation_prompt=True,
             )
-        else:
-            text = self.sample_text
+            prompts = [text]
 
         inputs = self.tokenizer(
-            [text],
+            prompts,
             return_tensors="pt",
             padding="max_length",
             truncation=True,
