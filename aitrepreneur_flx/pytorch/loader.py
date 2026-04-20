@@ -26,7 +26,7 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+BASE_MODEL = "camenduru/FLUX.1-dev-ungated"
 LORA_REPO = "Aitrepreneur/FLX"
 LORA_FILENAME = "FLUX.1-Turbo-Alpha.safetensors"
 
@@ -208,11 +208,12 @@ class ModelLoader(ForgeModel):
         )
         latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
 
-        # Turbo-Alpha uses guidance_scale=0.0 (no classifier-free guidance)
+        # Turbo-Alpha uses guidance_scale=0.0 but FLUX.1-dev has
+        # guidance_embeds=True, so the transformer still expects a guidance tensor.
         inputs = {
             "hidden_states": latents,
             "timestep": torch.tensor([1.0], dtype=dtype),
-            "guidance": None,
+            "guidance": torch.zeros(batch_size, dtype=dtype),
             "pooled_projections": pooled_prompt_embeds,
             "encoder_hidden_states": prompt_embeds,
             "txt_ids": text_ids,
