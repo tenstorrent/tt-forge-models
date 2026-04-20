@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     HAU = "hau"
     KHM = "khm"
     ORM = "orm"
-    URD_SCRIPT_ARABIC = "urd-script_arabic"
+    POR = "por"
     YOR = "yor"
 
 
@@ -43,8 +43,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.ORM: ModelConfig(
             pretrained_model_name="facebook/mms-tts-orm",
         ),
-        ModelVariant.URD_SCRIPT_ARABIC: ModelConfig(
-            pretrained_model_name="facebook/mms-tts-urd-script_arabic",
+        ModelVariant.POR: ModelConfig(
+            pretrained_model_name="facebook/mms-tts-por",
         ),
         ModelVariant.YOR: ModelConfig(
             pretrained_model_name="facebook/mms-tts-yor",
@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.HAU: "Sannu, yaya aiki?",
         ModelVariant.KHM: "សួស្តីលោកអ្នក",
         ModelVariant.ORM: "Baga nagaan dhuftan",
-        ModelVariant.URD_SCRIPT_ARABIC: "ہیلو، آپ کیسے ہیں؟",
+        ModelVariant.POR: "Olá, como você está?",
         ModelVariant.YOR: "Ẹ n lẹ, bawo ni ọjọ yín ṣe rí?",
     }
 
