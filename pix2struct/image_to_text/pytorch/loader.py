@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Pix2Struct PyTorch image-to-text model variants."""
 
     BASE = "Base"
-    TINY_RANDOM = "tiny_random"
+    TEXTCAPS_BASE = "TextCaps_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -34,8 +34,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="google/pix2struct-base",
         ),
-        ModelVariant.TINY_RANDOM: ModelConfig(
-            pretrained_model_name="fxmarty/pix2struct-tiny-random",
+        ModelVariant.TEXTCAPS_BASE: ModelConfig(
+            pretrained_model_name="google/pix2struct-textcaps-base",
         ),
     }
 
