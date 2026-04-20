@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     LARGE_XLS_R_300M_WELSH = "Large_XLS_R_300M_Welsh"
     LARGE_XLSR_53_AMHARIC = "Large_XLSR_53_Amharic"
     NB_WAV2VEC2_300M_BOKMAAL_V2 = "NB_Wav2Vec2_300M_Bokmaal_v2"
+    XLS_R_1B_RUSSIAN = "XLS_R_1B_Russian"
 
 
 class ModelLoader(ForgeModel):
@@ -49,6 +50,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.NB_WAV2VEC2_300M_BOKMAAL_V2: ModelConfig(
             pretrained_model_name="NbAiLab/nb-wav2vec2-300m-bokmaal-v2",
+        ),
+        ModelVariant.XLS_R_1B_RUSSIAN: ModelConfig(
+            pretrained_model_name="jonatasgrosman/wav2vec2-xls-r-1b-russian",
         ),
     }
 
