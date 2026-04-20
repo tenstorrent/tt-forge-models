@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available Higgs Audio V2 Tokenizer model variants."""
 
     DEFAULT = "Default"
+    EUSTLB = "eustlb"
 
 
 class ModelLoader(ForgeModel):
@@ -31,6 +32,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEFAULT: ModelConfig(
             pretrained_model_name="bosonai/higgs-audio-v2-tokenizer",
+        ),
+        ModelVariant.EUSTLB: ModelConfig(
+            pretrained_model_name="eustlb/higgs-audio-v2-tokenizer",
         ),
     }
 
@@ -75,52 +79,24 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Higgs Audio V2 Tokenizer model."""
-        import inspect
-        import json
-        import os
-
-        removed = self._fix_sys_path()
-        try:
-            from boson_multimodal.audio_processing.higgs_audio_tokenizer import (
-                HiggsAudioTokenizer,
-            )
-            from huggingface_hub import snapshot_download
-        finally:
-            self._restore_sys_path(removed)
-
         pretrained_model_name = self._variant_config.pretrained_model_name
-        tokenizer_path = snapshot_download(pretrained_model_name)
-        config = json.load(open(os.path.join(tokenizer_path, "config.json")))
 
-        acoustic = config.get("acoustic_model_config", {})
-        init_kwargs = {
-            "n_filters": acoustic.get("encoder_hidden_size", 64),
-            "D": acoustic.get("hidden_size", 256),
-            "target_bandwidths": config.get("target_bandwidths", [0.5, 1, 1.5, 2]),
-            "ratios": acoustic.get("downsampling_ratios", [8, 5, 4, 2, 3]),
-            "sample_rate": config.get("sample_rate", 24000),
-            "bins": acoustic.get("codebook_size", 1024),
-            "n_q": acoustic.get("n_codebooks", 9),
-            "codebook_dim": config.get("codebook_dim", 64),
-            "semantic_sample_rate": config.get("semantic_sample_rate", 16000),
-            "device": "cpu",
-        }
+        if self._variant == ModelVariant.EUSTLB:
+            from transformers import AutoModel
 
-        removed = self._fix_sys_path()
-        try:
-            model = HiggsAudioTokenizer(**init_kwargs)
-        finally:
-            self._restore_sys_path(removed)
+            model_kwargs = {"trust_remote_code": True}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+            model.eval()
+        else:
+            from boson_multimodal.audio_processing.higgs_audio_tokenizer import (
+                load_higgs_audio_tokenizer,
+            )
 
-        model_path = os.path.join(tokenizer_path, "model.pth")
-        if os.path.exists(model_path):
-            state_dict = torch.load(model_path, map_location="cpu", weights_only=False)
-            model.load_state_dict(state_dict, strict=False)
-
-        model.eval()
-
-        if dtype_override is not None:
-            model = model.to(dtype=dtype_override)
+            model = load_higgs_audio_tokenizer(pretrained_model_name, device="cpu")
+            if dtype_override is not None:
+                model = model.to(dtype=dtype_override)
 
         self.model = model
         return model
