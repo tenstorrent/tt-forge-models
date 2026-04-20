@@ -60,7 +60,21 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_auto_register():
+        from transformers import AutoConfig
+
+        _orig_register = AutoConfig.register.__func__
+
+        @classmethod
+        def _register_exist_ok(cls, model_type, config, exist_ok=True):
+            return _orig_register(cls, model_type, config, exist_ok=exist_ok)
+
+        AutoConfig.register = _register_exist_ok
+
     def _load_model_instance(self, dtype_override=None, **kwargs):
+        self._patch_auto_register()
+
         model_name = self._variant_config.pretrained_model_name
         model_kwargs = {
             "trust_remote_code": True,
