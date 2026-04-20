@@ -4,10 +4,9 @@
 """
 OpenCUA model loader implementation for computer-use agent tasks.
 """
-import sys
-
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
+import transformers.modeling_utils as _tmu
+from transformers import AutoModelForCausalLM, AutoProcessor
 from typing import Optional
 
 
@@ -144,19 +143,24 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
-        AutoConfig.from_pretrained(pretrained_model_name, trust_remote_code=True)
-        for mod in sys.modules.values():
-            cls = getattr(mod, "OpenCUAForConditionalGeneration", None)
-            if cls is not None and "kwargs" not in (
-                cls.tie_weights.__code__.co_varnames
-            ):
-                _orig = cls.tie_weights
-                cls.tie_weights = lambda self, _f=_orig, **kwargs: _f(self)
-                break
+        _orig_init = _tmu.PreTrainedModel.init_weights
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        def _compat_init_weights(self):
+            try:
+                return _orig_init(self)
+            except TypeError as e:
+                if "recompute_mapping" in str(e):
+                    self.tie_weights()
+                else:
+                    raise
+
+        _tmu.PreTrainedModel.init_weights = _compat_init_weights
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        finally:
+            _tmu.PreTrainedModel.init_weights = _orig_init
         model.eval()
         model = Wrapper(model)
 
