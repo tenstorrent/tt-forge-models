@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available EfficientViT model variants (timm)."""
 
     EFFICIENTVIT_B2_R224_IN1K = "EfficientViT_B2.r224_in1k"
+    EFFICIENTVIT_B0_R224_IN1K = "EfficientViT_B0.r224_in1k"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.EFFICIENTVIT_B2_R224_IN1K: ModelConfig(
             pretrained_model_name="efficientvit_b2.r224_in1k",
+        ),
+        ModelVariant.EFFICIENTVIT_B0_R224_IN1K: ModelConfig(
+            pretrained_model_name="efficientvit_b0.r224_in1k",
         ),
     }
 
