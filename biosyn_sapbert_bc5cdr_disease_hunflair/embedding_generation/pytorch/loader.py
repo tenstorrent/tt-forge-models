@@ -84,11 +84,10 @@ class ModelLoader(ForgeModel):
 
         linker = EntityMentionLinker.load(self._variant_config.pretrained_model_name)
 
-        # Extract the underlying huggingface BertModel wrapped by the flair
-        # linker. The linker holds a SapBert-style embedding whose .model is
-        # the transformers BertModel.
-        embeddings = linker.candidate_generator.preprocessor.embeddings
-        transformer = embeddings.model
+        # EntityMentionLinker wraps a SemanticCandidateSearchIndex whose dense
+        # embedding is a TransformerDocumentEmbeddings holding the HF model.
+        dense_embeddings = linker.candidate_generator.embeddings["dense"]
+        transformer = dense_embeddings.model
 
         if dtype_override is not None:
             transformer = transformer.to(dtype=dtype_override)
