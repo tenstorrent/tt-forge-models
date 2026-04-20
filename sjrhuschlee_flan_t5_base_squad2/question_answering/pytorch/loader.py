@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="sjrhuschlee_Flan_T5_Base_SQuAD2",
+            model="Flan_T5_Base_SQuAD2",
             variant=variant_name,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_QA,
