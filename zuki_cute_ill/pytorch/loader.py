@@ -2,13 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Zuki Cute Ill v50 (John6666/zuki-cute-ill-v50-sdxl) model loader implementation.
+Zuki Cute Ill model loader implementation.
 
-Zuki Cute Ill v50 is a text-to-image generation model based on Stable Diffusion XL,
+Zuki Cute Ill is a text-to-image generation model family based on Stable Diffusion XL,
 fine-tuned for anime and illustration-style image generation.
 
 Available variants:
 - ZUKI_CUTE_ILL_V50: John6666/zuki-cute-ill-v50-sdxl text-to-image generation
+- ZUKI_CUTE_ILL_V60: John6666/zuki-cute-ill-v60-sdxl text-to-image generation
 """
 
 import torch
@@ -28,17 +29,21 @@ from .src.model_utils import load_pipe, stable_diffusion_preprocessing_xl
 
 
 class ModelVariant(StrEnum):
-    """Available Zuki Cute Ill v50 model variants."""
+    """Available Zuki Cute Ill model variants."""
 
     ZUKI_CUTE_ILL_V50 = "zuki-cute-ill-v50"
+    ZUKI_CUTE_ILL_V60 = "zuki-cute-ill-v60"
 
 
 class ModelLoader(ForgeModel):
-    """Zuki Cute Ill v50 model loader implementation."""
+    """Zuki Cute Ill model loader implementation."""
 
     _VARIANTS = {
         ModelVariant.ZUKI_CUTE_ILL_V50: ModelConfig(
             pretrained_model_name="John6666/zuki-cute-ill-v50-sdxl",
+        ),
+        ModelVariant.ZUKI_CUTE_ILL_V60: ModelConfig(
+            pretrained_model_name="John6666/zuki-cute-ill-v60-sdxl",
         ),
     }
 
@@ -70,7 +75,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Zuki Cute Ill v50",
+            model="Zuki Cute Ill",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.CONDITIONAL_GENERATION,
@@ -79,14 +84,14 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Zuki Cute Ill v50 pipeline.
+        """Load and return the Zuki Cute Ill pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            DiffusionPipeline: The Zuki Cute Ill v50 pipeline instance.
+            DiffusionPipeline: The Zuki Cute Ill pipeline instance.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -98,7 +103,7 @@ class ModelLoader(ForgeModel):
         return self.pipeline
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the Zuki Cute Ill v50 model.
+        """Load and return sample inputs for the Zuki Cute Ill model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
