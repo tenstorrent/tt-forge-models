@@ -13,7 +13,6 @@ be loaded without taking a runtime dependency on ``vox-profile-release``.
 from typing import Optional
 
 import numpy as np
-import torch
 from transformers import AutoFeatureExtractor
 
 from ...base import ForgeModel
