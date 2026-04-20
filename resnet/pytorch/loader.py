@@ -55,6 +55,7 @@ class ModelVariant(StrEnum):
     RESNET_34_RA4_E3600_R224_IN1K_TIMM = "ResNet34_RA4_E3600_R224_IN1K_TIMM"
     RESNET_50_A1_IN1K_TIMM = "ResNet50_A1_IN1K_TIMM"
     RESNET_50_TV2_IN1K_TIMM = "ResNet50_TV2_IN1K_TIMM"
+    RESNET_152_A1H_IN1K_TIMM = "ResNet152_A1H_IN1K_TIMM"
     TEST_RESNET_R160_IN1K_TIMM = "TestResNet_R160_IN1K_TIMM"
     RESNETV2_50X1_BIT_GOOG_IN21K_TIMM = "ResNetV2_50x1_BiT_Goog_In21k_TIMM"
 
@@ -110,6 +111,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.RESNET_50_TV2_IN1K_TIMM: ResNetConfig(
             pretrained_model_name="resnet50.tv2_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.RESNET_152_A1H_IN1K_TIMM: ResNetConfig(
+            pretrained_model_name="resnet152.a1h_in1k",
             source=ModelSource.TIMM,
         ),
         ModelVariant.TEST_RESNET_R160_IN1K_TIMM: ResNetConfig(
@@ -190,6 +195,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.RESNET_34_RA4_E3600_R224_IN1K_TIMM,
             ModelVariant.RESNET_50_A1_IN1K_TIMM,
             ModelVariant.RESNET_50_TV2_IN1K_TIMM,
+            ModelVariant.RESNET_152_A1H_IN1K_TIMM,
             ModelVariant.TEST_RESNET_R160_IN1K_TIMM,
             ModelVariant.RESNETV2_50X1_BIT_GOOG_IN21K_TIMM,
         ]:
