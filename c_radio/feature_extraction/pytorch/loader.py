@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     """Available C-RADIO feature extraction model variants."""
 
     BASE = "Base"
-    V4_H = "V4_H"
+    V2_HUGE = "v2-Huge"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="nvidia/C-RADIO",
         ),
-        ModelVariant.V4_H: ModelConfig(
-            pretrained_model_name="nvidia/C-RADIOv4-H",
+        ModelVariant.V2_HUGE: ModelConfig(
+            pretrained_model_name="nvidia/C-RADIOv2-H",
         ),
     }
 
