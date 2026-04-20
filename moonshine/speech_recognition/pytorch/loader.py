@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
 
     BASE = "Base"
     TINY = "Tiny"
+    BASE_JA = "Base_JA"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.TINY: ModelConfig(
             pretrained_model_name="UsefulSensors/moonshine-tiny",
+        ),
+        ModelVariant.BASE_JA: ModelConfig(
+            pretrained_model_name="UsefulSensors/moonshine-base-ja",
         ),
     }
 
