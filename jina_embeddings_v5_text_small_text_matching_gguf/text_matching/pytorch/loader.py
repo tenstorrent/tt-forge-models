@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.JINA_EMBEDDINGS_V5_TEXT_SMALL_TEXT_MATCHING_GGUF
 
-    GGUF_FILE = "jina-embeddings-v5-text-small-text-matching-Q4_K_M.gguf"
+    GGUF_FILE = "v5-small-text-matching-Q4_K_M.gguf"
 
     sample_sentences = [
         "Jina Embeddings v5 is a multilingual text embedding model for text matching"
