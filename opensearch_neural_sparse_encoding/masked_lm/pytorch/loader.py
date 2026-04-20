@@ -24,6 +24,12 @@ class ModelVariant(StrEnum):
 
     DOC_V1 = "Doc_v1"
     DOC_V3_DISTILL = "Doc_v3_Distill"
+    DOC_V3_GTE = "Doc_v3_Gte"
+
+
+_REMOTE_CODE_REVISIONS = {
+    ModelVariant.DOC_V3_GTE: "40ced75c3017eb27626c9d4ea981bde21a2662f4",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +41,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DOC_V3_DISTILL: ModelConfig(
             pretrained_model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill",
+        ),
+        ModelVariant.DOC_V3_GTE: ModelConfig(
+            pretrained_model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v3-gte",
         ),
     }
 
@@ -83,6 +92,9 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._variant in _REMOTE_CODE_REVISIONS:
+            model_kwargs["trust_remote_code"] = True
+            model_kwargs["code_revision"] = _REMOTE_CODE_REVISIONS[self._variant]
         model_kwargs |= kwargs
 
         model = AutoModelForMaskedLM.from_pretrained(
