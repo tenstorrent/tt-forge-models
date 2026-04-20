@@ -11,7 +11,7 @@ from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
@@ -32,9 +32,8 @@ class ModelLoader(ForgeModel):
     nucleic acid (DNA/RNA) and protein sequences."""
 
     _VARIANTS = {
-        ModelVariant.LUCAONE_DEFAULT_STEP36M: LLMModelConfig(
+        ModelVariant.LUCAONE_DEFAULT_STEP36M: ModelConfig(
             pretrained_model_name="LucaGroup/LucaOne-default-step36M",
-            max_length=128,
         ),
     }
 
