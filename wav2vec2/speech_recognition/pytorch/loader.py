@@ -24,6 +24,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Wav2Vec2 PyTorch speech recognition model variants."""
 
+    ASPRAM_ARMENIAN = "ASPRAM_Armenian"
     BASE_100H = "Base_100h"
     BASE_960H = "Base_960h"
     LARGE_XLS_R_300M_PHONEME = "Large_XLS_R_300M_Phoneme"
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
     """Wav2Vec2 model loader implementation for speech recognition (PyTorch)."""
 
     _VARIANTS = {
+        ModelVariant.ASPRAM_ARMENIAN: ModelConfig(
+            pretrained_model_name="YSU/aspram",
+        ),
         ModelVariant.BASE_100H: ModelConfig(
             pretrained_model_name="facebook/wav2vec2-base-100h",
         ),
