@@ -68,7 +68,7 @@ class ModelLoader(ForgeModel):
 
     def _create_moe_config(self):
         num_layers = self.num_layers if self.num_layers is not None else 2
-        return MixtralConfig(
+        config = MixtralConfig(
             hidden_size=512,
             intermediate_size=1024,
             num_hidden_layers=num_layers,
@@ -79,6 +79,9 @@ class ModelLoader(ForgeModel):
             vocab_size=32000,
             max_position_embeddings=self._variant_config.max_length,
         )
+        # Use eager MoE routing to avoid torch.histc which is unsupported by TT backend
+        config._experts_implementation = "eager"
+        return config
 
     def _load_tokenizer(self, dtype_override=None):
         self.tokenizer = AutoTokenizer.from_pretrained(self.TOKENIZER_SOURCE)
