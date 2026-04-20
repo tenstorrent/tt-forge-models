@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available MMS-TTS model variants."""
 
     HAU = "hau"
-    MYA = "mya"
+    KHM = "khm"
     ORM = "orm"
     URD_SCRIPT_ARABIC = "urd-script_arabic"
     YOR = "yor"
@@ -37,8 +37,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.HAU: ModelConfig(
             pretrained_model_name="facebook/mms-tts-hau",
         ),
-        ModelVariant.MYA: ModelConfig(
-            pretrained_model_name="facebook/mms-tts-mya",
+        ModelVariant.KHM: ModelConfig(
+            pretrained_model_name="facebook/mms-tts-khm",
         ),
         ModelVariant.ORM: ModelConfig(
             pretrained_model_name="facebook/mms-tts-orm",
@@ -55,7 +55,7 @@ class ModelLoader(ForgeModel):
 
     _SAMPLE_TEXTS = {
         ModelVariant.HAU: "Sannu, yaya aiki?",
-        ModelVariant.MYA: "မင်္ဂလာပါ၊ နေကောင်းလား။",
+        ModelVariant.KHM: "សួស្តីលោកអ្នក",
         ModelVariant.ORM: "Baga nagaan dhuftan",
         ModelVariant.URD_SCRIPT_ARABIC: "ہیلو، آپ کیسے ہیں؟",
         ModelVariant.YOR: "Ẹ n lẹ, bawo ni ọjọ yín ṣe rí?",
