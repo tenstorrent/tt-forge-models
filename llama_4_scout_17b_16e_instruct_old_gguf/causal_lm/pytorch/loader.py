@@ -155,9 +155,15 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        target_dtype = dtype_override or torch.bfloat16
+        original_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(target_dtype)
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            torch.set_default_dtype(original_dtype)
 
         self.config = model.config
         self.model = model
