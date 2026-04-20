@@ -1,0 +1,3 @@
+# seva dependencies that aren't already in the base environment
+roma
+kornia

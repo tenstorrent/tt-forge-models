@@ -11,11 +11,10 @@ and specified camera trajectories at 576p resolution.
 Repository: https://huggingface.co/stabilityai/stable-virtual-camera
 """
 
+import os
 from typing import Any, Optional
 
 import torch
-from huggingface_hub import hf_hub_download
-from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -76,41 +75,42 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         from seva.model import Seva, SevaParams
-        from seva.model import SGMWrapper
 
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        model = Seva(SevaParams())
 
-        weight_name = self._WEIGHT_NAMES[self._variant]
-        weight_path = hf_hub_download(
-            self._variant_config.pretrained_model_name,
-            filename=weight_name,
-        )
-        state_dict = load_file(weight_path)
+        if not os.environ.get("TT_RANDOM_WEIGHTS"):
+            from huggingface_hub import hf_hub_download
+            from safetensors.torch import load_file
 
-        model = Seva(SevaParams()).to(dtype)
-        model.load_state_dict(state_dict)
-        model = SGMWrapper(model.eval())
+            weight_name = self._WEIGHT_NAMES[self._variant]
+            weight_path = hf_hub_download(
+                self._variant_config.pretrained_model_name,
+                filename=weight_name,
+            )
+            state_dict = load_file(weight_path)
+            model.load_state_dict(state_dict)
 
-        return model
+        return model.eval()
 
     def load_inputs(self, *, dtype_override=None, **kwargs) -> dict:
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        from seva.model import SevaParams
 
-        batch_size = 1
-        num_frames = 21
-        in_channels = 11
-        height = 72  # 576 / 8 (VAE downscale factor)
+        params = SevaParams()
+
+        batch_frames = params.num_frames
+        height = 72
         width = 72
 
-        # Noisy latent input
-        x = torch.randn(batch_size, num_frames, in_channels, height, width, dtype=dtype)
-
-        # Diffusion timestep sigma
-        sigma = torch.tensor([1.0], dtype=dtype).expand(batch_size)
+        x = torch.randn(batch_frames, params.in_channels, height, width)
+        t = torch.ones(batch_frames)
+        y = torch.randn(batch_frames, 1, params.context_dim)
+        dense_y = torch.randn(batch_frames, params.dense_in_channels, height, width)
 
         return {
             "x": x,
-            "sigma": sigma,
+            "t": t,
+            "y": y,
+            "dense_y": dense_y,
         }
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:
