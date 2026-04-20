@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.TINYLLAMA_1_1B_CHAT_V0_4_Q4F16_1_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC",
+            pretrained_model_name="TinyLlama/TinyLlama-1.1B-Chat-v0.4",
             max_length=128,
         ),
     }
