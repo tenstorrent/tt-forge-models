@@ -1,4 +1,4 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Zuki Cute Ill v50 source utilities package."""
+"""Zuki Cute Ill source utilities package."""
