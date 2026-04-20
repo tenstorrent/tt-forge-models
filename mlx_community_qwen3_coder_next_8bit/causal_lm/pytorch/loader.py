@@ -50,6 +50,9 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
+
         return ModelInfo(
             model="mlx-community Qwen3-Coder-Next-8bit",
             variant=variant,
@@ -60,12 +63,14 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            pretrained_model_name, **tokenizer_kwargs
         )
 
         return self.tokenizer
@@ -79,7 +84,6 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
@@ -92,6 +96,8 @@ class ModelLoader(ForgeModel):
             else:
                 config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+
+        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -129,6 +135,40 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
+
+    def _get_text_config(self):
+        """Get the text config, handling both nested (MoE) and flat config structures."""
+        if hasattr(self.config, "text_config"):
+            return self.config.text_config
+        return self.config
+
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        text_config = self._get_text_config()
+        assert (
+            text_config.num_attention_heads % mesh_shape[1] == 0
+        ), "Attention heads must be divisible by the model axis size"
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            mlp = layer.mlp
+            if hasattr(mlp, "experts"):
+                shard_specs[mlp.experts.gate_up_proj] = (None, "model", "batch")
+                shard_specs[mlp.experts.down_proj] = (None, "batch", "model")
+            if hasattr(mlp, "shared_expert"):
+                shard_specs[mlp.shared_expert.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+
+        return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
