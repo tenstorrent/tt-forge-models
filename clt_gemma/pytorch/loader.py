@@ -5,7 +5,8 @@
 CLT-Gemma (Cross-Layer Transcoder) model loader implementation for causal language modeling.
 """
 
-from transformers import AutoTokenizer
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ...config import (
@@ -18,6 +19,17 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+
+
+class CLTGemmaWrapper(torch.nn.Module):
+    """Wraps a TransformerLens ReplacementModel to accept HuggingFace-style inputs."""
+
+    def __init__(self, replacement_model):
+        super().__init__()
+        self.replacement_model = replacement_model
+
+    def forward(self, input_ids=None, attention_mask=None, **kwargs):
+        return self.replacement_model(input=input_ids, attention_mask=attention_mask)
 
 
 class ModelVariant(StrEnum):
@@ -39,6 +51,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.CLT_GEMMA_2_2B_2_5M
 
     BASE_MODEL = "google/gemma-2-2b"
+    BASE_MODEL_HF = "unsloth/gemma-2-2b"
 
     sample_text = "What is your favorite city?"
 
@@ -70,7 +83,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.BASE_MODEL, **tokenizer_kwargs
+            self.BASE_MODEL_HF, **tokenizer_kwargs
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -89,11 +102,16 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
+        hf_model = AutoModelForCausalLM.from_pretrained(self.BASE_MODEL_HF)
+        kwargs["hf_model"] = hf_model
+        kwargs["tokenizer"] = self.tokenizer
+
         model = ReplacementModel.from_pretrained(
             self.BASE_MODEL, pretrained_model_name, **kwargs
         )
-        self.model = model
-        return model
+        wrapped = CLTGemmaWrapper(model)
+        self.model = wrapped
+        return wrapped
 
     def load_inputs(
         self,
