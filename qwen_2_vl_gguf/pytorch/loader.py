@@ -26,7 +26,21 @@ class ModelVariant(StrEnum):
     """Available Qwen 2 VL GGUF model variants for vision-language tasks."""
 
     QWEN_2_VL_2B_INSTRUCT_GGUF = "2B_Instruct_GGUF"
-    QVQ_72B_PREVIEW_GGUF = "QVQ_72B_Preview_GGUF"
+    QWEN_2_VL_7B_INSTRUCT_GGUF = "7B_Instruct_GGUF"
+
+
+# Map variants to their GGUF filenames
+_GGUF_FILES = {
+    ModelVariant.QWEN_2_VL_2B_INSTRUCT_GGUF: "Qwen2-VL-2B-Instruct-Q4_K_M.gguf",
+    ModelVariant.QWEN_2_VL_7B_INSTRUCT_GGUF: "Qwen2-VL-7B-Instruct-Q4_K_M.gguf",
+}
+
+# Map variants to the canonical (non-GGUF) repo used for processor/tokenizer
+# since GGUF repos do not include those files.
+_PROCESSOR_NAMES = {
+    ModelVariant.QWEN_2_VL_2B_INSTRUCT_GGUF: "Qwen/Qwen2-VL-2B-Instruct",
+    ModelVariant.QWEN_2_VL_7B_INSTRUCT_GGUF: "Qwen/Qwen2-VL-7B-Instruct",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -36,23 +50,12 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_2_VL_2B_INSTRUCT_GGUF: LLMModelConfig(
             pretrained_model_name="bartowski/Qwen2-VL-2B-Instruct-GGUF",
         ),
-        ModelVariant.QVQ_72B_PREVIEW_GGUF: LLMModelConfig(
-            pretrained_model_name="bartowski/QVQ-72B-Preview-GGUF",
+        ModelVariant.QWEN_2_VL_7B_INSTRUCT_GGUF: LLMModelConfig(
+            pretrained_model_name="lmstudio-community/Qwen2-VL-7B-Instruct-GGUF",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN_2_VL_2B_INSTRUCT_GGUF
-
-    _GGUF_FILES = {
-        ModelVariant.QWEN_2_VL_2B_INSTRUCT_GGUF: "Qwen2-VL-2B-Instruct-Q4_K_M.gguf",
-        ModelVariant.QVQ_72B_PREVIEW_GGUF: "QVQ-72B-Preview-Q4_K_M.gguf",
-    }
-
-    # GGUF repos omit processor/tokenizer files, so pull them from the canonical source repo.
-    _PROCESSOR_SOURCES = {
-        ModelVariant.QWEN_2_VL_2B_INSTRUCT_GGUF: "Qwen/Qwen2-VL-2B-Instruct",
-        ModelVariant.QVQ_72B_PREVIEW_GGUF: "Qwen/QVQ-72B-Preview",
-    }
 
     # Shared configuration parameters
     messages = [
@@ -114,7 +117,7 @@ class ModelLoader(ForgeModel):
         }
 
         self.processor = AutoProcessor.from_pretrained(
-            self._PROCESSOR_SOURCES[self._variant], **processor_kwargs
+            _PROCESSOR_NAMES[self._variant], **processor_kwargs
         )
 
         return self.processor
@@ -133,7 +136,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {
             "low_cpu_mem_usage": True,
-            "gguf_file": self._GGUF_FILES[self._variant],
+            "gguf_file": _GGUF_FILES[self._variant],
         }
 
         if dtype_override is not None:
