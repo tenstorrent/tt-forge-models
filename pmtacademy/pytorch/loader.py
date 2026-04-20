@@ -10,10 +10,12 @@ LoRA from hoanganho0o/PMTACADEMY for photorealistic text-to-image generation.
 Repository: https://huggingface.co/hoanganho0o/PMTACADEMY
 """
 
+import os
 from typing import Optional
 
 import torch
 from diffusers import FluxPipeline
+from diffusers.models import FluxTransformer2DModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -29,6 +31,23 @@ from ...config import (
 BASE_MODEL = "black-forest-labs/FLUX.1-dev"
 LORA_REPO = "hoanganho0o/PMTACADEMY"
 LORA_FILENAME = "PMT_ACADEMY_Ultra Realistic V12.0.safetensors"
+
+FLUX_DEV_TRANSFORMER_CONFIG = {
+    "patch_size": 1,
+    "in_channels": 64,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "attention_head_dim": 128,
+    "num_attention_heads": 24,
+    "joint_attention_dim": 4096,
+    "pooled_projection_dim": 768,
+    "guidance_embeds": True,
+    "axes_dims_rope": [16, 56, 56],
+}
+
+VAE_SCALE_FACTOR = 16
+CLIP_POOLED_DIM = 768
+T5_HIDDEN_DIM = 4096
 
 
 class ModelVariant(StrEnum):
@@ -51,6 +70,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipe = None
+        self.transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -76,7 +96,6 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **pipe_kwargs
         )
 
-        # Apply PMT ACADEMY Ultra Realistic LoRA
         self.pipe.load_lora_weights(
             LORA_REPO,
             weight_name=LORA_FILENAME,
@@ -88,37 +107,47 @@ class ModelLoader(ForgeModel):
         return self.pipe
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the FLUX transformer with PMT ACADEMY LoRA applied.
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            model = FluxTransformer2DModel(**FLUX_DEV_TRANSFORMER_CONFIG)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+            model.eval()
+            self.transformer = model
+            return model
 
-        Returns:
-            torch.nn.Module: The FLUX transformer model instance.
-        """
         if self.pipe is None:
             self._load_pipeline(dtype_override=dtype_override)
 
         if dtype_override is not None:
             self.pipe.transformer = self.pipe.transformer.to(dtype_override)
 
+        self.transformer = self.pipe.transformer
         return self.pipe.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the FLUX model.
-
-        Returns:
-            dict: Input tensors for the transformer model.
-        """
-        if self.pipe is None:
-            self._load_pipeline(dtype_override=dtype_override)
-
         max_sequence_length = 256
-        prompt = "PMT ACADEMY, Vietnamese, a young woman in traditional ao dai"
         height = 128
         width = 128
         num_images_per_prompt = 1
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        num_channels_latents = self.pipe.transformer.config.in_channels // 4
+        num_channels_latents = FLUX_DEV_TRANSFORMER_CONFIG["in_channels"] // 4
 
-        # Text encoding for CLIP
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            return self._build_synthetic_inputs(
+                batch_size,
+                num_images_per_prompt,
+                num_channels_latents,
+                max_sequence_length,
+                height,
+                width,
+                dtype,
+            )
+
+        if self.pipe is None:
+            self._load_pipeline(dtype_override=dtype_override)
+
+        prompt = "PMT ACADEMY, Vietnamese, a young woman in traditional ao dai"
+
         text_inputs_clip = self.pipe.tokenizer(
             prompt,
             padding="max_length",
@@ -138,7 +167,6 @@ class ModelLoader(ForgeModel):
             batch_size * num_images_per_prompt, -1
         )
 
-        # Text encoding for T5
         text_inputs_t5 = self.pipe.tokenizer_2(
             prompt,
             padding="max_length",
@@ -159,23 +187,63 @@ class ModelLoader(ForgeModel):
             batch_size * num_images_per_prompt, seq_len_t5, -1
         )
 
-        # Create text IDs
-        text_ids = torch.zeros(prompt_embeds.shape[1], 3).to(dtype=dtype)
-
-        # Create latents
-        height_latent = 2 * (int(height) // (self.pipe.vae_scale_factor * 2))
-        width_latent = 2 * (int(width) // (self.pipe.vae_scale_factor * 2))
-
-        shape = (
-            batch_size * num_images_per_prompt,
+        return self._build_input_dict(
+            batch_size,
+            num_images_per_prompt,
             num_channels_latents,
-            height_latent,
-            width_latent,
+            height,
+            width,
+            dtype,
+            pooled_prompt_embeds,
+            prompt_embeds,
         )
 
+    def _build_synthetic_inputs(
+        self,
+        batch_size,
+        num_images_per_prompt,
+        num_channels_latents,
+        max_sequence_length,
+        height,
+        width,
+        dtype,
+    ):
+        n = batch_size * num_images_per_prompt
+        pooled_prompt_embeds = torch.randn(n, CLIP_POOLED_DIM, dtype=dtype)
+        prompt_embeds = torch.randn(n, max_sequence_length, T5_HIDDEN_DIM, dtype=dtype)
+
+        return self._build_input_dict(
+            batch_size,
+            num_images_per_prompt,
+            num_channels_latents,
+            height,
+            width,
+            dtype,
+            pooled_prompt_embeds,
+            prompt_embeds,
+        )
+
+    def _build_input_dict(
+        self,
+        batch_size,
+        num_images_per_prompt,
+        num_channels_latents,
+        height,
+        width,
+        dtype,
+        pooled_prompt_embeds,
+        prompt_embeds,
+    ):
+        n = batch_size * num_images_per_prompt
+        text_ids = torch.zeros(prompt_embeds.shape[1], 3).to(dtype=dtype)
+
+        height_latent = 2 * (int(height) // (VAE_SCALE_FACTOR * 2))
+        width_latent = 2 * (int(width) // (VAE_SCALE_FACTOR * 2))
+
+        shape = (n, num_channels_latents, height_latent, width_latent)
         latents = torch.randn(shape, dtype=dtype)
         latents = latents.view(
-            batch_size * num_images_per_prompt,
+            n,
             num_channels_latents,
             height_latent // 2,
             2,
@@ -184,12 +252,11 @@ class ModelLoader(ForgeModel):
         )
         latents = latents.permute(0, 2, 4, 1, 3, 5)
         latents = latents.reshape(
-            batch_size * num_images_per_prompt,
+            n,
             (height_latent // 2) * (width_latent // 2),
             num_channels_latents * 4,
         )
 
-        # Prepare latent image IDs
         latent_image_ids = torch.zeros(height_latent // 2, width_latent // 2, 3)
         latent_image_ids[..., 1] = (
             latent_image_ids[..., 1] + torch.arange(height_latent // 2)[:, None]
@@ -199,15 +266,13 @@ class ModelLoader(ForgeModel):
         )
         latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
 
-        inputs = {
+        return {
             "hidden_states": latents,
             "timestep": torch.tensor([1.0], dtype=dtype),
-            "guidance": None,
+            "guidance": torch.full([n], 3.5, dtype=dtype),
             "pooled_projections": pooled_prompt_embeds,
             "encoder_hidden_states": prompt_embeds,
             "txt_ids": text_ids,
             "img_ids": latent_image_ids,
             "joint_attention_kwargs": {},
         }
-
-        return inputs
