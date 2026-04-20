@@ -72,6 +72,8 @@ class ModelLoader(ForgeModel):
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
 
         return self.tokenizer
 
