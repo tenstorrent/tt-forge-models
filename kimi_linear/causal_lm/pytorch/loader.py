@@ -8,10 +8,6 @@ Kimi Linear model loader implementation for causal language modeling.
 from typing import Optional
 
 import torch
-import transformers.utils.generic as _tfu_generic
-from transformers.utils.output_capturing import OutputRecorder
-
-_tfu_generic.OutputRecorder = OutputRecorder
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -79,11 +75,23 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _patch_outputrecorder():
+        import importlib
+
+        generic = importlib.import_module("transformers.utils.generic")
+        if not hasattr(generic, "OutputRecorder"):
+            from transformers.utils.output_capturing import OutputRecorder
+
+            generic.OutputRecorder = OutputRecorder
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
+
+        self._patch_outputrecorder()
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
