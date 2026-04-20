@@ -12,7 +12,35 @@ from transformers import (
     AutoTokenizer,
 )
 from transformers.dynamic_module_utils import get_class_from_dynamic_module
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from typing import Optional
+
+
+def _compute_default_rope_parameters(config, device, seq_len=None, **kwargs):
+    if "dim" in kwargs:
+        dim = kwargs["dim"]
+        base = kwargs.get("base", 10000)
+    else:
+        base = getattr(config, "rope_theta", 10000)
+        head_dim = getattr(config, "head_dim", None)
+        if head_dim is None:
+            head_dim = config.hidden_size // config.num_attention_heads
+        partial = getattr(config, "partial_rotary_factor", 1.0)
+        dim = int(head_dim * partial)
+    inv_freq = 1.0 / (
+        base
+        ** (
+            torch.arange(0, dim, 2, dtype=torch.int64).to(
+                device=device, dtype=torch.float
+            )
+            / dim
+        )
+    )
+    return inv_freq, 1.0
+
+
+if "default" not in ROPE_INIT_FUNCTIONS:
+    ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
 
 from ...tools.utils import get_file
 from ...base import ForgeModel
