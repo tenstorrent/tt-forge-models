@@ -6,6 +6,12 @@ HyperCLOVAX SEED Think model loader implementation for multimodal visual questio
 """
 
 import torch
+import transformers.modeling_utils as _modeling_utils
+from transformers.initialization import no_init_weights as _no_init_weights
+
+if not hasattr(_modeling_utils, "no_init_weights"):
+    _modeling_utils.no_init_weights = _no_init_weights
+
 from transformers import AutoProcessor, AutoModelForCausalLM
 from PIL import Image
 from typing import Optional
