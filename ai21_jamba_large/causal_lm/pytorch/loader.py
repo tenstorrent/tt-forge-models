@@ -4,8 +4,17 @@
 """
 AI21 Jamba Large 1.6 model loader implementation for causal language modeling.
 """
+
+import os
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    JambaConfig,
+    JambaForCausalLM,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -60,6 +69,10 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.tokenizer = None
+            return None
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -72,44 +85,58 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+    def _get_config(self):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = JambaConfig()
+        else:
+            config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
 
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
+        return config
+
+    def load_model(self, *, dtype_override=None, **kwargs):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        config = self._get_config()
+        config.use_mamba_kernels = False
 
-        model_kwargs["use_mamba_kernels"] = False
-        model_kwargs |= kwargs
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            model = JambaForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["use_mamba_kernels"] = False
+            model_kwargs |= kwargs
+            if self.num_layers is not None:
+                model_kwargs["config"] = config
+            model = AutoModelForCausalLM.from_pretrained(
+                self._variant_config.pretrained_model_name, **model_kwargs
+            )
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[
-                        : self.num_layers
-                    ]
-            else:
-                config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
-
+        model = model.eval()
         self.config = model.config
         self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        max_length = self._variant_config.max_length
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            vocab_size = self._get_config().vocab_size
+            input_ids = torch.randint(0, vocab_size, (batch_size, max_length))
+            attention_mask = torch.ones_like(input_ids)
+            return {"input_ids": input_ids, "attention_mask": attention_mask}
+
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
-
-        max_length = self._variant_config.max_length
 
         inputs = self.tokenizer(
             [self.sample_text],
@@ -126,7 +153,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.config = self._get_config()
         return self.config
