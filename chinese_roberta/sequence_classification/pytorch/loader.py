@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available Chinese RoBERTa sequence classification model variants."""
 
     JD_BINARY = "jd-binary-chinese"
+    CHINANEWS = "chinanews-chinese"
 
 
 class ModelLoader(ForgeModel):
@@ -33,17 +34,25 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="uer/roberta-base-finetuned-jd-binary-chinese",
             max_length=128,
         ),
+        ModelVariant.CHINANEWS: LLMModelConfig(
+            pretrained_model_name="uer/roberta-base-finetuned-chinanews-chinese",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.JD_BINARY
 
-    # Sample Chinese text for binary sentiment classification
-    sample_text = "这个产品非常好用，我很喜欢！"
+    # Sample Chinese text per variant (sentiment review vs. news topic)
+    _SAMPLE_TEXTS = {
+        ModelVariant.JD_BINARY: "这个产品非常好用，我很喜欢！",
+        ModelVariant.CHINANEWS: "北京上个月召开了两会",
+    }
 
     def __init__(self, variant=None):
         super().__init__(variant)
         self.model_name = self._variant_config.pretrained_model_name
         self.max_length = self._variant_config.max_length
+        self.sample_text = self._SAMPLE_TEXTS[self._variant]
         self.tokenizer = None
 
     @classmethod
@@ -96,4 +105,4 @@ class ModelLoader(ForgeModel):
         """Decode the model output for sequence classification."""
         predicted_class_id = co_out[0].argmax().item()
         predicted_category = self.model.config.id2label[predicted_class_id]
-        print(f"Predicted Sentiment: {predicted_category}")
+        print(f"Predicted Category: {predicted_category}")
