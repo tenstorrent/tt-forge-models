@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     """Available NVILA-Lite model variants."""
 
     NVILA_LITE_2B = "2B"
+    NVILA_LITE_2B_RAW = "2B_raw"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.NVILA_LITE_2B: ModelConfig(
             pretrained_model_name="Efficient-Large-Model/NVILA-Lite-2B-hf",
+        ),
+        ModelVariant.NVILA_LITE_2B_RAW: ModelConfig(
+            pretrained_model_name="Efficient-Large-Model/NVILA-Lite-2B",
         ),
     }
 
@@ -63,8 +67,11 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        processor_kwargs = {}
+        if self._variant == ModelVariant.NVILA_LITE_2B_RAW:
+            processor_kwargs["trust_remote_code"] = True
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **processor_kwargs
         )
         return self.processor
 
@@ -74,6 +81,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._variant == ModelVariant.NVILA_LITE_2B_RAW:
+            model_kwargs["trust_remote_code"] = True
         model_kwargs |= kwargs
 
         model = AutoModelForImageTextToText.from_pretrained(
