@@ -9,8 +9,6 @@ detects ungrounded hallucinations in Large Language Model outputs
 (FactCG: Enhancing Fact Checkers with Graph-Based Multi-Hop Data, NAACL 2025).
 """
 
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-
 from ....config import (
     ModelInfo,
     ModelGroup,
@@ -65,6 +63,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         model_kwargs = {}
@@ -81,7 +81,9 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
-            self.load_model(dtype_override=dtype_override)
+            from transformers import AutoTokenizer
+
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         inputs = self.tokenizer(
             self.sample_text,
