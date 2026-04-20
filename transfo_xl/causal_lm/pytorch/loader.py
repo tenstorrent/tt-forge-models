@@ -99,6 +99,10 @@ class ModelLoader(ForgeModel):
         if inputs is None:
             inputs = self.load_inputs()
 
-        logits = outputs.prediction_scores if hasattr(outputs, "prediction_scores") else outputs[0]
+        logits = (
+            outputs.prediction_scores
+            if hasattr(outputs, "prediction_scores")
+            else outputs[0]
+        )
         generated_ids = logits.argmax(-1)
         return self.tokenizer.decode(generated_ids[0], skip_special_tokens=True)
