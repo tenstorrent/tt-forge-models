@@ -28,6 +28,18 @@ except ImportError:
     )
     from alpamayo_r1.models.alpamayo_r1 import AlpamayoR1  # noqa: F401
 
+# Patch tie_weights for transformers >= 5.x compatibility (added recompute_mapping kwarg)
+from alpamayo_r1.models.base_model import ReasoningVLA
+
+_orig_tie_weights = ReasoningVLA.tie_weights
+
+
+def _patched_tie_weights(self, **kwargs):
+    _orig_tie_weights(self)
+
+
+ReasoningVLA.tie_weights = _patched_tie_weights
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -101,16 +113,16 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
-        model.eval()
-        self.config = model.config
+        full_model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        full_model.eval()
+        self.config = full_model.config
 
         if self.tokenizer is None:
-            self.tokenizer = model.tokenizer
+            self.tokenizer = full_model.tokenizer
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        return model
+        return full_model.vlm
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
