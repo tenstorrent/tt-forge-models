@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available GGML LLaVA v1.5 7B GGUF model variants."""
 
     GGML_LLAVA_V1_5_7B_Q4_K = "v1.5_7B_Q4_K"
+    SECOND_STATE_LLAVA_V1_5_7B_Q4_K_M = "second_state_v1.5_7B_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
@@ -35,11 +36,17 @@ class ModelLoader(ForgeModel):
         ModelVariant.GGML_LLAVA_V1_5_7B_Q4_K: ModelConfig(
             pretrained_model_name="mys/ggml_llava-v1.5-7b",
         ),
+        ModelVariant.SECOND_STATE_LLAVA_V1_5_7B_Q4_K_M: ModelConfig(
+            pretrained_model_name="second-state/Llava-v1.5-7B-GGUF",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GGML_LLAVA_V1_5_7B_Q4_K
 
-    GGUF_FILE = "ggml-model-q4_k.gguf"
+    _GGUF_FILES = {
+        ModelVariant.GGML_LLAVA_V1_5_7B_Q4_K: "ggml-model-q4_k.gguf",
+        ModelVariant.SECOND_STATE_LLAVA_V1_5_7B_Q4_K_M: "llava-v1.5-7b-Q4_K_M.gguf",
+    }
 
     PROCESSOR_MODEL = "llava-hf/llava-1.5-7b-hf"
 
@@ -48,6 +55,10 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -77,7 +88,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
