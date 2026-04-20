@@ -58,6 +58,7 @@ class ModelVariant(StrEnum):
     """Available LLaVA-OneVision-1.5 model variants."""
 
     LLAVA_ONEVISION_1_5_4B_BASE = "4B_Base"
+    LLAVA_ONEVISION_1_5_4B_INSTRUCT = "4B_Instruct"
     LLAVA_ONEVISION_1_5_8B_INSTRUCT = "8B_Instruct"
 
 
@@ -67,6 +68,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LLAVA_ONEVISION_1_5_4B_BASE: ModelConfig(
             pretrained_model_name="lmms-lab/LLaVA-OneVision-1.5-4B-Base",
+        ),
+        ModelVariant.LLAVA_ONEVISION_1_5_4B_INSTRUCT: ModelConfig(
+            pretrained_model_name="lmms-lab/LLaVA-OneVision-1.5-4B-Instruct",
         ),
         ModelVariant.LLAVA_ONEVISION_1_5_8B_INSTRUCT: ModelConfig(
             pretrained_model_name="lmms-lab/LLaVA-OneVision-1.5-8B-Instruct",
