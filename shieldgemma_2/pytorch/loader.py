@@ -40,10 +40,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.SHIELDGEMMA_2_4B_IT
 
-    sample_image_url = (
-        "https://huggingface.co/datasets/huggingface/documentation-images/"
-        "resolve/main/bee.jpg"
-    )
+    sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/bee.jpg"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
