@@ -6,7 +6,7 @@ CANINE model loader implementation for token classification (sentence segmentati
 """
 
 import torch
-from transformers import CanineTokenizer, AutoModelForTokenClassification
+from transformers import CanineTokenizer, CanineForTokenClassification
 from typing import Optional
 
 from ....base import ForgeModel
@@ -68,7 +68,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForTokenClassification.from_pretrained(
+        model = CanineForTokenClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
