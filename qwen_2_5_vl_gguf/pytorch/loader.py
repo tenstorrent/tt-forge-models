@@ -4,6 +4,7 @@
 """
 Qwen 2.5 VL GGUF model loader implementation for vision-language tasks.
 """
+
 import torch
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from typing import Optional
@@ -25,11 +26,13 @@ class ModelVariant(StrEnum):
     """Available Qwen 2.5 VL GGUF model variants for vision-language tasks."""
 
     QWEN_2_5_VL_7B_INSTRUCT_GGUF = "7B_Instruct_GGUF"
+    QWEN_2_5_VL_32B_INSTRUCT_GGUF = "32B_Instruct_GGUF"
 
 
 # Map variants to their GGUF filenames
 _GGUF_FILES = {
     ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_GGUF: "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+    ModelVariant.QWEN_2_5_VL_32B_INSTRUCT_GGUF: "Qwen2.5-VL-32B-Instruct-Q4_K_M.gguf",
 }
 
 
@@ -39,6 +42,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_GGUF: LLMModelConfig(
             pretrained_model_name="lmstudio-community/Qwen2.5-VL-7B-Instruct-GGUF",
+        ),
+        ModelVariant.QWEN_2_5_VL_32B_INSTRUCT_GGUF: LLMModelConfig(
+            pretrained_model_name="lmstudio-community/Qwen2.5-VL-32B-Instruct-GGUF",
         ),
     }
 
