@@ -63,6 +63,7 @@ class ModelVariant(StrEnum):
 
     # TIMM variants
     DENSENET121_TV_IN1K_TIMM = "DenseNet121_TV_IN1K_TIMM"
+    DENSENET169_TV_IN1K_TIMM = "DenseNet169_TV_IN1K_TIMM"
 
     # X-ray variants
     DENSENET121_XRAY = "121_Xray"
@@ -96,6 +97,10 @@ class ModelLoader(ForgeModel):
         # TIMM variants
         ModelVariant.DENSENET121_TV_IN1K_TIMM: DenseNetConfig(
             pretrained_model_name="densenet121.tv_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.DENSENET169_TV_IN1K_TIMM: DenseNetConfig(
+            pretrained_model_name="densenet169.tv_in1k",
             source=ModelSource.TIMM,
         ),
         # X-ray variants
@@ -144,6 +149,7 @@ class ModelLoader(ForgeModel):
 
         if variant in [
             ModelVariant.DENSENET121_TV_IN1K_TIMM,
+            ModelVariant.DENSENET169_TV_IN1K_TIMM,
         ]:
             group = ModelGroup.VULCAN
         else:
