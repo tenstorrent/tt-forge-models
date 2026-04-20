@@ -194,7 +194,7 @@ class ModelLoader(ForgeModel):
                     k2 = k.unsqueeze(0).transpose(1, 2)
                     v2 = v.unsqueeze(0).transpose(1, 2)
                     out = torch.nn.functional.scaled_dot_product_attention(
-                        q2, k2, v2, is_causal=causal
+                        q2, k2, v2, is_causal=causal, enable_gqa=True
                     )
                     return out.transpose(1, 2).squeeze(0)
 
