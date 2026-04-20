@@ -108,4 +108,4 @@ class ModelLoader(ForgeModel):
             dtype=torch.long,
             device=device,
         )
-        return [input_features, decoder_input_ids]
+        return [input_features, None, decoder_input_ids]

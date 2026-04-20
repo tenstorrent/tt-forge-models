@@ -8,6 +8,7 @@ Helper functions for AnyPose model loading and processing.
 
 import torch
 from diffusers import QwenImageEditPlusPipeline
+from huggingface_hub import snapshot_download
 from PIL import Image
 
 
@@ -22,8 +23,9 @@ def load_anypose_pipe(base_model_name, lora_model_name, lora_scale=0.7):
     Returns:
         QwenImageEditPlusPipeline: Loaded pipeline with LoRA adapters
     """
+    cached_folder = snapshot_download(base_model_name, max_workers=1)
     pipe = QwenImageEditPlusPipeline.from_pretrained(
-        base_model_name, torch_dtype=torch.float32
+        cached_folder, torch_dtype=torch.float32
     )
 
     pipe.load_lora_weights(
