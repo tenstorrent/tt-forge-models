@@ -66,24 +66,6 @@ class ModelLoader(ForgeModel):
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.DAVLAN_DISTILBERT_BASE_MULTILINGUAL_CASED_NER_HRL
 
-    _SAMPLE_TEXTS = {
-        ModelVariant.DAVLAN_DISTILBERT_BASE_MULTILINGUAL_CASED_NER_HRL: (
-            "HuggingFace is a company based in Paris and New York"
-        ),
-        ModelVariant.OPENMED_NER_ONCOLOGY_DETECT: (
-            "Mutations in KRAS gene drive oncogenic transformation."
-        ),
-        ModelVariant.OPENMED_NER_GENOMIC_DETECT: (
-            "The BRCA2 gene is associated with hereditary breast cancer."
-        ),
-        ModelVariant.D4DATA_BIOMEDICAL_NER_ALL: (
-            "The patient reported no recurrence of palpitations at follow-up 6 months after the ablation."
-        ),
-        ModelVariant.NARGIZI_SCREEVE_POSTAGGER: (
-            "ქართული ენა ძალიან ლამაზი და საინტერესო ენაა"
-        ),
-    }
-
     def __init__(self, variant=None):
         """Initialize ModelLoader with specified variant.
 
