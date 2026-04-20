@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available T-lite model variants for causal language modeling."""
 
     T_LITE_IT_1_0_Q4_0 = "T_lite_it_1.0_Q4_0"
+    T_LITE_IT_2_1 = "T_lite_it_2.1"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.T_LITE_IT_1_0_Q4_0: LLMModelConfig(
             pretrained_model_name="MilyaShams/T-lite-it-1.0_Q4_0",
+            max_length=128,
+        ),
+        ModelVariant.T_LITE_IT_2_1: LLMModelConfig(
+            pretrained_model_name="t-tech/T-lite-it-2.1",
             max_length=128,
         ),
     }
