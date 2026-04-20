@@ -6,8 +6,9 @@ BioViL-T model loader for radiology text embedding generation.
 
 microsoft/BiomedVLP-BioViL-T is a biomedical vision-language model trained on
 chest X-rays and radiology reports. The HuggingFace checkpoint exposes the
-CXR-BERT text encoder with a projection head via trust_remote_code, producing
-L2-normalized CLS embeddings for the joint image-text latent space.
+CXR-BERT text encoder with a projection head via trust_remote_code; this
+loader drives the text encoder's forward pass to produce contextual token
+embeddings that the joint image-text latent space is built on.
 """
 import torch
 from transformers import AutoModel, AutoTokenizer
@@ -89,19 +90,17 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    def load_inputs(self, dtype_override=None, text_prompts=None):
+    def load_inputs(self, dtype_override=None, sentence=None):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        if text_prompts is None:
-            text_prompts = [
-                "No pleural effusion or pneumothorax is seen.",
-            ]
+        if sentence is None:
+            sentence = "No pleural effusion or pneumothorax is seen."
 
         max_length = getattr(self._variant_config, "max_length", 128)
 
         inputs = self.tokenizer(
-            text_prompts,
+            sentence,
             add_special_tokens=True,
             padding="max_length",
             truncation=True,
@@ -112,24 +111,26 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def output_postprocess(self, output, inputs=None):
-        if isinstance(output, (tuple, list)):
-            cls_projected_embedding = None
-            for item in output:
-                if (
-                    isinstance(item, torch.Tensor)
-                    and item.ndim == 2
-                    and item.size(-1) != getattr(self.model.config, "vocab_size", -1)
-                ):
-                    cls_projected_embedding = item
-                    break
-            if cls_projected_embedding is None:
-                cls_projected_embedding = output[0]
-        elif hasattr(output, "cls_projected_embedding"):
-            cls_projected_embedding = output.cls_projected_embedding
-        else:
-            cls_projected_embedding = output
+        if inputs is None:
+            inputs = self.load_inputs()
 
-        return torch.nn.functional.normalize(cls_projected_embedding, dim=-1)
+        attention_mask = inputs["attention_mask"]
+
+        if isinstance(output, (tuple, list)):
+            token_embeddings = output[0]
+        elif hasattr(output, "last_hidden_state"):
+            token_embeddings = output.last_hidden_state
+        else:
+            token_embeddings = output
+
+        input_mask_expanded = (
+            attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+        )
+        sentence_embeddings = torch.sum(
+            token_embeddings * input_mask_expanded, 1
+        ) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+
+        return sentence_embeddings
 
     def decode_output(self, outputs, inputs=None):
         return self.output_postprocess(outputs, inputs=inputs)
