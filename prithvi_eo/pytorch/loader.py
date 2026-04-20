@@ -2,16 +2,17 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Prithvi-EO 2.0 model loader implementation for Earth observation tasks.
+Prithvi-EO model loader implementation for Earth observation tasks.
 
 Prithvi-EO is a Vision Transformer pretrained with Masked Autoencoder (MAE)
 objective on multi-spectral satellite imagery. It uses 3D patch embeddings
-and temporal/location encodings.
+and (in V2) temporal/location encodings.
 """
 
 import importlib.util
 import json
 import torch
+from dataclasses import dataclass
 from typing import Optional
 
 from huggingface_hub import hf_hub_download
@@ -27,12 +28,19 @@ from ...config import (
     StrEnum,
 )
 
-HF_REPO_ID = "ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL"
+
+@dataclass
+class PrithviEOConfig(ModelConfig):
+    """Configuration specific to Prithvi-EO model variants."""
+
+    weights_filename: str = ""
+    num_frames: int = 4
+    has_coords: bool = True
 
 
-def _load_prithvi_mae_module():
+def _load_prithvi_mae_module(repo_id):
     """Download and dynamically import the PrithviMAE module from HuggingFace."""
-    mae_path = hf_hub_download(repo_id=HF_REPO_ID, filename="prithvi_mae.py")
+    mae_path = hf_hub_download(repo_id=repo_id, filename="prithvi_mae.py")
     spec = importlib.util.spec_from_file_location("prithvi_mae", mae_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -42,6 +50,7 @@ def _load_prithvi_mae_module():
 class ModelVariant(StrEnum):
     """Available Prithvi-EO model variants."""
 
+    V1_100M = "V1_100M"
     V2_300M_TL = "V2_300M_TL"
 
 
@@ -49,8 +58,17 @@ class ModelLoader(ForgeModel):
     """Prithvi-EO model loader implementation."""
 
     _VARIANTS = {
-        ModelVariant.V2_300M_TL: ModelConfig(
-            pretrained_model_name=HF_REPO_ID,
+        ModelVariant.V1_100M: PrithviEOConfig(
+            pretrained_model_name="ibm-nasa-geospatial/Prithvi-EO-1.0-100M",
+            weights_filename="Prithvi_EO_V1_100M.pt",
+            num_frames=3,
+            has_coords=False,
+        ),
+        ModelVariant.V2_300M_TL: PrithviEOConfig(
+            pretrained_model_name="ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL",
+            weights_filename="Prithvi_EO_V2_300M_TL.pt",
+            num_frames=4,
+            has_coords=True,
         ),
     }
 
@@ -80,12 +98,12 @@ class ModelLoader(ForgeModel):
         with open(config_path) as f:
             config = json.load(f)
 
-        prithvi_mae = _load_prithvi_mae_module()
+        prithvi_mae = _load_prithvi_mae_module(repo_id)
         model = prithvi_mae.PrithviMAE(**config["pretrained_cfg"])
 
         # Load pretrained weights
         weights_path = hf_hub_download(
-            repo_id=repo_id, filename="Prithvi_EO_V2_300M_TL.pt"
+            repo_id=repo_id, filename=self._variant_config.weights_filename
         )
         state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
         # Position embeddings are recomputed from config, so remove from checkpoint
@@ -102,9 +120,9 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         # Input shape: (B, C, T, H, W)
-        # 6 bands (Blue, Green, Red, Narrow NIR, SWIR1, SWIR2), 4 time steps, 224x224
+        # 6 bands (Blue, Green, Red, Narrow NIR, SWIR1, SWIR2)
         num_channels = 6
-        num_frames = 4
+        num_frames = self._variant_config.num_frames
         img_size = 224
 
         # Synthetic normalized input (zero-mean, unit-variance)
@@ -112,9 +130,15 @@ class ModelLoader(ForgeModel):
             batch_size, num_channels, num_frames, img_size, img_size
         )
 
+        if not self._variant_config.has_coords:
+            if dtype_override is not None:
+                pixel_values = pixel_values.to(dtype_override)
+            return (pixel_values,)
+
         # Temporal coordinates: (B, T, 2) with [year, julian_day]
+        julian_days = [int(1 + i * 365 / num_frames) for i in range(num_frames)]
         temporal_coords = torch.tensor(
-            [[2023, 1], [2023, 91], [2023, 182], [2023, 274]], dtype=torch.float32
+            [[2023, d] for d in julian_days], dtype=torch.float32
         )
         temporal_coords = temporal_coords.unsqueeze(0).expand(batch_size, -1, -1)
 
