@@ -35,7 +35,7 @@ class ModelVariant(StrEnum):
     PYTHIA_410M_V0 = "410M-v0"
     PYTHIA_1_4B = "1.4B"
     PYTHIA_6_9B_DEDUPED = "6.9B-deduped"
-    PYTHIA_6_9B_DEDUPED_SYNTHETIC_INSTRUCT = "6.9B-deduped-synthetic-instruct"
+    PYTHIA_12B_DEDUPED = "12B-deduped"
 
 
 class ModelLoader(ForgeModel):
@@ -87,8 +87,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="EleutherAI/pythia-6.9b-deduped",
             max_length=256,
         ),
-        ModelVariant.PYTHIA_6_9B_DEDUPED_SYNTHETIC_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="lambdalabs/pythia-6.9b-deduped-synthetic-instruct",
+        ModelVariant.PYTHIA_12B_DEDUPED: LLMModelConfig(
+            pretrained_model_name="EleutherAI/pythia-12b-deduped",
             max_length=256,
         ),
     }
