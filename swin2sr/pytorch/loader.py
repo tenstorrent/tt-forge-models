@@ -4,8 +4,8 @@
 """
 Swin2SR model loader implementation.
 
-Loads the caidas/swin2SR-realworld-sr-x4-64-bsrgan-psnr model for
-real-world 4x image super-resolution using the SwinV2 Transformer.
+Loads Swin2SR image super-resolution checkpoints based on the SwinV2
+Transformer architecture.
 """
 
 from typing import Optional
@@ -25,13 +25,12 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "caidas/swin2SR-realworld-sr-x4-64-bsrgan-psnr"
-
 
 class ModelVariant(StrEnum):
     """Available Swin2SR model variants."""
 
     REALWORLD_SR_X4_64_BSRGAN_PSNR = "realworld_sr_x4_64_bsrgan_psnr"
+    CLASSICAL_SR_X4_64 = "classical_sr_x4_64"
 
 
 class ModelLoader(ForgeModel):
@@ -39,7 +38,10 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.REALWORLD_SR_X4_64_BSRGAN_PSNR: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name="caidas/swin2SR-realworld-sr-x4-64-bsrgan-psnr",
+        ),
+        ModelVariant.CLASSICAL_SR_X4_64: ModelConfig(
+            pretrained_model_name="caidas/swin2SR-classical-sr-x4-64",
         ),
     }
     DEFAULT_VARIANT = ModelVariant.REALWORLD_SR_X4_64_BSRGAN_PSNR
