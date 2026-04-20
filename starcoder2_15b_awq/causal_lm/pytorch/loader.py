@@ -4,19 +4,18 @@
 """
 StarCoder2 15B AWQ model loader implementation for causal language modeling.
 """
-
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
-
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    Framework,
     LLMModelConfig,
-    ModelGroup,
     ModelInfo,
-    ModelSource,
+    ModelGroup,
     ModelTask,
+    ModelSource,
+    Framework,
     StrEnum,
 )
 
@@ -82,13 +81,12 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"device_map": "cpu"}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
-
-        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -113,6 +111,13 @@ class ModelLoader(ForgeModel):
         )
 
         for key in inputs:
-            inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
+
+    def load_config(self):
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+        return self.config
