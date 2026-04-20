@@ -6,7 +6,7 @@ DrBERT model loader implementation for masked language modeling.
 DrBERT is a French biomedical BERT model based on the CamemBERT architecture.
 """
 import torch
-from transformers import AutoTokenizer, AutoModelForMaskedLM, AutoConfig
+from transformers import PreTrainedTokenizerFast, AutoModelForMaskedLM, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -58,7 +58,7 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self):
         if self.tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(
+            self.tokenizer = PreTrainedTokenizerFast.from_pretrained(
                 self._variant_config.pretrained_model_name
             )
         return self.tokenizer
