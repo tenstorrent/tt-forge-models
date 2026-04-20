@@ -73,14 +73,14 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {
-            "trust_remote_code": True,
-            "task_level": "token_level",
-            "task_type": "embedding",
-        }
+        model_kwargs = dict(kwargs)
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        # LucaOne requires custom code and embedding-mode kwargs; these must
+        # not be overridden by callers.
+        model_kwargs["trust_remote_code"] = True
+        model_kwargs["task_level"] = "token_level"
+        model_kwargs["task_type"] = "embedding"
 
         model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
