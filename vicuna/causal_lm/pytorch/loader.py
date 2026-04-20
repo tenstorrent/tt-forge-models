@@ -28,7 +28,7 @@ class ModelVariant(StrEnum):
     """Available Vicuna model variants for causal LM."""
 
     _13B_V1_5_16K = "13B_v1.5_16k"
-    _7B_DELTA_V1_1 = "7B_delta_v1.1"
+    TINY_VICUNA_1B = "tiny_vicuna_1b"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="lmsys/vicuna-13b-v1.5-16k",
             max_length=128,
         ),
-        ModelVariant._7B_DELTA_V1_1: LLMModelConfig(
-            pretrained_model_name="lmsys/vicuna-7b-delta-v1.1",
+        ModelVariant.TINY_VICUNA_1B: LLMModelConfig(
+            pretrained_model_name="Jiayi-Pan/Tiny-Vicuna-1B",
             max_length=128,
         ),
     }
