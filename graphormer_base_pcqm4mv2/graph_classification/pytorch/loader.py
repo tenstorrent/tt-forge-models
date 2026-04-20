@@ -11,10 +11,8 @@ quantum-chemistry benchmark for molecular property prediction.
 from typing import Optional
 
 import torch
-from transformers import GraphormerForGraphClassification
-
-from ...base import ForgeModel
-from ...config import (
+from third_party.tt_forge_models.base import ForgeModel
+from third_party.tt_forge_models.config import (
     Framework,
     ModelConfig,
     ModelGroup,
@@ -23,6 +21,7 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
+from .src.modeling_graphormer import GraphormerForGraphClassification
 
 
 class ModelVariant(StrEnum):
