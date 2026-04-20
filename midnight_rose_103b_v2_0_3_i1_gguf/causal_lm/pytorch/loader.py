@@ -23,7 +23,9 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Midnight-Rose 103B v2.0.3 i1 GGUF model variants for causal language modeling."""
 
-    MIDNIGHT_ROSE_103B_V2_0_3_I1_Q4_K_M_GGUF = "MIDNIGHT_ROSE_103B_V2_0_3_I1_Q4_K_M_GGUF"
+    MIDNIGHT_ROSE_103B_V2_0_3_I1_Q4_K_M_GGUF = (
+        "MIDNIGHT_ROSE_103B_V2_0_3_I1_Q4_K_M_GGUF"
+    )
 
 
 class ModelLoader(ForgeModel):
