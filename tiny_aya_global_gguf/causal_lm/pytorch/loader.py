@@ -8,6 +8,66 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.configuration_utils as _config_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
+
+
+def _patch_cohere2_gguf():
+    """Register cohere2 GGUF architecture support in transformers."""
+    if "cohere2" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("cohere2")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["cohere2"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_epsilon": "layer_norm_eps",
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+        "logit_scale": "logit_scale",
+        "attention.sliding_window": "sliding_window",
+        "vocab_size": "vocab_size",
+    }
+
+    if "cohere2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["cohere2"] = GGUFGPTConverter
+
+
+_patch_cohere2_gguf()
+
+_orig_load = _gguf_utils.load_gguf_checkpoint
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Wrap load_gguf_checkpoint to generate layer_types for cohere2."""
+    result = _orig_load(gguf_path, return_tensors=return_tensors)
+    config = result.get("config", {})
+    if config.get("model_type") == "cohere2":
+        num_layers = config.get("num_hidden_layers", 36)
+        config["layer_types"] = [
+            "full_attention" if (i + 1) % 4 == 0 else "sliding_attention"
+            for i in range(num_layers)
+        ]
+    return result
+
+
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
