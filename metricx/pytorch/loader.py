@@ -11,6 +11,7 @@ The MT5ForRegression class is provided by the metricx24 package
 (https://github.com/google-research/metricx).
 
 Available variants:
+- HYBRID_XL_V2P6: google/metricx-24-hybrid-xl-v2p6-bfloat16
 - HYBRID_XXL_V2P6: google/metricx-24-hybrid-xxl-v2p6-bfloat16
 - HYBRID_LARGE_V2P6: google/metricx-24-hybrid-large-v2p6-bfloat16
 """
@@ -33,6 +34,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available MetricX-24 model variants."""
 
+    HYBRID_XL_V2P6 = "Hybrid_XL_v2p6"
     HYBRID_XXL_V2P6 = "Hybrid_XXL_v2p6"
     HYBRID_LARGE_V2P6 = "Hybrid_Large_v2p6"
 
@@ -41,6 +43,10 @@ class ModelLoader(ForgeModel):
     """MetricX-24 model loader for translation quality regression."""
 
     _VARIANTS = {
+        ModelVariant.HYBRID_XL_V2P6: LLMModelConfig(
+            pretrained_model_name="google/metricx-24-hybrid-xl-v2p6-bfloat16",
+            max_length=512,
+        ),
         ModelVariant.HYBRID_XXL_V2P6: LLMModelConfig(
             pretrained_model_name="google/metricx-24-hybrid-xxl-v2p6-bfloat16",
             max_length=512,
