@@ -64,12 +64,19 @@ def _patch_vision_pipeline(model, saved_inputs, saved_visual_pos_mask):
     inner.get_placeholder_mask = patched_get_placeholder_mask
 
     lang_model = inner.language_model
-    original_deepstack = lang_model._deepstack_process
+    mask_indices = saved_visual_pos_mask.nonzero(as_tuple=False)
 
     @torch.compiler.disable
     def patched_deepstack_process(hidden_states, visual_pos_masks, visual_embeds):
-        cpu_mask = saved_visual_pos_mask.to(hidden_states.device)
-        return original_deepstack(hidden_states, cpu_mask, visual_embeds)
+        device = hidden_states.device
+        dtype = hidden_states.dtype
+        hs_cpu = hidden_states.detach().cpu().float()
+        ve_cpu = visual_embeds.detach().cpu().float()
+        hs_cpu = hs_cpu.clone()
+        rows = mask_indices[:, 0]
+        cols = mask_indices[:, 1]
+        hs_cpu[rows, cols, :] = hs_cpu[rows, cols, :] + ve_cpu
+        return hs_cpu.to(device=device, dtype=dtype)
 
     lang_model._deepstack_process = patched_deepstack_process
 
