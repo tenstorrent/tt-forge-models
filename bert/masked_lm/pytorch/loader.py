@@ -33,7 +33,7 @@ class ModelVariant(StrEnum):
     LEGAL_BERT_BASE_UNCASED = "nlpaueb/legal-bert-base-uncased"
     RETROMAE_MSMARCO_DISTILL = "Shitao/RetroMAE_MSMARCO_distill"
     BERT_LARGE_UNCASED_WWM = "Large_Uncased_Whole_Word_Masking"
-    BERT_BASE_HISTORIC_MULTILINGUAL_CASED = "Base_Historic_Multilingual_Cased"
+    BERT_UNCASED_L8_H128_A2 = "Uncased_L-8_H-128_A-2"
 
 
 class ModelLoader(ForgeModel):
@@ -89,8 +89,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bert-large-uncased-whole-word-masking",
             max_length=128,
         ),
-        ModelVariant.BERT_BASE_HISTORIC_MULTILINGUAL_CASED: LLMModelConfig(
-            pretrained_model_name="dbmdz/bert-base-historic-multilingual-cased",
+        ModelVariant.BERT_UNCASED_L8_H128_A2: LLMModelConfig(
+            pretrained_model_name="google/bert_uncased_L-8_H-128_A-2",
             max_length=128,
         ),
     }
@@ -141,7 +141,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LEGAL_BERT_BASE_UNCASED,
             ModelVariant.RETROMAE_MSMARCO_DISTILL,
             ModelVariant.BERT_LARGE_UNCASED_WWM,
-            ModelVariant.BERT_BASE_HISTORIC_MULTILINGUAL_CASED,
+            ModelVariant.BERT_UNCASED_L8_H128_A2,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
