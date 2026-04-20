@@ -23,7 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available CheXagent model variants."""
 
-    CHEXAGENT_2_3B = "StanfordAIMI/CheXagent-2-3b"
+    CHEXAGENT_2_3B = "chexagent_2_3b"
 
 
 class ModelLoader(ForgeModel):
@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.CHEXAGENT_2_3B: ModelConfig(
-            pretrained_model_name=str(ModelVariant.CHEXAGENT_2_3B),
+            pretrained_model_name="StanfordAIMI/CheXagent-2-3b",
         ),
     }
 
