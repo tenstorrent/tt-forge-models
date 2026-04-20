@@ -105,4 +105,12 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        if dtype_override is not None:
+            import torch
+
+            inputs = {
+                k: v.to(dtype_override) if isinstance(v, torch.Tensor) else v
+                for k, v in inputs.items()
+            }
+
         return inputs
