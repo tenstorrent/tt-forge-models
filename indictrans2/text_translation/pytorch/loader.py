@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available IndicTrans2 model variants."""
 
     EN_INDIC_1B = "En_Indic_1B"
+    INDIC_EN_DIST_200M = "Indic_En_Dist_200M"
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +35,17 @@ class ModelLoader(ForgeModel):
         ModelVariant.EN_INDIC_1B: LLMModelConfig(
             pretrained_model_name="ai4bharat/indictrans2-en-indic-1B",
         ),
+        ModelVariant.INDIC_EN_DIST_200M: LLMModelConfig(
+            pretrained_model_name="ai4bharat/indictrans2-indic-en-dist-200M",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.EN_INDIC_1B
 
-    sample_text = "Hello, how are you today?"
+    _SAMPLE_TEXTS = {
+        ModelVariant.EN_INDIC_1B: "Hello, how are you today?",
+        ModelVariant.INDIC_EN_DIST_200M: "जब मैं छोटा था, मैं हर रोज़ पार्क जाता था।",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant."""
@@ -46,6 +53,7 @@ class ModelLoader(ForgeModel):
         self._tokenizer = None
         self._model = None
         self._model_name = self._variant_config.pretrained_model_name
+        self.sample_text = self._SAMPLE_TEXTS[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
