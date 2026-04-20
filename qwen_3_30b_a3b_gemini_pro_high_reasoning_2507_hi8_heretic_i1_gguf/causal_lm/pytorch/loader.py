@@ -42,7 +42,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_2507_HI8_HERETIC_I1_GGUF
     )
 
-    GGUF_FILE = "Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-HI8-heretic.i1-Q4_K_M.gguf"
+    GGUF_FILE = (
+        "Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-HI8-heretic.i1-Q4_K_M.gguf"
+    )
 
     sample_text = "Give me a short introduction to large language models."
 
