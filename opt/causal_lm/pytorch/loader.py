@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     PYGMALION_350M = "pygmalion-350m"
     TINY_RANDOM = "tiny-random"
     TINY_RANDOM_EXTENDED_VOCAB = "tiny-random-extended-vocab"
+    TINY_RANDOM_HF_TINY_MODEL_PRIVATE = "tiny-random-hf-tiny-model-private"
 
 
 class ModelLoader(ForgeModel):
@@ -70,6 +71,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="peft-internal-testing/tiny-random-OPTForCausalLM-extended-vocab",
             max_length=256,
         ),
+        ModelVariant.TINY_RANDOM_HF_TINY_MODEL_PRIVATE: LLMModelConfig(
+            pretrained_model_name="hf-tiny-model-private/tiny-random-OPTForCausalLM",
+            max_length=256,
+        ),
     }
 
     # Default variant to use
@@ -107,9 +112,9 @@ class ModelLoader(ForgeModel):
             ModelGroup.VULCAN
             if variant
             in (
-                ModelVariant.PYGMALION_350M,
                 ModelVariant.TINY_RANDOM,
                 ModelVariant.TINY_RANDOM_EXTENDED_VOCAB,
+                ModelVariant.TINY_RANDOM_HF_TINY_MODEL_PRIVATE,
             )
             else ModelGroup.GENERALITY
         )
