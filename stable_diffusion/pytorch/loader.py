@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     STABLE_DIFFUSION_3_5_MEDIUM_UNGATED = "3.5_Medium_Ungated"
     STABLE_DIFFUSION_3_5_LARGE = "3.5_Large"
     STABLE_DIFFUSION_3_5_LARGE_TURBO = "3.5_Large_Turbo"
+    STABLE_DIFFUSION_3_5_LARGE_TURBO_UNGATED = "3.5_Large_Turbo_Ungated"
 
 
 class ModelLoader(ForgeModel):
@@ -45,6 +46,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.STABLE_DIFFUSION_3_5_LARGE_TURBO: ModelConfig(
             pretrained_model_name="stable-diffusion-3.5-large-turbo",
+        ),
+        ModelVariant.STABLE_DIFFUSION_3_5_LARGE_TURBO_UNGATED: ModelConfig(
+            pretrained_model_name="adamo1139/stable-diffusion-3.5-large-turbo-ungated",
         ),
     }
 
@@ -79,7 +83,11 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         group = (
             ModelGroup.VULCAN
-            if variant == ModelVariant.STABLE_DIFFUSION_3_5_MEDIUM_UNGATED
+            if variant
+            in (
+                ModelVariant.STABLE_DIFFUSION_3_5_MEDIUM_UNGATED,
+                ModelVariant.STABLE_DIFFUSION_3_5_LARGE_TURBO_UNGATED,
+            )
             else ModelGroup.RED
         )
         return ModelInfo(
