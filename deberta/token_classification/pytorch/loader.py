@@ -6,7 +6,12 @@ DeBERTa model loader implementation for token classification.
 """
 
 import torch
-from transformers import AutoModelForTokenClassification, AutoTokenizer
+from transformers import (
+    AutoConfig,
+    AutoModelForTokenClassification,
+    AutoTokenizer,
+    PretrainedConfig,
+)
 
 from ....config import (
     ModelInfo,
@@ -59,10 +64,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+    def _load_config(self):
+        config_dict, _ = PretrainedConfig.get_config_dict(self.model_name)
+        config_dict.pop("problem_type", None)
+        model_type = config_dict.pop("model_type")
+        return AutoConfig.for_model(model_type, **config_dict)
 
-        model_kwargs = {}
+    def load_model(self, *, dtype_override=None, **kwargs):
+        config = self._load_config()
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, config=config)
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
