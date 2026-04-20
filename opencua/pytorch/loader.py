@@ -4,6 +4,8 @@
 """
 OpenCUA model loader implementation for computer-use agent tasks.
 """
+import sys
+
 import torch
 import transformers.modeling_utils as _tmu
 from transformers import AutoModelForCausalLM, AutoProcessor
@@ -109,12 +111,37 @@ class ModelLoader(ForgeModel):
             "max_pixels": self.max_pixels,
         }
 
-        # Load the processor
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            **processor_kwargs,
-        )
+        # Load the processor. The custom TikTokenV3 tokenizer raises when
+        # transformers 5.x passes unk_token while additional_special_tokens
+        # has been stripped from init_kwargs (triggering "dumping mode").
+        # Retry with a patched __init__ that clears unk/pad in that path.
+        try:
+            self.processor = AutoProcessor.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                trust_remote_code=True,
+                **processor_kwargs,
+            )
+        except ValueError as e:
+            if "unk_token should not be set in dumping mode" not in str(e):
+                raise
+            for mod in sys.modules.values():
+                tok_cls = getattr(mod, "TikTokenV3", None)
+                if tok_cls is not None:
+                    _orig_init = tok_cls.__init__
+
+                    def _patched_init(self, *args, _orig=_orig_init, **kwargs):
+                        if kwargs.get("additional_special_tokens") is None:
+                            kwargs.pop("unk_token", None)
+                            kwargs.pop("pad_token", None)
+                        return _orig(self, *args, **kwargs)
+
+                    tok_cls.__init__ = _patched_init
+                    break
+            self.processor = AutoProcessor.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                trust_remote_code=True,
+                **processor_kwargs,
+            )
 
         return self.processor
 
