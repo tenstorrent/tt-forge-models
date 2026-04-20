@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     GROOT_N1_5_3B = "Gr00t_N1.5_3B"
     GROOT_N1_6_3B = "Gr00t_N1.6_3B"
+    GROOT_N1_6_G1_PNP_APPLE_TO_PLATE = "Gr00t_N1.6_G1_PnPAppleToPlate"
 
 
 class ModelLoader(ForgeModel):
@@ -38,12 +39,23 @@ class ModelLoader(ForgeModel):
         ModelVariant.GROOT_N1_6_3B: ModelConfig(
             pretrained_model_name="nvidia/GR00T-N1.6-3B",
         ),
+        ModelVariant.GROOT_N1_6_G1_PNP_APPLE_TO_PLATE: ModelConfig(
+            pretrained_model_name="nvidia/GR00T-N1.6-G1-PnPAppleToPlate",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GROOT_N1_5_3B
     DEFAULT_DATA_CONFIG = "fourier_gr1_arms_only"
     DEFAULT_EMBODIMENT = "gr1"
     DEFAULT_DENOISING_STEPS = 4
+
+    # Per-variant overrides for variants fine-tuned on a non-GR1 embodiment.
+    _VARIANT_DEFAULTS = {
+        ModelVariant.GROOT_N1_6_G1_PNP_APPLE_TO_PLATE: {
+            "data_config": "unitree_g1",
+            "embodiment_tag": "unitree_g1",
+        },
+    }
 
     def __init__(
         self,
@@ -62,8 +74,17 @@ class ModelLoader(ForgeModel):
             denoising_steps: Number of denoising steps (default: 4)
         """
         super().__init__(variant)
-        self.data_config = data_config or self.DEFAULT_DATA_CONFIG
-        self.embodiment_tag = embodiment_tag or self.DEFAULT_EMBODIMENT
+        variant_defaults = self._VARIANT_DEFAULTS.get(self._variant, {})
+        self.data_config = (
+            data_config
+            or variant_defaults.get("data_config")
+            or self.DEFAULT_DATA_CONFIG
+        )
+        self.embodiment_tag = (
+            embodiment_tag
+            or variant_defaults.get("embodiment_tag")
+            or self.DEFAULT_EMBODIMENT
+        )
         self.denoising_steps = denoising_steps or self.DEFAULT_DENOISING_STEPS
 
         # Lazy initialization
@@ -84,11 +105,11 @@ class ModelLoader(ForgeModel):
         """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
-        group = (
-            ModelGroup.VULCAN
-            if variant == ModelVariant.GROOT_N1_6_3B
-            else ModelGroup.RED
-        )
+        vulcan_variants = {
+            ModelVariant.GROOT_N1_6_3B,
+            ModelVariant.GROOT_N1_6_G1_PNP_APPLE_TO_PLATE,
+        }
+        group = ModelGroup.VULCAN if variant in vulcan_variants else ModelGroup.RED
         return ModelInfo(
             model="ISAAC-GR00T",
             variant=variant,
