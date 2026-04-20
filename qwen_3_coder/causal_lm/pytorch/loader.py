@@ -37,6 +37,9 @@ class ModelVariant(StrEnum):
     # mlx-community quantized variants
     QWEN_3_CODER_30B_A3B_INSTRUCT_4BIT = "30B_A3B_Instruct_4bit"
 
+    # GPTQ quantized variants
+    QWEN_3_CODER_30B_A3B_INSTRUCT_GPTQ_INT8 = "30B_A3B_Instruct_GPTQ_Int8"
+
 
 class ModelLoader(ForgeModel):
     """Qwen 3 Coder model loader implementation for causal language modeling tasks."""
@@ -62,6 +65,11 @@ class ModelLoader(ForgeModel):
         # mlx-community quantized variants
         ModelVariant.QWEN_3_CODER_30B_A3B_INSTRUCT_4BIT: LLMModelConfig(
             pretrained_model_name="mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
+            max_length=128,
+        ),
+        # GPTQ quantized variants
+        ModelVariant.QWEN_3_CODER_30B_A3B_INSTRUCT_GPTQ_INT8: LLMModelConfig(
+            pretrained_model_name="QuantTrio/Qwen3-Coder-30B-A3B-Instruct-GPTQ-Int8",
             max_length=128,
         ),
     }
@@ -156,6 +164,7 @@ class ModelLoader(ForgeModel):
         if pretrained_model_name in (
             "btbtyler09/Qwen3-Coder-30B-A3B-Instruct-gptq-8bit",
             "btbtyler09/Qwen3-Coder-Next-GPTQ-4bit",
+            "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-GPTQ-Int8",
         ):
             model_kwargs["device_map"] = "cpu"
         if "mlx-community" in pretrained_model_name or "NVFP4" in pretrained_model_name:
