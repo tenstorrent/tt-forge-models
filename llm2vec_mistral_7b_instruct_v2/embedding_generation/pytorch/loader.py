@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available LLM2Vec-Mistral-7B-Instruct-v2 model variants for embedding generation."""
 
     LLM2VEC_MISTRAL_7B_INSTRUCT_V2 = "llm2vec-mistral-7b-instruct-v2"
+    LLM2VEC_MISTRAL_7B_INSTRUCT_V2_MNTP = "llm2vec-mistral-7b-instruct-v2-mntp"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LLM2VEC_MISTRAL_7B_INSTRUCT_V2: ModelConfig(
             pretrained_model_name="McGill-NLP/LLM2Vec-Mistral-7B-Instruct-v2-mntp-unsup-simcse",
+        ),
+        ModelVariant.LLM2VEC_MISTRAL_7B_INSTRUCT_V2_MNTP: ModelConfig(
+            pretrained_model_name="McGill-NLP/LLM2Vec-Mistral-7B-Instruct-v2-mntp",
         ),
     }
 
