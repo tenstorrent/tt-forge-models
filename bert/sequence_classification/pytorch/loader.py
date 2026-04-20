@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    MSKANG1120_KOBERT_BASELINE = "mskang1120_KoBERT_Baseline"
+    ANAS_ALOKLA_MULTILINGUAL_GO_EMOTIONS = "AnasAlokla_Multilingual_Go_Emotions"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.MSKANG1120_KOBERT_BASELINE: LLMModelConfig(
-            pretrained_model_name="mskang1120/kobert_baseline",
+        ModelVariant.ANAS_ALOKLA_MULTILINGUAL_GO_EMOTIONS: LLMModelConfig(
+            pretrained_model_name="AnasAlokla/multilingual_go_emotions",
             max_length=128,
         ),
     }
@@ -95,7 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.MSKANG1120_KOBERT_BASELINE: "충격! 당신이 몰랐던 놀라운 비밀 공개",
+        ModelVariant.ANAS_ALOKLA_MULTILINGUAL_GO_EMOTIONS: "I'm so happy for you, but I'm also a little bit sad to see you go.",
     }
 
     def __init__(self, variant=None):
@@ -134,7 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.MSKANG1120_KOBERT_BASELINE,
+            ModelVariant.ANAS_ALOKLA_MULTILINGUAL_GO_EMOTIONS,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
