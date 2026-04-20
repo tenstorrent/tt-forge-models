@@ -6,6 +6,7 @@ MLX Community Whisper Large V3 Turbo 4-bit speech recognition model loader imple
 """
 from typing import Optional
 
+import numpy as np
 import torch
 from transformers import (
     AutoModelForSpeechSeq2Seq,
@@ -23,7 +24,6 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -91,17 +91,14 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
 
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
+        sampling_rate = 16000
+        sample_audio = np.random.randn(sampling_rate * 3).astype(np.float32)
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
-        # Preprocess audio
         features = self.processor.feature_extractor(
             sample_audio,
-            sampling_rate=self.processor.feature_extractor.sampling_rate,
+            sampling_rate=sampling_rate,
             return_tensors="pt",
             return_attention_mask=True,
         )
@@ -110,7 +107,6 @@ class ModelLoader(ForgeModel):
         if attention_mask is not None:
             attention_mask = attention_mask.to(device)
 
-        # Build decoder input IDs
         decoder_prompt_ids = self.processor.tokenizer.get_decoder_prompt_ids(
             task="transcribe", language="en", no_timestamps=True
         )
