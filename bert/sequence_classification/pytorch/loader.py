@@ -30,12 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    PROJECT_APS_FINBERT_FINETUNE = "project_aps_FinBERT_Finetune"
-    NICHOLASKLUGE_TOXIGUARDRAILPT = "nicholasKluge_ToxiGuardrailPT"
-    MYO89_MODEL_TES = "Myo89_Model_Tes"
-    NICKMUCHI_FINBERT_TONE_FINETUNED_FINANCE_TOPIC_CLASSIFICATION = (
-        "nickmuchi_FinBERT_Tone_Finetuned_Finance_Topic_Classification"
-    )
+    TEXTATTACK_BERT_BASE_UNCASED_SNLI = "textattack_Bert_Base_Uncased_Snli"
 
 
 class ModelLoader(ForgeModel):
@@ -71,20 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.PROJECT_APS_FINBERT_FINETUNE: LLMModelConfig(
-            pretrained_model_name="project-aps/finbert-finetune",
-            max_length=128,
-        ),
-        ModelVariant.NICHOLASKLUGE_TOXIGUARDRAILPT: LLMModelConfig(
-            pretrained_model_name="nicholasKluge/ToxiGuardrailPT",
-            max_length=128,
-        ),
-        ModelVariant.MYO89_MODEL_TES: LLMModelConfig(
-            pretrained_model_name="Myo89/model_tes",
-            max_length=128,
-        ),
-        ModelVariant.NICKMUCHI_FINBERT_TONE_FINETUNED_FINANCE_TOPIC_CLASSIFICATION: LLMModelConfig(
-            pretrained_model_name="nickmuchi/finbert-tone-finetuned-finance-topic-classification",
+        ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SNLI: LLMModelConfig(
+            pretrained_model_name="textattack/bert-base-uncased-snli",
             max_length=128,
         ),
     }
@@ -112,10 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.PROJECT_APS_FINBERT_FINETUNE: "Earnings smashed expectations AAPL posts $0.89 EPS vs $0.78 est. Bullish momentum incoming!",
-        ModelVariant.NICHOLASKLUGE_TOXIGUARDRAILPT: "Eu realmente gostei de conhecer pessoas de diferentes culturas.",
-        ModelVariant.MYO89_MODEL_TES: "The senator signed a new law regulating international trade.",
-        ModelVariant.NICKMUCHI_FINBERT_TONE_FINETUNED_FINANCE_TOPIC_CLASSIFICATION: "Oil prices surged after OPEC announced production cuts, boosting energy sector stocks.",
+        ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SNLI: "A soccer game with multiple males playing. Some men are playing a sport.",
     }
 
     def __init__(self, variant=None):
@@ -154,10 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.PROJECT_APS_FINBERT_FINETUNE,
-            ModelVariant.NICHOLASKLUGE_TOXIGUARDRAILPT,
-            ModelVariant.MYO89_MODEL_TES,
-            ModelVariant.NICKMUCHI_FINBERT_TONE_FINETUNED_FINANCE_TOPIC_CLASSIFICATION,
+            ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SNLI,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
