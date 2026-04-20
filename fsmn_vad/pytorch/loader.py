@@ -29,8 +29,7 @@ class FsmnVADWrapper(nn.Module):
         self.encoder = encoder
 
     def forward(self, feats):
-        output, _ = self.encoder(feats)
-        return output
+        return self.encoder(feats)
 
 
 class ModelVariant(StrEnum):
@@ -74,6 +73,7 @@ class ModelLoader(ForgeModel):
         self._funasr_model = AutoModel(
             model=self._variant_config.pretrained_model_name,
             model_revision="v2.0.4",
+            hub="hf",
         )
 
         encoder = self._funasr_model.model.encoder
@@ -95,11 +95,11 @@ class ModelLoader(ForgeModel):
             np.float32
         )
 
-        # Extract features using the FunASR frontend
         frontend = self._funasr_model.kwargs.get("frontend")
-        feats, feats_len = frontend.extract_fbank(
+        feats, _ = frontend(
             torch.tensor(audio_array).unsqueeze(0),
             torch.tensor([len(audio_array)]),
+            is_final=True,
         )
 
         if dtype_override is not None:
