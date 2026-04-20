@@ -1,31 +1,30 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
 WavTokenizer GGUF model loader for discrete audio codec tokenization.
 
-Loads quantized GGUF conversions of the WavTokenizer decoder model from
-ggml-org/WavTokenizer. The GGUF weights are parsed with the `gguf` package,
-dequantized to float32, and loaded into the PyTorch WavTokenizer architecture
-defined by the upstream jishengpeng/WavTokenizer repository.
+Loads the GGUF-converted WavTokenizer decoder hosted at ggml-org/WavTokenizer,
+which is a GGUF packaging of novateur/WavTokenizer-large-speech-75token (a
+VQ-VAE style audio codec operating at 24 kHz with 75 tokens per second).
 
-Repository: https://huggingface.co/ggml-org/WavTokenizer
+Requires the WavTokenizer repository to be cloned at /tmp/wavtokenizer_repo.
 """
 
 import os
 import sys
+from typing import Optional
 
 import torch
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -51,56 +50,43 @@ def _ensure_wavtokenizer_importable():
         sys.path.insert(0, WAVTOKENIZER_REPO_PATH)
 
 
-def _gguf_to_state_dict(gguf_path: str) -> dict:
-    """Parse a GGUF file into a torch state_dict of float32 tensors."""
-    import gguf
-    import numpy as np
-
-    reader = gguf.GGUFReader(gguf_path)
-    state_dict = {}
-    for tensor in reader.tensors:
-        data = gguf.dequantize(tensor.data, tensor.tensor_type)
-        array = np.ascontiguousarray(data, dtype=np.float32)
-        state_dict[tensor.name] = torch.from_numpy(array)
-    return state_dict
-
-
 class ModelVariant(StrEnum):
-    """Available WavTokenizer GGUF quantization variants."""
+    """Available WavTokenizer GGUF model variants."""
 
-    F16 = "F16"
-    Q5_1 = "Q5_1"
+    LARGE_75_F16 = "Large_75_F16"
+    LARGE_75_Q5_1 = "Large_75_Q5_1"
 
 
 class ModelLoader(ForgeModel):
     """WavTokenizer GGUF model loader for discrete audio codec tokenization.
 
-    Loads the WavTokenizer decoder architecture from the upstream PyTorch
-    repository and initialises its weights from a GGUF checkpoint hosted on
-    ggml-org/WavTokenizer.
+    Downloads a GGUF-packaged WavTokenizer decoder checkpoint from
+    ggml-org/WavTokenizer and the companion config YAML from the base
+    novateur/WavTokenizer repo, then loads them via the upstream WavTokenizer
+    library.
     """
 
     _VARIANTS = {
-        ModelVariant.F16: ModelConfig(
+        ModelVariant.LARGE_75_F16: ModelConfig(
             pretrained_model_name="ggml-org/WavTokenizer",
         ),
-        ModelVariant.Q5_1: ModelConfig(
+        ModelVariant.LARGE_75_Q5_1: ModelConfig(
             pretrained_model_name="ggml-org/WavTokenizer",
         ),
     }
 
-    _GGUF_FILES = {
-        ModelVariant.F16: "WavTokenizer-Large-75-F16.gguf",
-        ModelVariant.Q5_1: "WavTokenizer-Large-75-Q5_1.gguf",
-    }
+    DEFAULT_VARIANT = ModelVariant.LARGE_75_Q5_1
 
-    DEFAULT_VARIANT = ModelVariant.F16
-
-    # Config YAML and checkpoint template live in the base novateur/WavTokenizer repo
+    # Config YAML is hosted in the base novateur/WavTokenizer repo
     _CONFIG_REPO = "novateur/WavTokenizer"
     _CONFIG_FILENAME = (
         "wavtokenizer_smalldata_frame75_3s_nq1_code4096_dim512_kmeans200_attn.yaml"
     )
+
+    _GGUF_FILES = {
+        ModelVariant.LARGE_75_F16: "WavTokenizer-Large-75-F16.gguf",
+        ModelVariant.LARGE_75_Q5_1: "WavTokenizer-Large-75-Q5_1.gguf",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -120,7 +106,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the WavTokenizer decoder initialised from GGUF weights."""
+        """Load and return the GGUF-packaged WavTokenizer decoder model."""
         from huggingface_hub import hf_hub_download
 
         _ensure_wavtokenizer_importable()
@@ -130,18 +116,12 @@ class ModelLoader(ForgeModel):
             repo_id=self._CONFIG_REPO, filename=self._CONFIG_FILENAME
         )
 
-        gguf_path = hf_hub_download(
+        model_path = hf_hub_download(
             repo_id=self._variant_config.pretrained_model_name,
             filename=self._GGUF_FILES[self._variant],
         )
 
-        # Build the WavTokenizer architecture from the YAML config, then load
-        # whichever weights from the GGUF state_dict match by name. GGUF uses
-        # llama.cpp-style tensor names which do not directly correspond to the
-        # PyTorch module hierarchy, so strict=False avoids failing on misses.
-        model = WavTokenizer.from_hparams0802(config_path)
-        state_dict = _gguf_to_state_dict(gguf_path)
-        model.load_state_dict(state_dict, strict=False)
+        model = WavTokenizer.from_pretrained0802(config_path, model_path)
 
         if dtype_override is not None:
             model = model.to(dtype=dtype_override)
@@ -151,7 +131,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Load sample audio inputs for the WavTokenizer GGUF model.
+        """Load sample audio inputs for the WavTokenizer model.
 
         Returns:
             dict: Dictionary with 'wav' tensor (1-second mono audio at 24kHz)
