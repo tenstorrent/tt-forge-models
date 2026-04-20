@@ -78,19 +78,18 @@ class ModelLoader(ForgeModel):
                 pretrained=True,
                 **self._TIMM_KWARGS,
             )
+            self._transform = create_transform(
+                **resolve_data_config(model.pretrained_cfg, model=model)
+            )
         except Exception:
             model = timm.create_model(
                 self._FALLBACK_MODEL_NAME,
                 pretrained=False,
-                img_size=224,
                 **self._TIMM_KWARGS,
             )
         model.eval()
 
         self.model = model
-        self._transform = create_transform(
-            **resolve_data_config(model.pretrained_cfg, model=model)
-        )
 
         if dtype_override is not None:
             model = model.to(dtype_override)
