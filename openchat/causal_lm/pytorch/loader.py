@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available OpenChat model variants."""
 
     OPENCHAT_3_6_8B = "3.6_8B"
+    OPENCHAT_3_5_0106_GEMMA = "3.5_0106_gemma"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OPENCHAT_3_6_8B: LLMModelConfig(
             pretrained_model_name="openchat/openchat-3.6-8b-20240522",
+        ),
+        ModelVariant.OPENCHAT_3_5_0106_GEMMA: LLMModelConfig(
+            pretrained_model_name="openchat/openchat-3.5-0106-gemma",
         ),
     }
 
