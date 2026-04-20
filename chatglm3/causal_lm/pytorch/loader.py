@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available ChatGLM3 model variants."""
 
     CHATGLM3_6B = "6B"
+    CHATGLM3_6B_BASE = "6B-Base"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.CHATGLM3_6B: LLMModelConfig(
             pretrained_model_name="zai-org/chatglm3-6b",
+            max_length=128,
+        ),
+        ModelVariant.CHATGLM3_6B_BASE: LLMModelConfig(
+            pretrained_model_name="zai-org/chatglm3-6b-base",
             max_length=128,
         ),
     }
