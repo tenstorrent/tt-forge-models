@@ -11,9 +11,11 @@ Based on the Wan 2.1 14B architecture in GGUF format for ComfyUI.
 Repository:
 - https://huggingface.co/vantagewithai/SCAIL-Preview-GGUF
 """
+from typing import Optional
+
 import torch
 from diffusers import WanTransformer3DModel
-from typing import Optional
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -26,7 +28,8 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_BASE_URL = "https://huggingface.co/vantagewithai/SCAIL-Preview-GGUF/blob/main"
+REPO_ID = "vantagewithai/SCAIL-Preview-GGUF"
+CONFIG_REPO = "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers"
 
 
 class ModelVariant(StrEnum):
@@ -75,19 +78,17 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        model_path = hf_hub_download(repo_id=REPO_ID, filename=gguf_file)
 
         self.transformer = WanTransformer3DModel.from_single_file(
-            gguf_url,
-            **load_kwargs,
+            model_path,
+            config=CONFIG_REPO,
+            subfolder="transformer",
+            torch_dtype=dtype,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+        self.transformer.eval()
 
         return self.transformer
 
@@ -95,32 +96,20 @@ class ModelLoader(ForgeModel):
         if self.transformer is None:
             self.load_model(dtype_override=dtype_override)
 
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        dtype = dtype_override if dtype_override is not None else torch.float32
         config = self.transformer.config
 
-        # Wan 2.1 video transformer dimensions
-        num_channels = config.in_channels
-        num_frames = 9
-        height = 60  # latent height (480p / 8)
-        width = 104  # latent width (832p / 8)
+        in_channels = config.in_channels
+        text_dim = config.text_dim
+        frame, height, width = 2, 8, 8
+        seq_len = frame * height * width
 
-        # Latent video tensor: [batch, channels, frames, height, width]
-        hidden_states = torch.randn(
-            batch_size, num_channels, num_frames, height, width, dtype=dtype
-        )
+        hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
+        encoder_hidden_states = torch.randn(batch_size, 32, text_dim, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
 
-        # Timestep
-        timestep = torch.tensor([1.0], dtype=dtype).expand(batch_size)
-
-        # Text encoder hidden states
-        encoder_hidden_states = torch.randn(
-            batch_size, 256, config.text_dim, dtype=dtype
-        )
-
-        inputs = {
+        return {
             "hidden_states": hidden_states,
-            "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
+            "timestep": timestep,
         }
-
-        return inputs
