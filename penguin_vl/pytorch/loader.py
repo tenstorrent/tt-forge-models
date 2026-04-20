@@ -169,6 +169,37 @@ class ModelLoader(ForgeModel):
                 config, device, **kw
             )
 
+        import sys
+
+        encoder_mod_name = next(
+            (k for k in sys.modules if k.endswith("modeling_penguinvl_encoder")),
+            None,
+        )
+        if encoder_mod_name:
+            enc_mod = sys.modules[encoder_mod_name]
+            if not hasattr(enc_mod, "flash_attn_varlen_func"):
+
+                def _flash_attn_varlen_fallback(
+                    q,
+                    k,
+                    v,
+                    cu_seqlens_q,
+                    cu_seqlens_k,
+                    max_seqlen_q,
+                    max_seqlen_k,
+                    dropout_p=0.0,
+                    causal=False,
+                ):
+                    q2 = q.unsqueeze(0).transpose(1, 2)
+                    k2 = k.unsqueeze(0).transpose(1, 2)
+                    v2 = v.unsqueeze(0).transpose(1, 2)
+                    out = torch.nn.functional.scaled_dot_product_attention(
+                        q2, k2, v2, is_causal=causal
+                    )
+                    return out.transpose(1, 2).squeeze(0)
+
+                enc_mod.flash_attn_varlen_func = _flash_attn_varlen_fallback
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
