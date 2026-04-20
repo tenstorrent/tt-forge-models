@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Nemotron ColEmbed VL model variants."""
 
     NEMOTRON_COLEMBED_VL_4B_V2 = "ColEmbed_VL_4B_V2"
+    NEMOTRON_COLEMBED_VL_8B_V2 = "ColEmbed_VL_8B_V2"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.NEMOTRON_COLEMBED_VL_4B_V2: ModelConfig(
             pretrained_model_name="nvidia/nemotron-colembed-vl-4b-v2",
+        ),
+        ModelVariant.NEMOTRON_COLEMBED_VL_8B_V2: ModelConfig(
+            pretrained_model_name="nvidia/nemotron-colembed-vl-8b-v2",
         ),
     }
 
