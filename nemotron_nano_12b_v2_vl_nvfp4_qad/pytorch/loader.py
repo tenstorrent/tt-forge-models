@@ -61,6 +61,8 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
             model="nemotron_nano_12b_v2_vl_nvfp4_qad",
             variant=variant,
