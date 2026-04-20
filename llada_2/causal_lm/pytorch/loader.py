@@ -143,6 +143,10 @@ class ModelLoader(ForgeModel):
             add_special_tokens=False,
         )
 
+        seq_len = max_length
+        causal_mask = torch.tril(torch.ones(seq_len, seq_len, dtype=torch.bool))
+        inputs["attention_mask"] = causal_mask.unsqueeze(0).unsqueeze(0).float()
+
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
