@@ -7,7 +7,7 @@ mlx-community/Ministral-3-14B-Instruct-2512-4bit model loader implementation for
 
 from typing import Optional
 
-from ....config import (
+from ...config import (
     LLMModelConfig,
     ModelInfo,
     ModelGroup,
@@ -16,7 +16,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....base import ForgeModel
+from ...base import ForgeModel
 
 
 class ModelVariant(StrEnum):
@@ -32,9 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.MINISTRAL_3_14B_INSTRUCT_2512_4BIT: LLMModelConfig(
-            pretrained_model_name=str(
-                ModelVariant.MINISTRAL_3_14B_INSTRUCT_2512_4BIT
-            ),
+            pretrained_model_name=str(ModelVariant.MINISTRAL_3_14B_INSTRUCT_2512_4BIT),
         ),
     }
 
@@ -114,7 +112,7 @@ class ModelLoader(ForgeModel):
             dict: Input tensors that can be fed to the model.
         """
         from PIL import Image
-        from ....tools.utils import cast_input_to_type, get_file
+        from ...tools.utils import cast_input_to_type, get_file
 
         if self.processor is None:
             self._load_processor(dtype_override)
