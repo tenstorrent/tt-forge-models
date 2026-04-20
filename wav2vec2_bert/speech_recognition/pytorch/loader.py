@@ -76,8 +76,9 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **model_kwargs
         )
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
+        import torch
+
+        model.to(dtype_override if dtype_override is not None else torch.float32)
 
         return model
 
