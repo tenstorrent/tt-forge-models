@@ -13,6 +13,7 @@ Available variants:
 - COSMOS_7B_TEXT2WORLD: nvidia/Cosmos-1.0-Diffusion-7B-Text2World
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -67,9 +68,11 @@ class ModelLoader(ForgeModel):
 
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16):
         """Load the CosmosTextToWorldPipeline."""
+        token = os.environ.get("HF_TOKEN")
         self._pipe = CosmosTextToWorldPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
+            token=token,
         )
         return self._pipe
 
