@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Pythia model variants."""
 
     PYTHIA_14M_SEED7 = "14M-seed7"
+    PYTHIA_14M_SEED8 = "14M-seed8"
     PYTHIA_14M_SEED9 = "14M-seed9"
     PYTHIA_31M = "31M"
     PYTHIA_31M_SEED3 = "31M-seed3"
@@ -46,6 +47,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.PYTHIA_14M_SEED7: LLMModelConfig(
             pretrained_model_name="EleutherAI/pythia-14m-seed7",
+            max_length=256,
+        ),
+        ModelVariant.PYTHIA_14M_SEED8: LLMModelConfig(
+            pretrained_model_name="EleutherAI/pythia-14m-seed8",
             max_length=256,
         ),
         ModelVariant.PYTHIA_14M_SEED9: LLMModelConfig(
