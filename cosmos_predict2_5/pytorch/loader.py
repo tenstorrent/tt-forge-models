@@ -93,6 +93,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         self.pipeline = Cosmos2_5_PredictBasePipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
+            revision="diffusers/base/post-trained",
             **model_kwargs,
         )
         return self.pipeline
