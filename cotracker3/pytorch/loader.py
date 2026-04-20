@@ -59,28 +59,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load and return the CoTracker3 model instance."""
         model_name = self._variant_config.pretrained_model_name
         model = torch.hub.load("facebookresearch/co-tracker", model_name, **kwargs)
         model.eval()
-
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-        else:
-            model = model.to(torch.float32)
-
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, batch_size=1):
         """Load and return input tensors for CoTracker3.
 
         Returns a synthetic video tensor of shape (B, T, C, H, W).
         """
-        # Create a small synthetic video: 8 frames of 224x224 RGB
         video = torch.randn(batch_size, 8, 3, 224, 224)
-
-        if dtype_override is not None:
-            video = video.to(dtype_override)
-
         return video
