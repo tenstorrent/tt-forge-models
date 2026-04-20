@@ -24,7 +24,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available model variants for causal language modeling."""
 
-    GEMMA_3_12B_IT_VL_GLM_4_7_I1_GGUF = "12B_IT_VL_GLM_4_7_I1_GGUF"
+    GEMMA_3_12B_IT_VL_GLM_4_7_I1_GGUF = "12B_IT_VL_GLM_4_7_i1_GGUF"
 
 
 class ModelLoader(ForgeModel):
