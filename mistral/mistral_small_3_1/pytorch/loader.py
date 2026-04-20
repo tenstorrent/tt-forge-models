@@ -26,6 +26,9 @@ class ModelVariant(StrEnum):
     MISTRAL_SMALL_3_1_24B_INSTRUCT_INT4_AWQ = (
         "OPEA/Mistral-Small-3.1-24B-Instruct-2503-int4-AutoRound-awq-sym"
     )
+    MISTRAL_SMALL_3_1_24B_INSTRUCT_UNSLOTH = (
+        "unsloth/Mistral-Small-3.1-24B-Instruct-2503"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +41,11 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_INT4_AWQ: LLMModelConfig(
             pretrained_model_name=str(
                 ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_INT4_AWQ
+            ),
+        ),
+        ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_UNSLOTH: LLMModelConfig(
+            pretrained_model_name=str(
+                ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_UNSLOTH
             ),
         ),
     }
