@@ -80,7 +80,9 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"low_cpu_mem_usage": True}
+        # Skip loading the talker + code2wav submodules: captioning only needs
+        # the thinker, and the talker alone accounts for several GB.
+        model_kwargs = {"low_cpu_mem_usage": True, "enable_audio_output": False}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -94,9 +96,8 @@ class ModelLoader(ForgeModel):
         thinker = model.thinker
         thinker.config.use_cache = False
         thinker.eval()
-        model = Wrapper(thinker)
-
-        return model
+        del model
+        return Wrapper(thinker)
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the Qwen 3 Omni Captioner model."""
