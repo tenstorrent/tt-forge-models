@@ -73,37 +73,6 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    _TEXT_CONFIGS = {
-        ModelVariant.V0_5_LLAMA_3_2_1B: {
-            "model_type": "llama",
-            "hidden_size": 2048,
-            "intermediate_size": 8192,
-            "num_attention_heads": 32,
-            "num_hidden_layers": 16,
-            "num_key_value_heads": 8,
-            "vocab_size": 128256,
-            "max_position_embeddings": 131072,
-            "rms_norm_eps": 1e-5,
-            "rope_theta": 500000.0,
-        },
-        ModelVariant.V0_6_LLAMA_3_1_8B: {
-            "model_type": "llama",
-            "hidden_size": 4096,
-            "intermediate_size": 14336,
-            "num_attention_heads": 32,
-            "num_hidden_layers": 32,
-            "num_key_value_heads": 8,
-            "vocab_size": 128256,
-            "max_position_embeddings": 131072,
-            "rms_norm_eps": 1e-5,
-            "rope_theta": 500000.0,
-        },
-    }
-
-    def _get_text_config(self):
-        """Return the text model config for the current variant."""
-        return self._TEXT_CONFIGS[self._variant]
-
     def _get_patched_model_dir(self):
         """Create a local directory with a patched config.json that avoids gated repo access.
 
