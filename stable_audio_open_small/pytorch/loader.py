@@ -105,6 +105,13 @@ class ModelLoader(ForgeModel):
         conditioner_outputs = self._wrapper.conditioner(conditioning, device="cpu")
         conditioning_inputs = self._wrapper.get_conditioning_inputs(conditioner_outputs)
 
+        # get_conditioning_inputs uses the DiTWrapper's parameter names, while
+        # the underlying DiffusionTransformer expects slightly different keys.
+        key_renames = {
+            "cross_attn_mask": "cross_attn_cond_mask",
+            "global_cond": "global_embed",
+        }
+
         # Prepare synthetic latents for the DiT using shapes read from the
         # model config rather than the transformer module, since the DiT does
         # not expose io_channels as an attribute.
@@ -119,8 +126,9 @@ class ModelLoader(ForgeModel):
 
         inputs = {"x": x, "t": t}
         for key, value in conditioning_inputs.items():
+            target_key = key_renames.get(key, key)
             if isinstance(value, torch.Tensor) and value.is_floating_point():
-                inputs[key] = value.to(dtype=dtype)
+                inputs[target_key] = value.to(dtype=dtype)
             else:
-                inputs[key] = value
+                inputs[target_key] = value
         return inputs
