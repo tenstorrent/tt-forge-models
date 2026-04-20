@@ -3,7 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Nemotron 3 Nano GGUF model loader implementation for causal language modeling.
+
+Note: The nemotron_h architecture is not supported in GGUF format by transformers,
+so this loader uses the base safetensors model from nvidia instead.
+The nemotron_h model requires mamba-ssm (CUDA-only), so we install a pure PyTorch
+stub when the real package is unavailable.
 """
+import sys
+import types
+import importlib
+import importlib.machinery
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -20,6 +30,91 @@ from ....config import (
 )
 
 
+def _ensure_mamba_ssm_available():
+    """Install a pure PyTorch stub for mamba_ssm if the real package is unavailable.
+
+    The nemotron_h model requires mamba_ssm.ops.triton.layernorm_gated.rmsnorm_fn at
+    import time. The real mamba-ssm package requires CUDA to install, so in CPU-only
+    environments we provide a pure PyTorch fallback.
+    """
+    try:
+        importlib.import_module("mamba_ssm.ops.triton.layernorm_gated")
+        return
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+    def _rmsnorm_fn(
+        x, weight, bias=None, z=None, eps=1e-6, group_size=None, norm_before_gate=False
+    ):
+        dtype = x.dtype
+        x = x.float()
+        if group_size is not None:
+            orig_shape = x.shape
+            x = x.view(*x.shape[:-1], -1, group_size)
+            variance = x.pow(2).mean(-1, keepdim=True)
+            x = x * torch.rsqrt(variance + eps)
+            x = x.view(orig_shape)
+        else:
+            variance = x.pow(2).mean(-1, keepdim=True)
+            x = x * torch.rsqrt(variance + eps)
+        x = x.to(dtype) * weight
+        if bias is not None:
+            x = x + bias
+        if z is not None:
+            z = torch.nn.functional.silu(z)
+            x = x * z
+        return x
+
+    mamba_ssm = types.ModuleType("mamba_ssm")
+    mamba_ssm.__version__ = "0.0.0"
+    mamba_ssm.__spec__ = importlib.machinery.ModuleSpec("mamba_ssm", None)
+    mamba_ssm.ops = types.ModuleType("mamba_ssm.ops")
+    mamba_ssm.ops.triton = types.ModuleType("mamba_ssm.ops.triton")
+
+    layernorm_gated = types.ModuleType("mamba_ssm.ops.triton.layernorm_gated")
+    layernorm_gated.rmsnorm_fn = _rmsnorm_fn
+
+    selective_state = types.ModuleType("mamba_ssm.ops.triton.selective_state_update")
+    selective_state.selective_state_update = None
+
+    ssd_combined = types.ModuleType("mamba_ssm.ops.triton.ssd_combined")
+    ssd_combined.mamba_chunk_scan_combined = None
+    ssd_combined.mamba_split_conv1d_scan_combined = None
+
+    mamba_ssm.ops.triton.layernorm_gated = layernorm_gated
+    mamba_ssm.ops.triton.selective_state_update = selective_state
+    mamba_ssm.ops.triton.ssd_combined = ssd_combined
+
+    sys.modules["mamba_ssm"] = mamba_ssm
+    sys.modules["mamba_ssm.ops"] = mamba_ssm.ops
+    sys.modules["mamba_ssm.ops.triton"] = mamba_ssm.ops.triton
+    sys.modules["mamba_ssm.ops.triton.layernorm_gated"] = layernorm_gated
+    sys.modules["mamba_ssm.ops.triton.selective_state_update"] = selective_state
+    sys.modules["mamba_ssm.ops.triton.ssd_combined"] = ssd_combined
+
+
+_ensure_mamba_ssm_available()
+
+
+def _patch_cuda_stream_for_cpu():
+    """Patch torch.cuda.stream and default_stream to be no-ops on CPU builds."""
+    if torch.cuda.is_available():
+        return
+    import contextlib
+
+    _orig_cuda_stream = torch.cuda.stream
+
+    @contextlib.contextmanager
+    def _noop_stream(stream=None):
+        yield
+
+    torch.cuda.stream = _noop_stream
+    torch.cuda.default_stream = lambda device=None: None
+
+
+_patch_cuda_stream_for_cpu()
+
+
 class ModelVariant(StrEnum):
     """Available Nemotron 3 Nano GGUF model variants for causal language modeling."""
 
@@ -31,14 +126,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.NEMOTRON_3_NANO_4B_Q4_K_M_GGUF: LLMModelConfig(
-            pretrained_model_name="lmstudio-community/NVIDIA-Nemotron-3-Nano-4B-GGUF",
+            pretrained_model_name="nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.NEMOTRON_3_NANO_4B_Q4_K_M_GGUF
-
-    GGUF_FILE = "NVIDIA-Nemotron-3-Nano-4B-Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
@@ -62,10 +155,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
+        tokenizer_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -81,15 +173,14 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, trust_remote_code=True
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -137,6 +228,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, trust_remote_code=True
         )
         return self.config
