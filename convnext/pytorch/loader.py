@@ -40,7 +40,7 @@ class ModelVariant(StrEnum):
 
     BASE_CLIP_LAION2B = "Base_CLIP_LAION2B"
     TINY_DINOV3_LVD1689M = "Tiny_DINOv3_LVD1689M"
-    TEST_CONVNEXT3_R160_IN1K = "Test_ConvNeXt3_R160_IN1K"
+    LARGE_DINOV3_LVD1689M = "Large_DINOv3_LVD1689M"
 
 
 class ModelLoader(ForgeModel):
@@ -55,8 +55,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="hf_hub:timm/convnext_tiny.dinov3_lvd1689m",
             source=ModelSource.TIMM,
         ),
-        ModelVariant.TEST_CONVNEXT3_R160_IN1K: ConvNeXtConfig(
-            pretrained_model_name="hf_hub:timm/test_convnext3.r160_in1k",
+        ModelVariant.LARGE_DINOV3_LVD1689M: ConvNeXtConfig(
+            pretrained_model_name="hf_hub:timm/convnext_large.dinov3_lvd1689m",
             source=ModelSource.TIMM,
         ),
     }
