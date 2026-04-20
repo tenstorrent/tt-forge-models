@@ -26,12 +26,14 @@ class ModelVariant(StrEnum):
 
     VIT_B_16 = "ViT_B_16"
     VIT_B_16_384 = "ViT_B_16_384"
+    VIT_L_16_384 = "ViT_L_16_384"
 
 
 # Mapping from variant to OpenCLIP tokenizer name
 _TOKENIZER_NAME = {
     ModelVariant.VIT_B_16: "ViT-B-16-SigLIP2",
     ModelVariant.VIT_B_16_384: "ViT-B-16-SigLIP2-384",
+    ModelVariant.VIT_L_16_384: "ViT-L-16-SigLIP2-384",
 }
 
 
@@ -44,6 +46,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.VIT_B_16_384: ModelConfig(
             pretrained_model_name="hf-hub:timm/ViT-B-16-SigLIP2-384",
+        ),
+        ModelVariant.VIT_L_16_384: ModelConfig(
+            pretrained_model_name="hf-hub:timm/ViT-L-16-SigLIP2-384",
         ),
     }
 
