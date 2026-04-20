@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     LFM2_24B_A2B = "lfm2_24b_a2b"
     LFM2_2_6B_MLX_4BIT = "lfm2_2_6b_mlx_4bit"
+    LFM2_350M_UNSLOTH = "lfm2_350m_unsloth"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LFM2_2_6B_MLX_4BIT: LLMModelConfig(
             pretrained_model_name="mlx-community/LFM2-2.6B-4bit",
+            max_length=128,
+        ),
+        ModelVariant.LFM2_350M_UNSLOTH: LLMModelConfig(
+            pretrained_model_name="unsloth/LFM2-350M",
             max_length=128,
         ),
     }
