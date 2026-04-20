@@ -118,4 +118,4 @@ class ModelLoader(ForgeModel):
         else:
             token_ids = outputs
 
-        return self.processor.batch_decode(token_ids, skip_special_tokens=True)[0]
+        return self.processor.decode(token_ids[0], skip_special_tokens=True)
