@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available EuroLLM model variants for causal language modeling."""
 
     EUROLLM_22B_INSTRUCT_2512 = "EuroLLM_22B_Instruct_2512"
-    EUROLLM_22B_2512 = "EuroLLM_22B_2512"
+    EUROLLM_9B = "EuroLLM_9B"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="utter-project/EuroLLM-22B-Instruct-2512",
             max_length=256,
         ),
-        ModelVariant.EUROLLM_22B_2512: LLMModelConfig(
-            pretrained_model_name="utter-project/EuroLLM-22B-2512",
+        ModelVariant.EUROLLM_9B: LLMModelConfig(
+            pretrained_model_name="utter-project/EuroLLM-9B",
             max_length=256,
         ),
     }
