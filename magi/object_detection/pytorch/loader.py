@@ -9,6 +9,7 @@ and text detection.
 from typing import Optional
 
 import numpy as np
+import torch
 from datasets import load_dataset
 from transformers import AutoModel
 
@@ -85,10 +86,7 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             for key in inputs:
-                if (
-                    hasattr(inputs[key], "dtype")
-                    and inputs[key].dtype.is_floating_point
-                ):
+                if torch.is_tensor(inputs[key]) and inputs[key].dtype.is_floating_point:
                     inputs[key] = inputs[key].to(dtype_override)
 
         return inputs
