@@ -5,7 +5,7 @@
 Jina CLIP v1 model loader implementation for image-text similarity.
 """
 import torch
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoConfig, AutoModel, AutoProcessor
 from typing import Optional
 
 from ...base import ForgeModel
@@ -68,7 +68,12 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
