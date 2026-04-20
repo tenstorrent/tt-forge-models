@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Depth Anything V2 Metric Indoor model variants."""
 
     SMALL = "Small"
+    BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SMALL: ModelConfig(
             pretrained_model_name="depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf",
+        ),
+        ModelVariant.BASE: ModelConfig(
+            pretrained_model_name="depth-anything/Depth-Anything-V2-Metric-Indoor-Base-hf",
         ),
     }
 
