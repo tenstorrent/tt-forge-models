@@ -4,6 +4,7 @@
 """
 Molmo2 model loader implementation for multimodal conditional generation.
 """
+
 import torch
 from PIL import Image
 from transformers import AutoProcessor, AutoModelForImageTextToText
@@ -58,10 +59,32 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-        )
+        from transformers.processing_utils import ProcessorMixin
+
+        # Workaround for transformers 5.2.0: the remote Molmo2Processor passes
+        # optional_attributes (image_use_col_tokens, etc.) to ProcessorMixin.__init__()
+        # which now rejects unknown kwargs.
+        original_init = ProcessorMixin.__init__
+
+        def _patched_init(self_inner, *args, **kwargs):
+            optional = getattr(type(self_inner), "optional_attributes", [])
+            extra = {
+                k: kwargs.pop(k)
+                for k in list(kwargs)
+                if k in optional and k != "chat_template"
+            }
+            original_init(self_inner, *args, **kwargs)
+            for k, v in extra.items():
+                setattr(self_inner, k, v)
+
+        ProcessorMixin.__init__ = _patched_init
+        try:
+            self.processor = AutoProcessor.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                trust_remote_code=True,
+            )
+        finally:
+            ProcessorMixin.__init__ = original_init
 
         return self.processor
 
