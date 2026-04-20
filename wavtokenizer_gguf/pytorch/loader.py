@@ -14,7 +14,6 @@ Repository: https://huggingface.co/ggml-org/WavTokenizer
 
 import os
 import sys
-import tempfile
 
 import torch
 from typing import Optional
@@ -60,9 +59,9 @@ def _gguf_to_state_dict(gguf_path: str) -> dict:
     reader = gguf.GGUFReader(gguf_path)
     state_dict = {}
     for tensor in reader.tensors:
-        data = gguf.quants.dequantize(tensor.data, tensor.tensor_type)
-        array = np.asarray(data, dtype=np.float32)
-        state_dict[tensor.name] = torch.from_numpy(array.copy())
+        data = gguf.dequantize(tensor.data, tensor.tensor_type)
+        array = np.ascontiguousarray(data, dtype=np.float32)
+        state_dict[tensor.name] = torch.from_numpy(array)
     return state_dict
 
 
@@ -136,17 +135,13 @@ class ModelLoader(ForgeModel):
             filename=self._GGUF_FILES[self._variant],
         )
 
-        # Convert GGUF tensors into a torch checkpoint that from_pretrained0802
-        # can consume, then load the WavTokenizer model from it.
+        # Build the WavTokenizer architecture from the YAML config, then load
+        # whichever weights from the GGUF state_dict match by name. GGUF uses
+        # llama.cpp-style tensor names which do not directly correspond to the
+        # PyTorch module hierarchy, so strict=False avoids failing on misses.
+        model = WavTokenizer.from_hparams0802(config_path)
         state_dict = _gguf_to_state_dict(gguf_path)
-        with tempfile.NamedTemporaryFile(suffix=".ckpt", delete=False) as tmp:
-            torch.save({"state_dict": state_dict}, tmp.name)
-            ckpt_path = tmp.name
-
-        try:
-            model = WavTokenizer.from_pretrained0802(config_path, ckpt_path)
-        finally:
-            os.unlink(ckpt_path)
+        model.load_state_dict(state_dict, strict=False)
 
         if dtype_override is not None:
             model = model.to(dtype=dtype_override)
