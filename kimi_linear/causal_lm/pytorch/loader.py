@@ -109,9 +109,37 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        self._patch_cache_get_mask_sizes(model)
+
         self.config = model.config
         self.model = model
         return model
+
+    @staticmethod
+    def _patch_cache_get_mask_sizes(model):
+        """Patch KimiLinearCache.get_mask_sizes for transformers >=5.5 compat.
+
+        Transformers 5.5+ passes q_length (int) instead of cache_position (Tensor).
+        """
+        mod = type(model).__module__
+        cache_mod = __import__(mod, fromlist=["KimiLinearCache"])
+        cache_cls = getattr(cache_mod, "KimiLinearCache", None)
+        if cache_cls is None:
+            return
+
+        orig = cache_cls.get_mask_sizes
+
+        def patched_get_mask_sizes(self, cache_position, layer_idx):
+            if isinstance(cache_position, int):
+                query_length = cache_position
+            else:
+                query_length = cache_position.shape[0]
+            kv_offset = 0
+            past_seen_tokens = self.get_seq_length(layer_idx)
+            kv_length = query_length + past_seen_tokens
+            return kv_length, kv_offset
+
+        cache_cls.get_mask_sizes = patched_get_mask_sizes
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
