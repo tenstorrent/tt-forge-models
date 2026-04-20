@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available ACE-Step model variants for causal language modeling."""
 
     ACESTEP_5HZ_LM_0_6B = "acestep_5hz_lm_0_6b"
+    ACESTEP_5HZ_LM_4B = "acestep_5hz_lm_4b"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.ACESTEP_5HZ_LM_0_6B: LLMModelConfig(
             pretrained_model_name="ACE-Step/acestep-5Hz-lm-0.6B",
+            max_length=128,
+        ),
+        ModelVariant.ACESTEP_5HZ_LM_4B: LLMModelConfig(
+            pretrained_model_name="ACE-Step/acestep-5Hz-lm-4B",
             max_length=128,
         ),
     }
