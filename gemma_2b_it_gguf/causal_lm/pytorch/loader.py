@@ -132,6 +132,17 @@ class ModelLoader(ForgeModel):
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        if not getattr(self.tokenizer, "chat_template", None):
+            self.tokenizer.chat_template = (
+                "{% for message in messages %}"
+                "{% if message['role'] == 'user' %}"
+                "<start_of_turn>user\n{{ message['content'] }}<end_of_turn>\n"
+                "{% elif message['role'] == 'model' %}"
+                "<start_of_turn>model\n{{ message['content'] }}<end_of_turn>\n"
+                "{% endif %}"
+                "{% endfor %}"
+                "{% if add_generation_prompt %}<start_of_turn>model\n{% endif %}"
+            )
 
         return self.tokenizer
 
