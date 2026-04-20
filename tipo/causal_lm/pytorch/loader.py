@@ -23,6 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available TIPO model variants."""
 
+    TIPO_500M = "TIPO_500M"
     TIPO_500M_FT = "TIPO_500M_ft"
 
 
@@ -30,6 +31,10 @@ class ModelLoader(ForgeModel):
     """TIPO model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
+        ModelVariant.TIPO_500M: LLMModelConfig(
+            pretrained_model_name="KBlueLeaf/TIPO-500M",
+            max_length=256,
+        ),
         ModelVariant.TIPO_500M_FT: LLMModelConfig(
             pretrained_model_name="KBlueLeaf/TIPO-500M-ft",
             max_length=256,
