@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Wav2Vec2 model loader for deepfake audio detection (fake vs real classification).
+Wav2Vec2 model loader for deepfake audio detection.
 """
 
 from typing import Optional
@@ -22,21 +22,19 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available deepfake audio detection model variants."""
 
-    MELODY_MACHINE_DEEPFAKE_AUDIO_DETECTION_V2 = (
-        "melody_machine_deepfake_audio_detection_v2"
-    )
+    MO_THECREATOR_DEEPFAKE_AUDIO_DETECTION = "mo_thecreator_deepfake_audio_detection"
 
 
 class ModelLoader(ForgeModel):
     """Wav2Vec2 deepfake audio detection model loader (PyTorch)."""
 
     _VARIANTS = {
-        ModelVariant.MELODY_MACHINE_DEEPFAKE_AUDIO_DETECTION_V2: ModelConfig(
-            pretrained_model_name="MelodyMachine/Deepfake-audio-detection-V2",
+        ModelVariant.MO_THECREATOR_DEEPFAKE_AUDIO_DETECTION: ModelConfig(
+            pretrained_model_name="mo-thecreator/Deepfake-audio-detection",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.MELODY_MACHINE_DEEPFAKE_AUDIO_DETECTION_V2
+    DEFAULT_VARIANT = ModelVariant.MO_THECREATOR_DEEPFAKE_AUDIO_DETECTION
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -70,14 +68,14 @@ class ModelLoader(ForgeModel):
         return self._processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import Wav2Vec2ForSequenceClassification
+        from transformers import AutoModelForAudioClassification
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = Wav2Vec2ForSequenceClassification.from_pretrained(
+        model = AutoModelForAudioClassification.from_pretrained(
             self._variant_config.pretrained_model_name,
             **model_kwargs,
         )
