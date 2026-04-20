@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.PLAMO_2_TRANSLATE_GGUF
 
-    GGUF_FILE = "plamo-2-translate-Q4_K_M.gguf"
+    GGUF_FILE = "plamo-2-translate_Q4_K_M.gguf"
 
     sample_text = (
         "Translate the following English text to Japanese: The weather is nice today."
