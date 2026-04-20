@@ -45,6 +45,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_MATH_1_5B_INSTRUCT = "Math_1.5B_Instruct"
     QWEN_2_5_MATH_7B = "Math_7B"
     QWEN_2_5_MATH_7B_INSTRUCT = "Math_7B_Instruct"
+    QWEN_2_5_0_5B_INSTRUCT_AWQ = "0.5B_Instruct_Awq"
     QWEN_2_5_14B_INSTRUCT_AWQ = "14B_Instruct_Awq"
     QWEN_2_5_32B_INSTRUCT_AWQ = "32B_Instruct_Awq"
     QWEN_2_5_14B_INSTRUCT_1M_AWQ = "14B_Instruct_1M_Awq"
@@ -139,6 +140,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen2.5-Math-7B-Instruct",
             max_length=128,
         ),
+        ModelVariant.QWEN_2_5_0_5B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-0.5B-Instruct-AWQ",
+            max_length=128,
+        ),
         ModelVariant.QWEN_2_5_14B_INSTRUCT_AWQ: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-14B-Instruct-AWQ",
             max_length=128,
@@ -229,6 +234,7 @@ class ModelLoader(ForgeModel):
         if variant in [
             ModelVariant.QWEN_2_5_MATH_1_5B,
             ModelVariant.QWEN_2_5_MATH_1_5B_INSTRUCT,
+            ModelVariant.QWEN_2_5_0_5B_INSTRUCT_AWQ,
             ModelVariant.QWEN_2_5_14B_INSTRUCT_AWQ,
             ModelVariant.QWEN_2_5_32B_INSTRUCT_AWQ,
             ModelVariant.QWEN_2_5_14B_INSTRUCT_1M_AWQ,
@@ -295,6 +301,7 @@ class ModelLoader(ForgeModel):
 
         # Check if this is an AWQ or BNB variant and configure accordingly
         if pretrained_model_name in (
+            "Qwen/Qwen2.5-0.5B-Instruct-AWQ",
             "Qwen/Qwen2.5-14B-Instruct-AWQ",
             "Qwen/Qwen2.5-32B-Instruct-AWQ",
             "Qwen/Qwen2.5-72B-Instruct-AWQ",
