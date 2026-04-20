@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available UI-Venus model variants for image to text."""
 
     UI_VENUS_1_5_8B = "1_5_8b"
+    UI_VENUS_1_5_2B = "1_5_2b"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.UI_VENUS_1_5_8B: LLMModelConfig(
             pretrained_model_name="inclusionAI/UI-Venus-1.5-8B",
+            max_length=128,
+        ),
+        ModelVariant.UI_VENUS_1_5_2B: LLMModelConfig(
+            pretrained_model_name="inclusionAI/UI-Venus-1.5-2B",
             max_length=128,
         ),
     }
