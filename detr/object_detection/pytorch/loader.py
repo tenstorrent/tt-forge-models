@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     RESNET_50 = "ResNet50_Backbone"
     RESNET_101 = "ResNet101_Backbone"
+    RESNET_101_DC5 = "ResNet101_DC5_Backbone"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.RESNET_101: ModelConfig(
             pretrained_model_name="facebook/detr-resnet-101",
+        ),
+        ModelVariant.RESNET_101_DC5: ModelConfig(
+            pretrained_model_name="facebook/detr-resnet-101-dc5",
         ),
     }
 
@@ -68,7 +72,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        if variant == ModelVariant.RESNET_101:
+        if variant in (ModelVariant.RESNET_101, ModelVariant.RESNET_101_DC5):
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.RED
