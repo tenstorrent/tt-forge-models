@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available FSMT model variants for text translation."""
 
     WMT19_RU_EN = "Wmt19_Ru_En"
+    WMT19_EN_DE = "Wmt19_En_De"
 
 
 class ModelLoader(ForgeModel):
@@ -33,12 +34,16 @@ class ModelLoader(ForgeModel):
         ModelVariant.WMT19_RU_EN: LLMModelConfig(
             pretrained_model_name="facebook/wmt19-ru-en",
         ),
+        ModelVariant.WMT19_EN_DE: LLMModelConfig(
+            pretrained_model_name="facebook/wmt19-en-de",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.WMT19_RU_EN
 
     _SAMPLE_TEXTS = {
         ModelVariant.WMT19_RU_EN: "Машинное обучение - это здорово, не так ли?",
+        ModelVariant.WMT19_EN_DE: "Machine learning is great, isn't it?",
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
