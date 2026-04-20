@@ -1,21 +1,12 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Juggernaut Reborn (HyperX-Sentience/Juggernaut-Reborn) model loader implementation.
-
-Juggernaut Reborn is a photorealistic text-to-image model based on Stable Diffusion
-v1.5, distributed as a single-file safetensors checkpoint.
-
-Available variants:
-- BASE: HyperX-Sentience/Juggernaut-Reborn text-to-image generation
+Juggernaut Reborn model loader implementation
 """
 
-from typing import Optional
-
 import torch
-from diffusers import StableDiffusionPipeline
-from huggingface_hub import hf_hub_download
+from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
@@ -27,9 +18,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-
-REPO_ID = "HyperX-Sentience/Juggernaut-Reborn"
-CHECKPOINT_FILE = "juggernaut_reborn.safetensors"
+from diffusers import StableDiffusionPipeline
 
 
 class ModelVariant(StrEnum):
@@ -43,19 +32,31 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
-            pretrained_model_name=REPO_ID,
-        ),
+            pretrained_model_name="stablediffusionapi/juggernaut-reborn",
+        )
     }
+
     DEFAULT_VARIANT = ModelVariant.BASE
 
     def __init__(self, variant: Optional[ModelVariant] = None):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
         super().__init__(variant)
-        self.pipeline = None
 
     @classmethod
-    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        if variant is None:
-            variant = cls.DEFAULT_VARIANT
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant: Optional variant name string. If None, uses default.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
         return ModelInfo(
             model="Juggernaut Reborn",
             variant=variant,
@@ -66,26 +67,32 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Juggernaut Reborn pipeline from a single-file checkpoint.
+        """Load and return the Juggernaut Reborn pipeline from Hugging Face.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                           If not provided, the model will use torch.bfloat16.
 
         Returns:
-            StableDiffusionPipeline: The Juggernaut Reborn pipeline instance.
+            StableDiffusionPipeline: The pre-trained Juggernaut Reborn pipeline object.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
-        model_path = hf_hub_download(repo_id=REPO_ID, filename=CHECKPOINT_FILE)
-        self.pipeline = StableDiffusionPipeline.from_single_file(
-            model_path,
-            torch_dtype=dtype,
-            **kwargs,
+        dtype = dtype_override or torch.bfloat16
+        pipe = StableDiffusionPipeline.from_pretrained(
+            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
         )
-        return self.pipeline
+        return pipe
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample text prompts for the Juggernaut Reborn model.
 
+        Args:
+            dtype_override: This parameter is ignored for this model.
+            batch_size: Optional batch size for the prompts.
+
         Returns:
             list: A list of sample text prompts.
         """
-        return [
-            "a photo of an astronaut riding a horse on mars",
+        prompt = [
+            "ultra realistic close up portrait of a beautiful cyberpunk woman, neon lights, cinematic lighting, 8K",
         ] * batch_size
+        return prompt
