@@ -33,10 +33,12 @@ class ModelVariant(StrEnum):
     RETROMAE_MSMARCO_DISTILL = "Shitao/RetroMAE_MSMARCO_distill"
     BERT_LARGE_UNCASED_WWM = "Large_Uncased_Whole_Word_Masking"
     BERT_BASE_DUTCH_CASED = "wietsedv/bert-base-dutch-cased"
+    CHINESE_MACBERT_LARGE = "hfl/chinese-macbert-large"
 
 
 _SAMPLE_TEXTS = {
     ModelVariant.BERT_BASE_DUTCH_CASED: "Amsterdam is de hoofdstad van [MASK].",
+    ModelVariant.CHINESE_MACBERT_LARGE: "巴黎是[MASK]国的首都。",
 }
 
 
@@ -93,6 +95,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="wietsedv/bert-base-dutch-cased",
             max_length=128,
         ),
+        ModelVariant.CHINESE_MACBERT_LARGE: LLMModelConfig(
+            pretrained_model_name="hfl/chinese-macbert-large",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -141,6 +147,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.RETROMAE_MSMARCO_DISTILL,
             ModelVariant.BERT_LARGE_UNCASED_WWM,
             ModelVariant.BERT_BASE_DUTCH_CASED,
+            ModelVariant.CHINESE_MACBERT_LARGE,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
