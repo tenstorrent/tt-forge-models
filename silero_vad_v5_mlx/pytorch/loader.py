@@ -95,6 +95,7 @@ class SileroVADv5(nn.Module):
             return_complex=True,
         )
         x = stft.abs()  # (batch, freq_bins, time_frames)
+        x = x.to(self.encoder[0].weight.dtype)
 
         # Encoder
         x = self.encoder(x)  # (batch, channels, time_frames)
@@ -160,7 +161,24 @@ class ModelLoader(ForgeModel):
             filename="model.safetensors",
         )
         state_dict = load_file(weights_path)
-        model.load_state_dict(state_dict, strict=False)
+
+        # MLX checkpoint has different layer numbering (no ReLU layers) and
+        # stores Conv1d weights as (out, kernel, in) vs PyTorch's (out, in, kernel)
+        remapped = {}
+        for key, tensor in state_dict.items():
+            new_key = key
+            if key.startswith("encoder."):
+                parts = key.split(".")
+                layer_idx = int(parts[1])
+                parts[1] = str(layer_idx * 2)
+                new_key = ".".join(parts)
+
+            if "weight" in key and tensor.dim() == 3:
+                tensor = tensor.permute(0, 2, 1)
+
+            remapped[new_key] = tensor
+
+        model.load_state_dict(remapped, strict=False)
         model.eval()
 
         if dtype_override is not None:
