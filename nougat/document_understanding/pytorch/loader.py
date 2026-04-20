@@ -4,8 +4,8 @@
 """
 Nougat model loader implementation for document understanding tasks.
 """
+
 import torch
-from huggingface_hub import hf_hub_download
 from PIL import Image
 from transformers import NougatProcessor, VisionEncoderDecoderModel
 from typing import Optional
@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
             kwargs["torch_dtype"] = dtype_override
 
         self.processor = NougatProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **kwargs
+            self._variant_config.pretrained_model_name, use_fast=False, **kwargs
         )
 
         return self.processor
@@ -92,22 +92,19 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        filepath = hf_hub_download(
-            repo_id="hf-internal-testing/fixtures_docvqa",
-            filename="nougat_paper.png",
-            repo_type="dataset",
-        )
-        image = Image.open(filepath)
+        image = Image.new("RGB", (794, 1123), color=(255, 255, 255))
         pixel_values = self.processor(image, return_tensors="pt").pixel_values
 
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
 
-        # Add batch dimension
+        decoder_input_ids = torch.tensor([[self.processor.tokenizer.bos_token_id]])
+
         if batch_size > 1:
             pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
+            decoder_input_ids = decoder_input_ids.repeat_interleave(batch_size, dim=0)
 
-        return {"pixel_values": pixel_values}
+        return {"pixel_values": pixel_values, "decoder_input_ids": decoder_input_ids}
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
