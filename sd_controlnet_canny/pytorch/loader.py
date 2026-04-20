@@ -62,11 +62,8 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load and return the ControlNet Canny UNet model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
             torch.nn.Module: The UNet model from the pipeline.
@@ -77,16 +74,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, self.base_model
         )
 
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
-
         return self.pipeline.unet
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         """Load and return sample inputs for the ControlNet Canny model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
             List: Input tensors for the UNet with ControlNet residuals:
@@ -97,7 +88,7 @@ class ModelLoader(ForgeModel):
                 - mid_block_additional_residual (torch.Tensor)
         """
         if self.pipeline is None:
-            self.load_model(dtype_override=dtype_override)
+            self.load_model()
 
         control_image = create_canny_conditioning_image()
 
@@ -108,11 +99,6 @@ class ModelLoader(ForgeModel):
             down_block_additional_residuals,
             mid_block_additional_residual,
         ) = controlnet_canny_preprocessing(self.pipeline, self.prompt, control_image)
-
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
 
         return [
             latent_model_input,
