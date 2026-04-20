@@ -16,6 +16,8 @@ Available variants:
 - WAN21_T2V_14B: Wan 2.1 text-to-video 14B (supports VAE subfolder)
 - WAN21_VACE_1_3B: Wan 2.1 VACE (Video Creation and Editing) 1.3B
   Based on Kijai/WanVideo_comfy, uses Wan-AI/Wan2.1-VACE-1.3B-diffusers
+- WAN21_VACE_14B: Wan 2.1 VACE (Video Creation and Editing) 14B
+  Uses Wan-AI/Wan2.1-VACE-14B-diffusers
 - WAN21_I2V_14B_480P: Wan 2.1 Image-to-Video 14B 480P
   Uses WanImageToVideoPipeline with CLIPVisionModel image encoder
 - WAN21_I2V_14B_720P: Wan 2.1 Image-to-Video 14B 720P
@@ -57,6 +59,7 @@ class ModelVariant(StrEnum):
     WAN22_T2V_A14B = "2.2_T2v_A14B"
     WAN21_T2V_14B = "2.1_T2v_14B"
     WAN21_VACE_1_3B = "2.1_VACE_1.3B"
+    WAN21_VACE_14B = "2.1_VACE_14B"
     WAN21_I2V_14B_480P = "2.1_I2v_14B_480P"
     WAN21_I2V_14B_720P = "2.1_I2v_14B_720P"
 
@@ -76,6 +79,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.WAN21_VACE_1_3B: ModelConfig(
             pretrained_model_name="Wan-AI/Wan2.1-VACE-1.3B-diffusers",
+        ),
+        ModelVariant.WAN21_VACE_14B: ModelConfig(
+            pretrained_model_name="Wan-AI/Wan2.1-VACE-14B-diffusers",
         ),
         ModelVariant.WAN21_I2V_14B_480P: ModelConfig(
             pretrained_model_name="Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
@@ -110,6 +116,7 @@ class ModelLoader(ForgeModel):
         if variant in (
             ModelVariant.WAN22_T2V_A14B,
             ModelVariant.WAN21_VACE_1_3B,
+            ModelVariant.WAN21_VACE_14B,
             ModelVariant.WAN21_I2V_14B_480P,
         ):
             group = ModelGroup.VULCAN
@@ -195,7 +202,10 @@ class ModelLoader(ForgeModel):
             )
             return self.pipeline
 
-        if self._variant is not None and self._variant == ModelVariant.WAN21_VACE_1_3B:
+        if self._variant is not None and self._variant in (
+            ModelVariant.WAN21_VACE_1_3B,
+            ModelVariant.WAN21_VACE_14B,
+        ):
             dtype = dtype_override if dtype_override is not None else torch.float32
             self.pipeline = load_vace_pipeline(
                 self._variant_config.pretrained_model_name, dtype
@@ -247,7 +257,10 @@ class ModelLoader(ForgeModel):
                 width=width,
             )
 
-        if self._variant is not None and self._variant == ModelVariant.WAN21_VACE_1_3B:
+        if self._variant is not None and self._variant in (
+            ModelVariant.WAN21_VACE_1_3B,
+            ModelVariant.WAN21_VACE_14B,
+        ):
             return load_vace_inputs(
                 prompt=prompt if prompt is not None else self.DEFAULT_PROMPT
             )
