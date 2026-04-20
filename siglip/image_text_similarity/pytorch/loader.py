@@ -6,7 +6,7 @@ SigLIP model loader implementation for image-text similarity.
 """
 
 import torch
-from transformers import AutoProcessor, AutoModel
+from transformers import AutoConfig, AutoProcessor, AutoModel
 from typing import Optional
 from PIL import Image
 from datasets import load_dataset
@@ -153,6 +153,13 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"return_dict": False}
         if self._variant == ModelVariant.TINY_RANDOM:
             model_kwargs["trust_remote_code"] = True
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            for sub in ("text_config", "vision_config"):
+                if hasattr(config, sub):
+                    setattr(getattr(config, sub), "_flash_attn_2_enabled", False)
+            model_kwargs["config"] = config
 
         # Load the model with dtype override if specified
         if dtype_override is not None:
