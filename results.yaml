@@ -3,3 +3,7 @@ results:
   status: "PASS"
   date: "20260419_200054"
   branch: "ip-172-31-22-17-tt-xla-dev/ubuntu/hf-bringup-range-2000-580-5"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[stable_diffusion_3_5_fp8/pytorch-Medium_FP8-single_device-inference]"
+  status: "PASS"
+  date: "20260420_150058"
+  branch: "ip-172-31-22-17-tt-xla-dev/ubuntu/hf-bringup-range-2000-580-5"
