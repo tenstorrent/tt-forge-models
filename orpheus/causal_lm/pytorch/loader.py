@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.ORPHEUS_3B_0_1_PRETRAINED: LLMModelConfig(
-            pretrained_model_name="canopylabs/orpheus-3b-0.1-pretrained",
+            pretrained_model_name="unsloth/orpheus-3b-0.1-ft",
             max_length=256,
         ),
     }
