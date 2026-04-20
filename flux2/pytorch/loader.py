@@ -8,6 +8,8 @@ Repositories:
 - https://huggingface.co/black-forest-labs/FLUX.2-dev
 - https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4b-fp8
 """
+import os
+
 import torch
 from diffusers.models import Flux2Transformer2DModel
 from typing import Optional
@@ -114,6 +116,13 @@ class ModelLoader(ForgeModel):
         return self.transformer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            guidance_embeds = self._variant not in _NO_GUIDANCE_VARIANTS
+            self.transformer = Flux2Transformer2DModel(guidance_embeds=guidance_embeds)
+            if dtype_override is not None:
+                self.transformer = self.transformer.to(dtype_override)
+            return self.transformer
+
         if self._variant == ModelVariant.KLEIN_BASE_4B_FP8:
             return self._load_from_single_file(dtype_override=dtype_override)
         return self._load_from_pretrained(dtype_override=dtype_override)
