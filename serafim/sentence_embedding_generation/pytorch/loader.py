@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-SERAFIM 900M Portuguese sentence encoder model loader
+SERAFIM Portuguese sentence encoder model loader
 for sentence embedding generation.
 """
 import torch
@@ -27,14 +27,21 @@ class ModelVariant(StrEnum):
     SERAFIM_900M_PT_SENTENCE_ENCODER_IR = (
         "PORTULAN/serafim-900m-portuguese-pt-sentence-encoder-ir"
     )
+    SERAFIM_100M_PT_SENTENCE_ENCODER_IR = (
+        "PORTULAN/serafim-100m-portuguese-pt-sentence-encoder-ir"
+    )
 
 
 class ModelLoader(ForgeModel):
-    """SERAFIM 900M Portuguese sentence encoder model loader."""
+    """SERAFIM Portuguese sentence encoder model loader."""
 
     _VARIANTS = {
         ModelVariant.SERAFIM_900M_PT_SENTENCE_ENCODER_IR: LLMModelConfig(
             pretrained_model_name="PORTULAN/serafim-900m-portuguese-pt-sentence-encoder-ir",
+            max_length=512,
+        ),
+        ModelVariant.SERAFIM_100M_PT_SENTENCE_ENCODER_IR: LLMModelConfig(
+            pretrained_model_name="PORTULAN/serafim-100m-portuguese-pt-sentence-encoder-ir",
             max_length=512,
         ),
     }
@@ -52,7 +59,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="serafim-900m-portuguese-pt-sentence-encoder-ir",
+            model="serafim-portuguese-pt-sentence-encoder-ir",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_EMBED_GEN,
