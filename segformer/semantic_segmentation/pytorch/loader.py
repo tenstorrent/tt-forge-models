@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     B2_FINETUNED_CITYSCAPES = "B2_Finetuned_Cityscapes_1024_1024"
     B3_FINETUNED = "B3_Finetuned_Ade_512_512"
     B4_FINETUNED = "B4_Finetuned_Ade_512_512"
+    B3_FINETUNED_CITYSCAPES = "B3_Finetuned_Cityscapes_1024_1024"
     B5_FINETUNED_CITYSCAPES = "B5_Finetuned_Cityscapes_1024_1024"
 
 
@@ -62,6 +63,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.B4_FINETUNED: ModelConfig(
             pretrained_model_name="nvidia/segformer-b4-finetuned-ade-512-512",
         ),
+        ModelVariant.B3_FINETUNED_CITYSCAPES: ModelConfig(
+            pretrained_model_name="nvidia/segformer-b3-finetuned-cityscapes-1024-1024",
+        ),
         ModelVariant.B5_FINETUNED_CITYSCAPES: ModelConfig(
             pretrained_model_name="nvidia/segformer-b5-finetuned-cityscapes-1024-1024",
         ),
@@ -87,7 +91,6 @@ class ModelLoader(ForgeModel):
         ModelVariant.B3_FINETUNED: ModelGroup.GENERALITY,
         ModelVariant.B4_FINETUNED: ModelGroup.GENERALITY,
         ModelVariant.B3_FINETUNED_CITYSCAPES: ModelGroup.VULCAN,
-        ModelVariant.B4_FINETUNED_CITYSCAPES: ModelGroup.VULCAN,
     }
 
     @classmethod
@@ -109,7 +112,7 @@ class ModelLoader(ForgeModel):
             ModelGroup.VULCAN
             if variant
             in (
-                ModelVariant.B1_FINETUNED_CITYSCAPES,
+                ModelVariant.B3_FINETUNED_CITYSCAPES,
                 ModelVariant.B5_FINETUNED_CITYSCAPES,
             )
             else ModelGroup.GENERALITY
