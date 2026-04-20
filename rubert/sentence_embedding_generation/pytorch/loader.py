@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available RuBERT model variants for sentence embedding generation."""
 
     RUBERT_TINY_TURBO = "sergeyzh/rubert-tiny-turbo"
+    RUBERT_TINY_STS = "sergeyzh/rubert-tiny-sts"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.RUBERT_TINY_TURBO: LLMModelConfig(
             pretrained_model_name="sergeyzh/rubert-tiny-turbo",
+            max_length=128,
+        ),
+        ModelVariant.RUBERT_TINY_STS: LLMModelConfig(
+            pretrained_model_name="sergeyzh/rubert-tiny-sts",
             max_length=128,
         ),
     }
