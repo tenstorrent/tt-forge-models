@@ -6,6 +6,70 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_llama4_gguf_support():
+    """Register llama4 architecture for GGUF loading in transformers.
+
+    Transformers 5.x does not yet support llama4 GGUF files. We bridge the
+    gap by registering config/tokenizer mappings based on the existing llama
+    mappings plus MoE-specific fields, and remapping model_type to
+    llama4_text so that Llama4ForCausalLM is used.
+    """
+    if "llama4" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("llama4")
+
+    llama_config = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].get("llama", {})
+    llama4_config = dict(llama_config)
+    llama4_config["expert_count"] = "num_local_experts"
+    llama4_config["expert_used_count"] = "num_experts_per_tok"
+    llama4_config["rope.freq_base"] = None
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["llama4"] = llama4_config
+
+    for section in ("tokenizer", "tokenizer_config"):
+        if section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+            if "llama" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section][
+                    "llama4"
+                ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["llama"]
+
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["llama4"] = GGUF_TO_FAST_CONVERTERS["llama"]
+
+    if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
+        if "llama" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
+                "llama4"
+            ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["llama"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Wrap load_gguf_checkpoint to add llama4 support and fix model_type."""
+    _patch_llama4_gguf_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    config = result.get("config", {})
+    if config.get("model_type") == "llama4":
+        config["model_type"] = "llama4_text"
+    return result
+
+
+_patch_llama4_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
