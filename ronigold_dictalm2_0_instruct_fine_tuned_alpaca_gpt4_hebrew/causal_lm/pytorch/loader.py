@@ -54,7 +54,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="ronigold_dictalm2_0_instruct_fine_tuned_alpaca_gpt4_hebrew",
+            model="Ronigold DictaLM 2.0 Instruct Fine-Tuned Alpaca GPT-4 Hebrew",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
