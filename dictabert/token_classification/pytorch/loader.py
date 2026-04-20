@@ -2,7 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DictaBERT model loader implementation for token classification (Hebrew diacritization).
+DictaBERT model loader implementation for Hebrew token classification
+(diacritization and morphological tagging).
 """
 
 import torch
@@ -33,7 +34,8 @@ _VARIANT_SAMPLE_TEXTS = {
 
 
 class ModelLoader(ForgeModel):
-    """DictaBERT model loader implementation for Hebrew diacritization (token classification)."""
+    """DictaBERT model loader implementation for Hebrew token classification
+    (diacritization and morphological tagging)."""
 
     _VARIANTS = {
         ModelVariant.DICTABERT_LARGE_CHAR_MENAKED: LLMModelConfig(
@@ -86,7 +88,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load DictaBERT model for Hebrew diacritization from Hugging Face.
+        """Load DictaBERT model for Hebrew token classification from Hugging Face.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
