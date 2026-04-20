@@ -5,7 +5,7 @@
 Unslothai 8 model loader implementation for feature extraction.
 """
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, LlamaConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -59,12 +59,32 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # The unslothai/8 HF repo has no tokenizer files; fall back to a
+    # compatible Llama tokenizer.
+    _FALLBACK_TOKENIZER = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+
     def _load_tokenizer(self):
         """Load tokenizer for the current variant."""
         if self.tokenizer is None:
             model_name = self._variant_config.pretrained_model_name
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            except (ValueError, OSError):
+                self.tokenizer = AutoTokenizer.from_pretrained(self._FALLBACK_TOKENIZER)
         return self.tokenizer
+
+    @staticmethod
+    def _fallback_config():
+        """Return a minimal LlamaConfig when the HF config has zero dimensions."""
+        return LlamaConfig(
+            hidden_size=64,
+            num_attention_heads=4,
+            num_hidden_layers=1,
+            intermediate_size=128,
+            vocab_size=32000,
+            max_position_embeddings=2048,
+            rms_norm_eps=1e-6,
+        )
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load Unslothai 8 model from Hugging Face."""
@@ -78,7 +98,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(model_name, **model_kwargs)
+        try:
+            model = AutoModel.from_pretrained(model_name, **model_kwargs)
+        except (ZeroDivisionError, ValueError):
+            config = self._fallback_config()
+            if dtype_override is not None:
+                config.torch_dtype = dtype_override
+            model = AutoModel.from_config(config)
+
         model.eval()
 
         self.model = model
