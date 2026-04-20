@@ -5,6 +5,8 @@
 Stable Diffusion 3.5 FP8 model loader implementation.
 
 Loads FP8-quantized single-file checkpoints from the Comfy-Org/stable-diffusion-3.5-fp8 repository.
+Avoids accessing gated stabilityai/* repos by using a local transformer config
+and generating synthetic inputs.
 
 Available variants:
 - LARGE_FP8: sd3.5_large_fp8_scaled.safetensors
@@ -25,7 +27,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_pipe, stable_diffusion_preprocessing_v35
+from .src.model_utils import load_transformer, TRANSFORMER_CONFIGS
 
 
 class ModelVariant(StrEnum):
@@ -49,29 +51,12 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LARGE_FP8
 
-    prompt = "An astronaut riding a green horse"
-
     def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Implementation method for getting model info with validated variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
@@ -84,50 +69,50 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Diffusion 3.5 FP8 transformer.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            torch.nn.Module: The Stable Diffusion 3.5 transformer instance.
-        """
+        """Load and return the Stable Diffusion 3.5 FP8 transformer."""
         filename = self._variant_config.pretrained_model_name
 
-        self.pipeline = load_pipe(filename)
+        self._transformer = load_transformer(filename)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self._transformer = self._transformer.to(dtype_override)
 
-        return self.pipeline
+        return self._transformer
 
-    def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-
-        Returns:
-            list: Input tensors for the transformer:
-                - latent_model_input (torch.Tensor)
-                - timestep (torch.Tensor)
-                - prompt_embeds (torch.Tensor)
-                - pooled_prompt_embeds (torch.Tensor)
-        """
-        if self.pipeline is None:
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        """Generate synthetic inputs for the SD3.5 FP8 transformer."""
+        if self._transformer is None:
             self.load_model(dtype_override=dtype_override)
 
-        (
-            latent_model_input,
-            timestep,
-            prompt_embeds,
-            pooled_prompt_embeds,
-        ) = stable_diffusion_preprocessing_v35(self.pipeline, self.prompt)
+        filename = self._variant_config.pretrained_model_name
+        config = TRANSFORMER_CONFIGS[filename]
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timestep = timestep.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
-            pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
+        in_channels = config["in_channels"]
+        joint_attention_dim = config["joint_attention_dim"]
+        pooled_projection_dim = config["pooled_projection_dim"]
+        patch_size = config["patch_size"]
+        sample_size = config["sample_size"]
 
-        return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+        height = sample_size
+        width = sample_size
+
+        hidden_states = torch.randn(
+            batch_size,
+            in_channels,
+            height // patch_size,
+            width // patch_size,
+            dtype=dtype,
+        )
+        encoder_hidden_states = torch.randn(
+            batch_size, 256, joint_attention_dim, dtype=dtype
+        )
+        pooled_projections = torch.randn(batch_size, pooled_projection_dim, dtype=dtype)
+        timestep = torch.tensor([1.0] * batch_size, dtype=dtype)
+
+        return {
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "pooled_projections": pooled_projections,
+            "timestep": timestep,
+        }
