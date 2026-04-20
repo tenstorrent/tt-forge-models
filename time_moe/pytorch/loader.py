@@ -10,6 +10,36 @@ from typing import Optional
 from dataclasses import dataclass
 
 from transformers import AutoModelForCausalLM
+from transformers import DynamicCache
+
+
+def _patch_dynamic_cache():
+    if not hasattr(DynamicCache, "get_usable_length"):
+        DynamicCache.get_usable_length = (
+            lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+        )
+
+    if not hasattr(DynamicCache, "from_legacy_cache"):
+
+        @classmethod
+        def _from_legacy_cache(cls, past_key_values=None):
+            cache = cls()
+            if past_key_values is not None:
+                for layer_idx in range(len(past_key_values)):
+                    key_states, value_states = past_key_values[layer_idx]
+                    cache.update(key_states, value_states, layer_idx)
+            return cache
+
+        DynamicCache.from_legacy_cache = _from_legacy_cache
+
+    if not hasattr(DynamicCache, "to_legacy_cache"):
+        DynamicCache.to_legacy_cache = lambda self: tuple(
+            (self.key_cache[layer_idx], self.value_cache[layer_idx])
+            for layer_idx in range(len(self))
+        )
+
+
+_patch_dynamic_cache()
 
 from ...config import (
     ModelConfig,
