@@ -25,6 +25,7 @@ from ....tools.utils import get_static_cache_decode_inputs
 class ModelVariant(StrEnum):
     """Available Goedel Prover V2 model variants for causal language modeling."""
 
+    GOEDEL_PROVER_V2_8B = "8B"
     GOEDEL_PROVER_V2_32B = "32B"
 
 
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     """Goedel Prover V2 model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
+        ModelVariant.GOEDEL_PROVER_V2_8B: LLMModelConfig(
+            pretrained_model_name="Goedel-LM/Goedel-Prover-V2-8B",
+            max_length=128,
+        ),
         ModelVariant.GOEDEL_PROVER_V2_32B: LLMModelConfig(
             pretrained_model_name="Goedel-LM/Goedel-Prover-V2-32B",
             max_length=128,
