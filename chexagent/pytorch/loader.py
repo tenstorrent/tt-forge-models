@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.CHEXAGENT_2_3B
 
     sample_image_url = (
-        "https://upload.wikimedia.org/wikipedia/commons/4/4e/Lung_x-ray.jpg"
+        "https://upload.wikimedia.org/wikipedia/commons/c/c8/Chest_Xray_PA_3-8-2010.png"
     )
     sample_text = "Describe the findings in this chest X-ray."
     sample_system_prompt = "You are a helpful assistant."
