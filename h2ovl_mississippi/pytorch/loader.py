@@ -167,7 +167,22 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if (
+            hasattr(config, "llm_config")
+            and config.llm_config is not None
+            and getattr(config.llm_config, "rope_parameters", None) is None
+        ):
+            rope_theta = getattr(config.llm_config, "rope_theta", 10000.0)
+            config.llm_config.rope_parameters = {
+                "rope_type": "default",
+                "rope_theta": rope_theta,
+            }
+
         model_kwargs = {
+            "config": config,
             "trust_remote_code": True,
             "attn_implementation": "eager",
         }
