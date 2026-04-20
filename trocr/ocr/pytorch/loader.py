@@ -75,19 +75,22 @@ class ModelLoader(ForgeModel):
         )
 
         # Sinusoidal positional embeddings are a plain attribute (not a
-        # parameter/buffer), so they can be stuck on the meta device after
-        # lazy-loading.  Re-materialize them on CPU before any dtype cast.
+        # parameter/buffer), so they stay on meta after lazy-loading and
+        # won't move to XLA with the model.  Re-materialize on CPU and
+        # register as a buffer so they travel with the model to any device.
         embed_pos = model.decoder.model.decoder.embed_positions
-        if hasattr(embed_pos, "weights") and embed_pos.weights.device.type == "meta":
-            embed_pos.weights = embed_pos.get_embedding(
-                embed_pos.weights.shape[0],
-                embed_pos.embedding_dim,
-                embed_pos.padding_idx,
-            )
+        if hasattr(embed_pos, "weights"):
+            weights = embed_pos.weights
+            if weights.device.type == "meta":
+                weights = embed_pos.get_embedding(
+                    weights.shape[0],
+                    embed_pos.embedding_dim,
+                    embed_pos.padding_idx,
+                )
+            embed_pos.register_buffer("weights", weights, persistent=False)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
-            embed_pos.weights = embed_pos.weights.to(dtype_override)
 
         model.eval()
         return model
