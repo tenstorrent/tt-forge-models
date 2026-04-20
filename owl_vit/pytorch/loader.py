@@ -99,7 +99,7 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False}
+        model_kwargs = {}
 
         # Load the model with dtype override if specified
         if dtype_override is not None:
@@ -127,9 +127,15 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        # Load dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        self.image = dataset[0]["image"]
+        # Load dataset (retry with force re-download if local cache is stale)
+        try:
+            dataset = load_dataset("huggingface/cats-image")["test"]
+            self.image = dataset[0]["image"]
+        except FileNotFoundError:
+            dataset = load_dataset(
+                "huggingface/cats-image", download_mode="force_redownload"
+            )["test"]
+            self.image = dataset[0]["image"]
 
         # Define text labels for object detection
         self.text_labels = [["a photo of a cat", "a photo of a dog"]]
@@ -165,9 +171,14 @@ class ModelLoader(ForgeModel):
             self._load_processor()
 
         if self.image is None:
-            # Load dataset if not already loaded
-            dataset = load_dataset("huggingface/cats-image")["test"]
-            self.image = dataset[0]["image"]
+            try:
+                dataset = load_dataset("huggingface/cats-image")["test"]
+                self.image = dataset[0]["image"]
+            except FileNotFoundError:
+                dataset = load_dataset(
+                    "huggingface/cats-image", download_mode="force_redownload"
+                )["test"]
+                self.image = dataset[0]["image"]
 
         if self.text_labels is None:
             # Use text labels if not already set
@@ -175,7 +186,7 @@ class ModelLoader(ForgeModel):
 
         # Create OWL-ViT object detection output from model outputs
         owl_vit_outputs = OwlViTObjectDetectionOutput(
-            logits=outputs[0], pred_boxes=outputs[1]
+            logits=outputs.logits, pred_boxes=outputs.pred_boxes
         )
 
         # Target image sizes (height, width) to rescale box predictions [batch_size, 2]
