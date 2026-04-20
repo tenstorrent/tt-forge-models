@@ -87,6 +87,9 @@ class ModelLoader(ForgeModel):
             self.BASE_MODEL_NAME, **model_kwargs
         )
 
+        # The LoRA adapter was trained with an extra pad token (vocab 128257)
+        base_model.resize_token_embeddings(128257)
+
         adapter_name = self._variant_config.pretrained_model_name
         model = PeftModel.from_pretrained(base_model, adapter_name)
         model = model.merge_and_unload()
