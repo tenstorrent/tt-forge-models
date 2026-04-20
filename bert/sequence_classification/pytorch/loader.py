@@ -30,8 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    POLTEXTLAB_HUNEMBERT3 = "poltextlab_HunEmBERT3"
-    MSKANG1120_KOBERT_BASELINE_MODEL = "mskang1120_KoBERT_Baseline_Model"
+    TEXTATTACK_BERT_BASE_UNCASED_AG_NEWS = "Textattack_Bert_Base_Uncased_Ag_News"
 
 
 class ModelLoader(ForgeModel):
@@ -67,12 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.POLTEXTLAB_HUNEMBERT3: LLMModelConfig(
-            pretrained_model_name="poltextlab/HunEmBERT3",
-            max_length=128,
-        ),
-        ModelVariant.MSKANG1120_KOBERT_BASELINE_MODEL: LLMModelConfig(
-            pretrained_model_name="mskang1120/kobert_baseline_model",
+        ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_AG_NEWS: LLMModelConfig(
+            pretrained_model_name="textattack/bert-base-uncased-ag-news",
             max_length=128,
         ),
     }
@@ -100,8 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.POLTEXTLAB_HUNEMBERT3: "Nagyon örülök, hogy ma itt lehetek!",
-        ModelVariant.MSKANG1120_KOBERT_BASELINE_MODEL: "충격! 당신이 몰랐던 놀라운 비밀 공개",
+        ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_AG_NEWS: "Wall Street closed higher on Friday as technology stocks surged.",
     }
 
     def __init__(self, variant=None):
@@ -140,8 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.POLTEXTLAB_HUNEMBERT3,
-            ModelVariant.MSKANG1120_KOBERT_BASELINE_MODEL,
+            ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_AG_NEWS,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
