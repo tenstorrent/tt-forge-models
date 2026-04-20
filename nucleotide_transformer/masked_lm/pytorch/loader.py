@@ -24,20 +24,20 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available Nucleotide Transformer model variants for masked language modeling."""
 
-    V2_50M_MULTI_SPECIES = "InstaDeepAI/nucleotide-transformer-v2-50m-multi-species"
+    V2_250M_MULTI_SPECIES = "InstaDeepAI/nucleotide-transformer-v2-250m-multi-species"
 
 
 class ModelLoader(ForgeModel):
     """Nucleotide Transformer v2 model loader implementation for masked language modeling."""
 
     _VARIANTS = {
-        ModelVariant.V2_50M_MULTI_SPECIES: LLMModelConfig(
-            pretrained_model_name="InstaDeepAI/nucleotide-transformer-v2-50m-multi-species",
+        ModelVariant.V2_250M_MULTI_SPECIES: LLMModelConfig(
+            pretrained_model_name="InstaDeepAI/nucleotide-transformer-v2-250m-multi-species",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.V2_50M_MULTI_SPECIES
+    DEFAULT_VARIANT = ModelVariant.V2_250M_MULTI_SPECIES
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
