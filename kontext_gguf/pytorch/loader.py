@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="calcuis/kontext-gguf",
+            model="Kontext-GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.CV_IMG_TO_IMG,
