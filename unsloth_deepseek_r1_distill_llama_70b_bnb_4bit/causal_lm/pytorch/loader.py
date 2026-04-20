@@ -1,21 +1,23 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
 Unsloth DeepSeek-R1-Distill-Llama-70B BnB 4-bit model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -52,8 +54,6 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        if variant is None:
-            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
             model="Unsloth DeepSeek-R1-Distill-Llama-70B BnB 4-bit",
             variant=variant,
@@ -109,26 +109,21 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [{"role": "user", "content": self.sample_text}]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-
         inputs = self.tokenizer(
-            [text],
+            self.sample_text,
             return_tensors="pt",
             padding=True,
             truncation=True,
             max_length=max_length,
         )
 
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        sample_inputs = [inputs["input_ids"], inputs["attention_mask"]]
 
-        return inputs
+        if batch_size > 1:
+            for i in range(len(sample_inputs)):
+                sample_inputs[i] = sample_inputs[i].repeat_interleave(batch_size, dim=0)
+
+        return sample_inputs
 
     def decode_output(self, outputs, dtype_override=None):
         if self.tokenizer is None:
@@ -144,25 +139,36 @@ class ModelLoader(ForgeModel):
         return decoded_output
 
     def get_mesh_config(self, num_devices: int):
-        mesh_shape = (1, num_devices)
+        if self.config.num_attention_heads % num_devices == 0:
+            mesh_shape = (1, num_devices)
+        elif (
+            self.config.num_attention_heads % (num_devices // 2) == 0
+            and num_devices % 2 == 0
+        ):
+            mesh_shape = (2, num_devices // 2)
+        else:
+            raise ValueError(
+                f"Cannot evenly distribute {self.config.num_attention_heads} heads "
+                f"across {num_devices} devices"
+            )
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            self._variant_config.pretrained_model_name
         )
         return self.config
