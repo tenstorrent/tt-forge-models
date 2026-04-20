@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Sehyo/Qwen3.5-27B-NVFP4",
+            model="Sehyo Qwen3.5 27B NVFP4",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_IMAGE_TO_TEXT,
