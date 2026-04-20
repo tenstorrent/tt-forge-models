@@ -26,7 +26,7 @@ from ...config import (
 from .src.model_utils import load_sdmodels_gguf_pipe, sdmodels_preprocessing
 
 REPO_ID = "MWSAH/sdmodels"
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+BASE_MODEL = "camenduru/FLUX.1-dev-ungated"
 
 
 class ModelVariant(StrEnum):
@@ -76,7 +76,9 @@ class ModelLoader(ForgeModel):
         if self.pipeline is None:
             self.pipeline = load_sdmodels_gguf_pipe(REPO_ID, self.GGUF_FILE, BASE_MODEL)
 
-        if dtype_override is not None:
+        if dtype_override is not None and not hasattr(
+            self.pipeline.transformer, "hf_quantizer"
+        ):
             self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
 
         return self.pipeline.transformer
