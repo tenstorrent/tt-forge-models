@@ -70,8 +70,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name,
-            trust_remote_code=True,
+            "Qwen/Qwen3.5-2B",
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -88,8 +87,7 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self._variant_config.pretrained_model_name,
-                trust_remote_code=True,
+                "Qwen/Qwen3.5-2B",
             )
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
