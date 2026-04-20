@@ -3,10 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 NorMistral model loader implementation for causal language modeling.
-
-Supports NorMistral-11B variants from norallm, including the warm pretrained
-base and the translate instruction-tuned model for Norwegian Bokmål, Nynorsk,
-and English machine translation.
 """
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
@@ -27,7 +23,7 @@ class ModelVariant(StrEnum):
     """Available NorMistral model variants for causal language modeling."""
 
     NORMISTRAL_11B_WARM = "11B-warm"
-    NORMISTRAL_11B_THINKING = "11B-thinking"
+    NORMISTRAL_7B_WARM = "7B-warm"
 
 
 class ModelLoader(ForgeModel):
@@ -38,8 +34,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="norallm/normistral-11b-warm",
             max_length=256,
         ),
-        ModelVariant.NORMISTRAL_11B_THINKING: LLMModelConfig(
-            pretrained_model_name="norallm/normistral-11b-thinking",
+        ModelVariant.NORMISTRAL_7B_WARM: LLMModelConfig(
+            pretrained_model_name="norallm/normistral-7b-warm",
             max_length=256,
         ),
     }
