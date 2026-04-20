@@ -1,0 +1,2 @@
+sam-audio @ git+https://github.com/facebookresearch/sam-audio.git
+torchaudio

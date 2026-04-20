@@ -5,7 +5,11 @@
 Facebook SAM Audio Judge model loader for audio quality evaluation.
 """
 
+import importlib
+import os
+import sys
 from typing import Optional
+from unittest.mock import MagicMock
 
 import torch
 
@@ -21,6 +25,77 @@ from ...config import (
 from ...base import ForgeModel
 
 
+def _import_sam_audio_package():
+    """Import the real sam_audio pip package, bypassing local directory shadowing.
+
+    The local tt_forge_models/sam_audio/ model directory shadows the pip-installed
+    sam_audio package. This function reorders sys.path and mocks CUDA-only
+    transitive dependencies (xformers, torchcodec, dacvae) so the package can
+    be imported on CPU-only compile systems.
+    """
+    site_packages = [p for p in sys.path if "site-packages" in p]
+    if not site_packages:
+        raise ImportError("No site-packages found in sys.path")
+
+    sp_base = site_packages[0]
+
+    core_mods = set()
+    core_dir = os.path.join(sp_base, "core")
+    if os.path.isdir(core_dir):
+        for root, _dirs, files in os.walk(core_dir):
+            rel = root[len(sp_base) + 1 :].replace("/", ".")
+            core_mods.add(rel)
+            for f in files:
+                if f.endswith(".py") and f != "__init__.py":
+                    core_mods.add(f"{rel}.{f[:-3]}")
+
+    mock_mods = list(core_mods) + [
+        "xformers",
+        "xformers.ops",
+        "xformers.ops.fmha",
+        "xformers.flash_attn_3",
+        "torchcodec",
+        "torchcodec.decoders",
+        "torchcodec.encoders",
+        "torchcodec.samplers",
+        "torchcodec.transforms",
+        "torchcodec._core",
+        "torchcodec._core.ops",
+        "torchcodec._core._metadata",
+        "torchcodec._core._decoder_utils",
+        "torchcodec._internally_replaced_utils",
+        "dacvae",
+        "audiotools",
+        "imagebind",
+        "imagebind.data",
+        "imagebind.models",
+        "imagebind.models.imagebind_model",
+    ]
+
+    for name in mock_mods:
+        if name not in sys.modules:
+            sys.modules[name] = MagicMock()
+
+    for k in list(sys.modules):
+        if k == "sam_audio" or k.startswith("sam_audio."):
+            del sys.modules[k]
+
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    worktree_root = os.path.abspath(os.path.join(this_dir, "..", ".."))
+    other = [
+        p
+        for p in sys.path
+        if "site-packages" not in p and p != worktree_root and p != ""
+    ]
+    orig_path = sys.path[:]
+    sys.path = site_packages + other
+
+    try:
+        return importlib.import_module("sam_audio")
+    finally:
+        sys.path[:] = orig_path
+
+
 class ModelVariant(StrEnum):
     """Available SAM Audio Judge model variants."""
 
@@ -28,12 +103,6 @@ class ModelVariant(StrEnum):
 
 
 class SAMAudioJudgeWrapper(torch.nn.Module):
-    """Wrapper module for the SAM Audio Judge model.
-
-    Wraps the SAMAudioJudgeModel to accept preprocessed tensor inputs
-    directly, making it compatible with the ForgeModel interface.
-    """
-
     def __init__(self, model):
         super().__init__()
         self.model = model
@@ -73,15 +142,15 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        from sam_audio import SAMAudioJudgeProcessor
-
-        self._processor = SAMAudioJudgeProcessor.from_pretrained(
+        sam_audio = _import_sam_audio_package()
+        self._processor = sam_audio.SAMAudioJudgeProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
         )
         return self._processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from sam_audio import SAMAudioJudgeModel
+        sam_audio = _import_sam_audio_package()
+        SAMAudioJudgeModel = sam_audio.SAMAudioJudgeModel
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -101,7 +170,6 @@ class ModelLoader(ForgeModel):
         if self._processor is None:
             self._load_processor()
 
-        # Generate synthetic 1-second audio waveforms at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         num_samples = sampling_rate * duration_seconds
