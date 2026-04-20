@@ -19,20 +19,11 @@ from ....config import (
     ModelInfo,
     ModelSource,
     ModelTask,
-    StrEnum,
 )
-
-
-class ModelVariant(StrEnum):
-    """Available GLM-4.7 AWQ model variants."""
-
-    GLM_4_7_AWQ = "4.7_AWQ"
 
 
 class ModelLoader(ForgeModel):
     """GLM-4.7 AWQ model loader for causal language modeling."""
-
-    DEFAULT_VARIANT = ModelVariant.GLM_4_7_AWQ
 
     def __init__(self, variant=None, num_layers: Optional[int] = None):
         super().__init__(variant)
@@ -44,7 +35,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
         if variant_name is None:
-            variant_name = cls.DEFAULT_VARIANT
+            variant_name = "base"
         return ModelInfo(
             model="GLM-4.7-AWQ",
             variant=variant_name,
