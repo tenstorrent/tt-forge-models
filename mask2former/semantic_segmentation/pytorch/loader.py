@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
 
     SWIN_L_CITYSCAPES = "Swin_Large_Cityscapes"
     SWIN_L_MAPILLARY_VISTAS = "Swin_Large_Mapillary_Vistas"
+    SWIN_T_ADE = "Swin_Tiny_Ade"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.SWIN_L_MAPILLARY_VISTAS: ModelConfig(
             pretrained_model_name="facebook/mask2former-swin-large-mapillary-vistas-semantic"
+        ),
+        ModelVariant.SWIN_T_ADE: ModelConfig(
+            pretrained_model_name="facebook/mask2former-swin-tiny-ade-semantic"
         ),
     }
 
