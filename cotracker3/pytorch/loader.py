@@ -28,6 +28,19 @@ class ModelVariant(StrEnum):
     ONLINE = "online"
 
 
+class _CoTrackerOnlineWrapper(torch.nn.Module):
+    """Wraps CoTrackerOnlinePredictor to handle its two-step stateful forward."""
+
+    def __init__(self, predictor):
+        super().__init__()
+        self.predictor = predictor
+
+    def forward(self, video_chunk):
+        video_f32 = video_chunk.float()
+        self.predictor(video_f32, is_first_step=True, grid_size=5)
+        return self.predictor(video_f32, is_first_step=False)
+
+
 class ModelLoader(ForgeModel):
     """CoTracker3 model loader for video point tracking."""
 
@@ -65,7 +78,9 @@ class ModelLoader(ForgeModel):
         model = torch.hub.load("facebookresearch/co-tracker", model_name, **kwargs)
         model.eval()
 
-        if dtype_override is not None:
+        if self._variant == ModelVariant.ONLINE:
+            model = _CoTrackerOnlineWrapper(model)
+        elif dtype_override is not None:
             model = model.to(dtype_override)
 
         return model
