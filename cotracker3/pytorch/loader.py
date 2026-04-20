@@ -67,6 +67,8 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             model = model.to(dtype_override)
+        else:
+            model = model.to(torch.float32)
 
         return model
 
