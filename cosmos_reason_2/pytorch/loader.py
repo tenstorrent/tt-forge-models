@@ -5,6 +5,8 @@
 Cosmos Reason 2 model loader implementation for image to text.
 """
 
+import os
+
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
@@ -61,6 +63,8 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -68,9 +72,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["dtype"] = "auto"
             model_kwargs["device_map"] = "auto"
 
+        if token:
+            model_kwargs["token"] = token
+
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        self.processor = AutoProcessor.from_pretrained(
+            pretrained_model_name, token=token
+        )
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
