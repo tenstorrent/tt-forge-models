@@ -4,8 +4,9 @@
 """
 VRAM-8 model loader implementation for feature extraction.
 """
+
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import LlamaConfig, LlamaModel
 from typing import Optional
 
 from ....base import ForgeModel
@@ -37,12 +38,6 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.VRAM_8
 
-    sample_text = "This is an example sentence for feature extraction."
-
-    def __init__(self, variant: Optional[ModelVariant] = None):
-        super().__init__(variant)
-        self.tokenizer = None
-
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
@@ -57,44 +52,37 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
-
-        return self.tokenizer
-
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        config_dict = LlamaConfig.get_config_dict(pretrained_model_name)[0]
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # The upstream config has all-zero dimensions; set minimal valid values
+        # so the model can be instantiated and compiled.
+        zero_overrides = {
+            "hidden_size": 64,
+            "num_attention_heads": 2,
+            "num_key_value_heads": 2,
+            "intermediate_size": 128,
+            "num_hidden_layers": 1,
+            "vocab_size": 32,
+            "max_position_embeddings": 128,
+        }
+        for key, default in zero_overrides.items():
+            if config_dict.get(key, 0) == 0:
+                config_dict[key] = default
+
+        config = LlamaConfig(**config_dict)
+        if dtype_override is not None:
+            config.torch_dtype = dtype_override
+
+        model = LlamaModel(config)
         model.eval()
 
         return model
 
     def load_inputs(self, dtype_override=None):
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        inputs = self.tokenizer(
-            self.sample_text,
-            padding=True,
-            truncation=True,
-            return_tensors="pt",
-        )
-
-        if dtype_override is not None:
-            for key, value in inputs.items():
-                if isinstance(value, torch.Tensor) and value.dtype == torch.float32:
-                    inputs[key] = value.to(dtype_override)
-
-        return inputs
+        seq_len = 16
+        input_ids = torch.randint(0, 32, (1, seq_len))
+        attention_mask = torch.ones(1, seq_len, dtype=torch.long)
+        return {"input_ids": input_ids, "attention_mask": attention_mask}
