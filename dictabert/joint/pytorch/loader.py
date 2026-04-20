@@ -85,7 +85,15 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
         config.tie_word_embeddings = False
 
-        model_kwargs = {"trust_remote_code": True, "config": config}
+        # Disable the prefix-segmentation head: its forward pass requires a
+        # `prefix_class_id_options` tensor built from the checkpoint's custom
+        # encoder helper, which is not produced by a standard tokenizer call.
+        # Syntax, NER, lex, and morph heads still exercise the backbone.
+        model_kwargs = {
+            "trust_remote_code": True,
+            "config": config,
+            "do_prefix": False,
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
