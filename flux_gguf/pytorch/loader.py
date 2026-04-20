@@ -7,6 +7,8 @@ FLUX.1 GGUF model loader implementation for text-to-image generation
 Repository:
 - https://huggingface.co/city96/FLUX.1-dev-gguf
 """
+import os
+
 import torch
 from diffusers import FluxTransformer2DModel
 from typing import Optional
@@ -77,6 +79,10 @@ class ModelLoader(ForgeModel):
         load_kwargs = {}
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
+
+        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
+        if token:
+            load_kwargs["token"] = token
 
         self.transformer = FluxTransformer2DModel.from_single_file(
             gguf_url,
