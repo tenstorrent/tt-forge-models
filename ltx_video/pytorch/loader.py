@@ -10,6 +10,7 @@ with a T5 text encoder and a video VAE.
 Repositories:
 - https://huggingface.co/optimum-intel-internal-testing/tiny-random-ltx-video
 - https://huggingface.co/Lightricks/LTX-Video-0.9.8-13B-distilled
+- https://huggingface.co/a-r-r-o-w/LTX-Video-0.9.7-diffusers
 
 Available subfolders:
 - transformer: LTXVideoTransformer3DModel
@@ -39,6 +40,7 @@ class ModelVariant(StrEnum):
     """Available LTX-Video variants."""
 
     TINY_RANDOM = "tiny_random"
+    LTX_VIDEO_0_9_7 = "LTX_Video_0_9_7"
     LTX_VIDEO_0_9_8_13B_DISTILLED = "LTX_Video_0_9_8_13B_distilled"
 
 
@@ -54,6 +56,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINY_RANDOM: ModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/tiny-random-ltx-video",
+        ),
+        ModelVariant.LTX_VIDEO_0_9_7: ModelConfig(
+            pretrained_model_name="a-r-r-o-w/LTX-Video-0.9.7-diffusers",
         ),
         ModelVariant.LTX_VIDEO_0_9_8_13B_DISTILLED: ModelConfig(
             pretrained_model_name="Lightricks/LTX-Video-0.9.8-13B-distilled",
