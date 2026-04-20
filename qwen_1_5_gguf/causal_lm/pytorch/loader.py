@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 1.5 GGUF model variants for causal language modeling."""
 
     QWEN_1_5_14B_CHAT_GGUF = "14B_Chat_GGUF"
-    QWEN_1_5_1_8B_CHAT_GGUF = "1_8B_Chat_GGUF"
+    QWEN_1_5_7B_CHAT_GGUF = "7B_Chat_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen1.5-14B-Chat-GGUF",
             max_length=128,
         ),
-        ModelVariant.QWEN_1_5_1_8B_CHAT_GGUF: LLMModelConfig(
-            pretrained_model_name="Qwen/Qwen1.5-1.8B-Chat-GGUF",
+        ModelVariant.QWEN_1_5_7B_CHAT_GGUF: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen1.5-7B-Chat-GGUF",
             max_length=128,
         ),
     }
@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.QWEN_1_5_14B_CHAT_GGUF: "qwen1_5-14b-chat-q4_k_m.gguf",
-        ModelVariant.QWEN_1_5_1_8B_CHAT_GGUF: "qwen1_5-1_8b-chat-q4_k_m.gguf",
+        ModelVariant.QWEN_1_5_7B_CHAT_GGUF: "qwen1_5-7b-chat-q4_k_m.gguf",
     }
 
     sample_text = "Give me a short introduction to large language models."
