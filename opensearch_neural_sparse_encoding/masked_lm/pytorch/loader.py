@@ -24,12 +24,7 @@ class ModelVariant(StrEnum):
 
     DOC_V1 = "Doc_v1"
     DOC_V3_DISTILL = "Doc_v3_Distill"
-    DOC_V3_GTE = "Doc_v3_Gte"
-
-
-_REMOTE_CODE_REVISIONS = {
-    ModelVariant.DOC_V3_GTE: "40ced75c3017eb27626c9d4ea981bde21a2662f4",
-}
+    V1 = "v1"
 
 
 class ModelLoader(ForgeModel):
@@ -42,8 +37,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.DOC_V3_DISTILL: ModelConfig(
             pretrained_model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill",
         ),
-        ModelVariant.DOC_V3_GTE: ModelConfig(
-            pretrained_model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v3-gte",
+        ModelVariant.V1: ModelConfig(
+            pretrained_model_name="opensearch-project/opensearch-neural-sparse-encoding-v1",
         ),
     }
 
