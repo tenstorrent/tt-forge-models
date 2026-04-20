@@ -30,8 +30,9 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    SBCBI_SENTIMENT_ANALYSIS_MODEL = "sbcBI_Sentiment_Analysis_Model"
-    YUCHUANTIAN_AIGC_DETECTOR_ZHV3SHORT = "yuchuantian_AIGC_Detector_ZHv3Short"
+    BHADRESH_SAVANI_BERT_BASE_UNCASED_EMOTION = (
+        "bhadresh_savani_Bert_Base_Uncased_Emotion"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -67,12 +68,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.SBCBI_SENTIMENT_ANALYSIS_MODEL: LLMModelConfig(
-            pretrained_model_name="sbcBI/sentiment_analysis_model",
-            max_length=128,
-        ),
-        ModelVariant.YUCHUANTIAN_AIGC_DETECTOR_ZHV3SHORT: LLMModelConfig(
-            pretrained_model_name="yuchuantian/AIGC_detector_zhv3short",
+        ModelVariant.BHADRESH_SAVANI_BERT_BASE_UNCASED_EMOTION: LLMModelConfig(
+            pretrained_model_name="bhadresh-savani/bert-base-uncased-emotion",
             max_length=128,
         ),
     }
@@ -100,8 +97,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.SBCBI_SENTIMENT_ANALYSIS_MODEL: "I absolutely loved this film, it was a wonderful experience!",
-        ModelVariant.YUCHUANTIAN_AIGC_DETECTOR_ZHV3SHORT: "人工智能正在改变世界，推动各行各业的创新与发展。",
+        ModelVariant.BHADRESH_SAVANI_BERT_BASE_UNCASED_EMOTION: "I love using transformers. The best part is wide range of support and its easy to use",
     }
 
     def __init__(self, variant=None):
@@ -140,8 +136,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.SBCBI_SENTIMENT_ANALYSIS_MODEL,
-            ModelVariant.YUCHUANTIAN_AIGC_DETECTOR_ZHV3SHORT,
+            ModelVariant.BHADRESH_SAVANI_BERT_BASE_UNCASED_EMOTION,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
