@@ -3,6 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 PLaMo 2 Translate GGUF model loader implementation for causal language modeling.
+
+PLaMo 2 uses a hybrid Mamba2/Attention architecture whose GGUF format is not
+yet supported by transformers' built-in GGUF loader.  We fall back to the
+non-GGUF source repo (pfnet/plamo-2-translate) which ships custom modeling
+code via trust_remote_code.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -19,6 +24,8 @@ from ....config import (
     StrEnum,
 )
 
+BASE_MODEL_REPO = "pfnet/plamo-2-translate"
+
 
 class ModelVariant(StrEnum):
     """Available PLaMo 2 Translate GGUF model variants for causal language modeling."""
@@ -31,14 +38,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.PLAMO_2_TRANSLATE_GGUF: LLMModelConfig(
-            pretrained_model_name="mitmul/plamo-2-translate-GGUF",
+            pretrained_model_name=BASE_MODEL_REPO,
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.PLAMO_2_TRANSLATE_GGUF
-
-    GGUF_FILE = "plamo-2-translate_Q4_K_M.gguf"
 
     sample_text = (
         "Translate the following English text to Japanese: The weather is nice today."
@@ -64,13 +69,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name, trust_remote_code=True
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -83,15 +83,14 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, trust_remote_code=True
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -143,6 +142,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, trust_remote_code=True
         )
         return self.config
