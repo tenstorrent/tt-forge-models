@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available DeepSeek Math model variants."""
 
     DEEPSEEK_7B_INSTRUCT = "7B_Instruct"
+    DEEPSEEK_7B_RL = "7B_RL"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEEPSEEK_7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="deepseek-ai/deepseek-math-7b-instruct",
+            max_length=2048,
+        ),
+        ModelVariant.DEEPSEEK_7B_RL: LLMModelConfig(
+            pretrained_model_name="deepseek-ai/deepseek-math-7b-rl",
             max_length=2048,
         ),
     }
@@ -53,10 +58,14 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Return model info for the selected variant."""
+        variant_groups = {
+            ModelVariant.DEEPSEEK_7B_RL: ModelGroup.VULCAN,
+        }
+
         return ModelInfo(
             model="DeepSeek",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=variant_groups.get(variant, ModelGroup.GENERALITY),
             task=ModelTask.NLP_QA,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
