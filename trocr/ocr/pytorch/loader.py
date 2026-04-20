@@ -4,6 +4,7 @@
 """
 TrOCR model loader implementation for optical character recognition tasks.
 """
+import torch
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 from PIL import Image
 import numpy as np
@@ -93,9 +94,13 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
 
-        pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
+        decoder_input_ids = torch.tensor([[self.processor.tokenizer.bos_token_id]])
 
-        return pixel_values
+        if batch_size > 1:
+            pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
+            decoder_input_ids = decoder_input_ids.repeat_interleave(batch_size, dim=0)
+
+        return {"pixel_values": pixel_values, "decoder_input_ids": decoder_input_ids}
 
     @classmethod
     def decode_output(cls, outputs, processor=None, **kwargs):
