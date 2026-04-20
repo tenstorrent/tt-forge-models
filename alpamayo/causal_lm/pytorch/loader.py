@@ -6,8 +6,11 @@ Alpamayo R1 model loader implementation for causal language modeling.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModel
 from typing import Optional
+
+# Importing alpamayo_r1 registers AlpamayoR1 with transformers AutoModel/AutoConfig
+from alpamayo_r1.models.alpamayo_r1 import AlpamayoR1  # noqa: F401
 
 from ....base import ForgeModel
 from ....config import (
@@ -63,15 +66,11 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
+        from alpamayo_r1.helper import BASE_PROCESSOR_NAME
+        from transformers import AutoProcessor
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            **tokenizer_kwargs,
-        )
+        processor = AutoProcessor.from_pretrained(BASE_PROCESSOR_NAME)
+        self.tokenizer = processor.tokenizer
 
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -81,19 +80,19 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {"trust_remote_code": True, "attn_implementation": "sdpa"}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
         self.config = model.config
+
+        if self.tokenizer is None:
+            self.tokenizer = model.tokenizer
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return model
 
