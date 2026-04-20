@@ -4,6 +4,9 @@
 """
 Diffusion Cosine BabyLM model loader implementation for masked language modeling.
 """
+import json
+
+import torch
 from transformers import AutoTokenizer, AutoModelForMaskedLM
 from typing import Optional
 
@@ -65,16 +68,24 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        # The remote model's custom config to_json_string() cannot serialize
+        # torch.dtype, so we temporarily patch json.JSONEncoder.default.
+        _original_default = json.JSONEncoder.default
 
-        model = AutoModelForMaskedLM.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            **model_kwargs,
-        )
+        def _dtype_aware_default(self, obj):
+            if isinstance(obj, torch.dtype):
+                return str(obj)
+            return _original_default(self, obj)
+
+        json.JSONEncoder.default = _dtype_aware_default
+        try:
+            model = AutoModelForMaskedLM.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                trust_remote_code=True,
+                **kwargs,
+            )
+        finally:
+            json.JSONEncoder.default = _original_default
 
         return model
 
