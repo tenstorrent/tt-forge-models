@@ -23,6 +23,13 @@ class ModelVariant(StrEnum):
     """Available DictaBERT model variants for token classification."""
 
     DICTABERT_LARGE_CHAR_MENAKED = "dicta-il/dictabert-large-char-menaked"
+    DICTABERT_MORPH = "dicta-il/dictabert-morph"
+
+
+_VARIANT_SAMPLE_TEXTS = {
+    ModelVariant.DICTABERT_LARGE_CHAR_MENAKED: "שלום עולם, זהו משפט לדוגמה בעברית",
+    ModelVariant.DICTABERT_MORPH: "בשנת 1948 השלים אפרים קישון את לימודיו בפיסול מתכת ובתולדות האמנות והחל לפרסם מאמרים הומוריסטיים",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -31,6 +38,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DICTABERT_LARGE_CHAR_MENAKED: LLMModelConfig(
             pretrained_model_name="dicta-il/dictabert-large-char-menaked",
+            max_length=128,
+        ),
+        ModelVariant.DICTABERT_MORPH: LLMModelConfig(
+            pretrained_model_name="dicta-il/dictabert-morph",
             max_length=128,
         ),
     }
@@ -48,8 +59,8 @@ class ModelLoader(ForgeModel):
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.model_name = pretrained_model_name
-        self.sample_text = "שלום עולם, זהו משפט לדוגמה בעברית"
-        self.max_length = 128
+        self.sample_text = _VARIANT_SAMPLE_TEXTS[self._variant]
+        self.max_length = self._variant_config.max_length
         self.tokenizer = None
 
     @classmethod
