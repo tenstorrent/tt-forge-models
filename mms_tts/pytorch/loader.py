@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     HAU = "hau"
     MYA = "mya"
     ORM = "orm"
-    TEL = "tel"
+    URD_SCRIPT_ARABIC = "urd-script_arabic"
     YOR = "yor"
 
 
@@ -43,8 +43,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.ORM: ModelConfig(
             pretrained_model_name="facebook/mms-tts-orm",
         ),
-        ModelVariant.TEL: ModelConfig(
-            pretrained_model_name="facebook/mms-tts-tel",
+        ModelVariant.URD_SCRIPT_ARABIC: ModelConfig(
+            pretrained_model_name="facebook/mms-tts-urd-script_arabic",
         ),
         ModelVariant.YOR: ModelConfig(
             pretrained_model_name="facebook/mms-tts-yor",
@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.HAU: "Sannu, yaya aiki?",
         ModelVariant.MYA: "မင်္ဂလာပါ၊ နေကောင်းလား။",
         ModelVariant.ORM: "Baga nagaan dhuftan",
-        ModelVariant.TEL: "మా వ్యవస్థను ఉపయోగించినందుకు స్వాగతం.",
+        ModelVariant.URD_SCRIPT_ARABIC: "ہیلو، آپ کیسے ہیں؟",
         ModelVariant.YOR: "Ẹ n lẹ, bawo ni ọjọ yín ṣe rí?",
     }
 
