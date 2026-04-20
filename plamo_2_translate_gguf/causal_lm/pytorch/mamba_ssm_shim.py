@@ -17,6 +17,7 @@ import torch.nn.functional as F
 def selective_state_update_ref(
     state, x, dt, A, B, C, D=None, z=None, dt_bias=None, dt_softplus=False
 ):
+    dtype_in = x.dtype
     if dt_bias is not None:
         dt = dt + dt_bias
     if dt_softplus:
@@ -29,7 +30,7 @@ def selective_state_update_ref(
         y = y + D * x
     if z is not None:
         y = y * F.silu(z)
-    return y
+    return y.to(dtype_in)
 
 
 def state_passing_ref(states, dA_chunk_last, initial_states=None):
@@ -48,23 +49,26 @@ def state_passing_ref(states, dA_chunk_last, initial_states=None):
 
 
 def chunk_scan_ref(B, C, x, dt, dA_cumsum, prev_states, D=None, z=None):
+    dtype_in = x.dtype
     batch, seqlen, nheads, hdim = x.shape
     dstate = B.shape[-1]
     chunk_size = dA_cumsum.shape[-1]
     nchunks = seqlen // chunk_size
 
-    x_chunked = x.reshape(batch, nchunks, chunk_size, nheads, hdim)
-    B_chunked = B.reshape(batch, nchunks, chunk_size, nheads, dstate)
-    C_chunked = C.reshape(batch, nchunks, chunk_size, nheads, dstate)
-    dt_chunked = dt
+    x_chunked = x.float().reshape(batch, nchunks, chunk_size, nheads, hdim)
+    B_chunked = B.float().reshape(batch, nchunks, chunk_size, nheads, dstate)
+    C_chunked = C.float().reshape(batch, nchunks, chunk_size, nheads, dstate)
+    dt_chunked = dt.float()
+    prev_states = prev_states.float()
 
-    out = torch.zeros_like(x)
-    out_chunked = out.reshape(batch, nchunks, chunk_size, nheads, hdim)
+    out = torch.zeros(
+        batch, nchunks, chunk_size, nheads, hdim, dtype=torch.float32, device=x.device
+    )
 
     for chunk_idx in range(nchunks):
         state = prev_states[:, chunk_idx].clone()
         for t in range(chunk_size):
-            dA_t = (dA_cumsum[:, :, chunk_idx, t]).unsqueeze(-1).unsqueeze(-1)
+            dA_t = dA_cumsum[:, :, chunk_idx, t].unsqueeze(-1).unsqueeze(-1)
             decay = torch.exp(dA_t)
             dt_t = dt_chunked[:, :, chunk_idx, t].unsqueeze(-1).unsqueeze(-1)
             B_t = B_chunked[:, chunk_idx, t, :, :].unsqueeze(-2)
@@ -72,20 +76,19 @@ def chunk_scan_ref(B, C, x, dt, dA_cumsum, prev_states, D=None, z=None):
             if t == 0:
                 cur_state = state * decay + dt_t * B_t * x_t
             else:
-                dA_prev = dA_cumsum[:, :, chunk_idx, t - 1].unsqueeze(-1).unsqueeze(
-                    -1
-                )
+                dA_prev = dA_cumsum[:, :, chunk_idx, t - 1].unsqueeze(-1).unsqueeze(-1)
                 cur_state = cur_state * torch.exp(dA_t - dA_prev) + dt_t * B_t * x_t
             C_t = C_chunked[:, chunk_idx, t, :, :]
-            y_t = torch.einsum("bhdn,bhn->bhd", cur_state.to(C_t.dtype), C_t)
-            out_chunked[:, chunk_idx, t] = y_t
+            y_t = torch.einsum("bhdn,bhn->bhd", cur_state, C_t)
+            out[:, chunk_idx, t] = y_t
 
+    out = out.reshape(batch, seqlen, nheads, hdim)
     if D is not None:
-        out = out + D.unsqueeze(0).unsqueeze(1) * x
+        out = out + D.float().unsqueeze(0).unsqueeze(1) * x.float()
     if z is not None:
-        out = out * F.silu(z)
+        out = out * F.silu(z.float())
 
-    return out
+    return out.to(dtype_in)
 
 
 def install_shim():
