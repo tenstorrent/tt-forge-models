@@ -128,6 +128,11 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             model = model.to(dtype_override)
+            from apps.AY2latent_bci.xattn import FourierConditioner
+
+            for m in model.modules():
+                if isinstance(m, FourierConditioner):
+                    m.weight = m.weight.float()
 
         return model
 
@@ -153,7 +158,7 @@ class ModelLoader(ForgeModel):
         chan_pos = torch.randn(batch_size, seqlen, 3, dtype=dtype)
 
         # chan_pos_discrete: discretized channel positions [B, seqlen, 3]
-        chan_pos_discrete = torch.randint(0, 100, (batch_size, seqlen, 3))
+        chan_pos_discrete = torch.randint(0, seqlen, (batch_size, seqlen, 3))
 
         # chan_id: channel identifiers [B, seqlen]
         chan_id = torch.randint(0, 32, (batch_size, seqlen))
