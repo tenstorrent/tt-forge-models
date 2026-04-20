@@ -12,6 +12,8 @@ Requires the HunyuanWorld-Mirror repository to be cloned at /tmp/hunyuan_world_m
 """
 import os
 import sys
+import types
+from unittest.mock import MagicMock
 
 import torch
 from typing import Optional
@@ -28,6 +30,17 @@ from ...config import (
 )
 
 REPO_PATH = "/tmp/hunyuan_world_mirror_repo"
+
+
+def _mock_gsplat():
+    """Mock gsplat module which requires CUDA to install."""
+    if "gsplat" not in sys.modules:
+        gsplat = types.ModuleType("gsplat")
+        gsplat.rendering = MagicMock()
+        gsplat.strategy = MagicMock()
+        sys.modules["gsplat"] = gsplat
+        sys.modules["gsplat.rendering"] = gsplat.rendering
+        sys.modules["gsplat.strategy"] = gsplat.strategy
 
 
 def _ensure_repo_importable():
@@ -90,6 +103,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The WorldMirror 3D geometric prediction model.
         """
+        _mock_gsplat()
         _ensure_repo_importable()
         from src.models.models.worldmirror import WorldMirror
 
