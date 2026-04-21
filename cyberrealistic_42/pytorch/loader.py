@@ -8,7 +8,6 @@ CyberRealistic 4.2 model loader implementation
 import torch
 from typing import Optional
 
-from ...base import ForgeModel
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -18,6 +17,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from ...base import ForgeModel
 from diffusers import StableDiffusionPipeline
 
 
@@ -39,42 +39,27 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.BASE
 
     def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional string specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
         super().__init__(variant)
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
-        """Get model information for dashboard and metrics reporting.
-
-        Args:
-            variant: Optional variant name string. If None, uses DEFAULT_VARIANT.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
         return ModelInfo(
             model="CyberRealistic 4.2",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.MM_IMAGE_TTT,
+            task=ModelTask.CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the CyberRealistic 4.2 pipeline from Hugging Face.
+        """Load and return the CyberRealistic 4.2 pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use torch.bfloat16.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained CyberRealistic 4.2 pipeline object.
+            StableDiffusionPipeline: The pre-trained CyberRealistic 4.2 pipeline.
         """
         dtype = dtype_override or torch.bfloat16
         pipe = StableDiffusionPipeline.from_pretrained(
@@ -83,7 +68,7 @@ class ModelLoader(ForgeModel):
         return pipe
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the CyberRealistic 4.2 model.
+        """Load and return sample text prompts for CyberRealistic 4.2.
 
         Args:
             dtype_override: This parameter is ignored for this model.
@@ -93,6 +78,6 @@ class ModelLoader(ForgeModel):
             list: A list of sample text prompts.
         """
         prompt = [
-            "a photo of an astronaut riding a horse on mars",
+            "a photorealistic portrait of a woman in a cyberpunk city, detailed lighting, high quality",
         ] * batch_size
         return prompt
