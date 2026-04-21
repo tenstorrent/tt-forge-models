@@ -22,7 +22,7 @@ class ModelVariant(StrEnum):
     """Available SpanMarker NER model variants."""
 
     GENERIC_NER_V1_FEWNERD_FINE_SUPER = "generic-ner-v1-fewnerd-fine-super"
-    BERT_BASE_FEWNERD_FINE_SUPER = "bert-base-fewnerd-fine-super"
+    ROBERTA_LARGE_ONTONOTES5 = "roberta-large-ontonotes5"
 
 
 class ModelLoader(ForgeModel):
@@ -33,8 +33,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="guishe/span-marker-generic-ner-v1-fewnerd-fine-super",
             max_length=256,
         ),
-        ModelVariant.BERT_BASE_FEWNERD_FINE_SUPER: LLMModelConfig(
-            pretrained_model_name="tomaarsen/span-marker-bert-base-fewnerd-fine-super",
+        ModelVariant.ROBERTA_LARGE_ONTONOTES5: LLMModelConfig(
+            pretrained_model_name="tomaarsen/span-marker-roberta-large-ontonotes5",
             max_length=256,
         ),
     }
