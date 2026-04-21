@@ -21,13 +21,13 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Gemma 3 1B IT Q4F16_1 MLC model variants for causal language modeling."""
+    """Available Gemma 3 1B IT Q4F16_1 MLC model variants."""
 
-    GEMMA_3_1B_IT_Q4F16_1_MLC = "Gemma_3_1B_IT_Q4F16_1_MLC"
+    GEMMA_3_1B_IT_Q4F16_1_MLC = "gemma_3_1b_it_q4f16_1_mlc"
 
 
 class ModelLoader(ForgeModel):
-    """Gemma 3 1B IT Q4F16_1 MLC model loader implementation for causal language modeling tasks."""
+    """Gemma 3 1B IT Q4F16_1 MLC model loader for causal language modeling."""
 
     _VARIANTS = {
         ModelVariant.GEMMA_3_1B_IT_Q4F16_1_MLC: LLMModelConfig(
@@ -81,13 +81,12 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
-
-        model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -129,6 +128,38 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
+
+    def decode_output(self, outputs, inputs=None):
+        if self.tokenizer is None:
+            self._load_tokenizer()
+
+        if inputs is None:
+            inputs = self.load_inputs()
+
+        logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
+        predicted_token_ids = logits.argmax(dim=-1)
+        predicted_text = self.tokenizer.decode(
+            predicted_token_ids[0], skip_special_tokens=True
+        )
+
+        return predicted_text
+
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
