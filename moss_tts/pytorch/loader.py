@@ -70,8 +70,56 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _register_custom_classes():
+        import importlib.util
+        import os
+        import sys
+        import types
+
+        from huggingface_hub import hf_hub_download
+        from transformers import AutoConfig, AutoModel
+
+        if "_moss_tts_hub" in sys.modules:
+            return
+
+        repo = "OpenMOSS-Team/MOSS-TTS-Realtime"
+        pkg_name = "_moss_tts_hub"
+
+        init_path = hf_hub_download(repo, "__init__.py")
+        snapshot_dir = os.path.dirname(init_path)
+
+        pkg = types.ModuleType(pkg_name)
+        pkg.__path__ = [snapshot_dir]
+        pkg.__package__ = pkg_name
+        sys.modules[pkg_name] = pkg
+
+        module_names = [
+            "configuration_mossttsrealtime",
+            "modeling_mossttsrealtime_local",
+            "modeling_mossttsrealtime",
+        ]
+        for mod_name in module_names:
+            fqn = f"{pkg_name}.{mod_name}"
+            fpath = os.path.join(snapshot_dir, f"{mod_name}.py")
+            hf_hub_download(repo, f"{mod_name}.py")
+            spec = importlib.util.spec_from_file_location(fqn, fpath)
+            mod = importlib.util.module_from_spec(spec)
+            mod.__package__ = pkg_name
+            sys.modules[fqn] = mod
+            sys.modules[mod_name] = mod
+            spec.loader.exec_module(mod)
+
+        cfg_mod = sys.modules["configuration_mossttsrealtime"]
+        mdl_mod = sys.modules["modeling_mossttsrealtime"]
+
+        AutoConfig.register("moss_tts_realtime", cfg_mod.MossTTSRealtimeConfig)
+        AutoModel.register(cfg_mod.MossTTSRealtimeConfig, mdl_mod.MossTTSRealtime)
+
     def load_model(self, *, dtype_override=None, **kwargs):
         from transformers import AutoModel
+
+        self._register_custom_classes()
 
         full_model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name,
