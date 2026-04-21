@@ -57,7 +57,34 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from audioseal import AudioSeal
+        import os
+        import sys
+
+        # The local audioseal/ model directory shadows the audioseal pip package
+        # because the forge-models root is inserted into sys.path. Temporarily
+        # remove it so the real pip package is found instead.
+        forge_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        shadowing = [
+            p
+            for p in sys.path
+            if p == forge_root or (p == "" and os.getcwd() == forge_root)
+        ]
+        for p in shadowing:
+            sys.path.remove(p)
+        stale = {
+            k: v
+            for k, v in sys.modules.items()
+            if k == "audioseal" or k.startswith("audioseal.")
+        }
+        for k in stale:
+            del sys.modules[k]
+        try:
+            from audioseal import AudioSeal
+        finally:
+            for p in shadowing:
+                sys.path.insert(0, p)
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
