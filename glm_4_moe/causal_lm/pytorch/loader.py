@@ -43,7 +43,7 @@ class ModelLoader(ForgeModel):
 
     # NVFP4 quantized variants need ignore_mismatched_sizes because the packed
     # FP4 weight shapes differ from the model definition.
-    _NVFP4_VARIANTS = {ModelVariant.BASETEN_GLM_4_7_FP4}
+    _NVFP4_VARIANTS = set()
 
     DEFAULT_VARIANT = ModelVariant.MINI_GLM_MOE
 
