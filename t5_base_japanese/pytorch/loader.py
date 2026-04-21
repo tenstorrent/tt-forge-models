@@ -28,7 +28,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """T5 Base Japanese model loader implementation."""
+    """T5 Base Japanese model loader implementation for conditional generation tasks."""
 
     _VARIANTS = {
         ModelVariant.BASE: LLMModelConfig(
@@ -39,7 +39,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.BASE
 
-    sample_text = "日本語の事前学習済みT5モデルです。"
+    sample_text = "要約: 人工知能技術は近年急速に発展しており、自然言語処理や画像認識など様々な分野で活用されています。"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
