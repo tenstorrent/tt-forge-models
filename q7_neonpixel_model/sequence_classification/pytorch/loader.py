@@ -4,55 +4,59 @@
 """
 Q7-NeonPixel model loader implementation for sequence classification.
 """
+from typing import Optional
 
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import BertForSequenceClassification, BertTokenizer
+
+from ....base import ForgeModel
 from ....config import (
+    LLMModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
     StrEnum,
-    LLMModelConfig,
 )
-from ....base import ForgeModel
 
 
 class ModelVariant(StrEnum):
     """Available Q7-NeonPixel model variants for sequence classification."""
 
-    Q7_NEONPIXEL = "Q7_NeonPixel"
+    Q7_NEONPIXEL_MODEL = "Q7_NeonPixel_Model"
 
 
 class ModelLoader(ForgeModel):
-    """Q7-NeonPixel model loader implementation for sequence classification."""
+    """Q7-NeonPixel model loader implementation for sequence classification tasks."""
 
     _VARIANTS = {
-        ModelVariant.Q7_NEONPIXEL: LLMModelConfig(
+        ModelVariant.Q7_NEONPIXEL_MODEL: LLMModelConfig(
             pretrained_model_name="TextAsData/Q7-NeonPixel-model",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.Q7_NEONPIXEL
+    DEFAULT_VARIANT = ModelVariant.Q7_NEONPIXEL_MODEL
 
-    def __init__(self, variant=None):
+    _SAMPLE_TEXTS = {
+        ModelVariant.Q7_NEONPIXEL_MODEL: "Please review the attached quarterly sales report and provide feedback.",
+    }
+
+    def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.model_name = self._variant_config.pretrained_model_name
-        self.max_length = self._variant_config.max_length
-        self.tokenizer = None
-        self.sample_text = (
-            "Please review the attached quarterly sales report and provide feedback."
+        self.review = self._SAMPLE_TEXTS.get(
+            self._variant,
+            "Please review the attached quarterly sales report and provide feedback.",
         )
+        self.max_length = 128
+        self.tokenizer = None
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
-        if variant_name is None:
-            variant_name = "base"
-
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
             model="Q7-NeonPixel",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_TEXT_CLS,
             source=ModelSource.HUGGING_FACE,
@@ -60,25 +64,28 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        """Load Q7-NeonPixel model for sequence classification from Hugging Face."""
+        self.tokenizer = BertTokenizer.from_pretrained(self.model_name)
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForSequenceClassification.from_pretrained(
+        model = BertForSequenceClassification.from_pretrained(
             self.model_name, **model_kwargs
         )
+        self.model = model
         model.eval()
         return model
 
     def load_inputs(self, dtype_override=None):
+        """Prepare sample input for Q7-NeonPixel sequence classification."""
         if self.tokenizer is None:
             self.load_model(dtype_override=dtype_override)
 
         inputs = self.tokenizer(
-            self.sample_text,
+            self.review,
             max_length=self.max_length,
             padding="max_length",
             truncation=True,
@@ -87,14 +94,7 @@ class ModelLoader(ForgeModel):
 
         return inputs
 
-    def decode_output(self, co_out, framework_model=None):
-        predicted_class_id = co_out[0].argmax().item()
-        if (
-            framework_model
-            and hasattr(framework_model, "config")
-            and hasattr(framework_model.config, "id2label")
-        ):
-            predicted_category = framework_model.config.id2label[predicted_class_id]
-            print(f"Predicted category: {predicted_category}")
-        else:
-            print(f"Predicted class ID: {predicted_class_id}")
+    def decode_output(self, co_out):
+        """Decode the model output for sequence classification."""
+        predicted_value = co_out[0].argmax(-1).item()
+        print(f"Predicted Class: {self.model.config.id2label[predicted_value]}")
