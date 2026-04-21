@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available BART0 model variants."""
 
     BART0 = "BART0"
+    BART0PP = "BART0pp"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BART0: LLMModelConfig(
             pretrained_model_name="yuchenlin/BART0",
+        ),
+        ModelVariant.BART0PP: LLMModelConfig(
+            pretrained_model_name="yuchenlin/BART0pp",
         ),
     }
 
