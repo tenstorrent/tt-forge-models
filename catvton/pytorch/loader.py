@@ -65,13 +65,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the CatVTON virtual try-on pipeline.
+        """Load and return the CatVTON UNet.
 
         Args:
-            dtype_override: Optional torch.dtype to cast the pipeline to.
+            dtype_override: Optional torch.dtype to cast the UNet to.
 
         Returns:
-            StableDiffusionInpaintPipeline: CatVTON-configured inpainting pipeline.
+            torch.nn.Module: The UNet used for denoising.
         """
         base_model_name = self._variant_config.pretrained_model_name
         attn_ckpt_version = str(self._variant)
@@ -79,9 +79,9 @@ class ModelLoader(ForgeModel):
         self.pipeline = load_catvton_pipe(base_model_name, attn_ckpt_version)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return UNet-ready inputs for CatVTON.
@@ -90,7 +90,7 @@ class ModelLoader(ForgeModel):
             list: [latent_model_input, timestep, prompt_embeds]
         """
         if self.pipeline is None:
-            self.load_model(dtype_override=dtype_override)
+            self.load_model(dtype_override=dtype_override)  # populates self.pipeline
 
         input_image = create_dummy_input_image()
         mask_image = create_dummy_mask_image()

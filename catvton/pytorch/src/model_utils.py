@@ -12,8 +12,8 @@ weights from the zhengchong/CatVTON repository.
 
 import os
 
+import safetensors.torch
 import torch
-from accelerate import load_checkpoint_in_model
 from diffusers import (
     AutoencoderKL,
     DDIMScheduler,
@@ -69,7 +69,19 @@ def _load_catvton_attention_weights(unet, attn_ckpt_version):
     self_attn_modules = torch.nn.ModuleList(
         [module for name, module in unet.named_modules() if name.endswith("attn1")]
     )
-    load_checkpoint_in_model(self_attn_modules, attention_dir)
+
+    # The checkpoint uses non-sequential keys (0, 8, 16, ...) corresponding to
+    # transformer block positions in the full UNet enumeration. Remap to the
+    # sequential ModuleList indices (0, 1, 2, ...) before loading.
+    ckpt_path = os.path.join(attention_dir, "model.safetensors")
+    raw_state_dict = safetensors.torch.load_file(ckpt_path)
+    sorted_indices = sorted(set(int(k.split(".")[0]) for k in raw_state_dict))
+    idx_map = {orig: seq for seq, orig in enumerate(sorted_indices)}
+    remapped = {}
+    for key, val in raw_state_dict.items():
+        prefix, suffix = key.split(".", 1)
+        remapped[f"{idx_map[int(prefix)]}.{suffix}"] = val
+    self_attn_modules.load_state_dict(remapped)
 
 
 def load_catvton_pipe(base_model_name, attn_ckpt_version):
