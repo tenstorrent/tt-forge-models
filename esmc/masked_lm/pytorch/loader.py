@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         shortname = _ESM_SHORTNAMES[self._variant]
-        model = ESMC.from_pretrained(shortname)
+        model = ESMC.from_pretrained(shortname, **kwargs)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
