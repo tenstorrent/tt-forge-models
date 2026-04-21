@@ -35,7 +35,7 @@ class ModelVariant(StrEnum):
     OPUS_MT_TC_BIG_EN_BG = "Opus_Mt_Tc_Big_En_Bg"
     OPUS_MT_TC_BIG_EN_KO = "Opus_Mt_Tc_Big_En_Ko"
     OPUS_MT_EN_GMQ = "Opus_Mt_En_Gmq"
-    MT_DSPEC_LEGISLATION_EN_CY = "Mt_Dspec_Legislation_En_Cy"
+    OPUS_MT_IS_EN = "Opus_Mt_Is_En"
 
 
 class ModelLoader(ForgeModel):
@@ -78,8 +78,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPUS_MT_EN_GMQ: LLMModelConfig(
             pretrained_model_name="Helsinki-NLP/opus-mt-en-gmq",
         ),
-        ModelVariant.MT_DSPEC_LEGISLATION_EN_CY: LLMModelConfig(
-            pretrained_model_name="techiaith/mt-dspec-legislation-en-cy",
+        ModelVariant.OPUS_MT_IS_EN: LLMModelConfig(
+            pretrained_model_name="Helsinki-NLP/opus-mt-is-en",
         ),
     }
 
@@ -90,7 +90,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPUS_MT_TC_BIG_EN_BG: "The weather is beautiful today and the sun is shining brightly.",
         ModelVariant.OPUS_MT_TC_BIG_EN_KO: "The weather is beautiful today and the sun is shining brightly.",
         ModelVariant.OPUS_MT_EN_GMQ: ">>sv<< The weather is beautiful today and the sun is shining brightly.",
-        ModelVariant.MT_DSPEC_LEGISLATION_EN_CY: "The Curriculum and Assessment (Wales) Act 2021 established the Curriculum for Wales.",
+        ModelVariant.OPUS_MT_IS_EN: "Veðrið er fallegt í dag og sólin skín.",
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
