@@ -122,13 +122,19 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
-        if "pad_token_id" not in config.__dict__:
-            config.pad_token_id = config.__dict__.get("eos_token_id", 0)
-        if (
-            hasattr(config, "text_config")
-            and "pad_token_id" not in config.text_config.__dict__
-        ):
-            config.text_config.pad_token_id = config.pad_token_id
+        defaults = {
+            "pad_token_id": config.__dict__.get("eos_token_id", 0),
+            "use_cache": True,
+            "output_attentions": False,
+        }
+        for attr, default in defaults.items():
+            if attr not in config.__dict__:
+                setattr(config, attr, default)
+            if (
+                hasattr(config, "text_config")
+                and attr not in config.text_config.__dict__
+            ):
+                setattr(config.text_config, attr, getattr(config, attr, default))
 
         model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
