@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     H2O_DANUBE3_4B_CHAT = "4B_Chat"
     H2O_DANUBE3_4B_CHAT_Q4_K_M = "4B_Chat_Q4_K_M"
+    H2O_DANUBE3_4B_BASE = "4B_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.H2O_DANUBE3_4B_CHAT_Q4_K_M: LLMModelConfig(
             pretrained_model_name="h2oai/h2o-danube3-4b-chat-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.H2O_DANUBE3_4B_BASE: LLMModelConfig(
+            pretrained_model_name="h2oai/h2o-danube3-4b-base",
             max_length=128,
         ),
     }
@@ -64,6 +69,9 @@ class ModelLoader(ForgeModel):
     def gguf_file(self):
         return self._GGUF_FILES.get(self._variant)
 
+    def _is_gguf_variant(self):
+        return self._variant in self._GGUF_FILES
+
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant in cls._GGUF_FILES:
@@ -71,7 +79,7 @@ class ModelLoader(ForgeModel):
         else:
             model_name = "H2O Danube3"
         return ModelInfo(
-            model=model_name,
+            model="H2O Danube3",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
