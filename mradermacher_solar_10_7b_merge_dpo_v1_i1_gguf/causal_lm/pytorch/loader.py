@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available mradermacher SOLAR-10.7B-merge-dpo_v1 i1 GGUF model variants for causal language modeling."""
 
-    SOLAR_10_7B_MERGE_DPO_V1_I1_GGUF = "SOLAR-10.7B-merge-dpo_v1_i1_GGUF"
+    SOLAR_10_7B_MERGE_DPO_V1_I1_GGUF = "SOLAR_10_7B_merge_dpo_v1_i1_GGUF"
 
 
 class ModelLoader(ForgeModel):
