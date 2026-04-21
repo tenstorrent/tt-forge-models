@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-FG-CLIP 2 model loader implementation for bilingual image-text similarity.
+FG-CLIP 2 model loader implementation for zero-shot image classification.
 """
 import torch
 from transformers import AutoImageProcessor, AutoModelForCausalLM, AutoTokenizer
@@ -28,7 +28,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """FG-CLIP 2 model loader for bilingual fine-grained image-text similarity tasks."""
+    """FG-CLIP 2 model loader for bilingual fine-grained zero-shot image classification tasks."""
 
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
@@ -50,7 +50,7 @@ class ModelLoader(ForgeModel):
             model="FG_CLIP_2",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.MM_IMAGE_TEXT_SIM,
+            task=ModelTask.CV_ZS_IMAGE_CLS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
