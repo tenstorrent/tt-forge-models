@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     COMMAND_R7B_ARABIC = "7B_Arabic"
     COMMAND_R_PLUS_08_2024 = "Plus_08_2024"
+    COMMAND_R_PLUS_08_2024_GGUF = "Plus_08_2024_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,14 @@ class ModelLoader(ForgeModel):
         ModelVariant.COMMAND_R_PLUS_08_2024: LLMModelConfig(
             pretrained_model_name="CohereLabs/c4ai-command-r-plus-08-2024",
         ),
+        ModelVariant.COMMAND_R_PLUS_08_2024_GGUF: LLMModelConfig(
+            pretrained_model_name="bartowski/c4ai-command-r-plus-08-2024-GGUF",
+        ),
+    }
+
+    # GGUF files for quantized variants
+    _GGUF_FILES = {
+        ModelVariant.COMMAND_R_PLUS_08_2024_GGUF: "c4ai-command-r-plus-08-2024-Q4_K_M.gguf",
     }
 
     # Default variant to use
@@ -82,6 +91,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _is_gguf_variant(self):
+        """Check if the current variant uses GGUF quantization."""
+        return self._variant in self._GGUF_FILES
+
+    @property
+    def _gguf_file(self):
+        """Get the GGUF filename for the current variant."""
+        return self._GGUF_FILES.get(self._variant)
+
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
 
@@ -95,6 +113,10 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["dtype"] = dtype_override
+
+        # Pass gguf_file for GGUF variants
+        if self._is_gguf_variant():
+            tokenizer_kwargs["gguf_file"] = self._gguf_file
 
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -126,10 +148,17 @@ class ModelLoader(ForgeModel):
             model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Pass gguf_file for GGUF variants
+        if self._is_gguf_variant():
+            model_kwargs["gguf_file"] = self._gguf_file
+
         if self.num_layers is not None:
             from transformers import AutoConfig
 
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config_kwargs = {}
+            if self._is_gguf_variant():
+                config_kwargs["gguf_file"] = self._gguf_file
+            config = AutoConfig.from_pretrained(pretrained_model_name, **config_kwargs)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
