@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
 
     TROCR_BASE_PRINTED = "trocr-base-printed"
     TROCR_BASE_STAGE1 = "trocr-base-stage1"
-    TROCR_BASE_RU = "trocr-base-ru"
+    THAI_TROCR = "thai-trocr"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.TROCR_BASE_STAGE1: ModelConfig(
             pretrained_model_name="microsoft/trocr-base-stage1",
         ),
-        ModelVariant.TROCR_BASE_RU: ModelConfig(
-            pretrained_model_name="raxtemur/trocr-base-ru",
+        ModelVariant.THAI_TROCR: ModelConfig(
+            pretrained_model_name="openthaigpt/thai-trocr",
         ),
     }
 
