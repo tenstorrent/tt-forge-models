@@ -167,7 +167,9 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         config = self._build_native_config()
-        if is_quantized and hasattr(config, "quantization_config"):
+        # The native MiniMaxConfig does not understand the remote quantization_config
+        # carried in quantized variants, so drop it before constructing the model.
+        if hasattr(config, "quantization_config"):
             delattr(config, "quantization_config")
         model_kwargs["config"] = config
 
