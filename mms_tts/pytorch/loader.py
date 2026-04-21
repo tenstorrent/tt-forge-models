@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available MMS-TTS model variants."""
 
     HAU = "hau"
-    MAL = "mal"
+    MAR = "mar"
     ORM = "orm"
     POR = "por"
     YOR = "yor"
@@ -37,8 +37,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.HAU: ModelConfig(
             pretrained_model_name="facebook/mms-tts-hau",
         ),
-        ModelVariant.MAL: ModelConfig(
-            pretrained_model_name="facebook/mms-tts-mal",
+        ModelVariant.MAR: ModelConfig(
+            pretrained_model_name="facebook/mms-tts-mar",
         ),
         ModelVariant.ORM: ModelConfig(
             pretrained_model_name="facebook/mms-tts-orm",
@@ -55,7 +55,7 @@ class ModelLoader(ForgeModel):
 
     _SAMPLE_TEXTS = {
         ModelVariant.HAU: "Sannu, yaya aiki?",
-        ModelVariant.MAL: "നമസ്കാരം, സുഖമാണോ?",
+        ModelVariant.MAR: "नमस्कार, तुम्ही कसे आहात?",
         ModelVariant.ORM: "Baga nagaan dhuftan",
         ModelVariant.POR: "Olá, como você está?",
         ModelVariant.YOR: "Ẹ n lẹ, bawo ni ọjọ yín ṣe rí?",
