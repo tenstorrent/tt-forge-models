@@ -29,7 +29,7 @@ class ModelVariant(StrEnum):
     """Available EfficientNetV2 model variants (timm)."""
 
     TF_EFFICIENTNETV2_M_IN21K_FT_IN1K = "Tf_Efficientnetv2_M.in21k_ft_in1k"
-    TF_EFFICIENTNETV2_S_IN1K = "Tf_Efficientnetv2_S.in1k"
+    EFFICIENTNETV2_RW_T_RA2_IN1K = "Efficientnetv2_Rw_T.ra2_in1k"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.TF_EFFICIENTNETV2_M_IN21K_FT_IN1K: ModelConfig(
             pretrained_model_name="tf_efficientnetv2_m.in21k_ft_in1k",
         ),
-        ModelVariant.TF_EFFICIENTNETV2_S_IN1K: ModelConfig(
-            pretrained_model_name="tf_efficientnetv2_s.in1k",
+        ModelVariant.EFFICIENTNETV2_RW_T_RA2_IN1K: ModelConfig(
+            pretrained_model_name="efficientnetv2_rw_t.ra2_in1k",
         ),
     }
 
