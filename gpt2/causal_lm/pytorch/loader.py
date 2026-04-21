@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
 
     TINY_RANDOM = "tiny-random"
     CRUMB_GPT2023 = "crumb-gpt2023"
+    HUGGINGTWEETS_JERMA985 = "huggingtweets-jerma985"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.CRUMB_GPT2023: LLMModelConfig(
             pretrained_model_name="crumb/gpt2023",
+            max_length=256,
+        ),
+        ModelVariant.HUGGINGTWEETS_JERMA985: LLMModelConfig(
+            pretrained_model_name="huggingtweets/jerma985",
             max_length=256,
         ),
     }
