@@ -4,12 +4,13 @@
 """
 DC-AE (Deep Compression Autoencoder) model loader implementation.
 
-Loads the mit-han-lab/dc-ae-f32c32-sana-1.0 autoencoder which provides
-32x spatial compression with 32 latent channels. Used as the VAE component
-in the SANA text-to-image diffusion pipeline.
+Loads mit-han-lab DC-AE autoencoders that provide 32x spatial compression
+with 32 latent channels. Used as the VAE component in the SANA text-to-image
+diffusion pipeline.
 
 Available variants:
 - F32C32_SANA_1_0: dc-ae-f32c32-sana-1.0 (32x compression, 32 channels)
+- F32C32_SANA_LITE_1_1: dc-ae-lite-f32c32-sana-1.1 (lite variant)
 """
 
 from typing import Any, Optional
@@ -28,10 +29,6 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "mit-han-lab/dc-ae-f32c32-sana-1.0"
-
-# DC-AE f32c32: 32 latent channels, 32x spatial compression
-LATENT_CHANNELS = 32
 # Use small input dimensions for testing (must be divisible by 32)
 INPUT_HEIGHT = 256
 INPUT_WIDTH = 256
@@ -41,6 +38,7 @@ class ModelVariant(StrEnum):
     """Available DC-AE model variants."""
 
     F32C32_SANA_1_0 = "f32c32_sana_1.0"
+    F32C32_SANA_LITE_1_1 = "f32c32_sana_lite_1.1"
 
 
 class ModelLoader(ForgeModel):
@@ -48,7 +46,10 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.F32C32_SANA_1_0: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name="mit-han-lab/dc-ae-f32c32-sana-1.0",
+        ),
+        ModelVariant.F32C32_SANA_LITE_1_1: ModelConfig(
+            pretrained_model_name="mit-han-lab/dc-ae-lite-f32c32-sana-1.1",
         ),
     }
     DEFAULT_VARIANT = ModelVariant.F32C32_SANA_1_0
@@ -76,9 +77,10 @@ class ModelLoader(ForgeModel):
         Returns:
             DCAE_HF instance for image encoding/decoding.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
         if self._model is None:
-            self._model = DCAE_HF.from_pretrained(REPO_ID)
+            self._model = DCAE_HF.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
             self._model.eval()
         if dtype_override is not None:
             self._model = self._model.to(dtype=dtype_override)
