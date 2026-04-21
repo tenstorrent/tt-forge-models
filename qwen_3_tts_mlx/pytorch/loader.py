@@ -76,6 +76,23 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import functools
+        import transformers.utils.generic as _tug
+
+        if not hasattr(_tug, "check_model_inputs"):
+            # check_model_inputs was removed in transformers 5.x; provide a no-op shim
+            def check_model_inputs():
+                def decorator(func):
+                    @functools.wraps(func)
+                    def wrapper(*args, **kwargs):
+                        return func(*args, **kwargs)
+
+                    return wrapper
+
+                return decorator
+
+            _tug.check_model_inputs = check_model_inputs
+
         from qwen_tts.core.models import (
             Qwen3TTSConfig,
             Qwen3TTSForConditionalGeneration,
@@ -85,10 +102,21 @@ class ModelLoader(ForgeModel):
         AutoConfig.register("qwen3_tts", Qwen3TTSConfig)
         AutoModel.register(Qwen3TTSConfig, Qwen3TTSForConditionalGeneration)
 
+        # Load config and strip MLX quantization config (not compatible with transformers 5.x)
+        model_name = self._variant_config.pretrained_model_name
+        cfg = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+        if hasattr(cfg, "quantization_config"):
+            del cfg.quantization_config
+
+        # ignore_mismatched_sizes: the MLX-quantized weights use a different shape layout
+        # than the standard transformers model; since this is compile-only, loading with
+        # randomly initialised params for mismatched layers is acceptable.
         full_model = AutoModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            model_name,
+            config=cfg,
             trust_remote_code=True,
-            dtype=dtype_override or torch.float32,
+            torch_dtype=dtype_override or torch.float32,
+            ignore_mismatched_sizes=True,
         )
         model = Qwen3TTSTalkerWrapper(full_model.talker)
         model.eval()
