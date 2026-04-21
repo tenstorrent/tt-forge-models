@@ -5,16 +5,19 @@
 LTX-Video model loader for tt_forge_models.
 
 LTX-Video is a text-to-video diffusion model using a 3D transformer backbone
-with a T5 text encoder and a video VAE.
+with a T5 text encoder and a video VAE. The spatial upscaler variant swaps the
+transformer for a spatial latent upsampler that doubles the height/width of
+LTX-Video latents.
 
 Repositories:
 - https://huggingface.co/optimum-intel-internal-testing/tiny-random-ltx-video
 - https://huggingface.co/Lightricks/LTX-Video-0.9.8-13B-distilled
-- https://huggingface.co/a-r-r-o-w/LTX-Video-0.9.7-diffusers
+- https://huggingface.co/Lightricks/ltxv-spatial-upscaler-0.9.7
 
 Available subfolders:
 - transformer: LTXVideoTransformer3DModel
 - vae: AutoencoderKLLTXVideo
+- latent_upsampler: LTXLatentUpsamplerModel (spatial upscaler variants only)
 """
 
 from typing import Any, Optional
@@ -33,7 +36,7 @@ from ...config import (
     StrEnum,
 )
 
-SUPPORTED_SUBFOLDERS = {"transformer", "vae"}
+SUPPORTED_SUBFOLDERS = {"transformer", "vae", "latent_upsampler"}
 
 
 class ModelVariant(StrEnum):
@@ -42,6 +45,10 @@ class ModelVariant(StrEnum):
     TINY_RANDOM = "tiny_random"
     LTX_VIDEO_0_9_7 = "LTX_Video_0_9_7"
     LTX_VIDEO_0_9_8_13B_DISTILLED = "LTX_Video_0_9_8_13B_distilled"
+    LTXV_SPATIAL_UPSCALER_0_9_7 = "LTXV_Spatial_Upscaler_0_9_7"
+
+
+SPATIAL_UPSCALER_VARIANTS = {ModelVariant.LTXV_SPATIAL_UPSCALER_0_9_7}
 
 
 class ModelLoader(ForgeModel):
@@ -51,6 +58,7 @@ class ModelLoader(ForgeModel):
     Supports loading the full pipeline or individual components via subfolder:
     - 'transformer': LTXVideoTransformer3DModel
     - 'vae': AutoencoderKLLTXVideo
+    - 'latent_upsampler': LTXLatentUpsamplerModel (spatial upscaler variants)
     """
 
     _VARIANTS = {
@@ -62,6 +70,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LTX_VIDEO_0_9_8_13B_DISTILLED: ModelConfig(
             pretrained_model_name="Lightricks/LTX-Video-0.9.8-13B-distilled",
+        ),
+        ModelVariant.LTXV_SPATIAL_UPSCALER_0_9_7: ModelConfig(
+            pretrained_model_name="Lightricks/ltxv-spatial-upscaler-0.9.7",
         ),
     }
 
@@ -101,16 +112,23 @@ class ModelLoader(ForgeModel):
         )
         return self.pipeline
 
+    def _default_subfolder(self) -> str:
+        if self._variant in SPATIAL_UPSCALER_VARIANTS:
+            return "latent_upsampler"
+        return "transformer"
+
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.float32
 
         if self.pipeline is None:
             self._load_pipeline(dtype)
 
-        if self._subfolder == "vae":
+        subfolder = self._subfolder or self._default_subfolder()
+
+        if subfolder == "vae":
             return self.pipeline.vae
-        elif self._subfolder == "transformer":
-            return self.pipeline.transformer
+        elif subfolder == "latent_upsampler":
+            return self.pipeline.latent_upsampler
         else:
             return self.pipeline.transformer
 
@@ -120,12 +138,16 @@ class ModelLoader(ForgeModel):
         if self.pipeline is None:
             self._load_pipeline(dtype)
 
-        if self._subfolder == "vae":
+        subfolder = self._subfolder or self._default_subfolder()
+
+        if subfolder == "vae":
             vae_type = kwargs.get("vae_type", "decoder")
             if vae_type == "decoder":
                 return self._load_vae_decoder_inputs(dtype)
             else:
                 return self._load_vae_encoder_inputs(dtype)
+        elif subfolder == "latent_upsampler":
+            return self._load_latent_upsampler_inputs(dtype)
         else:
             return self._load_transformer_inputs(dtype)
 
@@ -173,6 +195,13 @@ class ModelLoader(ForgeModel):
         """Prepare synthetic encoder inputs for the video VAE."""
         return {
             "sample": torch.randn(1, 3, 9, 64, 64, dtype=dtype),
+        }
+
+    def _load_latent_upsampler_inputs(self, dtype: torch.dtype) -> dict:
+        """Prepare synthetic inputs for the LTX latent upsampler."""
+        in_channels = self.pipeline.latent_upsampler.config.in_channels
+        return {
+            "hidden_states": torch.randn(1, in_channels, 2, 8, 8, dtype=dtype),
         }
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:
