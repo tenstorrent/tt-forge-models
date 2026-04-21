@@ -1,16 +1,14 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-PubMedBERT SPLADE model loader implementation for masked language modeling.
+PubMedBERT (BiomedBERT) model loader implementation for masked language modeling.
 """
 
-from typing import Optional
+from transformers import AutoConfig, BertForMaskedLM, BertTokenizer
 
-from transformers import AutoModelForMaskedLM, AutoTokenizer
-
-from ....base import ForgeModel
-from ....config import (
+from third_party.tt_forge_models.base import ForgeModel
+from third_party.tt_forge_models.config import (
     Framework,
     LLMModelConfig,
     ModelGroup,
@@ -22,81 +20,124 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available PubMedBERT SPLADE model variants."""
+    """Available PubMedBERT (BiomedBERT) model variants for masked language modeling."""
 
-    PUBMEDBERT_BASE_SPLADE = "NeuML/pubmedbert-base-splade"
+    BIOMEDBERT_LARGE_UNCASED_ABSTRACT = (
+        "microsoft/BiomedNLP-BiomedBERT-large-uncased-abstract"
+    )
 
 
 class ModelLoader(ForgeModel):
-    """PubMedBERT SPLADE model loader implementation for masked language modeling."""
+    """PubMedBERT (BiomedBERT) model loader implementation for masked language modeling."""
 
     _VARIANTS = {
-        ModelVariant.PUBMEDBERT_BASE_SPLADE: LLMModelConfig(
-            pretrained_model_name="NeuML/pubmedbert-base-splade",
-            max_length=512,
+        ModelVariant.BIOMEDBERT_LARGE_UNCASED_ABSTRACT: LLMModelConfig(
+            pretrained_model_name="microsoft/BiomedNLP-BiomedBERT-large-uncased-abstract",
+            max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.PUBMEDBERT_BASE_SPLADE
+    DEFAULT_VARIANT = ModelVariant.BIOMEDBERT_LARGE_UNCASED_ABSTRACT
 
-    sample_text = (
-        "Chronic kidney disease is associated with increased cardiovascular risk."
-    )
+    def __init__(self, variant=None):
+        """Initialize ModelLoader with specified variant.
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant."""
-
+        Args:
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
         super().__init__(variant)
-        self._tokenizer = None
-        self._model_name = self._variant_config.pretrained_model_name
+
+        self.model_name = self._variant_config.pretrained_model_name
+        self.sample_text = "[MASK] is a tyrosine kinase inhibitor."
+        self.max_length = self._variant_config.max_length or 128
+        self.tokenizer = None
 
     @classmethod
-    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Get model information for dashboard and metrics reporting."""
+    def _get_model_info(cls, variant_name: str = None):
+        """Get model information for dashboard and metrics reporting.
 
+        Args:
+            variant_name: Optional variant name string. If None, uses 'base'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        if variant_name is None:
+            variant_name = "base"
         return ModelInfo(
-            model="PubMedBERT SPLADE",
-            variant=variant,
+            model="PubMedBERT",
+            variant=variant_name,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_MASKED_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self):
-        """Load tokenizer for the current variant."""
-
-        self._tokenizer = AutoTokenizer.from_pretrained(self._model_name)
-        return self._tokenizer
-
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the PubMedBERT SPLADE model instance."""
+        """Load PubMedBERT model for masked language modeling from Hugging Face.
 
-        if self._tokenizer is None:
-            self._load_tokenizer()
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                            If not provided, the model will use its default dtype (typically float32).
+
+        Returns:
+            torch.nn.Module: The PubMedBERT model instance.
+        """
+
+        self.tokenizer = BertTokenizer.from_pretrained(self.model_name)
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForMaskedLM.from_pretrained(self._model_name, **model_kwargs)
+        model = BertForMaskedLM.from_pretrained(self.model_name, **model_kwargs)
         model.eval()
-
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the model."""
+        """Prepare sample input for PubMedBERT masked language modeling.
 
-        if self._tokenizer is None:
-            self._load_tokenizer()
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                            If not provided, the model will use its default dtype (typically float32).
 
-        inputs = self._tokenizer(
+        Returns:
+            dict: Input tensors that can be fed to the model.
+        """
+        if self.tokenizer is None:
+            self.load_model(dtype_override=dtype_override)
+
+        inputs = self.tokenizer(
             self.sample_text,
-            max_length=self._variant_config.max_length,
+            max_length=self.max_length,
             padding="max_length",
             truncation=True,
             return_tensors="pt",
         )
 
         return inputs
+
+    def decode_output(self, co_out):
+        """Decode the model output for masked language modeling."""
+        inputs = self.load_inputs()
+        logits = co_out[0]
+        mask_token_index = (inputs["input_ids"] == self.tokenizer.mask_token_id)[
+            0
+        ].nonzero(as_tuple=True)[0]
+        predicted_token_id = logits[0, mask_token_index].argmax(axis=-1)
+        predicted_token = self.tokenizer.decode(predicted_token_id)
+        print("The predicted token for the [MASK] is:", predicted_token)
+
+    def load_config(self):
+        """Load and return the configuration for the PubMedBERT model variant.
+
+        Returns:
+            The configuration object for the PubMedBERT model.
+        """
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+
+        return self.config
