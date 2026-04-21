@@ -87,6 +87,7 @@ class ModelVariant(StrEnum):
     """Available Mapperatorinator model variants."""
 
     MAPPERATORINATOR_V30 = "v30"
+    MAPPERATORINATOR_V29_1 = "v29.1"
 
 
 class ModelLoader(ForgeModel):
@@ -95,6 +96,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MAPPERATORINATOR_V30: ModelConfig(
             pretrained_model_name="OliBomby/Mapperatorinator-v30",
+        ),
+        ModelVariant.MAPPERATORINATOR_V29_1: ModelConfig(
+            pretrained_model_name="OliBomby/Mapperatorinator-v29.1",
         ),
     }
 
