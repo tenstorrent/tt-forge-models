@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available JoyCaption model variants."""
 
     BETA_ONE_HF_LLAVA = "Beta_One_HF_LLaVA"
+    ALPHA_TWO_HF_LLAVA_FP8_DYNAMIC = "Alpha_Two_HF_LLaVA_FP8_Dynamic"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BETA_ONE_HF_LLAVA: ModelConfig(
             pretrained_model_name="fancyfeast/llama-joycaption-beta-one-hf-llava",
+        ),
+        ModelVariant.ALPHA_TWO_HF_LLAVA_FP8_DYNAMIC: ModelConfig(
+            pretrained_model_name="JKCHSTR/llama-joycaption-alpha-two-hf-llava-FP8-Dynamic",
         ),
     }
 
