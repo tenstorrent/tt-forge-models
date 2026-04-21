@@ -4,8 +4,10 @@
 """
 eekay/Llama-3.1-8B-Instruct-elephant-numbers-ft model loader implementation for causal language modeling.
 """
+import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from huggingface_hub import snapshot_download
 from typing import Optional
 
 from ....base import ForgeModel
@@ -60,25 +62,35 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _download_model(self):
+        """Download model files, excluding adapter files that cause gated repo errors."""
         pretrained_model_name = self._variant_config.pretrained_model_name
+        local_dir = snapshot_download(
+            pretrained_model_name, ignore_patterns=["adapter_*"]
+        )
+        adapter_cfg = os.path.join(local_dir, "adapter_config.json")
+        if os.path.exists(adapter_cfg):
+            os.remove(adapter_cfg)
+        return local_dir
+
+    def _load_tokenizer(self, dtype_override=None):
+        local_dir = self._download_model()
+        self._local_dir = local_dir
 
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(local_dir, **tokenizer_kwargs)
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        local_dir = self._local_dir
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -88,13 +100,11 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             from transformers import AutoConfig
 
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(local_dir)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        model = AutoModelForCausalLM.from_pretrained(local_dir, **model_kwargs)
         model.eval()
 
         return model
