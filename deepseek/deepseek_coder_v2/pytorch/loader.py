@@ -54,7 +54,7 @@ class ModelLoader(ForgeModel):
     sample_text = "write a bubble sort algorithm in python."
 
     # Base (non-instruct) variants use plain text input without chat templating
-    _BASE_VARIANTS = {ModelVariant.DEEPSEEK_CODER_V2_LITE_BASE}
+    _BASE_VARIANTS = set()
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
