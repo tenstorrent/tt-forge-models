@@ -36,6 +36,7 @@ class MobileOneConfig(ModelConfig):
 class ModelVariant(StrEnum):
     """Available MobileOne model variants."""
 
+    S0_APPLE_IN1K = "S0_Apple_IN1K"
     S1_APPLE_IN1K = "S1_Apple_IN1K"
 
 
@@ -43,6 +44,10 @@ class ModelLoader(ForgeModel):
     """MobileOne model loader implementation."""
 
     _VARIANTS = {
+        ModelVariant.S0_APPLE_IN1K: MobileOneConfig(
+            pretrained_model_name="mobileone_s0.apple_in1k",
+            source=ModelSource.TIMM,
+        ),
         ModelVariant.S1_APPLE_IN1K: MobileOneConfig(
             pretrained_model_name="mobileone_s1.apple_in1k",
             source=ModelSource.TIMM,
