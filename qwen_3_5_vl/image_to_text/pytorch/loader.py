@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3.5 VL model variants for image to text."""
 
     QWEN_3_5_4B_INT4_AUTOROUND = "4b_int4_autoround"
+    QWEN_3_5_2B_ACTION = "2b_action"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_5_4B_INT4_AUTOROUND: LLMModelConfig(
             pretrained_model_name="Intel/Qwen3.5-4B-int4-AutoRound",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_2B_ACTION: LLMModelConfig(
+            pretrained_model_name="229nagibator229/Qwen3.5-2B-action",
             max_length=128,
         ),
     }
@@ -89,7 +94,8 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         # INT4 quantized model needs device_map="cpu" for CPU-based loading
-        model_kwargs["device_map"] = "cpu"
+        if self._variant == ModelVariant.QWEN_3_5_4B_INT4_AUTOROUND:
+            model_kwargs["device_map"] = "cpu"
 
         model_kwargs |= kwargs
 
