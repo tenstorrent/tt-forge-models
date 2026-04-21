@@ -69,6 +69,9 @@ class ModelVariant(StrEnum):
     LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC = "3.2_1B_Instruct_FP8_Dynamic"
     LLAMA_3_1_70B_INSTRUCT_FP8_DYNAMIC = "3.1_70B_Instruct_FP8_Dynamic"
 
+    # AMD FP8 quantized variants
+    LLAMA_3_2_1B_INSTRUCT_FP8_KV = "3.2_1B_Instruct_FP8_KV"
+
     # RedHatAI NVFP4 quantized variants
     LLAMA_3_1_8B_INSTRUCT_NVFP4 = "3.1_8B_Instruct_NVFP4"
 
@@ -244,6 +247,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RedHatAI/Llama-3.2-1B-Instruct-FP8-dynamic",
             max_length=128,
         ),
+        # AMD FP8 quantized variants
+        ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_KV: LLMModelConfig(
+            pretrained_model_name="amd/Llama-3.2-1B-Instruct-FP8-KV",
+            max_length=128,
+        ),
         # RedHatAI NVFP4 quantized variants
         ModelVariant.LLAMA_3_1_8B_INSTRUCT_NVFP4: LLMModelConfig(
             pretrained_model_name="RedHatAI/Llama-3.1-8B-Instruct-NVFP4",
@@ -402,6 +410,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_1_70B_INSTRUCT_FP8,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_1_70B_INSTRUCT_FP8_DYNAMIC,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_KV,
             ModelVariant.LLAMA_3_2_3B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_2_3B_INSTRUCT_MLX_8BIT,
             ModelVariant.LLAMA_3_2_3B_BNB_4BIT,
@@ -722,6 +731,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_3B_GPTQ_4BIT,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
+            ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_KV,
             ModelVariant.LLAMA_3_2_1B_BNB_4BIT,
             ModelVariant.HUGGYLLAMA_7B,
             ModelVariant.DECAPODA_RESEARCH_LLAMA_7B,
