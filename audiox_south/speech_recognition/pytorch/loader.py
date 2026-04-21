@@ -8,7 +8,11 @@ AudioX-South-v1 model loader implementation for speech recognition (ASR) using P
 
 import numpy as np
 import torch
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from transformers import (
+    WhisperProcessor,
+    WhisperForConditionalGeneration,
+    WhisperConfig,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -40,6 +44,10 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.AUDIOX_SOUTH_V1
 
+    # jiviai/audioX-south-v1 is a gated repo; use this public Whisper model
+    # as a proxy for the config and processor (same architecture).
+    _CONFIG_PROXY = "openai/whisper-large-v3"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
@@ -67,11 +75,15 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Pass config explicitly so random_weights.py skips the gated config download.
+        if "config" not in model_kwargs:
+            model_kwargs["config"] = WhisperConfig.from_pretrained(self._CONFIG_PROXY)
+
         self.model = WhisperForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         self.model.config.forced_decoder_ids = None
-        self.processor = WhisperProcessor.from_pretrained(pretrained_model_name)
+        self.processor = WhisperProcessor.from_pretrained(self._CONFIG_PROXY)
 
         self.model.eval()
         if dtype_override is not None:
@@ -103,4 +115,7 @@ class ModelLoader(ForgeModel):
             device=device,
         )
 
-        return [input_features, decoder_input_ids]
+        return {
+            "input_features": input_features,
+            "decoder_input_ids": decoder_input_ids,
+        }
