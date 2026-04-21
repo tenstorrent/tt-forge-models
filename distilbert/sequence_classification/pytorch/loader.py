@@ -58,9 +58,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.DISTILBERT_BASE_UNCASED_FINETUNED_SST_2_ENGLISH
 
     # Variants that require loading from TensorFlow weights
-    _FROM_TF_VARIANTS = {
-        ModelVariant.D4DATA_BIAS_DETECTION_MODEL,
-    }
+    _FROM_TF_VARIANTS = set()
 
     # Variant-specific sample texts
     _SAMPLE_TEXTS = {
