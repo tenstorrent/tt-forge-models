@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     """Available Xenova Whisper model variants."""
 
     WHISPER_BASE = "Base"
+    WHISPER_MEDIUM = "Medium"
 
 
 class ModelLoader(ForgeModel):
@@ -41,6 +42,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.WHISPER_BASE: ModelConfig(
             pretrained_model_name="Xenova/whisper-base",
+        ),
+        ModelVariant.WHISPER_MEDIUM: ModelConfig(
+            pretrained_model_name="Xenova/whisper-medium",
         ),
     }
 
