@@ -4,13 +4,17 @@
 """
 BLIP3o vision-language model loader implementation (PyTorch).
 
-BLIP3o is a unified vision-language model built on Qwen2.5-VL, capable of
+BLIP3o is a unified vision-language model built on Qwen3, capable of
 both image understanding and image generation.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
+
+from .src import (
+    model_utils,
+)  # noqa: F401 — registers blip3o_qwen with AutoConfig/AutoModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -41,25 +45,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.BLIP3O_8B
 
-    # Processor comes from the base Qwen2.5-VL model
-    _PROCESSOR_NAME = "Qwen/Qwen2.5-VL-7B-Instruct"
-
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "image",
-                    "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                },
-                {"type": "text", "text": "Describe this image."},
-            ],
-        }
-    ]
+    _TOKENIZER_NAME = "Qwen/Qwen3-8B"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
+        self.tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -75,15 +65,12 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(self._PROCESSOR_NAME)
-        return self.processor
+    def _load_tokenizer(self):
+        self.tokenizer = AutoTokenizer.from_pretrained(self._TOKENIZER_NAME)
+        return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
-
-        if self.processor is None:
-            self._load_processor()
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
@@ -97,24 +84,11 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.processor is None:
-            self._load_processor()
+        if self.tokenizer is None:
+            self._load_tokenizer()
 
-        from qwen_vl_utils import process_vision_info
-
-        text = self.processor.apply_chat_template(
-            self.messages, tokenize=False, add_generation_prompt=True
-        )
-
-        image_inputs, video_inputs = process_vision_info(self.messages)
-
-        inputs = self.processor(
-            text=[text],
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt",
-        )
+        prompt = "Describe the contents of this image in detail."
+        inputs = self.tokenizer(prompt, return_tensors="pt", padding=True)
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
@@ -131,16 +105,14 @@ class ModelLoader(ForgeModel):
         if isinstance(outputs, str):
             return outputs
 
-        if self.processor is None:
-            self._load_processor()
-
-        tokenizer = self.processor.tokenizer
+        if self.tokenizer is None:
+            self._load_tokenizer()
 
         if torch.is_tensor(outputs) and outputs.dtype in [torch.long, torch.int]:
             if input_length is not None:
                 outputs = outputs[:, input_length:]
-            return tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+            return self.tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
         else:
             logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
             next_token_id = torch.argmax(logits[:, -1, :], dim=-1)
-            return tokenizer.decode(next_token_id)
+            return self.tokenizer.decode(next_token_id)
