@@ -25,7 +25,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available nightmedia Qwen3.5 27B Text Heretic mxfp4 MLX model variants."""
 
-    QWEN3_5_27B_TEXT_HERETIC_MXFP4_MLX = "Qwen3_5_27B_Text_Heretic_mxfp4_MLX"
+    QWEN3_5_27B_TEXT_HERETIC_MXFP4_MLX = "Qwen3_5_27B_Text_heretic_mxfp4_mlx"
 
 
 class ModelLoader(ForgeModel):
