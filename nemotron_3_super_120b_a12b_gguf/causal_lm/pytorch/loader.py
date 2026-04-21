@@ -24,6 +24,9 @@ class ModelVariant(StrEnum):
     """Available NVIDIA Nemotron 3 Super 120B A12B GGUF model variants for causal language modeling."""
 
     NEMOTRON_3_SUPER_120B_A12B_GGUF = "3_Super_120B_A12B_GGUF"
+    NEMOTRON_3_SUPER_120B_A12B_CLAUDE_4_6_OPUS_REASONING_DISTILLED_GGUF = (
+        "3_Super_120B_A12B_Claude_4_6_Opus_Reasoning_Distilled_GGUF"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -34,13 +37,24 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/NVIDIA-Nemotron-3-Super-120B-A12B-GGUF",
             max_length=128,
         ),
+        ModelVariant.NEMOTRON_3_SUPER_120B_A12B_CLAUDE_4_6_OPUS_REASONING_DISTILLED_GGUF: LLMModelConfig(
+            pretrained_model_name="blobbybob/Nemotron-3-Super-120B-A12B-GGUF-Claude-4.6-Opus-Reasoning-Distilled",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.NEMOTRON_3_SUPER_120B_A12B_GGUF
 
-    GGUF_FILE = "NVIDIA-Nemotron-3-Super-120B-A12B-UD-Q4_K_M-00001-of-00003.gguf"
+    _GGUF_FILES = {
+        ModelVariant.NEMOTRON_3_SUPER_120B_A12B_GGUF: "NVIDIA-Nemotron-3-Super-120B-A12B-UD-Q4_K_M-00001-of-00003.gguf",
+        ModelVariant.NEMOTRON_3_SUPER_120B_A12B_CLAUDE_4_6_OPUS_REASONING_DISTILLED_GGUF: "nemotron-120b-q4-k-m.gguf",
+    }
 
     sample_text = "Give me a short introduction to large language models."
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -65,7 +79,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +99,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -141,6 +155,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
