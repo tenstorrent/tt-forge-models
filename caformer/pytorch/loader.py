@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     """Available CAFormer model variants."""
 
     S36_SAIL_IN22K_FT_IN1K_384 = "S36_Sail_In22k_Ft_In1k_384"
-    B36_SAIL_IN22K_FT_IN1K = "B36_Sail_In22k_Ft_In1k"
+    S18_SAIL_IN1K = "S18_Sail_In1k"
 
 
 class ModelLoader(ForgeModel):
@@ -40,8 +40,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.S36_SAIL_IN22K_FT_IN1K_384: ModelConfig(
             pretrained_model_name="hf_hub:timm/caformer_s36.sail_in22k_ft_in1k_384",
         ),
-        ModelVariant.B36_SAIL_IN22K_FT_IN1K: ModelConfig(
-            pretrained_model_name="hf_hub:timm/caformer_b36.sail_in22k_ft_in1k",
+        ModelVariant.S18_SAIL_IN1K: ModelConfig(
+            pretrained_model_name="hf_hub:timm/caformer_s18.sail_in1k",
         ),
     }
 
