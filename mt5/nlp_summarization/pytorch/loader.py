@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available MT5 multilingual summarization model variants."""
 
     MULTILINGUAL_XLSUM = "Multilingual_XLSum"
-    CPE_KMUTT_THAI_SENTENCE_SUM = "CPE_KMUTT_Thai_Sentence_Sum"
+    XLSUM_FINETUNED_XSUM = "nestoralvaro/mT5_multilingual_XLSum-finetuned-xsum"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="csebuetnlp/mT5_multilingual_XLSum",
             max_length=512,
         ),
-        ModelVariant.CPE_KMUTT_THAI_SENTENCE_SUM: LLMModelConfig(
-            pretrained_model_name="thanathorn/mt5-cpe-kmutt-thai-sentence-sum",
+        ModelVariant.XLSUM_FINETUNED_XSUM: LLMModelConfig(
+            pretrained_model_name="nestoralvaro/mT5_multilingual_XLSum-finetuned-xsum",
             max_length=512,
         ),
     }
