@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 import torch.nn as nn
@@ -18,7 +18,7 @@ class LoRAAdapterConfig:
 
     r: int = 8
     lora_alpha: float = 16.0
-    target_modules: List[str] = ["q_proj", "v_proj"]
+    target_modules: List[str] = field(default_factory=lambda: ["q_proj", "v_proj"])
     dropout: float = 0.0
 
 
