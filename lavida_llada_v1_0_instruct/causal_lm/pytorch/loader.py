@@ -9,21 +9,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, Siglip
 from typing import Optional
 
 # modeling_lavida.py accesses vision attributes directly on SiglipConfig, but
-# transformers >= 5 removed them from the top-level config. Delegate them to
-# vision_config so the custom model code works with the installed transformers.
-_SIGLIP_VISION_ATTRS = [
-    "hidden_size",
-    "image_size",
-    "patch_size",
-    "num_channels",
-    "num_attention_heads",
-    "attention_dropout",
-    "intermediate_size",
-    "layer_norm_eps",
-    "num_hidden_layers",
-]
-for _attr in _SIGLIP_VISION_ATTRS:
-    if not hasattr(SiglipConfig, _attr):
+# transformers >= 5 removed them from the top-level config. Delegate all
+# SiglipVisionConfig attrs to vision_config so the custom model code works.
+from transformers import SiglipVisionConfig as _SiglipVisionConfig
+
+for _attr in vars(_SiglipVisionConfig).keys():
+    if not _attr.startswith("_") and not hasattr(SiglipConfig, _attr):
         setattr(
             SiglipConfig,
             _attr,
