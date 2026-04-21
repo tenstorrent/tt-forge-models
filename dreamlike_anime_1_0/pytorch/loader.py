@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
@@ -94,6 +94,6 @@ class ModelLoader(ForgeModel):
             list: A list of sample text prompts.
         """
         prompt = [
-            "anime, masterpiece, high quality, 1girl, solo, long hair, looking at viewer, blush, smile, besides a cottage, in the country",
+            "anime, masterpiece, high quality, 1girl, solo, long hair, looking at viewer, blush, smile, blue eyes, in a colorful flower field",
         ] * batch_size
         return prompt
