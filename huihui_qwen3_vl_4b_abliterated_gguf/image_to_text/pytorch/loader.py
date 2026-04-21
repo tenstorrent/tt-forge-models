@@ -72,6 +72,10 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
     text_cfg = {k: cfg.pop(k) for k in list(cfg) if k in _TEXT_CONFIG_KEYS}
     if text_cfg:
         cfg["text_config"] = text_cfg
+        # Ensure vision merger output matches the text hidden size so shapes align.
+        if "vision_config" not in cfg:
+            cfg["vision_config"] = {}
+        cfg["vision_config"].setdefault("out_hidden_size", text_cfg.get("hidden_size"))
     cfg["model_type"] = "qwen3_vl"
     return result
 
