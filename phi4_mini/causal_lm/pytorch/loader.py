@@ -6,7 +6,34 @@ Phi-4-mini model loader implementation for causal language modeling
 """
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
-from typing import Optional
+from transformers import cache_utils as _cache_utils
+from transformers import utils as _transformers_utils
+from typing import Optional, TypedDict
+
+if not hasattr(_cache_utils, "SlidingWindowCache"):
+    _cache_utils.SlidingWindowCache = _cache_utils.StaticCache
+
+if not hasattr(_transformers_utils, "LossKwargs"):
+
+    class _LossKwargs(TypedDict, total=False):
+        labels: Optional[torch.LongTensor]
+
+    _transformers_utils.LossKwargs = _LossKwargs
+
+# The remote modeling_phi3.py defines _tied_weights_keys as a list (transformers 4.x
+# format), but transformers 5.x expects a dict. Patch the method to handle lists.
+from transformers.modeling_utils import PreTrainedModel
+
+_orig_get_expanded_tied_weights_keys = PreTrainedModel.get_expanded_tied_weights_keys
+
+
+def _patched_get_expanded_tied_weights_keys(self, all_submodels=False):
+    if isinstance(self._tied_weights_keys, list):
+        self._tied_weights_keys = None
+    return _orig_get_expanded_tied_weights_keys(self, all_submodels=all_submodels)
+
+
+PreTrainedModel.get_expanded_tied_weights_keys = _patched_get_expanded_tied_weights_keys
 
 from ....base import ForgeModel
 from ....config import (
