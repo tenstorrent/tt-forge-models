@@ -21,7 +21,7 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available DeepSeek R1 Distill Qwen 14B Abliterated v2 GGUF model variants for causal language modeling."""
+    """Available DeepSeek R1 Distill Qwen 14B Abliterated v2 GGUF model variants."""
 
     DEEPSEEK_R1_DISTILL_QWEN_14B_ABLITERATED_V2_Q4_K_M = (
         "DeepSeek_R1_Distill_Qwen_14B_abliterated_v2_Q4_K_M"
@@ -29,7 +29,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """DeepSeek R1 Distill Qwen 14B Abliterated v2 GGUF model loader implementation for causal language modeling tasks."""
+    """DeepSeek R1 Distill Qwen 14B Abliterated v2 GGUF model loader for causal language modeling."""
 
     _VARIANTS = {
         ModelVariant.DEEPSEEK_R1_DISTILL_QWEN_14B_ABLITERATED_V2_Q4_K_M: LLMModelConfig(
@@ -136,27 +136,6 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
-
-    def get_mesh_config(self, num_devices: int):
-        mesh_shape = (1, num_devices)
-        return mesh_shape, ("batch", "model")
-
-    def load_shard_spec(self, model):
-        shard_specs = {}
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
-        return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
