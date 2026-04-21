@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available PE-Core model variants."""
 
     G14_448 = "G14_448"
+    T16_384 = "T16_384"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.G14_448: ModelConfig(
             pretrained_model_name="PE-Core-G14-448",
+        ),
+        ModelVariant.T16_384: ModelConfig(
+            pretrained_model_name="PE-Core-T16-384",
         ),
     }
 
