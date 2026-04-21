@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     QWEN_3_CODER_NEXT_NVFP4 = "Next_NVFP4"
     QWEN_3_CODER_30B_A3B_INSTRUCT = "30B_A3B_Instruct"
     QWEN_3_CODER_480B_A35B_INSTRUCT_NVFP4 = "480B_A35B_Instruct_NVFP4"
+    QWEN_3_CODER_480B_A35B_INSTRUCT_FP4 = "480B_A35B_Instruct_FP4"
 
     # mlx-community quantized variants
     QWEN_3_CODER_30B_A3B_INSTRUCT_4BIT = "30B_A3B_Instruct_4bit"
@@ -61,6 +62,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_CODER_480B_A35B_INSTRUCT_NVFP4: LLMModelConfig(
             pretrained_model_name="nvidia/Qwen3-Coder-480B-A35B-Instruct-NVFP4",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_CODER_480B_A35B_INSTRUCT_FP4: LLMModelConfig(
+            pretrained_model_name="NVFP4/Qwen3-Coder-480B-A35B-Instruct-FP4",
             max_length=128,
         ),
         # mlx-community quantized variants
