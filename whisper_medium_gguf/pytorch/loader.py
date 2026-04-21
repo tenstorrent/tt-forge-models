@@ -45,11 +45,9 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    _GGUF_FILES = {
-        ModelVariant.Q4_K: "model-q4k.gguf",
-    }
-
     DEFAULT_VARIANT = ModelVariant.Q4_K
+
+    GGUF_FILE = "model-q4k.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -71,13 +69,12 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
-        gguf_file = self._GGUF_FILES[self._variant]
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = gguf_file
+        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         # Pre-load config from the base Whisper model so that random-weights
         # mode does not need to download/parse the GGUF file just for config.
@@ -109,10 +106,10 @@ class ModelLoader(ForgeModel):
         sampling_rate = 16000
         sample_audio = torch.randn(sampling_rate).numpy()
 
-        processor = self.processor(
+        processor_output = self.processor(
             sample_audio, return_tensors="pt", sampling_rate=sampling_rate
         )
-        input_features = processor.input_features.to(device=device, dtype=dtype)
+        input_features = processor_output.input_features.to(device=device, dtype=dtype)
 
         decoder_input_ids = torch.full(
             (1, 2),
