@@ -3,9 +3,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 mradermacher R1-Reward i1 GGUF model loader implementation for causal language modeling.
+
+Note: The qwen2vl GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the HF-native base checkpoint and extract the
+causal LM.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    Qwen2VLForConditionalGeneration,
+    Qwen2ForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -27,18 +36,20 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """mradermacher R1-Reward i1 GGUF model loader implementation for causal language modeling tasks."""
+    """mradermacher R1-Reward i1 GGUF model loader implementation for causal language modeling tasks.
+
+    Note: Uses the base model (safetensors) instead of GGUF because the
+    qwen2vl GGUF architecture is not yet supported by transformers.
+    """
 
     _VARIANTS = {
         ModelVariant.R1_REWARD_I1_Q4_K_M_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/R1-Reward-i1-GGUF",
+            pretrained_model_name="yifanzhang114/R1-Reward",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.R1_REWARD_I1_Q4_K_M_GGUF
-
-    GGUF_FILE = "R1-Reward.i1-Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
@@ -65,7 +76,6 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,27 +95,21 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[
-                        : self.num_layers
-                    ]
-            else:
-                config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
+        # Load the full conditional generation model, then extract the causal LM
+        # because the base repo uses Qwen2VLForConditionalGeneration (multimodal).
+        full_model = Qwen2VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        )
+        text_config = full_model.config.text_config
+        if self.num_layers is not None:
+            text_config.num_hidden_layers = self.num_layers
+        model = Qwen2ForCausalLM(text_config)
+        model.model = full_model.model.language_model
+        model.lm_head = full_model.lm_head
+        model.eval()
 
-        self.config = model.config
+        self.config = text_config
         self.model = model
         return model
 
@@ -115,21 +119,8 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        prompts = [text]
-
         inputs = self.tokenizer(
-            prompts,
+            [self.sample_text],
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -164,7 +155,6 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        self.config = config.text_config
         return self.config
