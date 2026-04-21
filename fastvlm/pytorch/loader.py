@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available FastVLM model variants."""
 
     FASTVLM_0_5B = "0.5B"
+    FASTVLM_0_5B_KAMILAMILA = "0.5B-KamilaMila"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.FASTVLM_0_5B: ModelConfig(
             pretrained_model_name="apple/FastVLM-0.5B",
+        ),
+        ModelVariant.FASTVLM_0_5B_KAMILAMILA: ModelConfig(
+            pretrained_model_name="KamilaMila/FastVLM-0.5B",
         ),
     }
 
