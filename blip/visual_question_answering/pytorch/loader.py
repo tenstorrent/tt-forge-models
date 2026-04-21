@@ -6,7 +6,7 @@ BLIP visual question answering model loader implementation (PyTorch).
 """
 
 import torch
-from transformers import BlipProcessor, BlipForQuestionAnswering
+from transformers import BlipConfig, BlipProcessor, BlipForQuestionAnswering
 from typing import Optional
 from PIL import Image
 
@@ -84,6 +84,10 @@ class ModelLoader(ForgeModel):
 
         question = "how many cats are in the picture?"
         inputs = self.processor(image, question, return_tensors="pt")
+
+        config = BlipConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        bos_token_id = config.text_config.bos_token_id
+        inputs["decoder_input_ids"] = torch.tensor([[bos_token_id]])
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
