@@ -12,24 +12,94 @@ Available variants:
 - Z_IMAGE_TURBO_MZBAC_8BIT: Full 8-bit quantized Z-Image-Turbo DiT transformer
 """
 
+import os
 from typing import Any, Optional
 
+import numpy as np
 import torch
 from diffusers import ZImagePipeline
 from diffusers.models.transformers import ZImageTransformer2DModel
+from huggingface_hub import snapshot_download
+from safetensors.torch import safe_open
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
 PIPELINE_REPO_ID = "mzbac/Z-Image-Turbo-8bit"
+QUANT_GROUP_SIZE = 32
+
+
+def _dequantize_packed_int8(
+    weight_uint32: torch.Tensor,
+    scales: torch.Tensor,
+    biases: torch.Tensor,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    # Each uint32 stores 4 int8 values in little-endian byte order.
+    # Unpack via numpy for reliable byte-level reinterpretation.
+    out_dim, ncols_packed = weight_uint32.shape
+    in_dim = ncols_packed * 4
+    groups = in_dim // QUANT_GROUP_SIZE
+
+    weight_int8 = torch.from_numpy(weight_uint32.numpy().view(np.int8)).reshape(
+        out_dim, in_dim
+    )
+    weight_grouped = weight_int8.float().reshape(out_dim, groups, QUANT_GROUP_SIZE)
+    dequantized = (
+        weight_grouped * scales.unsqueeze(-1) + biases.unsqueeze(-1)
+    ).reshape(out_dim, in_dim)
+    return dequantized.to(dtype)
+
+
+def _load_dequantized_state_dict(
+    transformer_dir: str, dtype: torch.dtype
+) -> dict[str, torch.Tensor]:
+    shard_files = sorted(
+        f
+        for f in os.listdir(transformer_dir)
+        if f.endswith(".safetensors") and "model" in f
+    )
+
+    raw_state: dict[str, torch.Tensor] = {}
+    for shard_file in shard_files:
+        with safe_open(
+            os.path.join(transformer_dir, shard_file), framework="pt", device="cpu"
+        ) as f:
+            for k in f.keys():
+                raw_state[k] = f.get_tensor(k)
+
+    quant_bases = {
+        k.rsplit(".", 1)[0] for k, v in raw_state.items() if v.dtype == torch.uint32
+    }
+
+    state_dict: dict[str, torch.Tensor] = {}
+
+    for base in quant_bases:
+        dequantized = _dequantize_packed_int8(
+            raw_state[f"{base}.weight"],
+            raw_state[f"{base}.scales"],
+            raw_state[f"{base}.biases"],
+            dtype,
+        )
+        state_dict[f"{base}.weight"] = dequantized
+
+    skip_keys = {f"{b}.scales" for b in quant_bases} | {
+        f"{b}.biases" for b in quant_bases
+    }
+    for key, tensor in raw_state.items():
+        if key in skip_keys or tensor.dtype == torch.uint32:
+            continue
+        state_dict[key] = tensor.to(dtype) if tensor.is_floating_point() else tensor
+
+    return state_dict
 
 
 class ModelVariant(StrEnum):
@@ -65,16 +135,36 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_transformer(self, dtype: torch.dtype) -> ZImageTransformer2DModel:
+        # The repo's model_index.json references the old QwenImageTransformer2DModel
+        # class name, and the weights use a custom packed int8 quantization (4 int8
+        # values per uint32) with per-group scales/biases that standard from_pretrained
+        # cannot handle. Load the config, build the model, then dequantize and inject
+        # the weights manually.
+        snapshot_dir = snapshot_download(PIPELINE_REPO_ID)
+        transformer_dir = os.path.join(snapshot_dir, "transformer")
+
+        config, _ = ZImageTransformer2DModel.load_config(
+            transformer_dir, return_unused_kwargs=True
+        )
+        model = ZImageTransformer2DModel.from_config(config)
+
+        state_dict = _load_dequantized_state_dict(transformer_dir, dtype)
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        if missing:
+            print(
+                f"[z_image_turbo] Missing keys when loading transformer: {len(missing)}"
+            )
+        if unexpected:
+            print(
+                f"[z_image_turbo] Unexpected keys when loading transformer: {len(unexpected)}"
+            )
+
+        return model.to(dtype)
+
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
         """Load the mzbac 8-bit quantized Z-Image-Turbo pipeline."""
-        # Explicitly load transformer with ZImageTransformer2DModel because the
-        # repo's model_index.json mistakenly references the old QwenImageTransformer2DModel
-        # class name, causing diffusers to load the wrong architecture.
-        transformer = ZImageTransformer2DModel.from_pretrained(
-            PIPELINE_REPO_ID,
-            subfolder="transformer",
-            torch_dtype=dtype,
-        )
+        transformer = self._load_transformer(dtype)
         self._pipe = ZImagePipeline.from_pretrained(
             PIPELINE_REPO_ID,
             transformer=transformer,
@@ -108,7 +198,7 @@ class ModelLoader(ForgeModel):
             do_classifier_free_guidance=False,
         )
 
-        num_channels_latents = self._pipe.transformer.in_channels
+        num_channels_latents = self._pipe.transformer.config.in_channels
         vae_scale = self._pipe.vae_scale_factor * 2
         latent_h = height // vae_scale
         latent_w = width // vae_scale
