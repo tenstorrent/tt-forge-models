@@ -4,6 +4,7 @@
 """
 Mistral model loader implementation for causal language modeling
 """
+
 import torch
 from transformers import (
     AutoTokenizer,
@@ -52,7 +53,7 @@ class ModelVariant(StrEnum):
     MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
     MISTRAL_FT_OPTIMIZED_1227 = "ft_optimized_1227"
     MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED = "Small_Instruct_2409_abliterated"
-    YARN_MISTRAL_7B_64K = "Yarn_Mistral_7B_64K"
+    FEATHERLESS_CHAT_MISTRAL_7B_V01 = "featherless_chat_7B_v01"
 
 
 class ModelLoader(ForgeModel):
@@ -152,8 +153,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED: ModelConfig(
             pretrained_model_name="byroneverson/Mistral-Small-Instruct-2409-abliterated",
         ),
-        ModelVariant.YARN_MISTRAL_7B_64K: ModelConfig(
-            pretrained_model_name="NousResearch/Yarn-Mistral-7b-64k",
+        ModelVariant.FEATHERLESS_CHAT_MISTRAL_7B_V01: ModelConfig(
+            pretrained_model_name="Featherless-Chat-Models/Mistral-7B-v0.1",
         ),
     }
 
@@ -194,7 +195,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
             ModelVariant.MISTRAL_FT_OPTIMIZED_1227,
             ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED,
-            ModelVariant.YARN_MISTRAL_7B_64K,
+            ModelVariant.FEATHERLESS_CHAT_MISTRAL_7B_V01,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
