@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Phi-3 GGUF model variants for causal language modeling."""
 
     MINI_4K_INSTRUCT_Q4 = "Mini_4K_Instruct_Q4"
-    BRITTLEWIS12_MINI_4K_INSTRUCT_Q4_K_M = "brittlewis12_Mini_4K_Instruct_Q4_K_M"
+    PRUNA_MINI_4K_INSTRUCT_IMATRIX_Q4_K_M = "Pruna_Mini_4K_Instruct_Imatrix_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="microsoft/Phi-3-mini-4k-instruct-gguf",
             max_length=128,
         ),
-        ModelVariant.BRITTLEWIS12_MINI_4K_INSTRUCT_Q4_K_M: LLMModelConfig(
-            pretrained_model_name="brittlewis12/Phi-3-mini-4k-instruct-GGUF",
+        ModelVariant.PRUNA_MINI_4K_INSTRUCT_IMATRIX_Q4_K_M: LLMModelConfig(
+            pretrained_model_name="PrunaAI/Phi-3-mini-4k-instruct-GGUF-Imatrix-smashed",
             max_length=128,
         ),
     }
@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.MINI_4K_INSTRUCT_Q4: "Phi-3-mini-4k-instruct-q4.gguf",
-        ModelVariant.BRITTLEWIS12_MINI_4K_INSTRUCT_Q4_K_M: "phi-3-mini-4k-instruct.Q4_K_M.gguf",
+        ModelVariant.PRUNA_MINI_4K_INSTRUCT_IMATRIX_Q4_K_M: "Phi-3-mini-4k-instruct.Q4_K_M.gguf",
     }
 
     sample_text = (
@@ -59,6 +59,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+        self.gguf_file = self._GGUF_FILES[self._variant]
 
     @property
     def gguf_file(self):
