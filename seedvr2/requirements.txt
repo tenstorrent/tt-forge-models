@@ -1,1 +1,3 @@
+einops
 omegaconf
+rotary-embedding-torch
