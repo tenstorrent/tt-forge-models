@@ -5,6 +5,11 @@
 Isaac 0.1 model loader implementation for multimodal visual question answering.
 """
 
+import transformers.utils.generic as _trf_generic
+
+if not hasattr(_trf_generic, "check_model_inputs"):
+    _trf_generic.check_model_inputs = lambda fn: fn
+
 import torch
 from PIL import Image
 from transformers import AutoModelForCausalLM, AutoProcessor
@@ -74,7 +79,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {
             "trust_remote_code": True,
-            "attn_implementation": "eager",
+            "attn_implementation": "sdpa",
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -100,10 +105,7 @@ class ModelLoader(ForgeModel):
         messages = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "image", "image": image},
-                    {"type": "text", "text": "What is shown in this image?"},
-                ],
+                "content": "<image>What is shown in this image?",
             }
         ]
 
