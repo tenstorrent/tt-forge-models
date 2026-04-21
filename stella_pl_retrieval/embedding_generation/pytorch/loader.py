@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Stella-PL-Retrieval model variants for embedding generation."""
 
     STELLA_PL_RETRIEVAL = "stella-pl-retrieval"
+    STELLA_PL_RETRIEVAL_MINI_8K = "stella-pl-retrieval-mini-8k"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.STELLA_PL_RETRIEVAL: ModelConfig(
             pretrained_model_name="sdadas/stella-pl-retrieval",
+        ),
+        ModelVariant.STELLA_PL_RETRIEVAL_MINI_8K: ModelConfig(
+            pretrained_model_name="sdadas/stella-pl-retrieval-mini-8k",
         ),
     }
 
