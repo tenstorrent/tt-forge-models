@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-SLANeXt_wired PaddlePaddle model loader implementation for table structure recognition.
+SLANeXt PaddlePaddle model loader implementation for table structure recognition.
 """
 
 from typing import Optional
@@ -27,14 +27,18 @@ class ModelVariant(StrEnum):
     """Available SLANeXt table structure recognition model variants (Paddle)."""
 
     WIRED = "SLANeXt_wired"
+    WIRELESS = "SLANeXt_wireless"
 
 
 class ModelLoader(ForgeModel):
-    """SLANeXt_wired PaddlePaddle model loader implementation."""
+    """SLANeXt PaddlePaddle model loader implementation."""
 
     _VARIANTS = {
         ModelVariant.WIRED: ModelConfig(
             pretrained_model_name="SLANeXt_wired",
+        ),
+        ModelVariant.WIRELESS: ModelConfig(
+            pretrained_model_name="SLANeXt_wireless",
         ),
     }
 
@@ -56,18 +60,19 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load pretrained SLANeXt_wired table structure recognition model (Paddle)."""
+        """Load pretrained SLANeXt table structure recognition model (Paddle)."""
         import os
 
         from paddlex.inference import create_predictor
 
-        predictor = create_predictor(model_name="SLANeXt_wired")
+        model_name = self._variant_config.pretrained_model_name
+        predictor = create_predictor(model_name=model_name)
         model = paddle.jit.load(os.path.join(str(predictor.model_dir), "inference"))
         model.eval()
         return model
 
     def load_inputs(self, dtype_override=None, batch_size: int = 1):
-        """Prepare sample input for SLANeXt_wired table structure recognition model (Paddle)."""
+        """Prepare sample input for SLANeXt table structure recognition model (Paddle)."""
         import numpy as np
 
         image_file = get_file(
