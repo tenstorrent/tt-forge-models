@@ -92,18 +92,14 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.float32
         config = self.transformer.config
 
-        height = 128
-        width = 128
-        patch_size = config.patch_size
-        in_channels = config.in_channels
-
-        h_latent = height // patch_size
-        w_latent = width // patch_size
+        latent_height = 128
+        latent_width = 128
 
         hidden_states = torch.randn(
             batch_size,
-            h_latent * w_latent,
-            in_channels * (patch_size**2),
+            config.in_channels,
+            latent_height,
+            latent_width,
             dtype=dtype,
         )
 
