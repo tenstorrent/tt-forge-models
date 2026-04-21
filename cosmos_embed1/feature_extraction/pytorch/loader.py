@@ -9,6 +9,10 @@ import torch
 from transformers import AutoModel, AutoTokenizer
 from typing import Optional
 
+from .src import (
+    model_utils as _model_utils,
+)  # noqa: F401  # patches init_weights for transformers 5.x
+
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
