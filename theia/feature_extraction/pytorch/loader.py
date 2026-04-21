@@ -89,7 +89,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(self._model_name, **model_kwargs)
+        model = AutoModel.from_pretrained(
+            self._model_name, trust_remote_code=True, **model_kwargs
+        )
         model.eval()
 
         return model
@@ -106,7 +108,9 @@ class ModelLoader(ForgeModel):
             dict: Preprocessed inputs with pixel_values tensor.
         """
         if self._processor is None:
-            self._processor = AutoImageProcessor.from_pretrained(self._model_name)
+            self._processor = AutoImageProcessor.from_pretrained(
+                self._model_name, trust_remote_code=True
+            )
 
         if image is None:
             dataset = load_dataset("huggingface/cats-image", split="test")
