@@ -60,12 +60,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
 
         if self.tokenizer.pad_token is None:
@@ -79,9 +75,12 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs = {
+            "torch_dtype": dtype_override
+            if dtype_override is not None
+            else torch.bfloat16,
+            "low_cpu_mem_usage": True,
+        }
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
