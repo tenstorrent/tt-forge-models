@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Step 3.5 Flash GGUF model variants for causal language modeling."""
 
     STEP_3_5_FLASH_GGUF_Q4_K_S = "GGUF_Q4_K_S"
-    STEP_3_5_FLASH_ALICE_THIRTY_GGUF_Q4_K_S = "AliceThirty_GGUF_Q4_K_S"
+    STEP_3_5_FLASH_UBERGARM_GGUF_SMOL_IQ2_KS = "ubergarm_GGUF_smol_IQ2_KS"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="stepfun-ai/Step-3.5-Flash-GGUF-Q4_K_S",
             max_length=128,
         ),
-        ModelVariant.STEP_3_5_FLASH_ALICE_THIRTY_GGUF_Q4_K_S: LLMModelConfig(
-            pretrained_model_name="AliceThirty/Step-3.5-Flash-gguf",
+        ModelVariant.STEP_3_5_FLASH_UBERGARM_GGUF_SMOL_IQ2_KS: LLMModelConfig(
+            pretrained_model_name="ubergarm/Step-3.5-Flash-GGUF",
             max_length=128,
         ),
     }
@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.STEP_3_5_FLASH_GGUF_Q4_K_S: "step3.5_flash_Q4_K_S.gguf",
-        ModelVariant.STEP_3_5_FLASH_ALICE_THIRTY_GGUF_Q4_K_S: "Q4_K_S/Step-3.5-Flash-Q4_K_S-00001-of-00003.gguf",
+        ModelVariant.STEP_3_5_FLASH_UBERGARM_GGUF_SMOL_IQ2_KS: "smol-IQ2_KS/Step-3.5-Flash-smol-IQ2_KS-00001-of-00003.gguf",
     }
 
     sample_text = "What is your favorite city?"
