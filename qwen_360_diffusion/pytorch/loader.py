@@ -137,6 +137,8 @@ class ModelLoader(ForgeModel):
             self._load_pipeline(dtype)
 
         transformer = self.pipeline.transformer
+        # Use the transformer's actual parameter dtype to avoid dtype mismatches
+        dtype = next(transformer.parameters()).dtype
         img_dim = transformer.config.in_channels
         text_dim = transformer.config.joint_attention_dim
         txt_seq_len = 32
