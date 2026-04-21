@@ -9,7 +9,7 @@ from typing import Optional
 from dataclasses import dataclass
 import timm
 import torch
-from transformers import AutoModelForImageClassification
+from transformers import AutoImageProcessor, AutoModelForImageClassification
 
 from ...config import (
     ModelConfig,
@@ -41,7 +41,7 @@ class ModelVariant(StrEnum):
     BASE_CLIP_LAION2B = "Base_CLIP_LAION2B"
     BASE_FB_IN22K = "Base_FB_IN22K"
     TINY_DINOV3_LVD1689M = "Tiny_DINOv3_LVD1689M"
-    TEST_CONVNEXT_R160_IN1K = "Test_ConvNeXt_R160_IN1K"
+    LARGE_224 = "Large_224"
 
 
 class ModelLoader(ForgeModel):
@@ -60,9 +60,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="hf_hub:timm/convnext_tiny.dinov3_lvd1689m",
             source=ModelSource.TIMM,
         ),
-        ModelVariant.TEST_CONVNEXT_R160_IN1K: ConvNeXtConfig(
-            pretrained_model_name="hf_hub:timm/test_convnext.r160_in1k",
-            source=ModelSource.TIMM,
+        ModelVariant.LARGE_224: ConvNeXtConfig(
+            pretrained_model_name="facebook/convnext-large-224",
+            source=ModelSource.HUGGING_FACE,
         ),
     }
 
@@ -128,10 +128,9 @@ class ModelLoader(ForgeModel):
 
             inputs = self._processor(images=image, return_tensors="pt")
 
-        model_for_config = None
-        if self._variant_config.source == ModelSource.TIMM:
-            if hasattr(self, "model") and self.model is not None:
-                model_for_config = self.model
+            for key in inputs:
+                if torch.is_tensor(inputs[key]):
+                    inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
             if dtype_override is not None:
                 for key in inputs:
@@ -142,28 +141,28 @@ class ModelLoader(ForgeModel):
                         inputs[key] = inputs[key].to(dtype_override)
 
             return inputs
-        else:
-            if self._preprocessor is None:
-                model_name = self._variant_config.pretrained_model_name
 
-                self._preprocessor = VisionPreprocessor(
-                    model_source=source,
-                    model_name=model_name,
-                )
+        if self._preprocessor is None:
+            model_name = self._variant_config.pretrained_model_name
 
-                if hasattr(self, "model") and self.model is not None:
-                    self._preprocessor.set_cached_model(self.model)
-
-            model_for_config = None
-            if hasattr(self, "model") and self.model is not None:
-                model_for_config = self.model
-
-            return self._preprocessor.preprocess(
-                image=image,
-                dtype_override=dtype_override,
-                batch_size=batch_size,
-                model_for_config=model_for_config,
+            self._preprocessor = VisionPreprocessor(
+                model_source=source,
+                model_name=model_name,
             )
+
+            if hasattr(self, "model") and self.model is not None:
+                self._preprocessor.set_cached_model(self.model)
+
+        model_for_config = None
+        if hasattr(self, "model") and self.model is not None:
+            model_for_config = self.model
+
+        return self._preprocessor.preprocess(
+            image=image,
+            dtype_override=dtype_override,
+            batch_size=batch_size,
+            model_for_config=model_for_config,
+        )
 
     def output_postprocess(self, output):
         if self._postprocessor is None:
