@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Q3.5 BlueStar v2 27B Ultra Uncensored Heretic v1 i1 GGUF model variants for causal language modeling."""
 
     Q3_5_BLUESTAR_V2_27B_ULTRA_UNCENSORED_HERETIC_V1_I1_GGUF = (
-        "27B_v2_ultra_uncensored_heretic_v1_i1_GGUF"
+        "27B_v2_ULTRA_UNCENSORED_HERETIC_V1_i1_GGUF"
     )
 
 
@@ -44,7 +44,7 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "Q3.5-BlueStar-v2-27B-ultra-uncensored-heretic-v1.i1-Q4_K_M.gguf"
 
-    sample_text = "Write a Python function that checks if a number is prime."
+    sample_text = "What is your favorite city?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -138,6 +138,24 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
+
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+        return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
