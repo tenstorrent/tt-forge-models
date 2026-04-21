@@ -2,8 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Cerebras-GPT-590M causal language modeling PyTorch model implementation.
+Cerebras-GPT causal language modeling PyTorch model implementation.
 """
-from .loader import ModelLoader
+from .loader import ModelLoader, ModelVariant
 
-__all__ = ["ModelLoader"]
+__all__ = ["ModelLoader", "ModelVariant"]
