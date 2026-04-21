@@ -60,11 +60,33 @@ def _patch_lfm2moe_support():
         GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = GGUF_TO_FAST_CONVERTERS["gpt2"]
 
 
+def _get_lfm2moe_layer_types(gguf_path):
+    """Read source model URL from GGUF metadata and fetch layer_types from its config.json."""
+    import gguf as gguf_lib
+    import json
+    from huggingface_hub import hf_hub_download
+
+    reader = gguf_lib.GGUFReader(gguf_path)
+    if "general.source.url" not in reader.fields:
+        return None
+    source_url = bytes(reader.fields["general.source.url"].parts[-1]).decode("utf-8")
+    if "huggingface.co/" not in source_url:
+        return None
+    repo_id = source_url.split("huggingface.co/")[-1]
+    config_path = hf_hub_download(repo_id, "config.json")
+    with open(config_path) as f:
+        return json.load(f).get("layer_types")
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     _patch_lfm2moe_support()
     result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     if result.get("config", {}).get("model_type") == "lfm2moe":
         result["config"]["model_type"] = "lfm2_moe"
+        if not result["config"].get("layer_types"):
+            layer_types = _get_lfm2moe_layer_types(gguf_path)
+            if layer_types:
+                result["config"]["layer_types"] = layer_types
     return result
 
 
