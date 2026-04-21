@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
             model="ANIMA_GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.CONDITIONAL_GENERATION,
+            task=ModelTask.MM_IMAGE_TTT,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
