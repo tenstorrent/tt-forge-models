@@ -7,8 +7,11 @@ FLUX.1 GGUF model loader implementation for text-to-image generation
 Repository:
 - https://huggingface.co/city96/FLUX.1-dev-gguf
 """
+import os
+from pathlib import Path
+
 import torch
-from diffusers import FluxTransformer2DModel
+from diffusers import FluxTransformer2DModel, GGUFQuantizationConfig
 from typing import Optional
 
 from ...base import ForgeModel
@@ -73,13 +76,21 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         gguf_file = self._GGUF_FILES[self._variant]
         gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+
+        config_dir = str(Path(__file__).parent / "config" / "transformer")
 
         load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
+        if token:
+            load_kwargs["token"] = token
 
         self.transformer = FluxTransformer2DModel.from_single_file(
             gguf_url,
+            config=config_dir,
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
             **load_kwargs,
         )
 
