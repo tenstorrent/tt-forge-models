@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
-            pretrained_model_name="LiheYoung/depth_anything_vits14",
+            pretrained_model_name="LiheYoung/depth-anything-small-hf",
         ),
     }
 
