@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-ELYZA Japanese Llama 2 7B Instruct model loader implementation for causal language modeling.
+ELYZA Japanese Llama 2 Instruct model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,17 +21,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available ELYZA Japanese Llama 2 7B Instruct model variants for causal language modeling."""
+    """Available ELYZA Japanese Llama 2 Instruct model variants for causal language modeling."""
 
     ELYZA_JAPANESE_LLAMA_2_7B_INSTRUCT = "ELYZA_Japanese_Llama_2_7B_Instruct"
+    ELYZA_JAPANESE_LLAMA_2_13B_INSTRUCT = "ELYZA_Japanese_Llama_2_13B_Instruct"
 
 
 class ModelLoader(ForgeModel):
-    """ELYZA Japanese Llama 2 7B Instruct model loader implementation for causal language modeling tasks."""
+    """ELYZA Japanese Llama 2 Instruct model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.ELYZA_JAPANESE_LLAMA_2_7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="elyza/ELYZA-japanese-Llama-2-7b-instruct",
+            max_length=128,
+        ),
+        ModelVariant.ELYZA_JAPANESE_LLAMA_2_13B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="elyza/ELYZA-japanese-Llama-2-13b-instruct",
             max_length=128,
         ),
     }
@@ -51,7 +56,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="ELYZA Japanese Llama 2 7B Instruct",
+            model="ELYZA Japanese Llama 2 Instruct",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
