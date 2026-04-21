@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    PRAJJWAL1_BERT_TINY_MNLI = "prajjwal1_Bert_Tiny_MNLI"
+    OPENALEX_BERT_BASE_MULTILINGUAL_CASED_OPENALEX_TOPIC_CLASSIFICATION_TITLE_ABSTRACT = "openalex_Bert_Base_Multilingual_Cased_Openalex_Topic_Classification_Title_Abstract"
 
 
 class ModelLoader(ForgeModel):
@@ -66,9 +66,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.PRAJJWAL1_BERT_TINY_MNLI: LLMModelConfig(
-            pretrained_model_name="prajjwal1/bert-tiny-mnli",
-            max_length=128,
+        ModelVariant.OPENALEX_BERT_BASE_MULTILINGUAL_CASED_OPENALEX_TOPIC_CLASSIFICATION_TITLE_ABSTRACT: LLMModelConfig(
+            pretrained_model_name="OpenAlex/bert-base-multilingual-cased-finetuned-openalex-topic-classification-title-abstract",
+            max_length=512,
         ),
     }
 
@@ -95,7 +95,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.PRAJJWAL1_BERT_TINY_MNLI: "A man is eating food. A man is eating a piece of bread.",
+        ModelVariant.OPENALEX_BERT_BASE_MULTILINGUAL_CASED_OPENALEX_TOPIC_CLASSIFICATION_TITLE_ABSTRACT: (
+            "<TITLE> Deep learning for image classification\n"
+            "<ABSTRACT> We present a convolutional neural network that achieves state-of-the-art accuracy on ImageNet."
+        ),
     }
 
     def __init__(self, variant=None):
@@ -134,7 +137,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.PRAJJWAL1_BERT_TINY_MNLI,
+            ModelVariant.OPENALEX_BERT_BASE_MULTILINGUAL_CASED_OPENALEX_TOPIC_CLASSIFICATION_TITLE_ABSTRACT,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
