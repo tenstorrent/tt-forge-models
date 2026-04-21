@@ -26,6 +26,9 @@ class ModelVariant(StrEnum):
     JOSIEFIED_QWEN3_14B_ABLITERATED_V3_Q4_K_M_GGUF = (
         "Josiefied_Qwen3_14B_abliterated_v3_Q4_K_M_GGUF"
     )
+    MRADERMACHER_JOSIEFIED_QWEN3_14B_ABLITERATED_V3_Q4_K_M_GGUF = (
+        "mradermacher_Josiefied_Qwen3_14B_abliterated_v3_Q4_K_M_GGUF"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -36,11 +39,22 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bartowski/Goekdeniz-Guelmez_Josiefied-Qwen3-14B-abliterated-v3-GGUF",
             max_length=128,
         ),
+        ModelVariant.MRADERMACHER_JOSIEFIED_QWEN3_14B_ABLITERATED_V3_Q4_K_M_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Josiefied-Qwen3-14B-abliterated-v3-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.JOSIEFIED_QWEN3_14B_ABLITERATED_V3_Q4_K_M_GGUF
 
-    GGUF_FILE = "Goekdeniz-Guelmez_Josiefied-Qwen3-14B-abliterated-v3-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.JOSIEFIED_QWEN3_14B_ABLITERATED_V3_Q4_K_M_GGUF: "Goekdeniz-Guelmez_Josiefied-Qwen3-14B-abliterated-v3-Q4_K_M.gguf",
+        ModelVariant.MRADERMACHER_JOSIEFIED_QWEN3_14B_ABLITERATED_V3_Q4_K_M_GGUF: "Josiefied-Qwen3-14B-abliterated-v3.Q4_K_M.gguf",
+    }
+
+    @property
+    def GGUF_FILE(self):
+        return self._GGUF_FILES[self._variant]
 
     sample_text = "Give me a short introduction to large language models."
 
