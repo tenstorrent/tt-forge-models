@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
     BASE = "Base"
     BASE_VI = "Base_VI"
     FR_7K_LARGE = "FR_7K_Large"
-    LARGE_100K_VOXPOPULI = "Large_100k_VoxPopuli"
+    BASE_AUDIOSET = "Base_AudioSet"
 
 
 class ModelLoader(ForgeModel):
@@ -43,8 +43,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.FR_7K_LARGE: ModelConfig(
             pretrained_model_name="LeBenchmark/wav2vec2-FR-7K-large",
         ),
-        ModelVariant.LARGE_100K_VOXPOPULI: ModelConfig(
-            pretrained_model_name="facebook/wav2vec2-large-100k-voxpopuli",
+        ModelVariant.BASE_AUDIOSET: ModelConfig(
+            pretrained_model_name="ALM/wav2vec2-base-audioset",
         ),
     }
 
