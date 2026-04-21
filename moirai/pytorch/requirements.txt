@@ -1,0 +1,11 @@
+gluonts>=0.14.3,<0.15
+hydra-core==1.3.*
+lightning>=2.0
+lightning-utilities
+pytorch-lightning
+torchmetrics
+omegaconf>=2.2
+toolz>=0.10
+orjson
+python-dotenv==1.0.0
+antlr4-python3-runtime==4.9.*

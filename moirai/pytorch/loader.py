@@ -91,12 +91,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Moirai forecasting model.
-
-        Returns:
-            torch.nn.Module: MoiraiForecast instance.
-        """
+    def load_model(self, **kwargs):
         from uni2ts.model.moirai import MoiraiForecast, MoiraiModule
 
         cfg = self._variant_config
@@ -114,30 +109,18 @@ class ModelLoader(ForgeModel):
             num_samples=cfg.num_samples,
         )
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         model.eval()
         return model
 
-    def load_inputs(self, dtype_override=None):
-        """Load sample time series inputs for the Moirai model.
-
-        Returns:
-            dict: Input tensors matching MoiraiForecast.forward signature.
-        """
+    def load_inputs(self):
         cfg = self._variant_config
-        dtype = dtype_override or torch.float32
 
         torch.manual_seed(42)
 
-        # past_target: (batch, context_length, target_dim)
-        past_target = torch.randn(1, cfg.context_length, cfg.target_dim, dtype=dtype)
-        # past_observed_target: (batch, context_length, target_dim)
+        past_target = torch.randn(1, cfg.context_length, cfg.target_dim)
         past_observed_target = torch.ones(
             1, cfg.context_length, cfg.target_dim, dtype=torch.bool
         )
-        # past_is_pad: (batch, context_length)
         past_is_pad = torch.zeros(1, cfg.context_length, dtype=torch.bool)
 
         return {
