@@ -38,6 +38,7 @@ class ModelVariant(StrEnum):
     QWEN_3_VL_8B_INSTRUCT = "8b_instruct"
     QWEN_3_VL_8B_INSTRUCT_FP8 = "8b_instruct_fp8"
     QWEN_3_VL_8B_INSTRUCT_AWQ = "8b_instruct_awq"
+    QWEN_3_VL_8B_INSTRUCT_NVFP4 = "8b_instruct_nvfp4"
     QWEN_3_VL_30B_A3B_INSTRUCT = "30b_a3b_instruct"
     QWEN_3_VL_30B_A3B_INSTRUCT_MLX_4BIT = "30b_a3b_instruct_mlx_4bit"
     QWEN_3_VL_32B_INSTRUCT = "32b_instruct"
@@ -89,6 +90,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_VL_8B_INSTRUCT_AWQ: LLMModelConfig(
             pretrained_model_name="cyankiwi/Qwen3-VL-8B-Instruct-AWQ-4bit",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_VL_8B_INSTRUCT_NVFP4: LLMModelConfig(
+            pretrained_model_name="nm-testing/Qwen3-VL-8B-Instruct-NVFP4",
             max_length=128,
         ),
         ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT: LLMModelConfig(
@@ -158,6 +163,7 @@ class ModelLoader(ForgeModel):
                 ModelVariant.QWEN_3_VL_8B_INSTRUCT,
                 ModelVariant.QWEN_3_VL_8B_INSTRUCT_FP8,
                 ModelVariant.QWEN_3_VL_8B_INSTRUCT_AWQ,
+                ModelVariant.QWEN_3_VL_8B_INSTRUCT_NVFP4,
                 ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT,
                 ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT_MLX_4BIT,
                 ModelVariant.QWEN_3_VL_32B_INSTRUCT,
