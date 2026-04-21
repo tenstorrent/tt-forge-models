@@ -24,7 +24,7 @@ from ....tools.utils import (
     cast_input_to_type,
     get_static_cache_decode_inputs,
 )
-from .prefill_inputs import get_prefill_texts_for_batch, PREFILL_TEXTS
+from ....tools.prefill_inputs import get_prefill_texts_for_batch, PREFILL_TEXTS
 
 
 class ModelVariant(StrEnum):
