@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Aiqarus Agent 4B i1 GGUF model loader implementation for causal language modeling.
+Aiqarus Agent 4B GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,26 +21,38 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Aiqarus Agent 4B i1 GGUF model variants for causal language modeling."""
+    """Available Aiqarus Agent 4B GGUF model variants for causal language modeling."""
 
     AIQARUS_AGENT_4B_I1_GGUF = "4B_i1_GGUF"
+    AIQARUS_AGENT_4B_GGUF = "4B_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """Aiqarus Agent 4B i1 GGUF model loader implementation for causal language modeling tasks."""
+    """Aiqarus Agent 4B GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.AIQARUS_AGENT_4B_I1_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/aiqarus-agent-4b-i1-GGUF",
             max_length=128,
         ),
+        ModelVariant.AIQARUS_AGENT_4B_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/aiqarus-agent-4b-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.AIQARUS_AGENT_4B_I1_GGUF
 
-    GGUF_FILE = "aiqarus-agent-4b.i1-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.AIQARUS_AGENT_4B_I1_GGUF: "aiqarus-agent-4b.i1-Q4_K_M.gguf",
+        ModelVariant.AIQARUS_AGENT_4B_GGUF: "aiqarus-agent-4b.Q4_K_M.gguf",
+    }
 
     sample_text = "What is your favorite city?"
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -53,7 +65,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Aiqarus Agent 4B i1 GGUF",
+            model="Aiqarus Agent 4B GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -65,7 +77,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +97,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -154,6 +166,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
