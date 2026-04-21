@@ -99,8 +99,5 @@ class ModelLoader(ForgeModel):
     def decode_output(self, co_out):
         logits = co_out[0]
         predicted_class_id = logits.argmax(-1).item()
-        if self._variant == ModelVariant.NARSIL_DEBERTA_LARGE_MNLI_ZERO_CLS:
-            labels = ["contradiction", "neutral", "entailment"]
-        else:
-            labels = ["entailment", "not_entailment"]
+        labels = ["entailment", "not_entailment"]
         print(f"Predicted: {labels[predicted_class_id]}")
