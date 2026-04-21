@@ -6,7 +6,11 @@ Pop2Piano model loader implementation
 """
 import torch
 import numpy as np
-from transformers import Pop2PianoForConditionalGeneration, Pop2PianoProcessor
+from transformers import (
+    Pop2PianoConfig,
+    Pop2PianoForConditionalGeneration,
+    Pop2PianoProcessor,
+)
 
 from ...config import (
     ModelInfo,
@@ -62,8 +66,9 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The Pop2Piano model instance.
         """
         self.processor = Pop2PianoProcessor.from_pretrained(self.model_name, **kwargs)
+        config = Pop2PianoConfig.from_pretrained(self.model_name)
         self.model = Pop2PianoForConditionalGeneration.from_pretrained(
-            self.model_name, **kwargs
+            self.model_name, config=config, **kwargs
         )
         return self.model
 
