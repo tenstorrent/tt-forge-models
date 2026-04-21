@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available MediX R1 2B GGUF model variants for image to text."""
 
     MEDIX_R1_2B_I1_Q4_K_M = "2b_i1_q4_k_m"
+    MEDIX_R1_2B_Q4_K_M = "2b_q4_k_m"
 
 
 class ModelLoader(ForgeModel):
@@ -34,10 +35,15 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/MediX-R1-2B-i1-GGUF",
             max_length=128,
         ),
+        ModelVariant.MEDIX_R1_2B_Q4_K_M: LLMModelConfig(
+            pretrained_model_name="MBZUAI/MediX-R1-2B-GGUF",
+            max_length=128,
+        ),
     }
 
     _GGUF_FILES = {
         ModelVariant.MEDIX_R1_2B_I1_Q4_K_M: "MediX-R1-2B.i1-Q4_K_M.gguf",
+        ModelVariant.MEDIX_R1_2B_Q4_K_M: "MediX-R1-2B-Q4_K_M.gguf",
     }
 
     DEFAULT_VARIANT = ModelVariant.MEDIX_R1_2B_I1_Q4_K_M
