@@ -50,7 +50,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_32B_INSTRUCT_AWQ = "32B_Instruct_Awq"
     QWEN_2_5_14B_INSTRUCT_1M_AWQ = "14B_Instruct_1M_Awq"
     QWEN_2_5_1_5B_QUANTIZED_W8A8 = "1.5B_Quantized_W8A8"
-    UNSLOTH_QWEN_2_5_3B = "Unsloth_3B"
+    QWEN_2_5_0_5B_INSTRUCT_GPTQ_INT4 = "0.5B_Instruct_GPTQ_Int4"
     UNSLOTH_QWEN_2_5_3B_INSTRUCT = "Unsloth_3B_Instruct"
     UNSLOTH_QWEN_2_5_72B_INSTRUCT = "Unsloth_72B_Instruct"
     QIAW99_QWEN_2_5_7B_INSTRUCT_OPENBOOKQA_DPO_C_NEW = (
@@ -161,11 +161,12 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RedHatAI/Qwen2.5-1.5B-quantized.w8a8",
             max_length=128,
         ),
-        # Unsloth optimized variants
-        ModelVariant.UNSLOTH_QWEN_2_5_3B: LLMModelConfig(
-            pretrained_model_name="unsloth/Qwen2.5-3B",
+        # GPTQ Int4 quantized variant
+        ModelVariant.QWEN_2_5_0_5B_INSTRUCT_GPTQ_INT4: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-0.5B-Instruct-GPTQ-Int4",
             max_length=128,
         ),
+        # Unsloth optimized variant
         ModelVariant.UNSLOTH_QWEN_2_5_3B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="unsloth/Qwen2.5-3B-Instruct",
             max_length=128,
@@ -243,7 +244,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.UNSLOTH_QWEN_2_5_3B_INSTRUCT,
             ModelVariant.UNSLOTH_QWEN_2_5_72B_INSTRUCT,
             ModelVariant.QIAW99_QWEN_2_5_7B_INSTRUCT_OPENBOOKQA_DPO_C_NEW,
-            ModelVariant.SIMPLESCALING_S1_32B,
+            ModelVariant.QWEN_2_5_0_5B_INSTRUCT_GPTQ_INT4,
         ]:
             group = ModelGroup.VULCAN
 
@@ -306,6 +307,7 @@ class ModelLoader(ForgeModel):
             "Qwen/Qwen2.5-32B-Instruct-AWQ",
             "Qwen/Qwen2.5-72B-Instruct-AWQ",
             "graelo/Qwen2.5-14B-Instruct-1M-AWQ",
+            "Qwen/Qwen2.5-0.5B-Instruct-GPTQ-Int4",
         ):
             model_kwargs["device_map"] = "cpu"
         if "mlx-community" in pretrained_model_name:
