@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available FLUX.2 Klein GGUF model variants."""
 
     KLEIN_9B_KV_Q4_K_M = "Klein_9B_KV_Q4_K_M"
-    LEEJET_KLEIN_9B_Q4_0 = "leejet_Klein_9B_Q4_0"
+    VANTAGEWITHAI_KLEIN_9B_KV_Q4_K_M = "vantagewithai_Klein_9B_KV_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
@@ -34,8 +34,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.KLEIN_9B_KV_Q4_K_M: ModelConfig(
             pretrained_model_name="QuantStack/FLUX.2-Klein-9B-KV-GGUF",
         ),
-        ModelVariant.LEEJET_KLEIN_9B_Q4_0: ModelConfig(
-            pretrained_model_name="leejet/FLUX.2-klein-9B-GGUF",
+        ModelVariant.VANTAGEWITHAI_KLEIN_9B_KV_Q4_K_M: ModelConfig(
+            pretrained_model_name="vantagewithai/FLUX.2-klein-9b-kv-GGUF",
         ),
     }
 
@@ -43,7 +43,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.KLEIN_9B_KV_Q4_K_M: "Flux-2-Klein-9B-KV-Q4_K_M.gguf",
-        ModelVariant.LEEJET_KLEIN_9B_Q4_0: "flux-2-klein-9b-Q4_0.gguf",
+        ModelVariant.VANTAGEWITHAI_KLEIN_9B_KV_Q4_K_M: "flux-2-klein-9b-kv-Q4_K_M.gguf",
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
