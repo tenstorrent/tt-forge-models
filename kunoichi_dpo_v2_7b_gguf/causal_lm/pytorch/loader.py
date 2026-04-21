@@ -1,50 +1,47 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Kunoichi DPO v2 7B GGUF model loader implementation for causal language modeling.
+Kunoichi-DPO-v2-7B GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
 
 class ModelVariant(StrEnum):
-    """Available Kunoichi DPO v2 7B GGUF model variants for causal language modeling."""
+    """Available Kunoichi-DPO-v2-7B GGUF model variants for causal language modeling."""
 
-    KUNOICHI_DPO_V2_7B_Q4_K_M_GGUF = "KUNOICHI_DPO_V2_7B_Q4_K_M_GGUF"
+    KUNOICHI_DPO_V2_7B_Q4_K_M = "Kunoichi_DPO_v2_7B_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
-    """Kunoichi DPO v2 7B GGUF model loader implementation for causal language modeling tasks."""
+    """Kunoichi-DPO-v2-7B GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.KUNOICHI_DPO_V2_7B_Q4_K_M_GGUF: LLMModelConfig(
+        ModelVariant.KUNOICHI_DPO_V2_7B_Q4_K_M: LLMModelConfig(
             pretrained_model_name="brittlewis12/Kunoichi-DPO-v2-7B-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.KUNOICHI_DPO_V2_7B_Q4_K_M_GGUF
+    DEFAULT_VARIANT = ModelVariant.KUNOICHI_DPO_V2_7B_Q4_K_M
 
     GGUF_FILE = "kunoichi-dpo-v2-7b.Q4_K_M.gguf"
 
-    sample_text = (
-        "Below is an instruction that describes a task. "
-        "Write a response that appropriately completes the request.\n\n"
-        "### Instruction:\nWhat is your favorite city?\n\n### Response:\n"
-    )
+    sample_text = "What is your favorite city?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -57,7 +54,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Kunoichi DPO v2 7B GGUF",
+            model="Kunoichi-DPO-v2-7B GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -112,8 +109,16 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
+        messages = [{"role": "user", "content": self.sample_text}]
+        text = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        prompts = [text]
+
         inputs = self.tokenizer(
-            [self.sample_text],
+            prompts,
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -125,23 +130,6 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
-
-    def get_mesh_config(self, num_devices: int):
-        mesh_shape = (1, num_devices)
-        return mesh_shape, ("batch", "model")
-
-    def load_shard_spec(self, model):
-        shard_specs = {}
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
