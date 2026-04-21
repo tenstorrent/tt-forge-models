@@ -21,22 +21,20 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available KoELECTRA discriminator model variants."""
 
-    MONOLOGG_KOELECTRA_SMALL_V3_DISCRIMINATOR = (
-        "monologg_koelectra_small_v3_discriminator"
-    )
+    MONOLOGG_KOELECTRA_BASE_DISCRIMINATOR = "monologg_koelectra_base_discriminator"
 
 
 class ModelLoader(ForgeModel):
     """KoELECTRA model loader implementation for discriminator (pre-training) task."""
 
     _VARIANTS = {
-        ModelVariant.MONOLOGG_KOELECTRA_SMALL_V3_DISCRIMINATOR: LLMModelConfig(
-            pretrained_model_name="monologg/koelectra-small-v3-discriminator",
+        ModelVariant.MONOLOGG_KOELECTRA_BASE_DISCRIMINATOR: LLMModelConfig(
+            pretrained_model_name="monologg/koelectra-base-discriminator",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.MONOLOGG_KOELECTRA_SMALL_V3_DISCRIMINATOR
+    DEFAULT_VARIANT = ModelVariant.MONOLOGG_KOELECTRA_BASE_DISCRIMINATOR
 
     def __init__(self, variant=None):
         super().__init__(variant)
