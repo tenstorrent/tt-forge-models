@@ -125,13 +125,35 @@ class ModelLoader(ForgeModel):
             Hunyuan3DDiT: The DiT denoiser model for 3D shape generation.
         """
         _ensure_hunyuan3d_importable()
-        from hy3dgen.shapegen.models.denoisers import Hunyuan3DDiT
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "hunyuan3ddit",
+            os.path.join(
+                HUNYUAN3D_REPO_PATH,
+                "hy3dgen",
+                "shapegen",
+                "models",
+                "denoisers",
+                "hunyuan3ddit.py",
+            ),
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        Hunyuan3DDiT = mod.Hunyuan3DDiT
 
         variant = self._variant or self.DEFAULT_VARIANT
         filename = _VARIANT_FILENAMES[variant]
 
         weights_path = hf_hub_download(repo_id=REPO_ID, filename=filename)
-        state_dict = load_file(weights_path)
+        full_state_dict = load_file(weights_path)
+
+        prefix = "model."
+        state_dict = {
+            k[len(prefix) :]: v
+            for k, v in full_state_dict.items()
+            if k.startswith(prefix)
+        }
 
         model = Hunyuan3DDiT(
             in_channels=IN_CHANNELS,
