@@ -23,7 +23,7 @@ class ModelVariant(StrEnum):
     """Available Pegasus model variants for text summarization."""
 
     FINANCIAL = "Financial"
-    BBC_NEWS_SUMMARIZATION = "BBC_News_Summarization"
+    ARXIV = "Arxiv"
 
 
 class ModelLoader(ForgeModel):
@@ -33,21 +33,31 @@ class ModelLoader(ForgeModel):
         ModelVariant.FINANCIAL: LLMModelConfig(
             pretrained_model_name="human-centered-summarization/financial-summarization-pegasus",
         ),
-        ModelVariant.BBC_NEWS_SUMMARIZATION: LLMModelConfig(
-            pretrained_model_name="DunnBC22/pegasus-multi_news-NewsSummarization_BBC",
+        ModelVariant.ARXIV: LLMModelConfig(
+            pretrained_model_name="google/pegasus-arxiv",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.FINANCIAL
 
-    sample_text = (
-        "National Commercial Bank (NCB), Saudi Arabia's largest lender by assets, "
-        "agreed to buy rival Samba Financial Group for $15 billion in the biggest "
-        "banking takeover this year. NCB offered 28.45 riyals ($7.58) for each Samba "
-        "share, according to a statement on Sunday, valuing it at about 55.7 billion "
-        "riyals. NCB will pay for the deal in new shares at an exchange ratio of 0.739 "
-        "new NCB shares for every Samba share held."
-    )
+    _VARIANT_SAMPLE_TEXTS = {
+        ModelVariant.FINANCIAL: (
+            "National Commercial Bank (NCB), Saudi Arabia's largest lender by assets, "
+            "agreed to buy rival Samba Financial Group for $15 billion in the biggest "
+            "banking takeover this year. NCB offered 28.45 riyals ($7.58) for each Samba "
+            "share, according to a statement on Sunday, valuing it at about 55.7 billion "
+            "riyals. NCB will pay for the deal in new shares at an exchange ratio of 0.739 "
+            "new NCB shares for every Samba share held."
+        ),
+        ModelVariant.ARXIV: (
+            "We present a new large-scale dataset for abstractive summarization of "
+            "scientific articles. Each example pairs the full text of an arXiv paper "
+            "with its abstract, making the task of generating concise summaries from "
+            "long, technical documents well-defined. We evaluate several sequence-to-"
+            "sequence baselines and show that recent transformer architectures achieve "
+            "strong ROUGE scores while remaining efficient enough to process long inputs."
+        ),
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -58,6 +68,7 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self._tokenizer = None
+        self.sample_text = self._VARIANT_SAMPLE_TEXTS[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
