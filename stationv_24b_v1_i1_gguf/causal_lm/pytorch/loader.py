@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-StationV 24B v1 i1 GGUF model loader implementation for causal language modeling.
+StationV 24B v1 GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,24 +21,37 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available StationV 24B v1 i1 GGUF model variants for causal language modeling."""
+    """Available StationV 24B v1 GGUF model variants for causal language modeling."""
 
     STATIONV_24B_V1_I1_Q4_K_M = "Q4_K_M"
+    STATIONV_24B_V1_GGUF_Q4_K_M = "GGUF-Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
-    """StationV 24B v1 i1 GGUF model loader implementation for causal language modeling tasks."""
+    """StationV 24B v1 GGUF model loader implementation for causal language modeling tasks.
+
+    Supports both the static quants (mradermacher/StationV-24B-v1-GGUF) and the
+    weighted/imatrix quants (mradermacher/StationV-24B-v1-i1-GGUF) of the
+    Naphula/StationV-24B-v1 base model.
+    """
 
     _VARIANTS = {
         ModelVariant.STATIONV_24B_V1_I1_Q4_K_M: LLMModelConfig(
             pretrained_model_name="mradermacher/StationV-24B-v1-i1-GGUF",
             max_length=128,
         ),
+        ModelVariant.STATIONV_24B_V1_GGUF_Q4_K_M: LLMModelConfig(
+            pretrained_model_name="mradermacher/StationV-24B-v1-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.STATIONV_24B_V1_I1_Q4_K_M
 
-    GGUF_FILE = "StationV-24B-v1.i1-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.STATIONV_24B_V1_I1_Q4_K_M: "StationV-24B-v1.i1-Q4_K_M.gguf",
+        ModelVariant.STATIONV_24B_V1_GGUF_Q4_K_M: "StationV-24B-v1.Q4_K_M.gguf",
+    }
 
     sample_text = "Hey how are you doing today?"
 
@@ -53,7 +66,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="StationV 24B v1 i1 GGUF",
+            model="StationV 24B v1 GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -65,7 +78,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +98,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self._GGUF_FILES[self._variant]
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -154,6 +167,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name,
+            gguf_file=self._GGUF_FILES[self._variant],
         )
         return self.config
