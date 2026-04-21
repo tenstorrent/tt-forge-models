@@ -119,6 +119,7 @@ class ModelLoader(ForgeModel):
 
         weights_path = hf_hub_download(REPO_ID, weights_filename)
         state_dict = load_file(weights_path)
+        state_dict.pop("logit_scale", None)
         model.load_state_dict(state_dict)
 
         if dtype_override is not None:
