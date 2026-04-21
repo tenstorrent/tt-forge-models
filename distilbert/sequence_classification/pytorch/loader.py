@@ -26,8 +26,8 @@ class ModelVariant(StrEnum):
     )
     DISTILBERT_BASE_UNCASED_EMOTION = "distilbert-base-uncased-emotion"
     ISOM5240_2026SPRING5240L1 = "isom5240-2026Spring5240L1"
-    TRANSFORMERSBOOK_DISTILBERT_BASE_UNCASED_FINETUNED_EMOTION = (
-        "transformersbook-distilbert-base-uncased-finetuned-emotion"
+    DISTILBERT_MULTILINGUAL_TOXICITY_CLASSIFIER = (
+        "distilbert-multilingual-toxicity-classifier"
     )
 
 
@@ -48,8 +48,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="isom5240/2026Spring5240L1",
             max_length=128,
         ),
-        ModelVariant.TRANSFORMERSBOOK_DISTILBERT_BASE_UNCASED_FINETUNED_EMOTION: LLMModelConfig(
-            pretrained_model_name="transformersbook/distilbert-base-uncased-finetuned-emotion",
+        ModelVariant.DISTILBERT_MULTILINGUAL_TOXICITY_CLASSIFIER: LLMModelConfig(
+            pretrained_model_name="gravitee-io/distilbert-multilingual-toxicity-classifier",
             max_length=128,
         ),
     }
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.DISTILBERT_BASE_UNCASED_FINETUNED_SST_2_ENGLISH: "the movie was great!",
         ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION: "I love using transformers. The best part is wide range of support and its easy to use",
         ModelVariant.ISOM5240_2026SPRING5240L1: "the movie was great!",
-        ModelVariant.TRANSFORMERSBOOK_DISTILBERT_BASE_UNCASED_FINETUNED_EMOTION: "I love using transformers. The best part is wide range of support and its easy to use",
+        ModelVariant.DISTILBERT_MULTILINGUAL_TOXICITY_CLASSIFIER: "I really enjoyed meeting new people from different cultures.",
     }
 
     def __init__(self, variant=None):
@@ -102,7 +102,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION,
             ModelVariant.ISOM5240_2026SPRING5240L1,
-            ModelVariant.TRANSFORMERSBOOK_DISTILBERT_BASE_UNCASED_FINETUNED_EMOTION,
+            ModelVariant.DISTILBERT_MULTILINGUAL_TOXICITY_CLASSIFIER,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
