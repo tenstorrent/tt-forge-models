@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Blossom V6.3 36B i1 GGUF model loader implementation for causal language modeling.
+
+Note: transformers does not yet support loading seed_oss models from GGUF, so we
+monkey-patch the GGUF config mapping to add seed_oss support before loading.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -18,6 +21,33 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+# Patch transformers GGUF integration to support seed_oss architecture.
+# seed_oss uses the same tensor naming conventions as qwen2/llama, and the gguf
+# library already has a full tensor name map for it (MODEL_ARCH.SEED_OSS).
+_SEED_OSS_GGUF_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": None,
+    "rope.freq_base": "rope_theta",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "attention.key_length": "head_dim",
+    "vocab_size": "vocab_size",
+}
+
+from transformers.integrations import ggml as _ggml
+from transformers import modeling_gguf_pytorch_utils as _gguf_utils
+
+if "seed_oss" not in _ggml.GGUF_CONFIG_MAPPING:
+    _ggml.GGUF_CONFIG_MAPPING["seed_oss"] = _SEED_OSS_GGUF_CONFIG_MAPPING
+    _ggml.GGUF_TO_FAST_CONVERTERS["seed_oss"] = _ggml.GGUFGPTConverter
+    _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES = list(
+        _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].keys()
+    )
 
 
 class ModelVariant(StrEnum):
