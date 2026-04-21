@@ -126,6 +126,17 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
         )
         self._controlnet = self._controlnet.to(dtype)
+
+        # diffusers' Timesteps (time_proj) computes sinusoidal embeddings in
+        # float32 regardless of model dtype. Cast the output so it matches the
+        # model's dtype before it enters time_embedding.
+        _dtype = dtype
+
+        def _cast_time_proj_output(module, args, output):
+            return output.to(_dtype)
+
+        self._controlnet.time_proj.register_forward_hook(_cast_time_proj_output)
+
         self._controlnet.eval()
         return self._controlnet
 
