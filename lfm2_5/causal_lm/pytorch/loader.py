@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available LFM2.5 model variants for causal language modeling."""
 
     LFM2_5_1_2B_INSTRUCT = "lfm2_5_1_2b_instruct"
-    LFM2_5_1_2B_INSTRUCT_MLX_4BIT = "lfm2_5_1_2b_instruct_mlx_4bit"
+    LFM2_5_1_2B_JP = "lfm2_5_1_2b_jp"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/LFM2.5-1.2B-Instruct",
             max_length=128,
         ),
-        ModelVariant.LFM2_5_1_2B_INSTRUCT_MLX_4BIT: LLMModelConfig(
-            pretrained_model_name="LiquidAI/LFM2.5-1.2B-Instruct-MLX-4bit",
+        ModelVariant.LFM2_5_1_2B_JP: LLMModelConfig(
+            pretrained_model_name="LiquidAI/LFM2.5-1.2B-JP",
             max_length=128,
         ),
     }
