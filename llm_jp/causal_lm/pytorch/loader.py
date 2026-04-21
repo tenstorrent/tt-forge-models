@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available LLM-jp model variants for causal language modeling."""
 
     LLMJP_3_1_13B = "3.1_13B"
-    LLMJP_3_1_1_8B = "3.1_1.8B"
+    SIP_JMED_LLM_3_13B_OP_4K_BASE = "SIP_jmed_3_13B_OP_4K_base"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="llm-jp/llm-jp-3.1-13b",
             max_length=128,
         ),
-        ModelVariant.LLMJP_3_1_1_8B: LLMModelConfig(
-            pretrained_model_name="llm-jp/llm-jp-3.1-1.8b",
+        ModelVariant.SIP_JMED_LLM_3_13B_OP_4K_BASE: LLMModelConfig(
+            pretrained_model_name="SIP-med-LLM/SIP-jmed-llm-3-13b-OP-4k-base",
             max_length=128,
         ),
     }
