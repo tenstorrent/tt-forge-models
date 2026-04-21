@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available Chinese CLIP model variants for image-text similarity."""
 
     LARGE_PATCH14 = "Large_Patch14"
-    QA_CLIP_VIT_L_14 = "QA-CLIP-ViT-L-14"
+    AOI_CLIP = "aoi_clip"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.LARGE_PATCH14: ModelConfig(
             pretrained_model_name="OFA-Sys/chinese-clip-vit-large-patch14",
         ),
-        ModelVariant.QA_CLIP_VIT_L_14: ModelConfig(
-            pretrained_model_name="TencentARC/QA-CLIP-ViT-L-14",
+        ModelVariant.AOI_CLIP: ModelConfig(
+            pretrained_model_name="sharkMeow/aoi_clip",
         ),
     }
 
