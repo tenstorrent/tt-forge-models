@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available CodeT5 model variants."""
 
     BASE = "Base"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: LLMModelConfig(
             pretrained_model_name="Salesforce/codet5-base",
+            max_length=512,
+        ),
+        ModelVariant.LARGE: LLMModelConfig(
+            pretrained_model_name="Salesforce/codet5-large",
             max_length=512,
         ),
     }
