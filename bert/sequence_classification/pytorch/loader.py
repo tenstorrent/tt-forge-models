@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    YIYANGHKUST_FINBERT_ESG_9_CATEGORIES = "yiyanghkust_FinBERT_ESG_9_Categories"
+    AVICHR_HEBERT_SENTIMENT_ANALYSIS = "avichr_heBERT_Sentiment_Analysis"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.YIYANGHKUST_FINBERT_ESG_9_CATEGORIES: LLMModelConfig(
-            pretrained_model_name="yiyanghkust/finbert-esg-9-categories",
+        ModelVariant.AVICHR_HEBERT_SENTIMENT_ANALYSIS: LLMModelConfig(
+            pretrained_model_name="avichr/heBERT_sentiment_analysis",
             max_length=128,
         ),
     }
@@ -95,7 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.YIYANGHKUST_FINBERT_ESG_9_CATEGORIES: "For 2002, our total net emissions were approximately 60 million metric tons of CO2 equivalents across all businesses and operations.",
+        ModelVariant.AVICHR_HEBERT_SENTIMENT_ANALYSIS: "קפה זה טעים",
     }
 
     def __init__(self, variant=None):
@@ -134,7 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.YIYANGHKUST_FINBERT_ESG_9_CATEGORIES,
+            ModelVariant.AVICHR_HEBERT_SENTIMENT_ANALYSIS,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
