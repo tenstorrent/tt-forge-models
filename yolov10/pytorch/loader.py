@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
 
     YOLOV10X = "X"
     YOLOV10N = "N"
+    JAMESLAHM_YOLOV10N = "jameslahm_yolov10n"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +41,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.YOLOV10N: ModelConfig(
             pretrained_model_name="yolov10n",
+        ),
+        ModelVariant.JAMESLAHM_YOLOV10N: ModelConfig(
+            pretrained_model_name="jameslahm/yolov10n",
         ),
     }
 
@@ -69,8 +73,15 @@ class ModelLoader(ForgeModel):
 
         if variant in [ModelVariant.YOLOV10X]:
             group = ModelGroup.RED
+        elif variant == ModelVariant.JAMESLAHM_YOLOV10N:
+            group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
+
+        if variant == ModelVariant.JAMESLAHM_YOLOV10N:
+            source = ModelSource.HUGGING_FACE
+        else:
+            source = ModelSource.CUSTOM
 
         if variant is None:
             variant = cls.DEFAULT_VARIANT
@@ -79,7 +90,7 @@ class ModelLoader(ForgeModel):
             variant=variant,
             group=group,
             task=ModelTask.CV_OBJECT_DET,
-            source=ModelSource.CUSTOM,
+            source=source,
             framework=Framework.TORCH,
         )
 
@@ -95,7 +106,14 @@ class ModelLoader(ForgeModel):
         """
         # Get the model name from the instance's variant config
         variant = self._variant_config.pretrained_model_name
-        model.load_state_dict(weights["model"].float().state_dict())
+
+        if self._variant == ModelVariant.JAMESLAHM_YOLOV10N:
+            yolo_wrapper = YOLOv10.from_pretrained(variant)
+            model = (
+                yolo_wrapper.model if hasattr(yolo_wrapper, "model") else yolo_wrapper
+            )
+        else:
+            model.load_state_dict(weights["model"].float().state_dict())
 
         # https://github.com/tenstorrent/tt-xla/issues/1692
         model.end2end = False
