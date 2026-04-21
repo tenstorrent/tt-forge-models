@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available TinyStories model variants."""
 
     TINYSTORIES_1M = "1M"
-    TINYSTORIES_3M = "3M"
+    TINYSTORIES_28M = "28M"
 
 
 class ModelLoader(ForgeModel):
@@ -37,8 +37,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="roneneldan/TinyStories-1M",
             max_length=256,
         ),
-        ModelVariant.TINYSTORIES_3M: LLMModelConfig(
-            pretrained_model_name="roneneldan/TinyStories-3M",
+        ModelVariant.TINYSTORIES_28M: LLMModelConfig(
+            pretrained_model_name="roneneldan/TinyStories-28M",
             max_length=256,
         ),
     }
