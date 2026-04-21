@@ -34,7 +34,7 @@ class ModelVariant(StrEnum):
     GPT2_LARGE = "Large"
     GPT2_LUMELETO = "Lumeleto"
     GPT2_SEQUENCE_CLASSIFICATION = "Sequence_Classification"
-    GPT2_COLA = "Cola"
+    GPT2_XL_SFT = "xl-sft"
     TINY_RANDOM = "tiny-random"
     TINY_RANDOM_GEN_CONFIG = "tiny-random-gen-config"
 
@@ -63,8 +63,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mnoukhov/gpt2-imdb-sentiment-classifier",
             max_length=256,
         ),
-        ModelVariant.GPT2_COLA: LLMModelConfig(
-            pretrained_model_name="tanganke/gpt2_cola",
+        ModelVariant.GPT2_XL_SFT: LLMModelConfig(
+            pretrained_model_name="MrNJK/gpt2-xl-sft",
             max_length=256,
         ),
         ModelVariant.TINY_RANDOM: LLMModelConfig(
@@ -106,8 +106,8 @@ class ModelLoader(ForgeModel):
             if variant
             in (
                 ModelVariant.GPT2_LARGE,
+                ModelVariant.GPT2_XL_SFT,
                 ModelVariant.TINY_RANDOM,
-                ModelVariant.GPT2_COLA,
             )
             else ModelGroup.GENERALITY
         )
@@ -142,6 +142,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GPT2_BASE,
             ModelVariant.GPT2_BS3V2_XSUM,
             ModelVariant.GPT2_LARGE,
+            ModelVariant.GPT2_XL_SFT,
             ModelVariant.TINY_RANDOM,
             ModelVariant.TINY_RANDOM_GEN_CONFIG,
         ):
@@ -176,6 +177,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GPT2_BASE,
             ModelVariant.GPT2_BS3V2_XSUM,
             ModelVariant.GPT2_LARGE,
+            ModelVariant.GPT2_XL_SFT,
             ModelVariant.TINY_RANDOM,
             ModelVariant.TINY_RANDOM_GEN_CONFIG,
         ):
