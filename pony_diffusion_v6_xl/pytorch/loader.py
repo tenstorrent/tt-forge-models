@@ -9,6 +9,7 @@ generation, trained on ~2.6M images with detailed captions.
 
 Available variants:
 - PONY_DIFFUSION_V6_XL: LyliaEngine/Pony_Diffusion_V6_XL text-to-image generation
+- PONY_DIFFUSION_V6_XL_FOR_ANIME: Bakanayatsu/Pony-Diffusion-V6-XL-for-Anime text-to-image generation
 """
 
 from typing import Optional
@@ -35,6 +36,7 @@ class ModelVariant(StrEnum):
     """Available Pony Diffusion V6 XL model variants."""
 
     PONY_DIFFUSION_V6_XL = "Pony_Diffusion_V6_XL"
+    PONY_DIFFUSION_V6_XL_FOR_ANIME = "Pony_Diffusion_V6_XL_for_Anime"
 
 
 class ModelLoader(ForgeModel):
@@ -43,6 +45,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.PONY_DIFFUSION_V6_XL: ModelConfig(
             pretrained_model_name=REPO_ID,
+        ),
+        ModelVariant.PONY_DIFFUSION_V6_XL_FOR_ANIME: ModelConfig(
+            pretrained_model_name="Bakanayatsu/Pony-Diffusion-V6-XL-for-Anime",
         ),
     }
     DEFAULT_VARIANT = ModelVariant.PONY_DIFFUSION_V6_XL
