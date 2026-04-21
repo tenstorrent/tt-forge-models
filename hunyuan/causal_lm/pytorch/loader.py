@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Hunyuan model variants."""
 
     HUNYUAN_A13B_INSTRUCT = "A13B_Instruct"
+    TENCENT_HUNYUAN_LARGE = "Tencent-Hunyuan-Large"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.HUNYUAN_A13B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="tencent/Hunyuan-A13B-Instruct",
+        ),
+        ModelVariant.TENCENT_HUNYUAN_LARGE: LLMModelConfig(
+            pretrained_model_name="tencent/Tencent-Hunyuan-Large",
         ),
     }
 
