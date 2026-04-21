@@ -9,7 +9,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
 from typing import Optional
 
 if not hasattr(DynamicCache, "get_usable_length"):
-    DynamicCache.get_usable_length = DynamicCache.get_seq_length
+    DynamicCache.get_usable_length = lambda self, new_seq_len, layer_idx=0: (
+        self.get_seq_length(layer_idx)
+    )
 from ....tools.utils import generate_no_cache, pad_inputs
 from ....base import ForgeModel
 from ....config import (
