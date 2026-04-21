@@ -92,20 +92,37 @@ class ModelLoader(ForgeModel):
 
         self.pipeline.load_lora_weights(LORA_REPO)
 
-        return self.pipeline
+        return self.pipeline.unet
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation with pan-right motion.
+    def load_inputs(self, dtype_override=None, **kwargs) -> Any:
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
-        Returns:
-            dict with prompt key.
-        """
-        if prompt is None:
-            prompt = (
-                "A scenic mountain landscape with clouds drifting, "
-                "cinematic pan right, smooth camera motion"
-            )
+        batch_size = 1
+        num_frames = 16
+        height = 64
+        width = 64
+        in_channels = 4
+        cross_attention_dim = 768
+
+        sample = torch.randn(
+            (batch_size, in_channels, num_frames, height // 8, width // 8),
+            dtype=dtype,
+        )
+        timestep = torch.randint(0, 1000, (1,))
+        encoder_hidden_states = torch.randn(
+            (batch_size, 77, cross_attention_dim),
+            dtype=dtype,
+        )
 
         return {
-            "prompt": prompt,
+            "sample": sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
         }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if hasattr(output, "sample"):
+            return output.sample
+        elif isinstance(output, tuple):
+            return output[0]
+        return output
