@@ -27,6 +27,12 @@ class ModelVariant(StrEnum):
     VIT_L_14_DATACOMP1B = "ViT_L_14_datacomp1B"
 
 
+# Mapping from variant to OpenCLIP tokenizer name
+_TOKENIZER_NAME = {
+    ModelVariant.VIT_L_14_DATACOMP1B: "ViT-L-14-CLIPA",
+}
+
+
 class ModelLoader(ForgeModel):
     """CLIPA model loader using OpenCLIP for image-text similarity tasks."""
 
@@ -69,7 +75,7 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model, self.preprocess = create_model_from_pretrained(pretrained_model_name)
-        self.tokenizer = get_tokenizer(pretrained_model_name)
+        self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -93,7 +99,7 @@ class ModelLoader(ForgeModel):
             _, self.preprocess = create_model_from_pretrained(
                 self._variant_config.pretrained_model_name
             )
-            self.tokenizer = get_tokenizer(self._variant_config.pretrained_model_name)
+            self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
 
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
