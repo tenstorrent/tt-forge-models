@@ -72,8 +72,11 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self):
+        tokenizer_kwargs = {}
+        if self._variant == ModelVariant.NVIDIA_ESM2_T33_650M_UR50D:
+            tokenizer_kwargs["trust_remote_code"] = True
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
         return self.tokenizer
 
@@ -84,6 +87,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._variant == ModelVariant.NVIDIA_ESM2_T33_650M_UR50D:
+            model_kwargs["trust_remote_code"] = True
         model_kwargs |= kwargs
 
         model = AutoModelForMaskedLM.from_pretrained(
