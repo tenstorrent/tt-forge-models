@@ -31,7 +31,7 @@ class ModelVariant(StrEnum):
 
     MINIMAX_M2_5 = "M2.5"
     MINIMAX_M2_5_REAP_139B_A10B_AWQ_4BIT = "M2.5_REAP_139B_A10B_AWQ_4bit"
-    MINIMAX_M2_5_UNSLOTH_FP8 = "M2.5-unsloth-fp8"
+    MINIMAX_M2_5_MXFP4 = "M2.5_MXFP4"
 
 
 class ModelLoader(ForgeModel):
@@ -47,8 +47,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="cyankiwi/MiniMax-M2.5-REAP-139B-A10B-AWQ-4bit",
             max_length=128,
         ),
-        ModelVariant.MINIMAX_M2_5_UNSLOTH_FP8: LLMModelConfig(
-            pretrained_model_name="unsloth/MiniMax-M2.5",
+        ModelVariant.MINIMAX_M2_5_MXFP4: LLMModelConfig(
+            pretrained_model_name="amd/MiniMax-M2.5-MXFP4",
             max_length=128,
         ),
     }
