@@ -18,7 +18,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import DiffusionPipeline  # type: ignore[import]
-from PIL import Image  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -91,7 +90,7 @@ class ModelLoader(ForgeModel):
         """Load the Qwen-Image-Edit pipeline with next-scene LoRA weights applied.
 
         Returns:
-            DiffusionPipeline with LoRA weights loaded.
+            torch.nn.Module: The transformer model with LoRA weights fused.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -107,26 +106,43 @@ class ModelLoader(ForgeModel):
             weight_name=lora_file,
         )
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for next-scene image generation.
+    def load_inputs(self, **kwargs) -> dict:
+        """Prepare synthetic tensor inputs for the transformer forward pass.
 
         Returns:
-            dict with prompt and image keys.
+            dict of tensors matching the QwenImageTransformer2DModel forward signature.
         """
-        if prompt is None:
-            prompt = (
-                "Next Scene: The camera moves slightly forward as sunlight "
-                "breaks through the clouds, casting a soft glow around the "
-                "character's silhouette in the mist. Realistic cinematic style, "
-                "atmospheric depth."
-            )
+        config = self.pipeline.transformer.config
+        dtype = next(self.pipeline.transformer.parameters()).dtype
 
-        # Create a small test image (RGB)
-        image = Image.new("RGB", (256, 256), color=(128, 128, 200))
+        batch_size = 1
+        in_channels = config.in_channels
+        joint_dim = config.joint_attention_dim
+        patch_size = config.patch_size
+        vae_scale_factor = self.pipeline.vae_scale_factor
+
+        height = 256
+        width = 256
+        latent_h = height // vae_scale_factor // patch_size
+        latent_w = width // vae_scale_factor // patch_size
+        seq_len = latent_h * latent_w
+
+        text_seq_len = 64
+
+        hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, text_seq_len, joint_dim, dtype=dtype
+        )
+        encoder_hidden_states_mask = torch.ones(batch_size, text_seq_len, dtype=dtype)
+        timestep = torch.tensor([500], dtype=torch.long)
 
         return {
-            "prompt": prompt,
-            "image": image,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": [(1, latent_h, latent_w)],
+            "return_dict": False,
         }
