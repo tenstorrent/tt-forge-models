@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Baichuan model variants."""
 
     BAICHUAN_13B_CHAT = "13B_Chat"
+    BAICHUAN_VICUNA_CHINESE_7B = "baichuan-vicuna-chinese-7b"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BAICHUAN_13B_CHAT: ModelConfig(
             pretrained_model_name="baichuan-inc/Baichuan-13B-Chat",
+        ),
+        ModelVariant.BAICHUAN_VICUNA_CHINESE_7B: ModelConfig(
+            pretrained_model_name="fireballoon/baichuan-vicuna-chinese-7b",
         ),
     }
 
