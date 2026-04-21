@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-GLM-4.7-REAP-218B-A32B GGUF model loader implementation for causal language modeling.
+GLM-4.7 REAP 218B-A32B GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,26 +21,26 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available GLM-4.7-REAP-218B-A32B GGUF model variants for causal language modeling."""
+    """Available GLM-4.7 REAP 218B-A32B GGUF model variants for causal language modeling."""
 
-    GLM_4_7_REAP_218B_A32B_GGUF = "GLM-4.7-REAP-218B-A32B-GGUF"
+    GLM_4_7_REAP_218B_A32B_GGUF = "218B_A32B_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """GLM-4.7-REAP-218B-A32B GGUF model loader implementation for causal language modeling tasks."""
+    """GLM-4.7 REAP 218B-A32B GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.GLM_4_7_REAP_218B_A32B_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/GLM-4.7-REAP-218B-A32B-GGUF",
+            pretrained_model_name="unsloth/GLM-4.7-REAP-218B-A32B-GGUF",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GLM_4_7_REAP_218B_A32B_GGUF
 
-    GGUF_FILE = "GLM-4.7-REAP-218B-A32B.Q4_K_M.gguf"
+    GGUF_FILE = "GLM-4.7-REAP-218B-A32B-UD-TQ1_0.gguf"
 
-    sample_text = "Give me a short introduction to large language models."
+    sample_text = "Hey how are you doing today?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="GLM-4.7-REAP-218B-A32B GGUF",
+            model="GLM-4.7 REAP 218B-A32B GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -134,27 +134,6 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
-
-    def get_mesh_config(self, num_devices: int):
-        mesh_shape = (1, num_devices)
-        return mesh_shape, ("batch", "model")
-
-    def load_shard_spec(self, model):
-        shard_specs = {}
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
-        return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
