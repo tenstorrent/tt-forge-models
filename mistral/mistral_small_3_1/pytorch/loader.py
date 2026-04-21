@@ -26,8 +26,8 @@ class ModelVariant(StrEnum):
     MISTRAL_SMALL_3_1_24B_INSTRUCT_INT4_AWQ = (
         "OPEA/Mistral-Small-3.1-24B-Instruct-2503-int4-AutoRound-awq-sym"
     )
-    MISTRAL_SMALL_3_1_24B_INSTRUCT_UNSLOTH = (
-        "unsloth/Mistral-Small-3.1-24B-Instruct-2503"
+    MISTRAL_SMALL_3_1_24B_INSTRUCT_UNSLOTH_BNB_4BIT = (
+        "unsloth/Mistral-Small-3.1-24B-Instruct-2503-unsloth-bnb-4bit"
     )
 
 
@@ -43,9 +43,9 @@ class ModelLoader(ForgeModel):
                 ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_INT4_AWQ
             ),
         ),
-        ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_UNSLOTH: LLMModelConfig(
+        ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_UNSLOTH_BNB_4BIT: LLMModelConfig(
             pretrained_model_name=str(
-                ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_UNSLOTH
+                ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_UNSLOTH_BNB_4BIT
             ),
         ),
     }
@@ -75,6 +75,13 @@ class ModelLoader(ForgeModel):
     @property
     def _is_awq(self) -> bool:
         return self._variant == ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_INT4_AWQ
+
+    @property
+    def _is_quantized(self) -> bool:
+        return self._variant in (
+            ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_INT4_AWQ,
+            ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_UNSLOTH_BNB_4BIT,
+        )
 
     def _load_processor(self, dtype_override=None):
         """Load processor for the current variant."""
@@ -108,7 +115,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        if self._is_awq:
+        if self._is_quantized:
             model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
         model = Mistral3ForConditionalGeneration.from_pretrained(
