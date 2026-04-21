@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Japanese Reranker Cross-Encoder model variants for passage ranking."""
 
     XSMALL_V1 = "xsmall-v1"
+    LARGE_V1 = "large-v1"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.XSMALL_V1: ModelConfig(
             pretrained_model_name="hotchpotch/japanese-reranker-cross-encoder-xsmall-v1",
+        ),
+        ModelVariant.LARGE_V1: ModelConfig(
+            pretrained_model_name="hotchpotch/japanese-reranker-cross-encoder-large-v1",
         ),
     }
 
