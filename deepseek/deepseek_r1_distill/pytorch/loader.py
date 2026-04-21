@@ -90,6 +90,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.DEEPSEEK_R1_OPUS: "bf16",
     }
 
+    # Per-variant GGUF filename for variants that load from a .gguf checkpoint.
+    _GGUF_FILES: dict = {}
+
     DEFAULT_VARIANT = ModelVariant.DISTILL_QWEN_1_5B
 
     sample_text = "Please reason step by step. What is 25 multiplied by 16?"
