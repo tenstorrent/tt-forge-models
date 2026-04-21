@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available GPT-OSS MLX model variants."""
 
     GPT_OSS_120B_MLX_8BIT = "120B_MLX_8bit"
+    GPT_OSS_120B_MXFP4_Q4 = "120B_MXFP4_Q4"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GPT_OSS_120B_MLX_8BIT: LLMModelConfig(
             pretrained_model_name="lmstudio-community/gpt-oss-120b-MLX-8bit",
+            max_length=256,
+        ),
+        ModelVariant.GPT_OSS_120B_MXFP4_Q4: LLMModelConfig(
+            pretrained_model_name="mlx-community/gpt-oss-120b-MXFP4-Q4",
             max_length=256,
         ),
     }
