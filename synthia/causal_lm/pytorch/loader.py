@@ -5,7 +5,8 @@
 Synthia model loader implementation for causal language modeling.
 
 Supports Migel Tissera's SynthIA fine-tunes, including the AWQ-quantized
-Solar-based v3.0 11B release and the Mistral-7B-based v1.3 checkpoint.
+Solar-based v3.0 11B release, the Mistral-7B-based v1.3 checkpoint, and the
+Llama-2-based Synthia 70B v1.2b.
 """
 
 import torch
@@ -30,6 +31,7 @@ class ModelVariant(StrEnum):
 
     SYNTHIA_V3_0_11B_AWQ = "Synthia_v3.0_11B_Awq"
     SYNTHIA_7B_V1_3 = "SynthIA_7B_v1.3"
+    SYNTHIA_70B_V1_2B = "Synthia-70B-v1.2b"
 
 
 class ModelLoader(ForgeModel):
@@ -42,6 +44,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.SYNTHIA_7B_V1_3: LLMModelConfig(
             pretrained_model_name="migtissera/SynthIA-7B-v1.3",
+            max_length=128,
+        ),
+        ModelVariant.SYNTHIA_70B_V1_2B: LLMModelConfig(
+            pretrained_model_name="migtissera/Synthia-70B-v1.2b",
             max_length=128,
         ),
     }
