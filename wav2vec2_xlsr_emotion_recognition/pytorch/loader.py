@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     XLSR_EN = "XLSR_EN"
     RF_EN = "RF_EN"
+    XLSR_UR = "XLSR_UR"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.RF_EN: ModelConfig(
             pretrained_model_name="r-f/wav2vec-english-speech-emotion-recognition",
+        ),
+        ModelVariant.XLSR_UR: ModelConfig(
+            pretrained_model_name="HowMannyMore/wav2vec2-lg-xlsr-ur-speech-emotion-recognition",
         ),
     }
 
