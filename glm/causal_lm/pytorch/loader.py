@@ -150,7 +150,7 @@ class ModelLoader(ForgeModel):
 
     @property
     def _needs_trust_remote_code(self):
-        return self._variant == ModelVariant.GLM_4_9B_CHAT_1M
+        return False
 
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
