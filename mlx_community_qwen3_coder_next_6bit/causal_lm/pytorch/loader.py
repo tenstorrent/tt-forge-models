@@ -130,6 +130,41 @@ class ModelLoader(ForgeModel):
 
         return inputs
 
+    def _get_text_config(self):
+        """Get the text config, handling both nested (MoE) and flat config structures."""
+        if hasattr(self.config, "text_config"):
+            return self.config.text_config
+        return self.config
+
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        text_config = self._get_text_config()
+        assert (
+            text_config.num_attention_heads % mesh_shape[1] == 0
+        ), "Attention heads must be divisible by the model axis size"
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            mlp = layer.mlp
+            if hasattr(mlp, "experts"):
+                shard_specs[mlp.experts.gate_up_proj] = (None, "model", "batch")
+                shard_specs[mlp.experts.down_proj] = (None, "batch", "model")
+            if hasattr(mlp, "shared_expert"):
+                shard_specs[mlp.shared_expert.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
+
+            if hasattr(layer, "self_attn"):
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+
+        return shard_specs
+
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
