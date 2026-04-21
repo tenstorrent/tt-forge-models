@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Speaker-wavLM-tbr model variants."""
 
     SPEAKER_WAVLM_TBR = "Speaker-wavLM-tbr"
+    SPEAKER_EMB_TBR = "speaker-emb-tbr"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SPEAKER_WAVLM_TBR: ModelConfig(
             pretrained_model_name="Orange/Speaker-wavLM-tbr",
+        ),
+        ModelVariant.SPEAKER_EMB_TBR: ModelConfig(
+            pretrained_model_name="nineninesix/speaker-emb-tbr",
         ),
     }
 
