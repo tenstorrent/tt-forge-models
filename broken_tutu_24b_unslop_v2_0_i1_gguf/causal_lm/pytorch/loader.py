@@ -39,7 +39,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.BROKEN_TUTU_24B_UNSLOP_V2_0_I1_GGUF
 
     _GGUF_FILES = {
-        ModelVariant.BROKEN_TUTU_24B_UNSLOP_V2_0_I1_GGUF: "Broken-Tutu-24B-Unslop-v2.0-i1-Q4_K_M.gguf",
+        ModelVariant.BROKEN_TUTU_24B_UNSLOP_V2_0_I1_GGUF: "Broken-Tutu-24B-Unslop-v2.0.i1-Q4_K_M.gguf",
     }
 
     sample_text = "What is your favorite city?"
