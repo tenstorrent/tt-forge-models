@@ -32,6 +32,7 @@ class ModelVariant(StrEnum):
     OPUS_MT_EU_EN = "Opus_Mt_Eu_En"
     OPUS_MT_TR_EN = "Opus_Mt_Tr_En"
     OPUS_MT_TC_BIG_EN_BG = "Opus_Mt_Tc_Big_En_Bg"
+    OPUS_MT_LV_EN = "Opus_Mt_Lv_En"
     OPUS_MT_EN_GMQ = "Opus_Mt_En_Gmq"
     OPUS_MT_PT_CA = "Opus_Mt_Pt_Ca"
     OPUS_MT_ES_EN = "Opus_Mt_Es_En"
@@ -68,6 +69,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPUS_MT_TC_BIG_EN_BG: LLMModelConfig(
             pretrained_model_name="Helsinki-NLP/opus-mt-tc-big-en-bg",
         ),
+        ModelVariant.OPUS_MT_LV_EN: LLMModelConfig(
+            pretrained_model_name="Helsinki-NLP/opus-mt-lv-en",
+        ),
         ModelVariant.OPUS_MT_EN_GMQ: LLMModelConfig(
             pretrained_model_name="Helsinki-NLP/opus-mt-en-gmq",
         ),
@@ -84,6 +88,7 @@ class ModelLoader(ForgeModel):
     _SAMPLE_TEXTS = {
         ModelVariant.OPUS_MT_TR_EN: "Merhaba dünya, bugün hava çok güzel.",
         ModelVariant.OPUS_MT_TC_BIG_EN_BG: "The weather is beautiful today and the sun is shining brightly.",
+        ModelVariant.OPUS_MT_LV_EN: "Sveiki, kā jums klājas?",
         ModelVariant.OPUS_MT_EN_GMQ: ">>sv<< The weather is beautiful today and the sun is shining brightly.",
         ModelVariant.OPUS_MT_PT_CA: "O tempo está lindo hoje e o sol está a brilhar.",
         ModelVariant.OPUS_MT_ES_EN: "El tiempo está precioso hoy y el sol brilla intensamente.",
