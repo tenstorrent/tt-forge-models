@@ -4,17 +4,15 @@
 """
 Nora 4B Merge V2 GGUF model loader implementation for causal language modeling.
 """
-import importlib.metadata
-
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from typing import Optional
 
 import transformers.utils.import_utils as _tx_import_utils
 
-_tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
-    importlib.metadata.packages_distributions()
-)
-from typing import Optional
+if "gguf" not in _tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+    _tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+_tx_import_utils.is_gguf_available.cache_clear()
 
 from ....base import ForgeModel
 from ....config import (
