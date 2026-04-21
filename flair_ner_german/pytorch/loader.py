@@ -92,7 +92,12 @@ class ModelLoader(ForgeModel):
         Sentence = flair_pkg.data.Sentence
 
         sentence = Sentence(self.sample_text)
-        return [sentence]
+        sentence_tensor, lengths = self.model._prepare_tensors([sentence])
+
+        if dtype_override is not None:
+            sentence_tensor = sentence_tensor.to(dtype_override)
+
+        return [sentence_tensor, lengths]
 
     def decode_output(self, co_out):
         flair_pkg = self._import_flair()
