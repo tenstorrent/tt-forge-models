@@ -119,6 +119,7 @@ class ModelVariant(StrEnum):
     LLAMA_2_7B_GPTQ = "2_7B_GPTQ"
     LLAMA_2_70B_QLORA_GPT4 = "2_70B_Qlora_Gpt4"
     LLAMA_2_70B_INSTRUCT_UPSTAGE = "2_70B_Instruct_Upstage"
+    LLAMA_2_70B_FB16_KOREAN = "2_70B_Fb16_Korean"
 
     # Unsloth variants
     UNSLOTH_LLAMA_2_7B = "Unsloth_2_7B"
@@ -290,6 +291,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="upstage/Llama-2-70b-instruct",
             max_length=128,
         ),
+        ModelVariant.LLAMA_2_70B_FB16_KOREAN: LLMModelConfig(
+            pretrained_model_name="quantumaikr/llama-2-70b-fb16-korean",
+            max_length=128,
+        ),
         # Unsloth variants
         ModelVariant.UNSLOTH_LLAMA_2_7B: LLMModelConfig(
             pretrained_model_name="unsloth/llama-2-7b",
@@ -401,6 +406,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_8B_INSTRUCT_ISTA_DASLAB,
             ModelVariant.LLAMA_2_70B_QLORA_GPT4,
             ModelVariant.LLAMA_2_70B_INSTRUCT_UPSTAGE,
+            ModelVariant.LLAMA_2_70B_FB16_KOREAN,
         ]:
             group = ModelGroup.VULCAN
         elif (
