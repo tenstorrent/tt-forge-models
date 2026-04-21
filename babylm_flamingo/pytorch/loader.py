@@ -8,7 +8,10 @@ BabyLM Flamingo model loader implementation for multimodal causal language model
 from typing import Optional
 
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoTokenizer, ViTImageProcessor
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
+from transformers.modeling_attn_mask_utils import _create_4d_causal_attention_mask
+from transformers.models.opt.modeling_opt import OPTDecoder
 
 from ...base import ForgeModel
 from ...config import (
@@ -21,6 +24,31 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import cast_input_to_type
+
+
+def _update_causal_mask(
+    self,
+    attention_mask,
+    input_tensor,
+    cache_position,
+    past_key_values,
+    output_attentions,
+):
+    past_seen_tokens = (
+        past_key_values.get_seq_length() if past_key_values is not None else 0
+    )
+    dtype = input_tensor.dtype
+    input_shape = input_tensor.shape[:2]
+    return _create_4d_causal_attention_mask(
+        input_shape,
+        dtype=dtype,
+        device=input_tensor.device,
+        past_key_values_length=past_seen_tokens,
+    )
+
+
+if not hasattr(OPTDecoder, "_update_causal_mask"):
+    OPTDecoder._update_causal_mask = _update_causal_mask
 
 
 class ModelVariant(StrEnum):
@@ -61,9 +89,17 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name,
+        model_name = self._variant_config.pretrained_model_name
+        FlamingoProcessor = get_class_from_dynamic_module(
+            "processor_flamingo.FlamingoProcessor",
+            model_name,
             trust_remote_code=True,
+        )
+        image_processor = ViTImageProcessor.from_pretrained(model_name)
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        self.processor = FlamingoProcessor(
+            image_processor=image_processor,
+            tokenizer=tokenizer,
         )
         return self.processor
 
@@ -75,6 +111,7 @@ class ModelLoader(ForgeModel):
             trust_remote_code=True,
             **kwargs,
         )
+        model.config.use_cache = False
         model.eval()
 
         if dtype_override:
