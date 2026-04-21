@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available GPT-J model variants."""
 
     TINY_RANDOM = "tiny-random"
+    TINY_RANDOM_ANTON_L = "tiny-random-anton-l"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINY_RANDOM: LLMModelConfig(
             pretrained_model_name="peft-internal-testing/tiny-random-GPTJForCausalLM",
+            max_length=256,
+        ),
+        ModelVariant.TINY_RANDOM_ANTON_L: LLMModelConfig(
+            pretrained_model_name="anton-l/gpt-j-tiny-random",
             max_length=256,
         ),
     }
