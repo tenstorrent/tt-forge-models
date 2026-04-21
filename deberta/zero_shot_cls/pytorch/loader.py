@@ -22,7 +22,7 @@ class ModelVariant(StrEnum):
     """Available DeBERTa model variants for zero-shot classification."""
 
     DEBERTA_V3_BASE_ZEROSHOT_V2 = "V3_Base_Zeroshot_v2.0"
-    NARSIL_DEBERTA_LARGE_MNLI_ZERO_CLS = "Narsil_DeBERTa_Large_MNLI_Zero_CLS"
+    DEBERTA_V3_LARGE_ZEROSHOT_V1 = "V3_Large_Zeroshot_v1"
 
 
 class ModelLoader(ForgeModel):
@@ -32,8 +32,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.DEBERTA_V3_BASE_ZEROSHOT_V2: ModelConfig(
             pretrained_model_name="MoritzLaurer/deberta-v3-base-zeroshot-v2.0",
         ),
-        ModelVariant.NARSIL_DEBERTA_LARGE_MNLI_ZERO_CLS: ModelConfig(
-            pretrained_model_name="Narsil/deberta-large-mnli-zero-cls",
+        ModelVariant.DEBERTA_V3_LARGE_ZEROSHOT_V1: ModelConfig(
+            pretrained_model_name="MoritzLaurer/deberta-v3-large-zeroshot-v1",
         ),
     }
 
