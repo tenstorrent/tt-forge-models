@@ -138,6 +138,9 @@ class ModelVariant(StrEnum):
     # NbAiLab variants
     NB_NOTRAM_LLAMA_3_2_3B_INSTRUCT = "Nb_Notram_3.2_3B_Instruct"
 
+    # Tap-M variants
+    TAP_M_LUNA_AI_LLAMA2_UNCENSORED_FP16 = "Tap_M_Luna_AI_Llama2_Uncensored_FP16"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -328,6 +331,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="NbAiLab/nb-notram-llama-3.2-3b-instruct",
             max_length=128,
         ),
+        # Tap-M variants
+        ModelVariant.TAP_M_LUNA_AI_LLAMA2_UNCENSORED_FP16: LLMModelConfig(
+            pretrained_model_name="Tap-M/Luna-AI-Llama2-Uncensored-FP16",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -380,6 +388,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4,
             ModelVariant.UPSTAGE_LLAMA_30B_INSTRUCT,
             ModelVariant.NB_NOTRAM_LLAMA_3_2_3B_INSTRUCT,
+            ModelVariant.TAP_M_LUNA_AI_LLAMA2_UNCENSORED_FP16,
         ]:
             group = ModelGroup.VULCAN
         elif (
