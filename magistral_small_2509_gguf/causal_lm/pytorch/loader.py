@@ -24,6 +24,9 @@ class ModelVariant(StrEnum):
     """Available Magistral Small 2509 GGUF model variants for causal language modeling."""
 
     MAGISTRAL_SMALL_2509_GGUF = "Magistral_Small_2509_GGUF"
+    MRADERMACHER_MAGISTRAL_SMALL_2509_HERETIC_V1_2_GGUF = (
+        "mradermacher_Magistral_Small_2509_Heretic_v1.2_GGUF"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +37,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/Magistral-Small-2509-GGUF",
             max_length=128,
         ),
+        ModelVariant.MRADERMACHER_MAGISTRAL_SMALL_2509_HERETIC_V1_2_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Magistral-Small-2509-Heretic-v1.2-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.MAGISTRAL_SMALL_2509_GGUF
 
-    GGUF_FILE = "Magistral-Small-2509-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.MAGISTRAL_SMALL_2509_GGUF: "Magistral-Small-2509-Q4_K_M.gguf",
+        ModelVariant.MRADERMACHER_MAGISTRAL_SMALL_2509_HERETIC_V1_2_GGUF: "Magistral-Small-2509-Heretic-v1.2.Q4_K_M.gguf",
+    }
 
     sample_text = "Give me a short introduction to large language models."
 
@@ -49,6 +59,10 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -65,7 +79,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +99,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -155,6 +169,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
