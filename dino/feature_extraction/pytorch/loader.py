@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available DINO ViT feature extraction model variants."""
 
     SMALL_8 = "Small_8"
+    BASE_8 = "Base_8"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SMALL_8: ModelConfig(
             pretrained_model_name="facebook/dino-vits8",
+        ),
+        ModelVariant.BASE_8: ModelConfig(
+            pretrained_model_name="facebook/dino-vitb8",
         ),
     }
 
