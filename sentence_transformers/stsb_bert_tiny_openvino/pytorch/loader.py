@@ -25,6 +25,9 @@ class ModelVariant(StrEnum):
     """Available model variants for stsb-bert-tiny-openvino."""
 
     STSB_BERT_TINY_OPENVINO = "sentence-transformers-testing/stsb-bert-tiny-openvino"
+    STSB_BERT_TINY_OPENVINO_QUANTIZED_ONLY = (
+        "sentence-transformers-testing/stsb-bert-tiny-openvino-quantized-only"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +36,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.STSB_BERT_TINY_OPENVINO: LLMModelConfig(
             pretrained_model_name="sentence-transformers-testing/stsb-bert-tiny-openvino",
+            max_length=256,
+        ),
+        ModelVariant.STSB_BERT_TINY_OPENVINO_QUANTIZED_ONLY: LLMModelConfig(
+            pretrained_model_name="sentence-transformers-testing/stsb-bert-tiny-openvino-quantized-only",
             max_length=256,
         ),
     }
