@@ -23,7 +23,7 @@ class ModelVariant(StrEnum):
     """Available GENERator-eukaryote model variants for causal language modeling."""
 
     GENERATOR_EUKARYOTE_1_2B_BASE = "GenerTeam/GENERator-eukaryote-1.2b-base"
-    GENERATOR_V2_EUKARYOTE_3B_BASE = "GenerTeam/GENERator-v2-eukaryote-3b-base"
+    GENERATOR_V2_EUKARYOTE_1_2B_BASE = "GenerTeam/GENERator-v2-eukaryote-1.2b-base"
 
 
 class ModelLoader(ForgeModel):
@@ -34,8 +34,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="GenerTeam/GENERator-eukaryote-1.2b-base",
             max_length=128,
         ),
-        ModelVariant.GENERATOR_V2_EUKARYOTE_3B_BASE: LLMModelConfig(
-            pretrained_model_name="GenerTeam/GENERator-v2-eukaryote-3b-base",
+        ModelVariant.GENERATOR_V2_EUKARYOTE_1_2B_BASE: LLMModelConfig(
+            pretrained_model_name="GenerTeam/GENERator-v2-eukaryote-1.2b-base",
             max_length=128,
         ),
     }
