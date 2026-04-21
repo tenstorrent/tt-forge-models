@@ -30,6 +30,7 @@ class GraniteTTMConfig(ModelConfig):
 class ModelVariant(StrEnum):
     R1 = "r1"
     R2 = "r2"
+    TEST_V1 = "test_v1"
 
 
 class ModelLoader(ForgeModel):
@@ -47,6 +48,11 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.R2: GraniteTTMConfig(
             pretrained_model_name="ibm-granite/granite-timeseries-ttm-r2",
+            context_length=512,
+            prediction_length=96,
+        ),
+        ModelVariant.TEST_V1: GraniteTTMConfig(
+            pretrained_model_name="ibm-research/test-ttm-v1",
             context_length=512,
             prediction_length=96,
         ),
