@@ -6,6 +6,7 @@ Llama 3 Typhoon v1.5x 70B Instruct GGUF model loader implementation for causal l
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, LlamaConfig
+from transformers.utils.import_utils import PACKAGE_DISTRIBUTION_MAPPING
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +19,9 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+if "gguf" not in PACKAGE_DISTRIBUTION_MAPPING:
+    PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
 
 
 class ModelVariant(StrEnum):
