@@ -26,8 +26,8 @@ class ModelVariant(StrEnum):
     GLM_4_7_FLASH_CLAUDE_OPUS_DISTILL_V2_HERETIC_I1_GGUF = (
         "4_7_Flash_Claude_Opus_4_5_High_Reasoning_Distill_v2_heretic_i1_GGUF"
     )
-    GLM_4_7_FLASH_CLAUDE_OPUS_DISTILL_V2_HERETIC_GGUF = (
-        "4_7_Flash_Claude_Opus_4_5_High_Reasoning_Distill_v2_heretic_GGUF"
+    ZSJTIGER_GLM_4_7_FLASH_CLAUDE_OPUS_DISTILL_GGUF = (
+        "zsjTiger_4_7_Flash_Claude_Opus_4_5_High_Reasoning_Distill_GGUF"
     )
 
 
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/GLM-4.7-Flash-Claude-Opus-4.5-High-Reasoning-Distill-v2-heretic-i1-GGUF",
             max_length=128,
         ),
-        ModelVariant.GLM_4_7_FLASH_CLAUDE_OPUS_DISTILL_V2_HERETIC_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/GLM-4.7-Flash-Claude-Opus-4.5-High-Reasoning-Distill-v2-heretic-GGUF",
+        ModelVariant.ZSJTIGER_GLM_4_7_FLASH_CLAUDE_OPUS_DISTILL_GGUF: LLMModelConfig(
+            pretrained_model_name="zsjTiger/GLM-4.7-Flash-Claude-Opus-4.5-High-Reasoning-Distill-GGUF",
             max_length=128,
         ),
     }
@@ -49,7 +49,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.GLM_4_7_FLASH_CLAUDE_OPUS_DISTILL_V2_HERETIC_I1_GGUF: "GLM-4.7-Flash-Claude-Opus-4.5-High-Reasoning-Distill-v2-heretic.i1-Q4_K_M.gguf",
-        ModelVariant.GLM_4_7_FLASH_CLAUDE_OPUS_DISTILL_V2_HERETIC_GGUF: "GLM-4.7-Flash-Claude-Opus-4.5-High-Reasoning-Distill-v2-heretic.Q4_K_M.gguf",
+        ModelVariant.ZSJTIGER_GLM_4_7_FLASH_CLAUDE_OPUS_DISTILL_GGUF: "glm-4.7-flash-claude-4.5-opus.q4_k_m.gguf",
     }
 
     sample_text = "Give me a short introduction to large language model."
