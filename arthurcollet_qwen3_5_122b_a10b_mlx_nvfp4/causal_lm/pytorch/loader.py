@@ -1,42 +1,44 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-arthurcollet/Qwen3.5-122B-A10B-mlx-nvfp4 model loader implementation for causal language modeling.
+arthurcollet Qwen3.5-122B-A10B MLX nvfp4 model loader for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
 
 class ModelVariant(StrEnum):
-    """Available arthurcollet Qwen3.5-122B-A10B MLX NVFP4 model variants for causal language modeling."""
+    """Available arthurcollet Qwen3.5-122B-A10B MLX nvfp4 model variants."""
 
-    QWEN_3_5_122B_A10B_MLX_NVFP4 = "122B_A10B_MLX_NVFP4"
+    QWEN3_5_122B_A10B_MLX_NVFP4 = "Qwen3_5_122B_A10B_mlx_nvfp4"
 
 
 class ModelLoader(ForgeModel):
-    """arthurcollet Qwen3.5-122B-A10B MLX NVFP4 model loader implementation for causal language modeling tasks."""
+    """arthurcollet Qwen3.5-122B-A10B MLX nvfp4 model loader for causal language modeling."""
 
     _VARIANTS = {
-        ModelVariant.QWEN_3_5_122B_A10B_MLX_NVFP4: LLMModelConfig(
+        ModelVariant.QWEN3_5_122B_A10B_MLX_NVFP4: LLMModelConfig(
             pretrained_model_name="arthurcollet/Qwen3.5-122B-A10B-mlx-nvfp4",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.QWEN_3_5_122B_A10B_MLX_NVFP4
+    DEFAULT_VARIANT = ModelVariant.QWEN3_5_122B_A10B_MLX_NVFP4
 
     sample_text = "Give me a short introduction to large language models."
 
@@ -51,7 +53,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="arthurcollet Qwen3.5-122B-A10B MLX NVFP4",
+            model="arthurcollet Qwen3.5-122B-A10B MLX nvfp4",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -119,7 +121,6 @@ class ModelLoader(ForgeModel):
             messages,
             tokenize=False,
             add_generation_prompt=True,
-            enable_thinking=True,
         )
         prompts = [text]
 
@@ -144,7 +145,6 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            # MoE layers use fused expert weights (3D tensors)
             mlp = layer.mlp
             if hasattr(mlp, "experts"):
                 shard_specs[mlp.experts.gate_up_proj] = (None, "model", "batch")
@@ -153,13 +153,13 @@ class ModelLoader(ForgeModel):
                 shard_specs[mlp.shared_expert.up_proj.weight] = ("model", "batch")
                 shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
                 shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
-            # Layers have either self_attn (full attention) or linear_attn
             if hasattr(layer, "self_attn"):
                 shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
                 shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
                 shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
                 shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
+
         return shard_specs
 
     def load_config(self):
