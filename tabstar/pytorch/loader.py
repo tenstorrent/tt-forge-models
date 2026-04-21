@@ -7,6 +7,11 @@ TabSTAR model loader implementation for tabular classification.
 TabSTAR (Tabular model with Semantically Target-Aware Representations) is a
 foundation model for tabular data that uses a pretrained text encoder (e5-small-v2)
 combined with numerical fusion and interaction encoding layers.
+
+Supported variants:
+- TABSTAR: alana89/TabSTAR, the default released checkpoint.
+- PAPER_VERSION_FOLD_K4: alana89/TabSTAR-paper-version-fold-k4, the paper
+  reproduction checkpoint trained on cross-validation fold k=4.
 """
 import numpy as np
 import torch
@@ -30,6 +35,7 @@ class ModelVariant(StrEnum):
     """Available TabSTAR model variants."""
 
     TABSTAR = "alana89/TabSTAR"
+    PAPER_VERSION_FOLD_K4 = "alana89/TabSTAR-paper-version-fold-k4"
 
 
 class TabSTARWrapper(nn.Module):
@@ -92,6 +98,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TABSTAR: ModelConfig(
             pretrained_model_name="alana89/TabSTAR",
+        ),
+        ModelVariant.PAPER_VERSION_FOLD_K4: ModelConfig(
+            pretrained_model_name="alana89/TabSTAR-paper-version-fold-k4",
         ),
     }
 
