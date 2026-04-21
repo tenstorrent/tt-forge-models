@@ -2,12 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-AlbedoBase XL (openart-custom/AlbedoBase) model loader implementation.
+AlbedoBase XL model loader implementation.
 
-AlbedoBase XL is a Stable Diffusion XL text-to-image model by OpenArt.
+AlbedoBase XL is a Stable Diffusion XL text-to-image model family.
 
 Available variants:
 - ALBEDO_BASE_XL: openart-custom/AlbedoBase text-to-image generation
+- ALBEDO_BASE_2_XL: GraydientPlatformAPI/albedobase2-xl text-to-image generation
 """
 
 from typing import Optional
@@ -25,13 +26,11 @@ from ...config import (
 from .src.model_utils import load_pipe
 
 
-REPO_ID = "openart-custom/AlbedoBase"
-
-
 class ModelVariant(StrEnum):
     """Available AlbedoBase XL model variants."""
 
     ALBEDO_BASE_XL = "AlbedoBase_XL"
+    ALBEDO_BASE_2_XL = "AlbedoBase2_XL"
 
 
 class ModelLoader(ForgeModel):
@@ -39,7 +38,10 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.ALBEDO_BASE_XL: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name="openart-custom/AlbedoBase",
+        ),
+        ModelVariant.ALBEDO_BASE_2_XL: ModelConfig(
+            pretrained_model_name="GraydientPlatformAPI/albedobase2-xl",
         ),
     }
     DEFAULT_VARIANT = ModelVariant.ALBEDO_BASE_XL
