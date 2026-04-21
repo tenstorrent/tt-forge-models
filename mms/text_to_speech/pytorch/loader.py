@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available MMS TTS model variants."""
 
     BENGALI = "Bengali"
+    INDONESIAN = "Indonesian"
     KINYARWANDA = "Kinyarwanda"
     TELUGU = "Telugu"
 
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BENGALI: ModelConfig(
             pretrained_model_name="facebook/mms-tts-ben",
+        ),
+        ModelVariant.INDONESIAN: ModelConfig(
+            pretrained_model_name="facebook/mms-tts-ind",
         ),
         ModelVariant.KINYARWANDA: ModelConfig(
             pretrained_model_name="facebook/mms-tts-kin",
@@ -49,6 +53,7 @@ class ModelLoader(ForgeModel):
 
     _SAMPLE_TEXTS = {
         ModelVariant.BENGALI: "আমাদের সিস্টেম ব্যবহার করার জন্য স্বাগতম।",
+        ModelVariant.INDONESIAN: "Selamat datang di sistem text-to-speech kami.",
         ModelVariant.KINYARWANDA: "Muraho, murakaza neza mu gukoresha sisitemu yacu.",
         ModelVariant.TELUGU: "మా వ్యవస్థను ఉపయోగించినందుకు స్వాగతం.",
     }
