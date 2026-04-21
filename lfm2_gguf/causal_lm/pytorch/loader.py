@@ -105,6 +105,9 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     if result.get("config", {}).get("model_type") in ("lfm2_moe", "lfm2moe"):
         if not result["config"].get("layer_types"):
             result["config"]["layer_types"] = LFM2_MOE_LAYER_TYPES
+        kv = result["config"].get("num_key_value_heads")
+        if isinstance(kv, list):
+            result["config"]["num_key_value_heads"] = max(kv)
     return result
 
 
