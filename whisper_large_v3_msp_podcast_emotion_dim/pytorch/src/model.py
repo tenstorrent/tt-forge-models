@@ -12,7 +12,7 @@ import copy
 import torch
 import torch.nn as nn
 from huggingface_hub import PyTorchModelHubMixin
-from transformers import WhisperModel
+from transformers import WhisperConfig, WhisperModel
 
 
 class WhisperWrapper(
@@ -46,11 +46,13 @@ class WhisperWrapper(
         self.use_conv_output = use_conv_output
         self.predict_gender = predict_gender
 
+        whisper_config = WhisperConfig.from_pretrained("openai/whisper-large-v3")
+        whisper_config.max_source_positions = 750
         self.backbone_model = WhisperModel.from_pretrained(
             "openai/whisper-large-v3",
+            config=whisper_config,
             output_hidden_states=True,
             ignore_mismatched_sizes=True,
-            max_source_positions=750,
         )
         self.embed_positions = copy.deepcopy(
             self.backbone_model.encoder.embed_positions.weight
