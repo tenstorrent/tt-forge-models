@@ -32,14 +32,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.PADDLEOCR_VL_1_5_GGUF: LLMModelConfig(
-            pretrained_model_name="PaddlePaddle/PaddleOCR-VL-1.5-GGUF",
+            pretrained_model_name="PaddlePaddle/PaddleOCR-VL-1.5",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.PADDLEOCR_VL_1_5_GGUF
-
-    GGUF_FILE = "PaddleOCR-VL-1.5.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -59,7 +57,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
-        kwargs = {"trust_remote_code": True}
+        kwargs = {}
         if dtype_override is not None:
             kwargs["torch_dtype"] = dtype_override
 
@@ -75,11 +73,10 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -124,7 +121,5 @@ class ModelLoader(ForgeModel):
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name,
-            gguf_file=self.GGUF_FILE,
-            trust_remote_code=True,
         )
         return self.config
