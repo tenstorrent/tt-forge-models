@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
 
     TROCR_BASE_PRINTED = "trocr-base-printed"
     TROCR_BASE_STAGE1 = "trocr-base-stage1"
-    TROCR_SMALL_KOREAN = "trocr-small-korean"
+    TROCR_BASE_RU = "trocr-base-ru"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.TROCR_BASE_STAGE1: ModelConfig(
             pretrained_model_name="microsoft/trocr-base-stage1",
         ),
-        ModelVariant.TROCR_SMALL_KOREAN: ModelConfig(
-            pretrained_model_name="team-lucid/trocr-small-korean",
+        ModelVariant.TROCR_BASE_RU: ModelConfig(
+            pretrained_model_name="raxtemur/trocr-base-ru",
         ),
     }
 
