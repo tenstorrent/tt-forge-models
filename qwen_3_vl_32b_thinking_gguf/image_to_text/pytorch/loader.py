@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3 VL 32B Thinking GGUF model variants for image to text."""
 
     QWEN_3_VL_32B_THINKING_1M_GGUF = "32b_thinking_1m_gguf"
+    QWEN_3_VL_32B_THINKING_GGUF = "32b_thinking_gguf"
 
 
 class ModelLoader(ForgeModel):
@@ -37,11 +38,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/Qwen3-VL-32B-Thinking-1M-GGUF",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_VL_32B_THINKING_GGUF: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-VL-32B-Thinking-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_VL_32B_THINKING_1M_GGUF
 
-    GGUF_FILE = "Qwen3-VL-32B-Thinking-1M-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.QWEN_3_VL_32B_THINKING_1M_GGUF: "Qwen3-VL-32B-Thinking-1M-Q4_K_M.gguf",
+        ModelVariant.QWEN_3_VL_32B_THINKING_GGUF: "Qwen3VL-32B-Thinking-Q4_K_M.gguf",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -66,7 +74,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
