@@ -23,6 +23,9 @@ class ModelVariant(StrEnum):
     """Available voice detection model variants."""
 
     SHIVAM_2211_VOICE_DETECTION = "shivam_2211_voice_detection"
+    ABHISHTAGATYA_WAV2VEC2_BASE_960H_ITW_DEEPFAKE = (
+        "abhishtagatya_wav2vec2_base_960h_itw_deepfake"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -31,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SHIVAM_2211_VOICE_DETECTION: ModelConfig(
             pretrained_model_name="shivam-2211/voice-detection-model",
+        ),
+        ModelVariant.ABHISHTAGATYA_WAV2VEC2_BASE_960H_ITW_DEEPFAKE: ModelConfig(
+            pretrained_model_name="abhishtagatya/wav2vec2-base-960h-itw-deepfake",
         ),
     }
 
