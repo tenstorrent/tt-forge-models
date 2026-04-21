@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Stable Diffusion 2 model variants."""
 
     BASE = "Base"
+    MANOJB_BASE = "Manojb_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -33,7 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="sd2-community/stable-diffusion-2-base",
-        )
+        ),
+        ModelVariant.MANOJB_BASE: ModelConfig(
+            pretrained_model_name="Manojb/stable-diffusion-2-base",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BASE
