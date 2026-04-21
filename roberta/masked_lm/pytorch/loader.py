@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     XLM_BASE = "Xlm_Base"
     ROBERTA_BASE = "Roberta_Base"
     SECUREBERT = "SecureBERT"
+    ROBERTA_TINY = "Roberta_Tiny"
 
 
 class ModelLoader(ForgeModel):
@@ -41,6 +42,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.SECUREBERT: ModelConfig(
             pretrained_model_name="ehsanaghaei/SecureBERT",
+        ),
+        ModelVariant.ROBERTA_TINY: ModelConfig(
+            pretrained_model_name="arampacha/roberta-tiny",
         ),
     }
 
@@ -69,7 +73,11 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         group = ModelGroup.GENERALITY
-        if variant in (ModelVariant.ROBERTA_BASE, ModelVariant.SECUREBERT):
+        if variant in (
+            ModelVariant.ROBERTA_BASE,
+            ModelVariant.SECUREBERT,
+            ModelVariant.ROBERTA_TINY,
+        ):
             group = ModelGroup.VULCAN
         return ModelInfo(
             model="RoBERTa",
