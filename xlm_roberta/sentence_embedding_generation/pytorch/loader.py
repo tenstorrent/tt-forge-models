@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     MULTILINGUAL_E5_BASE = "intfloat/multilingual-e5-base"
     MULTILINGUAL_E5_LARGE_INSTRUCT = "intfloat/multilingual-e5-large-instruct"
     MULTILINGUAL_E5_SMALL_KO = "dragonkue/multilingual-e5-small-ko"
-    MULTILINGUAL_E5_SMALL_KO_V2 = "dragonkue/multilingual-e5-small-ko-v2"
+    SLOVLO_V1 = "rokn/slovlo-v1"
 
 
 class ModelLoader(ForgeModel):
@@ -53,8 +53,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="dragonkue/multilingual-e5-small-ko",
             max_length=512,
         ),
-        ModelVariant.MULTILINGUAL_E5_SMALL_KO_V2: LLMModelConfig(
-            pretrained_model_name="dragonkue/multilingual-e5-small-ko-v2",
+        ModelVariant.SLOVLO_V1: LLMModelConfig(
+            pretrained_model_name="rokn/slovlo-v1",
             max_length=512,
         ),
     }
@@ -117,6 +117,8 @@ class ModelLoader(ForgeModel):
                 ModelVariant.MULTILINGUAL_E5_SMALL_KO_V2,
             ):
                 sentence = "query: 오늘 날씨는 어떤가요?"
+            elif self._variant == ModelVariant.SLOVLO_V1:
+                sentence = "query: Kam na pohod iz glavnega mesta Slovenije?"
             else:
                 sentence = "query: How is the weather today?"
 
