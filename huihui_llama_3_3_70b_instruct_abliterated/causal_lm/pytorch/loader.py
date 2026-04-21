@@ -2,45 +2,45 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Llama 3.3 70B Instruct Abliterated model loader implementation for causal language modeling.
+huihui-ai/Llama-3.3-70B-Instruct-abliterated model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
 
 class ModelVariant(StrEnum):
-    """Available Llama 3.3 70B Instruct Abliterated model variants for causal language modeling."""
+    """Available huihui-ai/Llama-3.3-70B-Instruct-abliterated model variants."""
 
-    HUIHUI_LLAMA_3_3_70B_INSTRUCT_ABLITERATED = (
-        "Huihui_Llama_3.3_70B_Instruct_Abliterated"
-    )
+    LLAMA_3_3_70B_INSTRUCT_ABLITERATED = "3.3_70B_Instruct_abliterated"
 
 
 class ModelLoader(ForgeModel):
-    """Llama 3.3 70B Instruct Abliterated model loader implementation for causal language modeling tasks."""
+    """huihui-ai/Llama-3.3-70B-Instruct-abliterated model loader for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.HUIHUI_LLAMA_3_3_70B_INSTRUCT_ABLITERATED: LLMModelConfig(
+        ModelVariant.LLAMA_3_3_70B_INSTRUCT_ABLITERATED: LLMModelConfig(
             pretrained_model_name="huihui-ai/Llama-3.3-70B-Instruct-abliterated",
-            max_length=256,
+            max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.HUIHUI_LLAMA_3_3_70B_INSTRUCT_ABLITERATED
+    DEFAULT_VARIANT = ModelVariant.LLAMA_3_3_70B_INSTRUCT_ABLITERATED
 
-    sample_text = "My name is Thomas and my main"
+    sample_text = "What is the capital of France?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -69,6 +69,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -83,19 +84,11 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[
-                        : self.num_layers
-                    ]
-            else:
-                config.num_hidden_layers = self.num_layers
+            config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
@@ -112,8 +105,14 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
+        messages = [{"role": "user", "content": self.sample_text}]
+        text = self.tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        prompts = [text]
+
         inputs = self.tokenizer(
-            [self.sample_text],
+            prompts,
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -125,24 +124,6 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
-
-    def get_mesh_config(self, num_devices: int):
-        mesh_shape = (1, num_devices)
-        return mesh_shape, ("batch", "model")
-
-    def load_shard_spec(self, model):
-        shard_specs = {}
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
-        return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
