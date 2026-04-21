@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available SmolVLM2 model variants."""
 
     SMOLVLM2_256M_VIDEO_INSTRUCT_GGUF = "256M_Video_Instruct_GGUF"
+    SMOLVLM2_500M_VIDEO_INSTRUCT_MLX = "500M_Video_Instruct_MLX"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SMOLVLM2_256M_VIDEO_INSTRUCT_GGUF: ModelConfig(
             pretrained_model_name="HuggingFaceTB/SmolVLM2-256M-Video-Instruct",
+        ),
+        ModelVariant.SMOLVLM2_500M_VIDEO_INSTRUCT_MLX: ModelConfig(
+            pretrained_model_name="mlx-community/SmolVLM2-500M-Video-Instruct-mlx",
         ),
     }
 
