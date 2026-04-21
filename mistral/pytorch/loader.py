@@ -55,7 +55,7 @@ class ModelVariant(StrEnum):
     MISTRAL_7B_V03_UNSLOTH = "7B_v03_unsloth"
     MISTRAL_FT_OPTIMIZED_1227 = "ft_optimized_1227"
     MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED = "Small_Instruct_2409_abliterated"
-    BREEZE_7B_INSTRUCT_V1_0 = "Breeze_7B_Instruct_v1_0"
+    SYNTHIA_7B_V1_3 = "SynthIA_7B_v1_3"
 
 
 class ModelLoader(ForgeModel):
@@ -161,8 +161,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED: ModelConfig(
             pretrained_model_name="byroneverson/Mistral-Small-Instruct-2409-abliterated",
         ),
-        ModelVariant.BREEZE_7B_INSTRUCT_V1_0: ModelConfig(
-            pretrained_model_name="MediaTek-Research/Breeze-7B-Instruct-v1_0",
+        ModelVariant.SYNTHIA_7B_V1_3: ModelConfig(
+            pretrained_model_name="migtissera/SynthIA-7B-v1.3",
         ),
     }
 
@@ -204,7 +204,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_V03_UNSLOTH,
             ModelVariant.MISTRAL_FT_OPTIMIZED_1227,
             ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED,
-            ModelVariant.MAGISTRAL_SMALL_2506_AWQ,
+            ModelVariant.SYNTHIA_7B_V1_3,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
