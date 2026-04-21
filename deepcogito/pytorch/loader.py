@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available DeepCogito model variants."""
 
     V1_PREVIEW_LLAMA_3B = "v1_Preview_Llama_3B"
+    V1_PREVIEW_QWEN_14B = "v1_Preview_Qwen_14B"
     V1_PREVIEW_QWEN_32B = "v1_Preview_Qwen_32B"
 
 
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.V1_PREVIEW_LLAMA_3B: ModelConfig(
             pretrained_model_name="deepcogito/cogito-v1-preview-llama-3B",
+        ),
+        ModelVariant.V1_PREVIEW_QWEN_14B: ModelConfig(
+            pretrained_model_name="deepcogito/cogito-v1-preview-qwen-14B",
         ),
         ModelVariant.V1_PREVIEW_QWEN_32B: ModelConfig(
             pretrained_model_name="deepcogito/cogito-v1-preview-qwen-32B",
@@ -73,7 +77,10 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         group = ModelGroup.GENERALITY
-        if variant == ModelVariant.V1_PREVIEW_QWEN_32B:
+        if variant in (
+            ModelVariant.V1_PREVIEW_QWEN_14B,
+            ModelVariant.V1_PREVIEW_QWEN_32B,
+        ):
             group = ModelGroup.VULCAN
 
         return ModelInfo(
