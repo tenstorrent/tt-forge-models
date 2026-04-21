@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available W2v-BERT 2.0 model variants."""
 
     BASE = "Base"
+    TAIQIHE_TEST_W2V_BERT_DUMMY = "taiqihe/test-w2v-bert-dummy"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="facebook/w2v-bert-2.0",
+        ),
+        ModelVariant.TAIQIHE_TEST_W2V_BERT_DUMMY: ModelConfig(
+            pretrained_model_name="taiqihe/test-w2v-bert-dummy",
         ),
     }
 
