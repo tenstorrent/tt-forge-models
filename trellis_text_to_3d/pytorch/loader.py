@@ -122,11 +122,21 @@ class ModelLoader(ForgeModel):
         model = SparseStructureFlowModel(**args)
         state_dict = load_file(weights_path)
         model.load_state_dict(state_dict)
-        # Checkpoint weights are stored in reduced precision; cast to float32 to
-        # match float32 inputs unless the caller specifies a dtype.
-        model = model.to(
-            dtype_override if dtype_override is not None else torch.float32
-        )
+
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+            # TimestepEmbedder.timestep_embedding hardcodes .float() so t_freq is
+            # always float32.  Keep the mlp in float32 so it can accept that input;
+            # the forward() .type(self.dtype) cast then promotes t_emb before blocks.
+            model.t_embedder.mlp.to(torch.float32)
+            # Align the model's internal dtype flag so forward()'s .type(self.dtype)
+            # casts to the right dtype instead of the use_fp16=False default (float32).
+            model.dtype = dtype_override
+        else:
+            # Checkpoint weights may be reduced precision; cast to float32 to match
+            # float32 inputs and the model's use_fp16=False configuration.
+            model = model.to(torch.float32)
+
         model.eval()
         return model
 
