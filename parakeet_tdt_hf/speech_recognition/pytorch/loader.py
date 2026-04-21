@@ -61,6 +61,7 @@ class ModelLoader(ForgeModel):
 
         self._processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
         )
 
         return self._processor
@@ -74,7 +75,9 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         self.model = AutoModel.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+            **model_kwargs,
         )
         self.model.eval()
         if dtype_override is not None:
