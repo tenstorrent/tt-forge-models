@@ -29,24 +29,24 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Qwen Image Edit 2509 White Film to Rendering model variants."""
 
-    DEFAULT = "default"
+    WHITE_FILM_TO_RENDERING = "White_Film_To_Rendering"
 
 
 class ModelLoader(ForgeModel):
     """Qwen Image Edit 2509 White Film to Rendering LoRA model loader."""
 
     _VARIANTS = {
-        ModelVariant.DEFAULT: ModelConfig(
+        ModelVariant.WHITE_FILM_TO_RENDERING: ModelConfig(
             pretrained_model_name="dx8152/Qwen-Image-Edit-2509-White_film_to_rendering",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.DEFAULT
+    DEFAULT_VARIANT = ModelVariant.WHITE_FILM_TO_RENDERING
 
     _BASE_MODEL = "Qwen/Qwen-Image-Edit-2509"
 
     _LORA_WEIGHT_NAMES = {
-        ModelVariant.DEFAULT: "白膜转材质.safetensors",
+        ModelVariant.WHITE_FILM_TO_RENDERING: "白膜转材质.safetensors",
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
