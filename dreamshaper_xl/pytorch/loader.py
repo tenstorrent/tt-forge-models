@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available DreamShaper XL model variants."""
 
     DREAMSHAPER_XL_V21_TURBO = "v2.1-Turbo-DPM-SDE"
-    DREAMSHAPER_XL_1_0 = "1.0"
+    DREAMSHAPER_XL_TURBO = "turbo"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.DREAMSHAPER_XL_V21_TURBO: ModelConfig(
             pretrained_model_name="tonera/dreamshaperXL_v21TurboDPMSDE",
         ),
-        ModelVariant.DREAMSHAPER_XL_1_0: ModelConfig(
-            pretrained_model_name="fal-collab-models/dreamshaper-xl-1-0",
+        ModelVariant.DREAMSHAPER_XL_TURBO: ModelConfig(
+            pretrained_model_name="Lykon/dreamshaper-xl-turbo",
         ),
     }
 
