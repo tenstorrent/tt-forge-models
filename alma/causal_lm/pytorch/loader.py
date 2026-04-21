@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available ALMA model variants."""
 
     ALMA_13B_R = "Alma_13B_R"
-    X_ALMA_13B_PRETRAIN = "X_Alma_13B_Pretrain"
+    ALMA_13B = "Alma_13B"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="haoranxu/ALMA-13B-R",
             max_length=128,
         ),
-        ModelVariant.X_ALMA_13B_PRETRAIN: LLMModelConfig(
-            pretrained_model_name="haoranxu/X-ALMA-13B-Pretrain",
+        ModelVariant.ALMA_13B: LLMModelConfig(
+            pretrained_model_name="haoranxu/ALMA-13B",
             max_length=128,
         ),
     }
