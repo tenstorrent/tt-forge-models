@@ -55,7 +55,7 @@ class ModelVariant(StrEnum):
     DEVSTRAL_SMALL_2505_UNSLOTH_BNB_4BIT = "Devstral_Small_2505_unsloth_bnb_4bit"
     MISTRAL_FT_OPTIMIZED_1227 = "ft_optimized_1227"
     MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED = "Small_Instruct_2409_abliterated"
-    MISTRAL_NEMO_BASE_2407_4BIT = "Nemo_BASE_2407_4bit"
+    BREEZE_7B_INSTRUCT_V1_0 = "Breeze_7B_Instruct_v1_0"
 
 
 class ModelLoader(ForgeModel):
@@ -161,8 +161,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED: ModelConfig(
             pretrained_model_name="byroneverson/Mistral-Small-Instruct-2409-abliterated",
         ),
-        ModelVariant.MISTRAL_NEMO_BASE_2407_4BIT: ModelConfig(
-            pretrained_model_name="PowCal/Mistral-Nemo-Base-2407-4bit",
+        ModelVariant.BREEZE_7B_INSTRUCT_V1_0: ModelConfig(
+            pretrained_model_name="MediaTek-Research/Breeze-7B-Instruct-v1_0",
         ),
     }
 
@@ -205,7 +205,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.DEVSTRAL_SMALL_2505_UNSLOTH_BNB_4BIT,
             ModelVariant.MISTRAL_FT_OPTIMIZED_1227,
             ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED,
-            ModelVariant.MISTRAL_NEMO_BASE_2407_4BIT,
+            ModelVariant.BREEZE_7B_INSTRUCT_V1_0,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
