@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available Mistral Small 4 model variants."""
 
     MISTRAL_SMALL_4_119B_INSTRUCT = "mistralai/Mistral-Small-4-119B-2603"
+    MISTRAL_SMALL_4_119B_2603_MLX_4BIT = "mlx-community/Mistral-Small-4-119B-2603-4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -31,6 +32,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MISTRAL_SMALL_4_119B_INSTRUCT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.MISTRAL_SMALL_4_119B_INSTRUCT),
+        ),
+        ModelVariant.MISTRAL_SMALL_4_119B_2603_MLX_4BIT: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.MISTRAL_SMALL_4_119B_2603_MLX_4BIT),
         ),
     }
 
