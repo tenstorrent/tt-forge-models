@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available UL2 model variants."""
 
     UL2 = "UL2"
+    FLAN_UL2 = "flan-UL2"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.UL2: LLMModelConfig(
             pretrained_model_name="google/ul2",
             max_length=512,
+        ),
+        ModelVariant.FLAN_UL2: LLMModelConfig(
+            pretrained_model_name="google/flan-ul2",
+            max_length=2048,
         ),
     }
 
