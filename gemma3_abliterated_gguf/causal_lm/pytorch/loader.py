@@ -23,6 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Gemma 3 Abliterated GGUF model variants for causal language modeling."""
 
+    GEMMA_3_4B_IT_ABLITERATED_GGUF = "4B_IT_Abliterated_GGUF"
     GEMMA_3_27B_IT_ABLITERATED_GGUF = "27B_IT_Abliterated_GGUF"
 
 
@@ -30,6 +31,10 @@ class ModelLoader(ForgeModel):
     """Gemma 3 Abliterated GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
+        ModelVariant.GEMMA_3_4B_IT_ABLITERATED_GGUF: LLMModelConfig(
+            pretrained_model_name="mlabonne/gemma-3-4b-it-abliterated-GGUF",
+            max_length=128,
+        ),
         ModelVariant.GEMMA_3_27B_IT_ABLITERATED_GGUF: LLMModelConfig(
             pretrained_model_name="mlabonne/gemma-3-27b-it-abliterated-GGUF",
             max_length=128,
@@ -39,6 +44,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_27B_IT_ABLITERATED_GGUF
 
     _GGUF_FILES = {
+        ModelVariant.GEMMA_3_4B_IT_ABLITERATED_GGUF: "gemma-3-4b-it-abliterated.q4_k_m.gguf",
         ModelVariant.GEMMA_3_27B_IT_ABLITERATED_GGUF: "gemma-3-27b-it-abliterated.q4_k_m.gguf",
     }
 
