@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
 
     XLSR_EN = "XLSR_EN"
     RF_EN = "RF_EN"
-    XLSR_UR = "XLSR_UR"
+    WIAM_RAVDESS_V8 = "WIAM_RAVDESS_V8"
 
 
 class ModelLoader(ForgeModel):
@@ -38,8 +38,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.RF_EN: ModelConfig(
             pretrained_model_name="r-f/wav2vec-english-speech-emotion-recognition",
         ),
-        ModelVariant.XLSR_UR: ModelConfig(
-            pretrained_model_name="HowMannyMore/wav2vec2-lg-xlsr-ur-speech-emotion-recognition",
+        ModelVariant.WIAM_RAVDESS_V8: ModelConfig(
+            pretrained_model_name="Wiam/wav2vec2-lg-xlsr-en-speech-emotion-recognition-finetuned-ravdess-v8",
         ),
     }
 
