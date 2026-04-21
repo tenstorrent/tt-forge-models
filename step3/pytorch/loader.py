@@ -7,8 +7,33 @@ Step3 VL model loader implementation for multimodal conditional generation.
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from PIL import Image
 from typing import Optional
+
+
+def _compute_default_rope_parameters(config, device=None, **kwargs):
+    base = getattr(config, "rope_theta", 10000.0)
+    partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+    head_dim = (
+        getattr(config, "head_dim", None)
+        or config.hidden_size // config.num_attention_heads
+    )
+    dim = int(head_dim * partial_rotary_factor)
+    inv_freq = 1.0 / (
+        base
+        ** (
+            torch.arange(0, dim, 2, dtype=torch.int64).to(
+                device=device, dtype=torch.float
+            )
+            / dim
+        )
+    )
+    return inv_freq, 1.0
+
+
+if "default" not in ROPE_INIT_FUNCTIONS:
+    ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
 
 from ...base import ForgeModel
 from ...config import (
