@@ -80,9 +80,10 @@ class ModelLoader(ForgeModel):
             **kwargs,
         )
 
-        self.pipeline.load_lora_weights(
-            self._variant_config.pretrained_model_name,
-        )
+        if hasattr(self.pipeline, "load_lora_weights"):
+            self.pipeline.load_lora_weights(
+                self._variant_config.pretrained_model_name,
+            )
 
         return self.pipeline
 
