@@ -135,6 +135,9 @@ class ModelVariant(StrEnum):
     # Nos-PT variants
     LLAMA_CARVALHO_PT_GL = "Carvalho_PT_GL"
 
+    # OpenAssistant variants
+    OPENASSISTANT_SFT_7_LLAMA_30B = "OpenAssistant_SFT_7_30B"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -320,6 +323,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Nos-PT/Llama-Carvalho-PT-GL",
             max_length=128,
         ),
+        # OpenAssistant variants
+        ModelVariant.OPENASSISTANT_SFT_7_LLAMA_30B: LLMModelConfig(
+            pretrained_model_name="TheBloke/OpenAssistant-SFT-7-Llama-30B-HF",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -403,6 +411,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA,
             ModelVariant.LLAMA_CARVALHO_PT_GL,
+            ModelVariant.OPENASSISTANT_SFT_7_LLAMA_30B,
         ]:
             group = ModelGroup.VULCAN
         else:
