@@ -23,7 +23,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.utils import load_i2v_pipeline, load_i2v_inputs
+from .src.utils import load_i2v_pipeline, wan_i2v_preprocessing
 
 
 class ModelVariant(StrEnum):
@@ -67,30 +67,38 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ) -> Any:
-        """Load and return the WAMU I2V Lightning pipeline.
+        """Load and return the WAMU I2V Lightning transformer.
 
         Args:
             dtype_override: Optional torch dtype for the transformer weights.
                 Defaults to bfloat16. VAE and image encoder always use float32.
 
         Returns:
-            WanImageToVideoPipeline: The loaded pipeline.
+            torch.nn.Module: The WanTransformer3DModel from the pipeline.
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         self.pipeline = load_i2v_pipeline(
             self._variant_config.pretrained_model_name, dtype
         )
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> dict:
-        """Prepare inputs for image-to-video generation.
+    def load_inputs(self, dtype_override=None, **kwargs) -> dict:
+        """Prepare inputs for the WanTransformer3DModel forward pass.
 
         Args:
-            prompt: Text prompt for video generation. Uses default if not provided.
+            dtype_override: Optional torch.dtype to override input dtypes.
 
         Returns:
-            dict: Pipeline inputs including image, prompt, and generation parameters.
+            dict: Keyword arguments for the transformer forward method.
         """
-        return load_i2v_inputs(
-            prompt=prompt if prompt is not None else self.DEFAULT_PROMPT
-        )
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        inputs = wan_i2v_preprocessing(self.pipeline, self.DEFAULT_PROMPT)
+
+        if dtype_override is not None:
+            for key in inputs:
+                if inputs[key].is_floating_point():
+                    inputs[key] = inputs[key].to(dtype_override)
+
+        return inputs
