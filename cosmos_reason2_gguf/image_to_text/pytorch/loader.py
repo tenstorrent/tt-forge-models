@@ -26,22 +26,22 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Cosmos Reason2 GGUF model variants for image to text."""
 
-    COSMOS_REASON2_8B_GGUF = "8b_gguf"
+    COSMOS_REASON2_2B_GGUF = "2b_gguf"
 
 
 class ModelLoader(ForgeModel):
     """Cosmos Reason2 GGUF model loader implementation for image to text tasks."""
 
     _VARIANTS = {
-        ModelVariant.COSMOS_REASON2_8B_GGUF: LLMModelConfig(
-            pretrained_model_name="apolo13x/Cosmos-Reason2-8B-GGUF",
+        ModelVariant.COSMOS_REASON2_2B_GGUF: LLMModelConfig(
+            pretrained_model_name="apolo13x/Cosmos-Reason2-2B-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.COSMOS_REASON2_8B_GGUF
+    DEFAULT_VARIANT = ModelVariant.COSMOS_REASON2_2B_GGUF
 
-    GGUF_FILE = "Cosmos-Reason2-8B-Q4_K_M.gguf"
+    GGUF_FILE = "Cosmos-Reason2-2B-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("nvidia/Cosmos-Reason2-8B")
+        self.processor = AutoProcessor.from_pretrained("nvidia/Cosmos-Reason2-2B")
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
