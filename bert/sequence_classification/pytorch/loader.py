@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    YIYANGHKUST_FINBERT_FLS = "yiyanghkust_FinBERT_FLS"
+    MARMA_BERT_BASE_SWEDISH_CASED_SENTIMENT = "marma_Bert_Base_Swedish_Cased_Sentiment"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.YIYANGHKUST_FINBERT_FLS: LLMModelConfig(
-            pretrained_model_name="yiyanghkust/finbert-fls",
+        ModelVariant.MARMA_BERT_BASE_SWEDISH_CASED_SENTIMENT: LLMModelConfig(
+            pretrained_model_name="marma/bert-base-swedish-cased-sentiment",
             max_length=128,
         ),
     }
@@ -95,7 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.YIYANGHKUST_FINBERT_FLS: "We expect the age of our fleet to enhance availability and reliability due to reduced downtime for repairs.",
+        ModelVariant.MARMA_BERT_BASE_SWEDISH_CASED_SENTIMENT: "Det här är ju fantastiskt!",
     }
 
     def __init__(self, variant=None):
@@ -134,7 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.YIYANGHKUST_FINBERT_FLS,
+            ModelVariant.MARMA_BERT_BASE_SWEDISH_CASED_SENTIMENT,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
