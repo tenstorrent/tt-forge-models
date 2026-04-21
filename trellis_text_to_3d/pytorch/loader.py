@@ -122,11 +122,12 @@ class ModelLoader(ForgeModel):
         model = SparseStructureFlowModel(**args)
         state_dict = load_file(weights_path)
         model.load_state_dict(state_dict)
+        # Checkpoint weights are stored in reduced precision; cast to float32 to
+        # match float32 inputs unless the caller specifies a dtype.
+        model = model.to(
+            dtype_override if dtype_override is not None else torch.float32
+        )
         model.eval()
-
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
