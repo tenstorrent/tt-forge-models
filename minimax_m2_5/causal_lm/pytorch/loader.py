@@ -164,6 +164,11 @@ class ModelLoader(ForgeModel):
         if pretrained_model_name == "cyankiwi/MiniMax-M2.5-REAP-139B-A10B-AWQ-4bit":
             model_kwargs["device_map"] = "cpu"
 
+        # MXFP4 packed 4-bit weights have shapes that differ from the native
+        # MiniMax model definition, so allow size mismatches when loading.
+        if pretrained_model_name == "amd/MiniMax-M2.5-MXFP4":
+            model_kwargs["ignore_mismatched_sizes"] = True
+
         model_kwargs |= kwargs
 
         config = self._build_native_config()
