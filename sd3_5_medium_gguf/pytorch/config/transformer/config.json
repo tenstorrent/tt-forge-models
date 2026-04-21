@@ -3,7 +3,7 @@
   "_diffusers_version": "0.37.1",
   "attention_head_dim": 64,
   "caption_projection_dim": 1536,
-  "dual_attention_layers": [],
+  "dual_attention_layers": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
   "in_channels": 16,
   "joint_attention_dim": 4096,
   "num_attention_heads": 24,
