@@ -1,0 +1,2 @@
+kernels>=0.13.0
+triton>=3.0.0
