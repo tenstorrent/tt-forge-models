@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available RuDialoGPT3 model variants."""
 
     RUDIALOGPT3_MEDIUM = "Default"
-    RUDIALOGPT_MEDIUM_T_BANK_AI = "T_Bank_AI_Medium"
+    RUDIALOGPT_SMALL = "t-bank-ai/ruDialoGPT-small"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="DeepPavlov/rudialogpt3_medium_based_on_gpt2_v2",
             max_length=256,
         ),
-        ModelVariant.RUDIALOGPT_MEDIUM_T_BANK_AI: LLMModelConfig(
-            pretrained_model_name="t-bank-ai/ruDialoGPT-medium",
+        ModelVariant.RUDIALOGPT_SMALL: LLMModelConfig(
+            pretrained_model_name="t-bank-ai/ruDialoGPT-small",
             max_length=256,
         ),
     }
