@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-TOFU (Task of Fictitious Unlearning) fine-tuned Llama 2 model loader
+TOFU (Task of Fictitious Unlearning) fine-tuned Llama model loader
 for causal language modeling.
 """
 
@@ -24,17 +24,21 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available TOFU fine-tuned Llama 2 model variants."""
+    """Available TOFU fine-tuned Llama model variants."""
 
     TOFU_FT_LLAMA2_7B = "tofu_ft_llama2_7B"
+    TOFU_LLAMA_3_2_3B_INSTRUCT_RETAIN90 = "tofu_Llama_3.2_3B_Instruct_retain90"
 
 
 class ModelLoader(ForgeModel):
-    """TOFU fine-tuned Llama 2 model loader for causal language modeling tasks."""
+    """TOFU fine-tuned Llama model loader for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.TOFU_FT_LLAMA2_7B: ModelConfig(
             pretrained_model_name="locuslab/tofu_ft_llama2-7b",
+        ),
+        ModelVariant.TOFU_LLAMA_3_2_3B_INSTRUCT_RETAIN90: ModelConfig(
+            pretrained_model_name="open-unlearning/tofu_Llama-3.2-3B-Instruct_retain90",
         ),
     }
 
@@ -54,7 +58,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="TOFU_Llama2",
+            model="TOFU",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
