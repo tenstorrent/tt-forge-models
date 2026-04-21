@@ -5,8 +5,8 @@
 """
 Wan 2.1 VACE 14B GGUF model loader implementation.
 
-Loads GGUF-quantized Wan 2.1 VACE transformers from
-QuantStack/Wan2.1_14B_VACE-GGUF and builds a WanVACEPipeline.
+Loads GGUF-quantized Wan 2.1 VACE transformers from the QuantStack
+VACE GGUF repositories and builds a WanVACEPipeline.
 
 The Wan 2.1 VACE (Video All-in-one Creation Engine) model supports
 versatile video creation and editing tasks including reference-to-video
@@ -16,6 +16,8 @@ usage.
 Available variants:
 - WAN21_VACE_Q4_K_M: Q4_K_M quantization
 - WAN21_VACE_Q8_0: Q8_0 quantization
+- WAN21_FUSIONX_VACE_Q4_K_M: FusionX fine-tune, Q4_K_M quantization
+- WAN21_FUSIONX_VACE_Q8_0: FusionX fine-tune, Q8_0 quantization
 """
 
 from typing import Any, Optional
@@ -34,7 +36,8 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_REPO = "QuantStack/Wan2.1_14B_VACE-GGUF"
+VACE_GGUF_REPO = "QuantStack/Wan2.1_14B_VACE-GGUF"
+FUSIONX_VACE_GGUF_REPO = "QuantStack/Wan2.1_T2V_14B_FusionX_VACE-GGUF"
 BASE_PIPELINE = "Wan-AI/Wan2.1-VACE-14B-diffusers"
 
 
@@ -43,11 +46,22 @@ class ModelVariant(StrEnum):
 
     WAN21_VACE_Q4_K_M = "2.1_VACE_Q4_K_M"
     WAN21_VACE_Q8_0 = "2.1_VACE_Q8_0"
+    WAN21_FUSIONX_VACE_Q4_K_M = "2.1_FusionX_VACE_Q4_K_M"
+    WAN21_FUSIONX_VACE_Q8_0 = "2.1_FusionX_VACE_Q8_0"
 
 
 _GGUF_FILES = {
     ModelVariant.WAN21_VACE_Q4_K_M: "Wan2.1_14B_VACE-Q4_K_M.gguf",
     ModelVariant.WAN21_VACE_Q8_0: "Wan2.1_14B_VACE-Q8_0.gguf",
+    ModelVariant.WAN21_FUSIONX_VACE_Q4_K_M: "Wan2.1_T2V_14B_FusionX_VACE-Q4_K_M.gguf",
+    ModelVariant.WAN21_FUSIONX_VACE_Q8_0: "Wan2.1_T2V_14B_FusionX_VACE-Q8_0.gguf",
+}
+
+_GGUF_REPOS = {
+    ModelVariant.WAN21_VACE_Q4_K_M: VACE_GGUF_REPO,
+    ModelVariant.WAN21_VACE_Q8_0: VACE_GGUF_REPO,
+    ModelVariant.WAN21_FUSIONX_VACE_Q4_K_M: FUSIONX_VACE_GGUF_REPO,
+    ModelVariant.WAN21_FUSIONX_VACE_Q8_0: FUSIONX_VACE_GGUF_REPO,
 }
 
 
@@ -56,10 +70,16 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.WAN21_VACE_Q4_K_M: ModelConfig(
-            pretrained_model_name=GGUF_REPO,
+            pretrained_model_name=VACE_GGUF_REPO,
         ),
         ModelVariant.WAN21_VACE_Q8_0: ModelConfig(
-            pretrained_model_name=GGUF_REPO,
+            pretrained_model_name=VACE_GGUF_REPO,
+        ),
+        ModelVariant.WAN21_FUSIONX_VACE_Q4_K_M: ModelConfig(
+            pretrained_model_name=FUSIONX_VACE_GGUF_REPO,
+        ),
+        ModelVariant.WAN21_FUSIONX_VACE_Q8_0: ModelConfig(
+            pretrained_model_name=FUSIONX_VACE_GGUF_REPO,
         ),
     }
     DEFAULT_VARIANT = ModelVariant.WAN21_VACE_Q4_K_M
@@ -103,10 +123,11 @@ class ModelLoader(ForgeModel):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
+        gguf_repo = _GGUF_REPOS[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+            f"https://huggingface.co/{gguf_repo}/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
