@@ -6,31 +6,50 @@ Helper functions for loading GGUF-quantized SDXL models.
 """
 
 import torch
-from diffusers import DiffusionPipeline, GGUFQuantizationConfig
+from diffusers import StableDiffusionXLPipeline, UNet2DConditionModel
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
+from gguf import GGUFReader, dequantize, GGMLQuantizationType
 from huggingface_hub import hf_hub_download
 from typing import Optional, Tuple
 
+SDXL_BASE_REPO = "stabilityai/stable-diffusion-xl-base-1.0"
+
+
+def _load_gguf_as_state_dict(gguf_path, model_state_dict):
+    reader = GGUFReader(gguf_path)
+    state_dict = {}
+    for tensor in reader.tensors:
+        data = tensor.data
+        if tensor.tensor_type not in (
+            GGMLQuantizationType.F32,
+            GGMLQuantizationType.F16,
+        ):
+            data = dequantize(data, tensor.tensor_type)
+        weights = torch.from_numpy(data.copy()).float()
+        if tensor.name in model_state_dict:
+            expected_shape = model_state_dict[tensor.name].shape
+            weights = weights.reshape(expected_shape)
+        state_dict[tensor.name] = weights
+    return state_dict
+
 
 def load_sdxl_gguf_pipe(repo_id: str, gguf_filename: str):
-    """Load a Stable Diffusion XL pipeline from a GGUF checkpoint.
-
-    Args:
-        repo_id: HuggingFace repository ID.
-        gguf_filename: Filename of the GGUF checkpoint within the repo.
-
-    Returns:
-        DiffusionPipeline: Loaded pipeline with components set to eval mode.
-    """
     model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
 
-    quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
+    unet = UNet2DConditionModel.from_pretrained(
+        SDXL_BASE_REPO,
+        subfolder="unet",
+        torch_dtype=torch.float32,
+    )
 
-    pipe = DiffusionPipeline.from_single_file(
-        model_path,
-        quantization_config=quantization_config,
+    gguf_state_dict = _load_gguf_as_state_dict(model_path, unet.state_dict())
+    unet.load_state_dict(gguf_state_dict, strict=False)
+
+    pipe = StableDiffusionXLPipeline.from_pretrained(
+        SDXL_BASE_REPO,
+        unet=unet,
         torch_dtype=torch.float32,
     )
 
