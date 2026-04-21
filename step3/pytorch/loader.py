@@ -6,7 +6,7 @@ Step3 VL model loader implementation for multimodal conditional generation.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 from PIL import Image
 from typing import Optional
 
@@ -74,7 +74,18 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if "pad_token_id" not in config.__dict__:
+            config.pad_token_id = config.__dict__.get("eos_token_id", 0)
+        if (
+            hasattr(config, "text_config")
+            and "pad_token_id" not in config.text_config.__dict__
+        ):
+            config.text_config.pad_token_id = config.pad_token_id
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
