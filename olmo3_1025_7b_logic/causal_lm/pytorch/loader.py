@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.Olmo_3_1025_7B_Logic: LLMModelConfig(
-            pretrained_model_name="flaitenberger/Olmo-3-1025-7B-logic-3e-5-100s-16ep-final",
+            pretrained_model_name="allenai/Olmo-3-1025-7B",
             max_length=256,
         ),
     }
