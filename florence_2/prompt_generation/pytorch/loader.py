@@ -9,8 +9,14 @@ import sys
 
 import torch
 from transformers import AutoConfig, AutoProcessor, AutoModelForCausalLM
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from typing import Optional
 from PIL import Image
+
+if not hasattr(PreTrainedTokenizerBase, "additional_special_tokens"):
+    PreTrainedTokenizerBase.additional_special_tokens = property(
+        lambda self: getattr(self, "_additional_special_tokens", [])
+    )
 
 from ....base import ForgeModel
 from ....config import (
@@ -61,6 +67,7 @@ class ModelLoader(ForgeModel):
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
+            use_fast=False,
         )
         return self.processor
 
@@ -90,6 +97,10 @@ class ModelLoader(ForgeModel):
             )
 
         config.tie_word_embeddings = False
+        config._attn_implementation_internal = "eager"
+        if hasattr(config, "text_config"):
+            config.text_config.tie_word_embeddings = False
+            config.text_config._attn_implementation_internal = "eager"
 
         model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
