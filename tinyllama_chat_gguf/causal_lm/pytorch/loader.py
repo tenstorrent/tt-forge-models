@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available TinyLlama Chat GGUF model variants for causal language modeling."""
 
     TINYLLAMA_1_1B_CHAT_V0_3_Q4_K_M = "1.1B_Chat_v0.3_Q4_K_M"
+    HIEUPT_TINYLLAMA_1_1B_CHAT_V1_0_Q4_K_M = "hieupt_1.1B_Chat_v1.0_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +35,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="TheBloke/TinyLlama-1.1B-Chat-v0.3-GGUF",
             max_length=128,
         ),
+        ModelVariant.HIEUPT_TINYLLAMA_1_1B_CHAT_V1_0_Q4_K_M: LLMModelConfig(
+            pretrained_model_name="hieupt/TinyLlama-1.1B-Chat-v1.0-Q4_K_M-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.TINYLLAMA_1_1B_CHAT_V0_3_Q4_K_M
 
-    GGUF_FILE = "tinyllama-1.1b-chat-v0.3.Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.TINYLLAMA_1_1B_CHAT_V0_3_Q4_K_M: "tinyllama-1.1b-chat-v0.3.Q4_K_M.gguf",
+        ModelVariant.HIEUPT_TINYLLAMA_1_1B_CHAT_V1_0_Q4_K_M: "tinyllama-1.1b-chat-v1.0-q4_k_m.gguf",
+    }
 
     sample_text = "What is your favorite city?"
 
@@ -65,7 +73,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +93,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self._GGUF_FILES[self._variant]
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -137,6 +145,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name,
+            gguf_file=self._GGUF_FILES[self._variant],
         )
         return self.config
