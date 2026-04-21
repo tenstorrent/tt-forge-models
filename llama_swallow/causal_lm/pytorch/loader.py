@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     LLAMA_3_1_SWALLOW_8B_V0_5 = "3.1_Swallow_8B_v0.5"
     LLAMA_3_1_SWALLOW_8B_INSTRUCT_V0_5 = "3.1_Swallow_8B_Instruct_v0.5"
     LLAMA_3_1_SWALLOW_70B_INSTRUCT_V0_3 = "3.1_Swallow_70B_Instruct_v0.3"
+    LLAMA_3_3_SWALLOW_70B_V0_4 = "3.3_Swallow_70B_v0.4"
 
 
 class ModelLoader(ForgeModel):
@@ -42,6 +43,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LLAMA_3_1_SWALLOW_70B_INSTRUCT_V0_3: LLMModelConfig(
             pretrained_model_name="tokyotech-llm/Llama-3.1-Swallow-70B-Instruct-v0.3",
+            max_length=256,
+        ),
+        ModelVariant.LLAMA_3_3_SWALLOW_70B_V0_4: LLMModelConfig(
+            pretrained_model_name="tokyotech-llm/Llama-3.3-Swallow-70B-v0.4",
             max_length=256,
         ),
     }
@@ -116,7 +121,10 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        if self._variant == ModelVariant.LLAMA_3_1_SWALLOW_8B_V0_5:
+        if self._variant in (
+            ModelVariant.LLAMA_3_1_SWALLOW_8B_V0_5,
+            ModelVariant.LLAMA_3_3_SWALLOW_70B_V0_4,
+        ):
             inputs = self.tokenizer(
                 self.sample_text,
                 return_tensors="pt",
