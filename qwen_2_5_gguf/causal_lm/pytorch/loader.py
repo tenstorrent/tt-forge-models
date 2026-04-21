@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     QUANTFACTORY_QWEN_2_5_7B_INSTRUCT_ABLITERATED_V2_GGUF = (
         "QuantFactory_7B_Instruct_abliterated_v2_GGUF"
     )
-    JACKFROST_R3GE_QUEN_2_5_7B_GGUF = "Jackfrost_R3GE_Quen_2_5_7B_GGUF"
+    QUANTFACTORY_QWEN_2_5_0_5B_INSTRUCT_GGUF = "QuantFactory_0.5B_Instruct_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -61,8 +61,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="QuantFactory/Qwen2.5-7B-Instruct-abliterated-v2-GGUF",
             max_length=128,
         ),
-        ModelVariant.JACKFROST_R3GE_QUEN_2_5_7B_GGUF: LLMModelConfig(
-            pretrained_model_name="JackFRost0703/R3GE_Quen2.5_7B",
+        ModelVariant.QUANTFACTORY_QWEN_2_5_0_5B_INSTRUCT_GGUF: LLMModelConfig(
+            pretrained_model_name="QuantFactory/Qwen2.5-0.5B-Instruct-GGUF",
             max_length=128,
         ),
     }
@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.BARTOWSKI_QWEN_2_5_7B_INSTRUCT_1M_GGUF: "Qwen2.5-7B-Instruct-1M-Q4_K_M.gguf",
         ModelVariant.LMSTUDIO_QWEN_2_5_7B_INSTRUCT_1M_GGUF: "Qwen2.5-7B-Instruct-1M-Q4_K_M.gguf",
         ModelVariant.QUANTFACTORY_QWEN_2_5_7B_INSTRUCT_ABLITERATED_V2_GGUF: "Qwen2.5-7B-Instruct-abliterated-v2.Q4_K_M.gguf",
-        ModelVariant.JACKFROST_R3GE_QUEN_2_5_7B_GGUF: "unsloth.Q4_K_M.gguf",
+        ModelVariant.QUANTFACTORY_QWEN_2_5_0_5B_INSTRUCT_GGUF: "Qwen2.5-0.5B-Instruct.Q4_K_M.gguf",
     }
 
     sample_text = "What is your favorite city?"
