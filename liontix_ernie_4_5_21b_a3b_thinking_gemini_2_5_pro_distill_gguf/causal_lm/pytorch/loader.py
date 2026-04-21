@@ -65,8 +65,12 @@ def _patch_transformers_ernie4_5_moe_gguf():
             GGUFQwen2Converter,
         )
 
-        if "ernie4_5-moe" not in GGUF_TO_FAST_CONVERTERS:
-            GGUF_TO_FAST_CONVERTERS["ernie4_5-moe"] = GGUFQwen2Converter
+        # Register both dash and underscore forms: the GGUF metadata uses the
+        # dash form ("ernie4_5-moe") but after model_type remapping the tokenizer
+        # lookup uses the underscore form ("ernie4_5_moe").
+        for _arch_key in ("ernie4_5-moe", "ernie4_5_moe"):
+            if _arch_key not in GGUF_TO_FAST_CONVERTERS:
+                GGUF_TO_FAST_CONVERTERS[_arch_key] = GGUFQwen2Converter
     except (ImportError, AttributeError):
         pass
 
