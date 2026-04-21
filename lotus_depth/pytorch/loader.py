@@ -102,8 +102,14 @@ class ModelLoader(ForgeModel):
             batch_size, in_channels, sample_size, sample_size, dtype=dtype
         )
         timestep = torch.tensor([999], dtype=dtype)
+        class_labels = torch.zeros(batch_size, 4, dtype=dtype)
 
-        return [latent_sample, timestep, encoder_hidden_states]
+        return {
+            "sample": latent_sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+            "class_labels": class_labels,
+        }
 
     def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
         if isinstance(fwd_output, tuple):
