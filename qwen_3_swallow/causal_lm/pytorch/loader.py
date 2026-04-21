@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available Qwen3 Swallow model variants for causal language modeling."""
 
     QWEN3_SWALLOW_8B_CPT_V0_2 = "8B_CPT_v0_2"
+    QWEN3_SWALLOW_32B_RL_V0_2_AWQ_INT4 = "32B_RL_v0_2_AWQ_INT4"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN3_SWALLOW_8B_CPT_V0_2: LLMModelConfig(
             pretrained_model_name="tokyotech-llm/Qwen3-Swallow-8B-CPT-v0.2",
+            max_length=128,
+        ),
+        ModelVariant.QWEN3_SWALLOW_32B_RL_V0_2_AWQ_INT4: LLMModelConfig(
+            pretrained_model_name="tokyotech-llm/Qwen3-Swallow-32B-RL-v0.2-AWQ-INT4",
             max_length=128,
         ),
     }
