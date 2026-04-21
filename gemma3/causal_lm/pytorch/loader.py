@@ -168,8 +168,6 @@ class ModelLoader(ForgeModel):
             model_kwargs["device_map"] = "cpu"
         elif self._variant == ModelVariant.GEMMA_3_4B_IT_BNB_4BIT:
             model_kwargs["device_map"] = "cpu"
-        elif self._variant == ModelVariant.GEMMA_3_27B_IT_SLM_FP8:
-            model_kwargs["device_map"] = "cpu"
         else:
             model_kwargs["use_cache"] = False
         if dtype_override is not None:
@@ -208,8 +206,6 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_3_270M,
             ModelVariant.GEMMA_3_1B_PT,
             ModelVariant.GEMMA_3_1B_PT_UNSLOTH,
-            ModelVariant.GEMMA_3_34M,
-            ModelVariant.TESTING_GEMMA3,
         ):
             inputs = self.tokenizer(
                 prompt or self.sample_text,
@@ -254,11 +250,7 @@ class ModelLoader(ForgeModel):
 
     def load_shard_spec(self, model):
         """Load the sharding specification for tensor parallel execution."""
-        if self._variant not in (
-            ModelVariant.GEMMA_3_12B_IT_ABLITERATED,
-            ModelVariant.GEMMA_3_27B_IT,
-            ModelVariant.GEMMA_3_27B_IT_SLM_FP8,
-        ):
+        if self._variant != ModelVariant.GEMMA_3_27B_IT:
             return None
 
         shard_specs = {}
