@@ -23,8 +23,7 @@ class ModelVariant(StrEnum):
     """Available GPT-2 causal LM model variants."""
 
     TINY_RANDOM = "tiny-random"
-    CRUMB_GPT2023 = "crumb-gpt2023"
-    HUGGINGTWEETS_JERMA985 = "huggingtweets-jerma985"
+    MEGATRON_GPT_2_345M_EVOLINSTRUCT = "megatron-gpt-2-345m-evolinstruct"
 
 
 class ModelLoader(ForgeModel):
@@ -36,12 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="peft-internal-testing/tiny-random-GPT2LMHeadModel",
             max_length=256,
         ),
-        ModelVariant.CRUMB_GPT2023: LLMModelConfig(
-            pretrained_model_name="crumb/gpt2023",
-            max_length=256,
-        ),
-        ModelVariant.HUGGINGTWEETS_JERMA985: LLMModelConfig(
-            pretrained_model_name="huggingtweets/jerma985",
+        ModelVariant.MEGATRON_GPT_2_345M_EVOLINSTRUCT: LLMModelConfig(
+            pretrained_model_name="KnutJaegersberg/megatron-GPT-2-345m-EvolInstruct",
             max_length=256,
         ),
     }
