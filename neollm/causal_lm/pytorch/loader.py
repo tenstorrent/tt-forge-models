@@ -6,7 +6,10 @@ KitsuVp/NeoLLM model loader implementation for causal language modeling.
 """
 from typing import Optional
 
+import sys
+
 import torch
+from huggingface_hub import snapshot_download
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -108,6 +111,14 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The NeoLLM model instance for causal language modeling.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        # transformers 5.x check_imports runs before model files are on sys.path,
+        # so configuration_neollm (a sibling file in the repo) can't be found as a
+        # package.  Pre-download the snapshot and add it to sys.path so the import
+        # resolves correctly.
+        snapshot_dir = snapshot_download(pretrained_model_name)
+        if snapshot_dir not in sys.path:
+            sys.path.insert(0, snapshot_dir)
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
