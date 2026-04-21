@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Reranker BERT-Tiny model variants for passage ranking."""
 
     RERANKER_BERT_TINY_GOOAQ_BCE_TANH_V3 = "reranker-bert-tiny-gooaq-bce-tanh-v3"
-    RERANKER_BERT_TINY_GOOAQ_BCE_TANH_V4 = "reranker-bert-tiny-gooaq-bce-tanh-v4"
+    RERANKER_BERT_TINY_GOOAQ_BCE_V6 = "reranker-bert-tiny-gooaq-bce-v6"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.RERANKER_BERT_TINY_GOOAQ_BCE_TANH_V3: ModelConfig(
             pretrained_model_name="cross-encoder-testing/reranker-bert-tiny-gooaq-bce-tanh-v3",
         ),
-        ModelVariant.RERANKER_BERT_TINY_GOOAQ_BCE_TANH_V4: ModelConfig(
-            pretrained_model_name="cross-encoder-testing/reranker-bert-tiny-gooaq-bce-tanh-v4",
+        ModelVariant.RERANKER_BERT_TINY_GOOAQ_BCE_V6: ModelConfig(
+            pretrained_model_name="cross-encoder-testing/reranker-bert-tiny-gooaq-bce-v6",
         ),
     }
 
