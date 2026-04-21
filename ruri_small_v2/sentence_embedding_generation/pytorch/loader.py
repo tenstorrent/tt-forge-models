@@ -58,7 +58,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
+        tokenizer_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
