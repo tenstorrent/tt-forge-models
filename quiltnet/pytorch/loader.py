@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available QuiltNet model variants."""
 
     VIT_BASE_PATCH16 = "ViT_Base_Patch16"
+    VIT_BASE_PATCH16_PMB = "ViT_Base_Patch16_PMB"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.VIT_BASE_PATCH16: ModelConfig(
             pretrained_model_name="hf-hub:wisdomik/QuiltNet-B-16",
+        ),
+        ModelVariant.VIT_BASE_PATCH16_PMB: ModelConfig(
+            pretrained_model_name="hf-hub:wisdomik/QuiltNet-B-16-PMB",
         ),
     }
 
