@@ -4,6 +4,7 @@
 """
 BGE Reranker model loader implementation for passage ranking.
 """
+
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from typing import Optional
@@ -25,6 +26,9 @@ class ModelVariant(StrEnum):
 
     BASE = "base"
     LARGE = "large"
+    ONZI_SUBA_BGE_RERANKER_BASE_V1 = (
+        "onzi-suba/BAAI_bge-reranker-base_V1___2024-09-11_22-23-59"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +40,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE: ModelConfig(
             pretrained_model_name="BAAI/bge-reranker-large",
+        ),
+        ModelVariant.ONZI_SUBA_BGE_RERANKER_BASE_V1: ModelConfig(
+            pretrained_model_name="onzi-suba/BAAI_bge-reranker-base_V1___2024-09-11_22-23-59",
         ),
     }
 
