@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available LaMini-Flan-T5 model variants."""
 
     LAMINI_FLAN_T5_77M = "LaMini_Flan_T5_77M"
+    LAMINI_FLAN_T5_248M = "LaMini_Flan_T5_248M"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LAMINI_FLAN_T5_77M: LLMModelConfig(
             pretrained_model_name="MBZUAI/LaMini-Flan-T5-77M",
+            max_length=512,
+        ),
+        ModelVariant.LAMINI_FLAN_T5_248M: LLMModelConfig(
+            pretrained_model_name="MBZUAI/LaMini-Flan-T5-248M",
             max_length=512,
         ),
     }
