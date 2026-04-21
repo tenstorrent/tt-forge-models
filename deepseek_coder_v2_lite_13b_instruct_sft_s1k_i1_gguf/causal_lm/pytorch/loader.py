@@ -10,6 +10,25 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
 from ....base import ForgeModel
+
+
+def _patch_deepseek_v2_gguf_tokenizer():
+    """Add deepseek_v2 to GGUF_TO_FAST_CONVERTERS if not present.
+
+    The glm_4_7_flash_gguf loader converts model_type from 'deepseek2' to
+    'deepseek_v2' in load_gguf_checkpoint, but GGUF_TO_FAST_CONVERTERS only
+    has 'deepseek2'. DeepSeek-V2 uses a BPE tokenizer compatible with Qwen2.
+    """
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+
+_patch_deepseek_v2_gguf_tokenizer()
 from ....config import (
     LLMModelConfig,
     ModelInfo,
