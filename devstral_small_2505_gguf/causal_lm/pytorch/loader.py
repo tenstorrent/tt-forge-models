@@ -2,45 +2,43 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-bartowski Devstral-Small-2505 GGUF model loader for causal language modeling.
+Devstral Small 2505 GGUF model loader implementation for causal language modeling.
 """
-
-from typing import Optional
-
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
-    Framework,
     LLMModelConfig,
-    ModelGroup,
     ModelInfo,
-    ModelSource,
+    ModelGroup,
     ModelTask,
+    ModelSource,
+    Framework,
     StrEnum,
 )
 
 
 class ModelVariant(StrEnum):
-    """Available Devstral-Small-2505 GGUF model variants."""
+    """Available Devstral Small 2505 GGUF model variants for causal language modeling."""
 
-    DEVSTRAL_SMALL_2505_Q4_K_M_GGUF = "Devstral-Small-2505-Q4_K_M-GGUF"
+    DEVSTRAL_SMALL_2505_GGUF = "Devstral_Small_2505_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """bartowski Devstral-Small-2505 GGUF model loader for causal language modeling."""
+    """Devstral Small 2505 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.DEVSTRAL_SMALL_2505_Q4_K_M_GGUF: LLMModelConfig(
-            pretrained_model_name="bartowski/mistralai_Devstral-Small-2505-GGUF",
+        ModelVariant.DEVSTRAL_SMALL_2505_GGUF: LLMModelConfig(
+            pretrained_model_name="lmstudio-community/Devstral-Small-2505-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.DEVSTRAL_SMALL_2505_Q4_K_M_GGUF
+    DEFAULT_VARIANT = ModelVariant.DEVSTRAL_SMALL_2505_GGUF
 
-    GGUF_FILE = "mistralai_Devstral-Small-2505-Q4_K_M.gguf"
+    GGUF_FILE = "Devstral-Small-2505-Q4_K_M.gguf"
 
     sample_text = "Write a Python function that checks if a number is prime."
 
@@ -55,7 +53,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="bartowski Devstral-Small-2505 GGUF",
+            model="Devstral Small 2505 GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
