@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Anubis Mini 8B v1 Heretic i1 GGUF model loader implementation for causal language modeling.
+Anubis-Mini-8B-v1-heretic i1 GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,28 +21,26 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Anubis Mini 8B v1 Heretic i1 GGUF model variants for causal language modeling."""
+    """Available Anubis-Mini-8B-v1-heretic i1 GGUF model variants for causal language modeling."""
 
-    ANUBIS_MINI_8B_V1_HERETIC_I1_Q4_K_M_GGUF = (
-        "ANUBIS_MINI_8B_V1_HERETIC_I1_Q4_K_M_GGUF"
-    )
+    ANUBIS_MINI_8B_V1_HERETIC_I1_Q4_K_M = "Anubis_Mini_8B_v1_heretic_i1_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
-    """Anubis Mini 8B v1 Heretic i1 GGUF model loader implementation for causal language modeling tasks."""
+    """Anubis-Mini-8B-v1-heretic i1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.ANUBIS_MINI_8B_V1_HERETIC_I1_Q4_K_M_GGUF: LLMModelConfig(
+        ModelVariant.ANUBIS_MINI_8B_V1_HERETIC_I1_Q4_K_M: LLMModelConfig(
             pretrained_model_name="mradermacher/Anubis-Mini-8B-v1-heretic-i1-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.ANUBIS_MINI_8B_V1_HERETIC_I1_Q4_K_M_GGUF
+    DEFAULT_VARIANT = ModelVariant.ANUBIS_MINI_8B_V1_HERETIC_I1_Q4_K_M
 
     GGUF_FILE = "Anubis-Mini-8B-v1-heretic.i1-Q4_K_M.gguf"
 
-    sample_text = "What is your favorite city?"
+    sample_text = "Give me a short introduction to large language model."
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -55,7 +53,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Anubis Mini 8B v1 Heretic i1 GGUF",
+            model="Anubis-Mini-8B-v1-heretic i1 GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
