@@ -5,11 +5,13 @@
 mradermacher Sayo Qwen 8B GGUF model loader implementation for image to text.
 """
 
-from transformers import (
-    Qwen3VLForConditionalGeneration,
-    AutoProcessor,
-)
+import importlib.metadata
 from typing import Optional
+
+from transformers import (
+    AutoProcessor,
+    Qwen3VLForConditionalGeneration,
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -47,6 +49,21 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.processor = None
 
+    @staticmethod
+    def _refresh_gguf_package_mapping():
+        # transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time; gguf
+        # is installed later by RequirementsManager so the cache misses it,
+        # causing version.parse('N/A') to raise InvalidVersion in is_gguf_available().
+        try:
+            import transformers.utils.import_utils as _tfu
+
+            if "gguf" not in _tfu.PACKAGE_DISTRIBUTION_MAPPING:
+                _tfu.PACKAGE_DISTRIBUTION_MAPPING = (
+                    importlib.metadata.packages_distributions()
+                )
+        except Exception:
+            pass
+
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
@@ -61,6 +78,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._refresh_gguf_package_mapping()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
