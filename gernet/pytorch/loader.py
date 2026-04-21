@@ -36,7 +36,7 @@ class GENetConfig(ModelConfig):
 class ModelVariant(StrEnum):
     """Available GENet model variants."""
 
-    GERNET_L_IDSTCV_IN1K = "GERNet_L_IDSTCV_IN1K"
+    GERNET_L_IDSTCV_IN1K = "GENet_L_IDSTCV_IN1K"
 
 
 class ModelLoader(ForgeModel):
