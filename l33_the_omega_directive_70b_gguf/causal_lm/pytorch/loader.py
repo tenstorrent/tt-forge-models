@@ -24,6 +24,9 @@ class ModelVariant(StrEnum):
     """Available L3.3 The Omega Directive 70B GGUF model variants for causal language modeling."""
 
     L33_THE_OMEGA_DIRECTIVE_70B_GGUF_Q4_K_M = "GGUF_Q4_K_M"
+    L33_THE_OMEGA_DIRECTIVE_70B_UNSLOP_V2_1_HERETIC_GGUF = (
+        "Unslop_v2_1_heretic_GGUF_Q4_K_M"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +37,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/L3.3-The-Omega-Directive-70B-Unslop-v2.0-heretic-i1-GGUF",
             max_length=128,
         ),
+        ModelVariant.L33_THE_OMEGA_DIRECTIVE_70B_UNSLOP_V2_1_HERETIC_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/L3.3-The-Omega-Directive-70B-Unslop-v2.1-heretic-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.L33_THE_OMEGA_DIRECTIVE_70B_GGUF_Q4_K_M
 
-    GGUF_FILE = "L3.3-The-Omega-Directive-70B-Unslop-v2.0-heretic.i1-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.L33_THE_OMEGA_DIRECTIVE_70B_GGUF_Q4_K_M: "L3.3-The-Omega-Directive-70B-Unslop-v2.0-heretic.i1-Q4_K_M.gguf",
+        ModelVariant.L33_THE_OMEGA_DIRECTIVE_70B_UNSLOP_V2_1_HERETIC_GGUF: "L3.3-The-Omega-Directive-70B-Unslop-v2.1-heretic.Q4_K_M.gguf",
+    }
 
     sample_text = "What is your favorite city?"
 
@@ -61,11 +71,16 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @property
+    def _gguf_file(self):
+        """Get the GGUF filename for the current variant."""
+        return self._GGUF_FILES[self._variant]
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self._gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +100,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self._gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self._gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -132,6 +147,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
         )
         return self.config
