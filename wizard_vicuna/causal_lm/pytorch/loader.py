@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     """Available Wizard Vicuna model variants."""
 
     WIZARD_VICUNA_13B = "13B"
-    WIZARD_VICUNA_30B_UNCENSORED_FP16 = "30B_Uncensored_fp16"
+    WIZARD_VICUNA_OPEN_LLAMA_3B_V2 = "open_llama_3b_v2"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.WIZARD_VICUNA_13B: ModelConfig(
             pretrained_model_name="junelee/wizard-vicuna-13b",
         ),
-        ModelVariant.WIZARD_VICUNA_30B_UNCENSORED_FP16: ModelConfig(
-            pretrained_model_name="TheBloke/Wizard-Vicuna-30B-Uncensored-fp16",
+        ModelVariant.WIZARD_VICUNA_OPEN_LLAMA_3B_V2: ModelConfig(
+            pretrained_model_name="heegyu/WizardVicuna-open-llama-3b-v2",
         ),
     }
 
