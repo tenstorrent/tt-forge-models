@@ -40,7 +40,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_12B_IT_VL_DEEPSEEK_V3_1_GGUF
 
-    GGUF_FILE = "gemma-3-12b-it-vl-Deepseek-v3.1-Heretic-Uncensored-Thinking.Q4_K_M.gguf"
+    GGUF_FILE = (
+        "gemma-3-12b-it-vl-Deepseek-v3.1-Heretic-Uncensored-Thinking.Q4_K_M.gguf"
+    )
 
     sample_text = "What is your favorite city?"
 
