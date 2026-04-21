@@ -30,9 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    HATE_SPEECH_CNERG_BERT_BASE_UNCASED_HATEXPLAIN = (
-        "Hate_Speech_CNERG_Bert_Base_Uncased_HateXplain"
-    )
+    PRAJJWAL1_BERT_TINY_MNLI = "prajjwal1_Bert_Tiny_MNLI"
 
 
 class ModelLoader(ForgeModel):
@@ -68,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.HATE_SPEECH_CNERG_BERT_BASE_UNCASED_HATEXPLAIN: LLMModelConfig(
-            pretrained_model_name="Hate-speech-CNERG/bert-base-uncased-hatexplain",
+        ModelVariant.PRAJJWAL1_BERT_TINY_MNLI: LLMModelConfig(
+            pretrained_model_name="prajjwal1/bert-tiny-mnli",
             max_length=128,
         ),
     }
@@ -97,7 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.HATE_SPEECH_CNERG_BERT_BASE_UNCASED_HATEXPLAIN: "I really enjoyed meeting new people from different cultures.",
+        ModelVariant.PRAJJWAL1_BERT_TINY_MNLI: "A man is eating food. A man is eating a piece of bread.",
     }
 
     def __init__(self, variant=None):
@@ -136,7 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.HATE_SPEECH_CNERG_BERT_BASE_UNCASED_HATEXPLAIN,
+            ModelVariant.PRAJJWAL1_BERT_TINY_MNLI,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
