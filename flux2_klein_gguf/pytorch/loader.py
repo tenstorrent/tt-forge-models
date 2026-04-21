@@ -4,6 +4,7 @@
 """
 FLUX.2 Klein GGUF model loader implementation for text-to-image generation
 """
+
 import torch
 from diffusers.models import Flux2Transformer2DModel
 from typing import Optional
@@ -24,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available FLUX.2 Klein GGUF model variants."""
 
     KLEIN_9B_KV_Q4_K_M = "Klein_9B_KV_Q4_K_M"
-    VANTAGEWITHAI_KLEIN_9B_KV_Q4_K_M = "vantagewithai_Klein_9B_KV_Q4_K_M"
+    LEEJET_KLEIN_9B_Q4_0 = "leejet_Klein_9B_Q4_0"
 
 
 class ModelLoader(ForgeModel):
@@ -34,8 +35,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.KLEIN_9B_KV_Q4_K_M: ModelConfig(
             pretrained_model_name="QuantStack/FLUX.2-Klein-9B-KV-GGUF",
         ),
-        ModelVariant.VANTAGEWITHAI_KLEIN_9B_KV_Q4_K_M: ModelConfig(
-            pretrained_model_name="vantagewithai/FLUX.2-klein-9b-kv-GGUF",
+        ModelVariant.LEEJET_KLEIN_9B_Q4_0: ModelConfig(
+            pretrained_model_name="leejet/FLUX.2-klein-9B-GGUF",
         ),
     }
 
@@ -43,7 +44,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.KLEIN_9B_KV_Q4_K_M: "Flux-2-Klein-9B-KV-Q4_K_M.gguf",
-        ModelVariant.VANTAGEWITHAI_KLEIN_9B_KV_Q4_K_M: "flux-2-klein-9b-kv-Q4_K_M.gguf",
+        ModelVariant.LEEJET_KLEIN_9B_Q4_0: "flux-2-klein-9b-Q4_0.gguf",
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
