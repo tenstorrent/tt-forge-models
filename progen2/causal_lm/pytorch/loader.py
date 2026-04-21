@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available ProGen2 model variants."""
 
     BASE = "Base"
-    SMALL_MIX7 = "SmallMix7"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.BASE: LLMModelConfig(
             pretrained_model_name="hugohrban/progen2-base",
         ),
-        ModelVariant.SMALL_MIX7: LLMModelConfig(
-            pretrained_model_name="hugohrban/progen2-small-mix7",
+        ModelVariant.LARGE: LLMModelConfig(
+            pretrained_model_name="hugohrban/progen2-large",
         ),
     }
 
