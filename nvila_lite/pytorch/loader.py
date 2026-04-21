@@ -41,7 +41,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Efficient-Large-Model/NVILA-Lite-2B-hf",
         ),
         ModelVariant.NVILA_LITE_2B_RAW: ModelConfig(
-            pretrained_model_name="Efficient-Large-Model/NVILA-Lite-2B",
+            pretrained_model_name="Efficient-Large-Model/NVILA-Lite-2B-hf",
         ),
     }
 
