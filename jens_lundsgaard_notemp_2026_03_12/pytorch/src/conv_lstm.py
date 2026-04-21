@@ -92,7 +92,9 @@ class ConvLSTM(nn.Module):
         else:
             self.hidden_dim = hidden_dim
         self.kernel_size = (
-            kernel_size if isinstance(kernel_size, tuple) else (kernel_size, kernel_size)
+            kernel_size
+            if isinstance(kernel_size, tuple)
+            else (kernel_size, kernel_size)
         )
         self.num_layers = num_layers
         self.batch_first = batch_first

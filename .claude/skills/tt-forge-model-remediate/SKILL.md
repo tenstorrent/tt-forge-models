@@ -9,7 +9,7 @@ executing the test through our xla compiler infra.
 
 Before starting any work, please ensure the following environment variables are set!
 If it's not, this skill cannot be invoked.
-- TT_XLA_ROOT 
+- TT_XLA_ROOT
 
 Do not bother exploring the project's structure, only if the run command fails
 and we need remediation should we start understanding the test and the project.

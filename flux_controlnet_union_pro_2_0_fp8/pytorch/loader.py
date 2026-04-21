@@ -31,9 +31,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available FLUX.1-dev ControlNet Union Pro 2.0 FP8 model variants."""
 
-    FLUX_1_DEV_CONTROLNET_UNION_PRO_2_0_FP8 = (
-        "FLUX.1-dev-ControlNet-Union-Pro-2.0-fp8"
-    )
+    FLUX_1_DEV_CONTROLNET_UNION_PRO_2_0_FP8 = "FLUX.1-dev-ControlNet-Union-Pro-2.0-fp8"
 
 
 class ModelLoader(ForgeModel):

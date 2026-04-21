@@ -29,7 +29,9 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available AhmedSalah777 ultrasonic-v8-checkpoints GGUF variants."""
 
-    ULTRASONIC_V8_QWEN3_5_397B_A17B_MXFP4_MOE = "ultrasonic_v8_qwen3_5_397b_a17b_mxfp4_moe"
+    ULTRASONIC_V8_QWEN3_5_397B_A17B_MXFP4_MOE = (
+        "ultrasonic_v8_qwen3_5_397b_a17b_mxfp4_moe"
+    )
 
 
 class ModelLoader(ForgeModel):

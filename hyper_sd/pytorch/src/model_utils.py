@@ -148,9 +148,7 @@ def stable_diffusion_preprocessing_xl(
 
     prompt_embeds = prompt_embeds.to(device)
     add_text_embeds = add_text_embeds.to(device)
-    add_time_ids = add_time_ids.to(device).repeat(
-        batch_size * num_images_per_prompt, 1
-    )
+    add_time_ids = add_time_ids.to(device).repeat(batch_size * num_images_per_prompt, 1)
 
     timestep_cond = None
     if pipe.unet.config.time_cond_proj_dim is not None:
