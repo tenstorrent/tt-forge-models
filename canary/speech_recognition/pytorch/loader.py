@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Canary model variants."""
 
     CANARY_1B_FLASH = "1B Flash"
+    CANARY_1B = "1B"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.CANARY_1B_FLASH: ModelConfig(
             pretrained_model_name="nvidia/canary-1b-flash",
+        ),
+        ModelVariant.CANARY_1B: ModelConfig(
+            pretrained_model_name="nvidia/canary-1b",
         ),
     }
 
