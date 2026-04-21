@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Slovak GPT-J model variants."""
 
     SLOVAK_GPT_J_405M = "405M"
+    SLOVAK_GPT_J_1_4B = "1_4B"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SLOVAK_GPT_J_405M: LLMModelConfig(
             pretrained_model_name="Milos/slovak-gpt-j-405M",
+            max_length=256,
+        ),
+        ModelVariant.SLOVAK_GPT_J_1_4B: LLMModelConfig(
+            pretrained_model_name="Milos/slovak-gpt-j-1.4B",
             max_length=256,
         ),
     }
