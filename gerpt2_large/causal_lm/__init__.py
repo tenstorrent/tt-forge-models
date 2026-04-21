@@ -2,5 +2,5 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-GerPT2 Large causal language modeling task implementation.
+GerPT2 causal language modeling task implementation.
 """
