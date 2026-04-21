@@ -55,8 +55,7 @@ class ModelVariant(StrEnum):
     MISTRAL_7B_V03_UNSLOTH = "7B_v03_unsloth"
     MISTRAL_FT_OPTIMIZED_1227 = "ft_optimized_1227"
     MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED = "Small_Instruct_2409_abliterated"
-    SYNTHIA_7B_V1_3 = "SynthIA_7B_v1_3"
-    HUGGINGFACEH4_MISTRAL_7B_SFT_BETA = "HuggingFaceH4_mistral_7b_sft_beta"
+    HERMES_2_PRO_MISTRAL_7B_BNB_4BIT = "Hermes_2_Pro_Mistral_7B_bnb_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -162,11 +161,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED: ModelConfig(
             pretrained_model_name="byroneverson/Mistral-Small-Instruct-2409-abliterated",
         ),
-        ModelVariant.SYNTHIA_7B_V1_3: ModelConfig(
-            pretrained_model_name="migtissera/SynthIA-7B-v1.3",
-        ),
-        ModelVariant.HUGGINGFACEH4_MISTRAL_7B_SFT_BETA: ModelConfig(
-            pretrained_model_name="HuggingFaceH4/mistral-7b-sft-beta",
+        ModelVariant.HERMES_2_PRO_MISTRAL_7B_BNB_4BIT: ModelConfig(
+            pretrained_model_name="unsloth/Hermes-2-Pro-Mistral-7B-bnb-4bit",
         ),
     }
 
@@ -208,8 +204,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_V03_UNSLOTH,
             ModelVariant.MISTRAL_FT_OPTIMIZED_1227,
             ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED,
-            ModelVariant.SYNTHIA_7B_V1_3,
-            ModelVariant.HUGGINGFACEH4_MISTRAL_7B_SFT_BETA,
+            ModelVariant.HERMES_2_PRO_MISTRAL_7B_BNB_4BIT,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
@@ -300,7 +295,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.DEVSTRAL_SMALL_2505_UNSLOTH_BNB_4BIT,
             ModelVariant.MINISTRAL_3_14B_REASONING_AWQ_4BIT,
             ModelVariant.OPEN_HERMES_2_5_MISTRAL_7B_AWQ,
-            ModelVariant.MAGISTRAL_SMALL_2506_AWQ,
+            ModelVariant.HERMES_2_PRO_MISTRAL_7B_BNB_4BIT,
         ):
             model_kwargs["device_map"] = "cpu"
 
