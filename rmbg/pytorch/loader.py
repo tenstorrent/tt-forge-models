@@ -115,8 +115,6 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         # Load pre-trained model from HuggingFace
@@ -124,9 +122,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
 
-        # deform_conv2d (used in BiRefNet) does not support bfloat16; cast to float32
-        if dtype_override is None:
-            model = model.to(torch.float32)
+        # deform_conv2d (used in BiRefNet) does not support bfloat16; always use float32
+        model = model.to(torch.float32)
 
         # Set matmul precision
         torch.set_float32_matmul_precision(["high", "highest"][0])
@@ -157,8 +154,8 @@ class ModelLoader(ForgeModel):
 
         inputs = self.transform_image(self.image).unsqueeze(0)
 
-        dtype = dtype_override if dtype_override is not None else torch.float32
-        inputs = inputs.to(dtype)
+        # deform_conv2d (used in BiRefNet) does not support bfloat16; always use float32
+        inputs = inputs.to(torch.float32)
 
         # Add batch dimension
         if batch_size > 1:
