@@ -93,9 +93,9 @@ class ModelLoader(ForgeModel):
 
         # Apply dtype conversion if specified
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the SSD-1B model with this instance's variant settings.
