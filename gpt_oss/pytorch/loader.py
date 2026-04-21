@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     GPT_OSS_20B = "20B"
     GPT_OSS_20B_UNCENSORED = "20B_uncensored"
+    GPT_OSS_20B_8BIT = "20B_8bit"
     GPT_OSS_120B = "120B"
     GPT_OSS_120B_AWQ_W4A16 = "120B_Awq_W4a16"
 
@@ -41,6 +42,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GPT_OSS_20B_UNCENSORED: LLMModelConfig(
             pretrained_model_name="aoxo/gpt-oss-20b-uncensored",
+            max_length=256,
+        ),
+        ModelVariant.GPT_OSS_20B_8BIT: LLMModelConfig(
+            pretrained_model_name="callgg/gpt-20b-8bit",
             max_length=256,
         ),
         ModelVariant.GPT_OSS_120B: LLMModelConfig(
@@ -87,7 +92,10 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant in (ModelVariant.GPT_OSS_120B_AWQ_W4A16,):
+        if variant in (
+            ModelVariant.GPT_OSS_20B_8BIT,
+            ModelVariant.GPT_OSS_120B_AWQ_W4A16,
+        ):
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.RED
