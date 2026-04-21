@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available EuroBERT model variants for masked language modeling."""
 
     EUROBERT_210M = "EuroBERT-210m"
+    EUROBERT_610M = "EuroBERT-610m"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +31,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.EUROBERT_210M: LLMModelConfig(
             pretrained_model_name="EuroBERT/EuroBERT-210m",
+            max_length=128,
+        ),
+        ModelVariant.EUROBERT_610M: LLMModelConfig(
+            pretrained_model_name="EuroBERT/EuroBERT-610m",
             max_length=128,
         ),
     }
