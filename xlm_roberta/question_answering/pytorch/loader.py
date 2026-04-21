@@ -21,7 +21,7 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa question answering model variants."""
 
     DEEPSET_XLM_ROBERTA_BASE_SQUAD2 = "deepset_xlm_roberta_base_squad2"
-    GOKULKARTHIK_XLM_ROBERTA_QA_CHAII = "gokulkarthik/xlm-roberta-qa-chaii"
+    GOKULKARTHIK_XLM_ROBERTA_QA_CHAII = "gokulkarthik_xlm_roberta_qa_chaii"
 
 
 class ModelLoader(ForgeModel):
