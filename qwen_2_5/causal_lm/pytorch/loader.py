@@ -56,7 +56,7 @@ class ModelVariant(StrEnum):
     QIAW99_QWEN_2_5_7B_INSTRUCT_OPENBOOKQA_DPO_C_NEW = (
         "qiaw99_7B_Instruct_OpenbookQA_DPO_C_new"
     )
-    SIMPLESCALING_S1_32B = "simplescaling_s1_32B"
+    ROADQAQ_QWEN_2_5_MATH_1_5B_16K_THINK = "roadqaq_Math_1.5B_16k_think"
 
 
 class ModelLoader(ForgeModel):
@@ -180,9 +180,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="qiaw99/Qwen2.5-7B-Instruct-OpenbookQA-DPO-C-new",
             max_length=128,
         ),
-        # simplescaling s1 reasoning fine-tune of Qwen2.5-32B-Instruct
-        ModelVariant.SIMPLESCALING_S1_32B: LLMModelConfig(
-            pretrained_model_name="simplescaling/s1-32B",
+        # RoadQAQ reasoning fine-tune of Qwen2.5-Math-1.5B with 16k context
+        ModelVariant.ROADQAQ_QWEN_2_5_MATH_1_5B_16K_THINK: LLMModelConfig(
+            pretrained_model_name="RoadQAQ/Qwen2.5-Math-1.5B-16k-think",
             max_length=128,
         ),
     }
@@ -244,7 +244,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.UNSLOTH_QWEN_2_5_3B_INSTRUCT,
             ModelVariant.UNSLOTH_QWEN_2_5_72B_INSTRUCT,
             ModelVariant.QIAW99_QWEN_2_5_7B_INSTRUCT_OPENBOOKQA_DPO_C_NEW,
-            ModelVariant.QWEN_2_5_0_5B_INSTRUCT_GPTQ_INT4,
+            ModelVariant.ROADQAQ_QWEN_2_5_MATH_1_5B_16K_THINK,
         ]:
             group = ModelGroup.VULCAN
 
