@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     HAU = "hau"
     MYA = "mya"
     ORM = "orm"
-    POL = "pol"
+    TUK_SCRIPT_LATIN = "tuk-script_latin"
     YOR = "yor"
 
 
@@ -43,8 +43,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.ORM: ModelConfig(
             pretrained_model_name="facebook/mms-tts-orm",
         ),
-        ModelVariant.POL: ModelConfig(
-            pretrained_model_name="facebook/mms-tts-pol",
+        ModelVariant.TUK_SCRIPT_LATIN: ModelConfig(
+            pretrained_model_name="facebook/mms-tts-tuk-script_latin",
         ),
         ModelVariant.YOR: ModelConfig(
             pretrained_model_name="facebook/mms-tts-yor",
@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.HAU: "Sannu, yaya aiki?",
         ModelVariant.MYA: "မင်္ဂလာပါ၊ နေကောင်းလား။",
         ModelVariant.ORM: "Baga nagaan dhuftan",
-        ModelVariant.POL: "Dzień dobry, to jest test modelu zamiany tekstu na mowę.",
+        ModelVariant.TUK_SCRIPT_LATIN: "Salam, ýagdaýlaryňyz nähili?",
         ModelVariant.YOR: "Ẹ n lẹ, bawo ni ọjọ yín ṣe rí?",
     }
 
