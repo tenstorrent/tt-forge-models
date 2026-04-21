@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     """Available GPT-2 model variants."""
 
     GPT2_BASE = "Default"
+    GPT2_BS3V2_XSUM = "bs3v2-xsum"
     GPT2_LARGE = "Large"
     GPT2_LUMELETO = "Lumeleto"
     GPT2_SEQUENCE_CLASSIFICATION = "Sequence_Classification"
@@ -43,6 +44,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GPT2_BASE: LLMModelConfig(
             pretrained_model_name="gpt2",
+            max_length=256,
+        ),
+        ModelVariant.GPT2_BS3V2_XSUM: LLMModelConfig(
+            pretrained_model_name="nbtpj/bs3v2_gpt2_xsum",
             max_length=256,
         ),
         ModelVariant.GPT2_LARGE: LLMModelConfig(
@@ -95,9 +100,9 @@ class ModelLoader(ForgeModel):
             ModelGroup.VULCAN
             if variant
             in (
+                ModelVariant.GPT2_BS3V2_XSUM,
                 ModelVariant.GPT2_LARGE,
                 ModelVariant.TINY_RANDOM,
-                ModelVariant.GPT2_MNLI,
             )
             else ModelGroup.GENERALITY
         )
@@ -130,6 +135,7 @@ class ModelLoader(ForgeModel):
 
         if self._variant in (
             ModelVariant.GPT2_BASE,
+            ModelVariant.GPT2_BS3V2_XSUM,
             ModelVariant.GPT2_LARGE,
             ModelVariant.TINY_RANDOM,
         ):
@@ -162,6 +168,7 @@ class ModelLoader(ForgeModel):
 
         if self._variant in (
             ModelVariant.GPT2_BASE,
+            ModelVariant.GPT2_BS3V2_XSUM,
             ModelVariant.GPT2_LARGE,
             ModelVariant.TINY_RANDOM,
         ):
