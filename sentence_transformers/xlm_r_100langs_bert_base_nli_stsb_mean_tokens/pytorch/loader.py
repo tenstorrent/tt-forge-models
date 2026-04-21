@@ -2,8 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Sentence-Transformers xlm-r-100langs-bert-base-nli-stsb-mean-tokens model loader
-for multilingual sentence embedding generation.
+Sentence-Transformers xlm-r-100langs-bert-base-nli-stsb-mean-tokens model
+loader for multilingual sentence embedding generation.
 """
 import torch
 from transformers import AutoModel, AutoTokenizer
