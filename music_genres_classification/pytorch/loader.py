@@ -72,20 +72,16 @@ class ModelLoader(ForgeModel):
         return self._processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import torch
         from transformers import Wav2Vec2ForSequenceClassification
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
 
         model = Wav2Vec2ForSequenceClassification.from_pretrained(
             self._variant_config.pretrained_model_name,
-            **model_kwargs,
+            **kwargs,
         )
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
+        # Conv1d feature extractor requires float32; cast after loading
+        model = model.to(torch.float32)
 
         return model
 
