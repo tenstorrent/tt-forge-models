@@ -34,7 +34,7 @@ class ModelVariant(StrEnum):
         "CAMeL-Lab/bert-base-arabic-camelbert-msa-ner"
     )
     P208P2002_ZH_WIKI_PUNCTUATION_RESTORE = "p208p2002/zh-wiki-punctuation-restore"
-    KANSALLISARKISTO_FINBERT_NER = "Kansallisarkisto/finbert-ner"
+    GAGAN3012_BERT_TINY_FINETUNED_NER = "gagan3012/bert-tiny-finetuned-ner"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="p208p2002/zh-wiki-punctuation-restore",
             max_length=128,
         ),
-        ModelVariant.KANSALLISARKISTO_FINBERT_NER: LLMModelConfig(
-            pretrained_model_name="Kansallisarkisto/finbert-ner",
+        ModelVariant.GAGAN3012_BERT_TINY_FINETUNED_NER: LLMModelConfig(
+            pretrained_model_name="gagan3012/bert-tiny-finetuned-ner",
             max_length=128,
         ),
     }
@@ -125,7 +125,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HATMIMOHA_ARABIC_NER,
             ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER,
             ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE,
-            ModelVariant.KANSALLISARKISTO_FINBERT_NER,
+            ModelVariant.GAGAN3012_BERT_TINY_FINETUNED_NER,
         ):
             group = ModelGroup.VULCAN
 
