@@ -56,6 +56,7 @@ class ModelVariant(StrEnum):
     MISTRAL_FT_OPTIMIZED_1227 = "ft_optimized_1227"
     MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED = "Small_Instruct_2409_abliterated"
     SYNTHIA_7B_V1_3 = "SynthIA_7B_v1_3"
+    HUGGINGFACEH4_MISTRAL_7B_SFT_BETA = "HuggingFaceH4_mistral_7b_sft_beta"
 
 
 class ModelLoader(ForgeModel):
@@ -164,6 +165,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.SYNTHIA_7B_V1_3: ModelConfig(
             pretrained_model_name="migtissera/SynthIA-7B-v1.3",
         ),
+        ModelVariant.HUGGINGFACEH4_MISTRAL_7B_SFT_BETA: ModelConfig(
+            pretrained_model_name="HuggingFaceH4/mistral-7b-sft-beta",
+        ),
     }
 
     # Default variant to use
@@ -205,6 +209,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_FT_OPTIMIZED_1227,
             ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED,
             ModelVariant.SYNTHIA_7B_V1_3,
+            ModelVariant.HUGGINGFACEH4_MISTRAL_7B_SFT_BETA,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
