@@ -96,10 +96,15 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
 
+        if self.tokenizer is None:
+            self.tokenizer = BertTokenizer.from_pretrained(pretrained_model_name)
+        decoder_input_ids = torch.tensor([[self.tokenizer.cls_token_id]])
+
         if batch_size > 1:
             pixel_values = pixel_values.repeat(batch_size, 1, 1, 1)
+            decoder_input_ids = decoder_input_ids.repeat(batch_size, 1)
 
-        return {"pixel_values": pixel_values}
+        return {"pixel_values": pixel_values, "decoder_input_ids": decoder_input_ids}
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
