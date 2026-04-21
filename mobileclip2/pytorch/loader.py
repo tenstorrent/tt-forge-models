@@ -24,11 +24,13 @@ class ModelVariant(StrEnum):
     """Available MobileCLIP2 model variants."""
 
     S2 = "S2"
+    S4 = "S4"
 
 
 # Mapping from variant to OpenCLIP tokenizer name
 _TOKENIZER_NAME = {
     ModelVariant.S2: "MobileCLIP2-S2",
+    ModelVariant.S4: "MobileCLIP2-S4",
 }
 
 
@@ -38,6 +40,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.S2: ModelConfig(
             pretrained_model_name="hf-hub:timm/MobileCLIP2-S2-OpenCLIP",
+        ),
+        ModelVariant.S4: ModelConfig(
+            pretrained_model_name="hf-hub:timm/MobileCLIP2-S4-OpenCLIP",
         ),
     }
 
