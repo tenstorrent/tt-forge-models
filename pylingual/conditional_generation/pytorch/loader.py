@@ -24,6 +24,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available PyLingual model variants."""
 
+    PY38_STATEMENT = "Py38_Statement"
     PY310_STATEMENT = "Py310_Statement"
     PY36_STATEMENT = "Py36_Statement"
 
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     """PyLingual model loader implementation for conditional generation tasks."""
 
     _VARIANTS = {
+        ModelVariant.PY38_STATEMENT: LLMModelConfig(
+            pretrained_model_name="syssec-utd/py38-pylingual-v1-statement",
+            max_length=512,
+        ),
         ModelVariant.PY310_STATEMENT: LLMModelConfig(
             pretrained_model_name="syssec-utd/py310-pylingual-v1-statement",
             max_length=512,
