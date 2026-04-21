@@ -21,17 +21,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available HyperCLOVAX SEED Think model variants for causal language modeling."""
+    """Available HyperCLOVAX SEED model variants for causal language modeling."""
 
     SEED_THINK_14B = "SEED_Think_14B"
+    SEED_TEXT_INSTRUCT_1_5B = "SEED_Text_Instruct_1.5B"
 
 
 class ModelLoader(ForgeModel):
-    """HyperCLOVAX SEED Think model loader for causal language modeling tasks."""
+    """HyperCLOVAX SEED model loader for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.SEED_THINK_14B: LLMModelConfig(
             pretrained_model_name="naver-hyperclovax/HyperCLOVAX-SEED-Think-14B",
+            max_length=128,
+        ),
+        ModelVariant.SEED_TEXT_INSTRUCT_1_5B: LLMModelConfig(
+            pretrained_model_name="naver-hyperclovax/HyperCLOVAX-SEED-Text-Instruct-1.5B",
             max_length=128,
         ),
     }
