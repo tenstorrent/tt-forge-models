@@ -56,7 +56,7 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant == ModelVariant.FAIRSEQ_DENSE_355M:
+        if variant == ModelVariant.FAIRSEQ_DENSE_125M:
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
