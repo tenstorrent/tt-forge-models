@@ -48,7 +48,6 @@ class ModelLoader(ForgeModel):
         "what is the integral of x^2 from 0 to 2?\n"
         "Please reason step by step, and put your final answer within \\boxed{}."
     )
-    base_sample_text = "The integral of x^2 from 0 to 2 is"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with a specified variant."""
@@ -111,7 +110,7 @@ class ModelLoader(ForgeModel):
 
         if self._variant == ModelVariant.DEEPSEEK_7B_BASE:
             input_ids = self.tokenizer(
-                self.base_sample_text,
+                self.sample_text,
                 return_tensors="pt",
             ).input_ids
         else:
