@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available ControlNet Union ProMax SDXL model variants."""
 
     CONTROLNET_UNION_PROMAX_SDXL_1_0 = "Union_ProMax_SDXL_1.0"
+    CONTROLNET_UNION_PROMAX_SDXL_1_0_BRAD_TWINKL = "Union_ProMax_SDXL_1.0_brad_twinkl"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.CONTROLNET_UNION_PROMAX_SDXL_1_0: ModelConfig(
             pretrained_model_name="OzzyGT/controlnet-union-promax-sdxl-1.0",
+        ),
+        ModelVariant.CONTROLNET_UNION_PROMAX_SDXL_1_0_BRAD_TWINKL: ModelConfig(
+            pretrained_model_name="brad-twinkl/controlnet-union-sdxl-1.0-promax",
         ),
     }
 
