@@ -28,7 +28,7 @@ class ModelVariant(StrEnum):
 
     LLAVA_1_5_7B = "1.5_7B"
     LLAVA_1_5_13B = "1.5_13B"
-    LLAVA_INTERLEAVE_QWEN_7B = "interleave_qwen_7B"
+    LLAVA_LLAMA2_13B_CHAT_LIGHTNING_PREVIEW = "llama-2-13b-chat-lightning-preview"
 
 
 class ModelLoader(ForgeModel):
@@ -41,8 +41,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.LLAVA_1_5_13B: ModelConfig(
             pretrained_model_name="llava-hf/llava-1.5-13b-hf",
         ),
-        ModelVariant.LLAVA_INTERLEAVE_QWEN_7B: ModelConfig(
-            pretrained_model_name="llava-hf/llava-interleave-qwen-7b-hf",
+        ModelVariant.LLAVA_LLAMA2_13B_CHAT_LIGHTNING_PREVIEW: ModelConfig(
+            pretrained_model_name="liuhaotian/llava-llama-2-13b-chat-lightning-preview",
         ),
     }
 
@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
 
         variant_groups = {
             ModelVariant.LLAVA_1_5_13B: ModelGroup.VULCAN,
-            ModelVariant.LLAVA_INTERLEAVE_QWEN_7B: ModelGroup.VULCAN,
+            ModelVariant.LLAVA_LLAMA2_13B_CHAT_LIGHTNING_PREVIEW: ModelGroup.VULCAN,
         }
 
         return ModelInfo(
