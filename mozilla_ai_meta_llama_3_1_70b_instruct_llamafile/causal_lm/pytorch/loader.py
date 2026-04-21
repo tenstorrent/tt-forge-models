@@ -11,8 +11,8 @@ from typing import Optional
 
 import numpy as np
 import torch
-import transformers.modeling_gguf_pytorch_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import modeling_gguf_pytorch_utils as _gguf_utils
 
 from ....base import ForgeModel
 from ....config import (
@@ -83,9 +83,7 @@ def _llamafile_memmap_patch(path):
         np.memmap = _orig_memmap
 
 
-_orig_load_gguf_checkpoint = (
-    transformers.modeling_gguf_pytorch_utils.load_gguf_checkpoint
-)
+_orig_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
 
 
 def _patched_load_gguf_checkpoint(
@@ -97,9 +95,7 @@ def _patched_load_gguf_checkpoint(
         )
 
 
-transformers.modeling_gguf_pytorch_utils.load_gguf_checkpoint = (
-    _patched_load_gguf_checkpoint
-)
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
