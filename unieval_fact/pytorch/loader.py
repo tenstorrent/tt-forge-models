@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-UniEval-Fact model loader implementation
+UniEval model loader implementation
 """
 
 import torch
@@ -22,38 +22,51 @@ from ...config import (
 
 
 class ModelVariant(StrEnum):
-    """Available UniEval-Fact model variants."""
+    """Available UniEval model variants."""
 
-    DEFAULT = "Default"
+    FACT = "fact"
+    DIALOG = "dialog"
 
 
 class ModelLoader(ForgeModel):
-    """UniEval-Fact model loader implementation for factual consistency evaluation."""
+    """UniEval model loader implementation for multi-dimensional text generation evaluation."""
 
     _VARIANTS = {
-        ModelVariant.DEFAULT: LLMModelConfig(
+        ModelVariant.FACT: LLMModelConfig(
             pretrained_model_name="MingZhong/unieval-fact",
+            max_length=512,
+        ),
+        ModelVariant.DIALOG: LLMModelConfig(
+            pretrained_model_name="MingZhong/unieval-dialog",
             max_length=512,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.DEFAULT
+    DEFAULT_VARIANT = ModelVariant.FACT
 
-    sample_text = (
-        "question: Is this a consistent fact? </s> "
-        "The Eiffel Tower is located in Paris, France. "
-        "It was constructed in 1889 and stands 324 metres tall."
-    )
+    _VARIANT_SAMPLE_TEXTS = {
+        ModelVariant.FACT: (
+            "question: Is this a consistent fact? </s> "
+            "The Eiffel Tower is located in Paris, France. "
+            "It was constructed in 1889 and stands 324 metres tall."
+        ),
+        ModelVariant.DIALOG: (
+            "question: Is this response engaging? </s> "
+            "response: I really like blue because it's calming. </s> "
+            "context: What is your favorite color?"
+        ),
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
         self._cached_model = None
+        self.sample_text = self._VARIANT_SAMPLE_TEXTS[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="UniEval_Fact",
+            model="UniEval",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
