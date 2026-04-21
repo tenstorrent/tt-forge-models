@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.MISTRAL_SMALL_4_119B_GGUF
 
-    GGUF_FILE = "mistralai_Mistral-Small-4-119B-2603-Q4_K_M.gguf"
+    GGUF_FILE = "mistralai_Mistral-Small-4-119B-2603-Q4_K_M/mistralai_Mistral-Small-4-119B-2603-Q4_K_M-00001-of-00002.gguf"
 
     sample_text = "What is your favorite city?"
 
