@@ -48,7 +48,7 @@ class ModelVariant(StrEnum):
 
     # TIMM variants
     SWIN_LARGE_PATCH4_WINDOW7_224_TIMM = "Large_Patch4_Window7_224_TIMM"
-    SWINV2_BASE_WINDOW12_192_IN22K_TIMM = "v2_Base_Window12_192_in22k_TIMM"
+    SWINV2_LARGE_WINDOW12TO16_192TO256_TIMM = "v2_Large_Window12to16_192to256_TIMM"
 
     # Torchvision variants
     SWIN_T = "T"
@@ -94,8 +94,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="swin_large_patch4_window7_224.ms_in22k_ft_in1k",
             source=ModelSource.TIMM,
         ),
-        ModelVariant.SWINV2_BASE_WINDOW12_192_IN22K_TIMM: SwinConfig(
-            pretrained_model_name="swinv2_base_window12_192.ms_in22k",
+        ModelVariant.SWINV2_LARGE_WINDOW12TO16_192TO256_TIMM: SwinConfig(
+            pretrained_model_name="swinv2_large_window12to16_192to256.ms_in22k_ft_in1k",
             source=ModelSource.TIMM,
         ),
         # Torchvision variants
@@ -147,7 +147,7 @@ class ModelLoader(ForgeModel):
 
         if variant in [
             ModelVariant.SWIN_LARGE_PATCH4_WINDOW7_224_TIMM,
-            ModelVariant.SWINV2_BASE_WINDOW16_256_MS_IN1K_TIMM,
+            ModelVariant.SWINV2_LARGE_WINDOW12TO16_192TO256_TIMM,
             ModelVariant.SWIN_BASE_PATCH4_WINDOW12_384_IN22K_HF,
             ModelVariant.SWINV2_BASE_WINDOW12_192_IN22K_TIMM,
         ]:
