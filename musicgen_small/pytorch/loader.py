@@ -4,51 +4,72 @@
 """
 Musicgen-small model loader implementation
 """
+from typing import Optional
+
 import torch
 from transformers import AutoProcessor, MusicgenForConditionalGeneration
-from ...config import (
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
-    Framework,
-)
+
 from ...base import ForgeModel
+from ...config import (
+    Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
+    StrEnum,
+)
+
+
+class ModelVariant(StrEnum):
+    """Available Musicgen-small model variants."""
+
+    FACEBOOK = "facebook/musicgen-small"
+    XENOVA = "Xenova/musicgen-small"
 
 
 class ModelLoader(ForgeModel):
     """Musicgen-small model loader implementation."""
 
-    def __init__(self, variant=None):
+    _VARIANTS = {
+        ModelVariant.FACEBOOK: ModelConfig(
+            pretrained_model_name="facebook/musicgen-small",
+        ),
+        ModelVariant.XENOVA: ModelConfig(
+            pretrained_model_name="Xenova/musicgen-small",
+        ),
+    }
+
+    DEFAULT_VARIANT = ModelVariant.FACEBOOK
+
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
-            variant: Optional string specifying which variant to use.
+            variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
 
-        # Configuration parameters
-        self.model_name = "facebook/musicgen-small"
         self.processor = None
         self.model = None
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
+            variant: Optional ModelVariant. If None, DEFAULT_VARIANT is used.
 
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
             model="MusicGen Small",
-            variant=variant_name,
-            group=ModelGroup.GENERALITY,
+            variant=variant,
+            group=ModelGroup.VULCAN,
             task=ModelTask.MM_TTS,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -61,9 +82,10 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The Musicgen-small model instance.
 
         """
-        self.processor = AutoProcessor.from_pretrained(self.model_name, **kwargs)
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        self.processor = AutoProcessor.from_pretrained(pretrained_model_name, **kwargs)
         self.model = MusicgenForConditionalGeneration.from_pretrained(
-            self.model_name, **kwargs
+            pretrained_model_name, **kwargs
         )
         return self.model
 
