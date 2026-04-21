@@ -28,6 +28,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available BigVGAN model variants."""
 
+    BASE_22KHZ_80BAND = "base_22khz_80band"
     V2_22KHZ_80BAND_256X = "v2_22khz_80band_256x"
     V2_44KHZ_128BAND_512X = "v2_44khz_128band_512x"
 
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     """BigVGAN v2 Neural Vocoder model loader implementation."""
 
     _VARIANTS = {
+        ModelVariant.BASE_22KHZ_80BAND: ModelConfig(
+            pretrained_model_name="nvidia/bigvgan_base_22khz_80band",
+        ),
         ModelVariant.V2_22KHZ_80BAND_256X: ModelConfig(
             pretrained_model_name="nvidia/bigvgan_v2_22khz_80band_256x",
         ),
@@ -113,6 +117,7 @@ class ModelLoader(ForgeModel):
             torch.Tensor: Mel spectrogram tensor.
         """
         mel_bins_map = {
+            ModelVariant.BASE_22KHZ_80BAND: 80,
             ModelVariant.V2_22KHZ_80BAND_256X: 80,
             ModelVariant.V2_44KHZ_128BAND_512X: 128,
         }
