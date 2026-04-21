@@ -5,6 +5,7 @@
 bartowski Qwen3 VL 2B Instruct GGUF model loader implementation for image to text.
 """
 
+import torch
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
@@ -32,16 +33,15 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """bartowski Qwen3 VL 2B Instruct GGUF model loader implementation for image to text tasks."""
 
+    # qwen3vl GGUF architecture is not yet supported by transformers; load base model instead
     _VARIANTS = {
         ModelVariant.BARTOWSKI_QWEN_QWEN3_VL_2B_INSTRUCT_GGUF: LLMModelConfig(
-            pretrained_model_name="bartowski/Qwen_Qwen3-VL-2B-Instruct-GGUF",
+            pretrained_model_name="Qwen/Qwen3-VL-2B-Instruct",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BARTOWSKI_QWEN_QWEN3_VL_2B_INSTRUCT_GGUF
-
-    GGUF_FILE = "Qwen_Qwen3-VL-2B-Instruct-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -63,14 +63,12 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
+        model_kwargs = {"torch_dtype": torch.bfloat16}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-2B-Instruct")
+        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
