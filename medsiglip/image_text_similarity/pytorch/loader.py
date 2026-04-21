@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available MedSigLIP model variants for image-text similarity."""
 
     MEDSIGLIP_448 = "MedSigLIP_448"
+    FOKAN_MEDSIGLIP = "fokan_MedSigLIP"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MEDSIGLIP_448: ModelConfig(
             pretrained_model_name="google/medsiglip-448",
+        ),
+        ModelVariant.FOKAN_MEDSIGLIP: ModelConfig(
+            pretrained_model_name="fokan/MedSigLIP",
         ),
     }
 
