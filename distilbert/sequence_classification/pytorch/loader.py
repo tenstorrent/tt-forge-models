@@ -26,7 +26,9 @@ class ModelVariant(StrEnum):
     )
     DISTILBERT_BASE_UNCASED_EMOTION = "distilbert-base-uncased-emotion"
     ISOM5240_2026SPRING5240L1 = "isom5240-2026Spring5240L1"
-    PARDONMYAI = "tarekziade/pardonmyai"
+    TRANSFORMERSBOOK_DISTILBERT_BASE_UNCASED_FINETUNED_EMOTION = (
+        "transformersbook-distilbert-base-uncased-finetuned-emotion"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -46,8 +48,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="isom5240/2026Spring5240L1",
             max_length=128,
         ),
-        ModelVariant.PARDONMYAI: LLMModelConfig(
-            pretrained_model_name="tarekziade/pardonmyai",
+        ModelVariant.TRANSFORMERSBOOK_DISTILBERT_BASE_UNCASED_FINETUNED_EMOTION: LLMModelConfig(
+            pretrained_model_name="transformersbook/distilbert-base-uncased-finetuned-emotion",
             max_length=128,
         ),
     }
@@ -65,7 +67,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.DISTILBERT_BASE_UNCASED_FINETUNED_SST_2_ENGLISH: "the movie was great!",
         ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION: "I love using transformers. The best part is wide range of support and its easy to use",
         ModelVariant.ISOM5240_2026SPRING5240L1: "the movie was great!",
-        ModelVariant.PARDONMYAI: "These are beautiful flowers",
+        ModelVariant.TRANSFORMERSBOOK_DISTILBERT_BASE_UNCASED_FINETUNED_EMOTION: "I love using transformers. The best part is wide range of support and its easy to use",
     }
 
     def __init__(self, variant=None):
@@ -100,7 +102,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION,
             ModelVariant.ISOM5240_2026SPRING5240L1,
-            ModelVariant.PARDONMYAI,
+            ModelVariant.TRANSFORMERSBOOK_DISTILBERT_BASE_UNCASED_FINETUNED_EMOTION,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
