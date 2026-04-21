@@ -44,8 +44,8 @@ class ModelVariant(StrEnum):
     GEMMA_3_12B_IT_LENIENTCHATFIX = "m8than/gemma-3-12b-it-lenientchatfix"
     GEMMA_3_27B_IT = "google/gemma-3-27b-it"
     GEMMA_3_27B_IT_QAT_W4A16 = "leon-se/gemma-3-27b-it-qat-W4A16-G128"
-    GEMMA_3_27B_VL_GLM_HERETIC = (
-        "DavidAU/Gemma3-27B-it-vl-GLM-4.7-Uncensored-Heretic-Deep-Reasoning"
+    GEMMA_3_27B_IT_QAT_COMPRESSED_TENSORS = (
+        "gaunernst/gemma-3-27b-it-qat-compressed-tensors"
     )
 
 
@@ -86,8 +86,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.GEMMA_3_27B_IT_QAT_W4A16: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_27B_IT_QAT_W4A16),
         ),
-        ModelVariant.GEMMA_3_27B_VL_GLM_HERETIC: LLMModelConfig(
-            pretrained_model_name=str(ModelVariant.GEMMA_3_27B_VL_GLM_HERETIC),
+        ModelVariant.GEMMA_3_27B_IT_QAT_COMPRESSED_TENSORS: LLMModelConfig(
+            pretrained_model_name=str(
+                ModelVariant.GEMMA_3_27B_IT_QAT_COMPRESSED_TENSORS
+            ),
         ),
     }
 
@@ -108,7 +110,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_3_4B_IT_QAT_4BIT,
             ModelVariant.GEMMA_3_4B_IT_GPTQ_4BIT_128G,
             ModelVariant.GEMMA_3_27B_IT_QAT_W4A16,
-            ModelVariant.GEMMA_3_27B_VL_GLM_HERETIC,
+            ModelVariant.GEMMA_3_27B_IT_QAT_COMPRESSED_TENSORS,
         ):
             group = ModelGroup.VULCAN
         elif any(x in variant.value for x in ["12b", "27b"]):
@@ -171,7 +173,7 @@ class ModelLoader(ForgeModel):
 
         if self._variant in (
             ModelVariant.GEMMA_3_27B_IT_QAT_W4A16,
-            ModelVariant.GEMMA_3_27B_IT_QAT_AUTOAWQ,
+            ModelVariant.GEMMA_3_27B_IT_QAT_COMPRESSED_TENSORS,
         ):
             model_kwargs["device_map"] = "cpu"
 
@@ -294,7 +296,7 @@ class ModelLoader(ForgeModel):
         if self._variant not in (
             ModelVariant.GEMMA_3_27B_IT,
             ModelVariant.GEMMA_3_27B_IT_QAT_W4A16,
-            ModelVariant.GEMMA_3_27B_VL_GLM_HERETIC,
+            ModelVariant.GEMMA_3_27B_IT_QAT_COMPRESSED_TENSORS,
         ):
             return None
 
