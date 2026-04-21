@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Lingshu model variants for medical vision-language tasks."""
 
     LINGSHU_7B = "7B"
+    LINGSHU_32B = "32B"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LINGSHU_7B: LLMModelConfig(
             pretrained_model_name="lingshu-medical-mllm/Lingshu-7B",
+        ),
+        ModelVariant.LINGSHU_32B: LLMModelConfig(
+            pretrained_model_name="lingshu-medical-mllm/Lingshu-32B",
         ),
     }
 
