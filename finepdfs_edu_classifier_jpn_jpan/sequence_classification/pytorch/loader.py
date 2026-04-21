@@ -44,9 +44,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.model_name = self._variant_config.pretrained_model_name
         self.max_length = self._variant_config.max_length
-        self.sample_text = (
-            "光合成は緑色植物が太陽光を化学エネルギーに変換する過程である。"
-        )
+        self.sample_text = "光合成は緑色植物が太陽光を化学エネルギーに変換する過程である。"
         self.tokenizer = None
 
     @classmethod
