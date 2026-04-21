@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     QWEN_2_5_CODER_0_5B = "0.5B"
     QWEN_2_5_CODER_1_5B = "1.5B"
+    QWEN_2_5_CODER_1_5B_UNSLOTH = "1.5B_Unsloth"
     QWEN_2_5_CODER_1_5B_INSTRUCT = "1.5B_Instruct"
     QWEN_2_5_CODER_1_5B_INSTRUCT_UNSLOTH = "1.5B_Instruct_Unsloth"
     QWEN_2_5_CODER_1_5B_INSTRUCT_4BIT = "1.5B_Instruct_4bit"
@@ -57,6 +58,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_2_5_CODER_1_5B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-Coder-1.5B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_CODER_1_5B_UNSLOTH: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen2.5-Coder-1.5B",
             max_length=128,
         ),
         ModelVariant.QWEN_2_5_CODER_1_5B_INSTRUCT: LLMModelConfig(
@@ -153,6 +158,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.RED
         if variant in [
             ModelVariant.QWEN_2_5_CODER_0_5B_INSTRUCT_BNB_4BIT,
+            ModelVariant.QWEN_2_5_CODER_1_5B_UNSLOTH,
             ModelVariant.QWEN_2_5_CODER_1_5B_INSTRUCT_UNSLOTH,
             ModelVariant.QWEN_2_5_CODER_1_5B_INSTRUCT_4BIT,
             ModelVariant.QWEN_2_5_CODER_7B_BNB_4BIT,
