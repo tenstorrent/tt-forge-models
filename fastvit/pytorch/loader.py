@@ -37,6 +37,7 @@ class ModelVariant(StrEnum):
     """Available FastViT model variants."""
 
     S12_APPLE_IN1K = "S12_Apple_IN1K"
+    SA36_APPLE_IN1K = "SA36_Apple_IN1K"
 
 
 class ModelLoader(ForgeModel):
@@ -45,6 +46,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.S12_APPLE_IN1K: FastViTConfig(
             pretrained_model_name="hf_hub:timm/fastvit_s12.apple_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.SA36_APPLE_IN1K: FastViTConfig(
+            pretrained_model_name="hf_hub:timm/fastvit_sa36.apple_in1k",
             source=ModelSource.TIMM,
         ),
     }
