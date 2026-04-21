@@ -40,6 +40,7 @@ class ModelVariant(StrEnum):
     QWEN_3_4B_INSTRUCT_2507 = "4B_Instruct_2507"
     QWEN_3_4B_INSTRUCT_2507_FP8 = "4B_Instruct_2507_FP8"
     QWEN_3_1_7B_FP8 = "1_7B_FP8"
+    QWEN_3_1_7B_FP8_DYNAMIC = "1_7B_FP8_Dynamic"
     QWEN_3_8B = "8B"
     QWEN_3_8B_BASE = "8B_Base"
     QWEN_3_8B_FP8 = "8B_FP8"
@@ -109,6 +110,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_1_7B_FP8: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-1.7B-FP8",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_1_7B_FP8_DYNAMIC: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Qwen3-1.7B-FP8-dynamic",
             max_length=128,
         ),
         ModelVariant.QWEN_3_8B: LLMModelConfig(
@@ -266,8 +271,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_32B_GPTQ_INT4,
             ModelVariant.QWEN_3_32B_UNSLOTH_BNB_4BIT,
             ModelVariant.QWEN_3_235B_A22B_THINKING_2507_FP8,
-            ModelVariant.QWEN_3_4B_BASE_PS_PROB_SEED43_0322_01_HYEONGWON,
-            ModelVariant.QWEN_3_4B_128K_UNSLOTH,
+            ModelVariant.QWEN_3_1_7B_FP8_DYNAMIC,
         ):
             group = ModelGroup.VULCAN
         else:
