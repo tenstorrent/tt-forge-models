@@ -24,8 +24,7 @@ class ModelVariant(StrEnum):
     """Available CodeLlama model variants for causal language modeling."""
 
     CODE_LLAMA_13B = "13B"
-    CODE_LLAMA_34B = "34B"
-    CODE_LLAMA_34B_GUANACO = "34B_Guanaco"
+    CODE_LLAMA_70B_INSTRUCT = "70B_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -36,12 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="codellama/CodeLlama-13b-hf",
             max_length=128,
         ),
-        ModelVariant.CODE_LLAMA_34B: LLMModelConfig(
-            pretrained_model_name="codellama/CodeLlama-34b-hf",
-            max_length=128,
-        ),
-        ModelVariant.CODE_LLAMA_34B_GUANACO: LLMModelConfig(
-            pretrained_model_name="mzbac/CodeLlama-34b-guanaco",
+        ModelVariant.CODE_LLAMA_70B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="codellama/CodeLlama-70b-Instruct-hf",
             max_length=128,
         ),
     }
