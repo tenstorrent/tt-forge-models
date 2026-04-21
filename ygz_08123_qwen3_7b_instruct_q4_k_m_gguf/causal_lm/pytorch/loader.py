@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Ygz-08123 Qwen3-7B-Instruct Q4_K_M GGUF model variants for causal language modeling."""
 
-    QWEN3_7B_INSTRUCT_Q4_K_M_GGUF = "7B_Instruct_Q4_K_M_GGUF"
+    QWEN3_7B_INSTRUCT_Q4_K_M_GGUF = "Qwen3_7B_Instruct_Q4_K_M_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "qwen3-7b-instruct-q4_k_m.gguf"
 
-    sample_text = "Give me a short introduction to large language models."
+    sample_text = "Give me a short introduction to large language model."
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -134,27 +134,6 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
-
-    def get_mesh_config(self, num_devices: int):
-        mesh_shape = (1, num_devices)
-        return mesh_shape, ("batch", "model")
-
-    def load_shard_spec(self, model):
-        shard_specs = {}
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
-        return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
