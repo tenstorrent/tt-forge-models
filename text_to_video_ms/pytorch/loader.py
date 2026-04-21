@@ -8,8 +8,10 @@ ModelScope Text-to-Video MS 1.7B is a diffusion-based text-to-video generation
 model with ~1.7B parameters. It generates videos from English text descriptions
 using a UNet3D diffusion architecture.
 
-Repository:
+Repositories:
 - https://huggingface.co/ali-vilab/text-to-video-ms-1.7b
+- https://huggingface.co/ckpt/ModelScope (fp16 mirror of
+  damo-vilab/modelscope-damo-text-to-video-synthesis)
 
 Available subfolders:
 - unet: UNet3DConditionModel
@@ -40,6 +42,7 @@ class ModelVariant(StrEnum):
     """Available text-to-video-ms variants."""
 
     TEXT_TO_VIDEO_MS_1_7B = "1.7b"
+    CKPT_MODELSCOPE = "ckpt_ModelScope"
 
 
 class ModelLoader(ForgeModel):
@@ -55,6 +58,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TEXT_TO_VIDEO_MS_1_7B: ModelConfig(
             pretrained_model_name="ali-vilab/text-to-video-ms-1.7b",
+        ),
+        ModelVariant.CKPT_MODELSCOPE: ModelConfig(
+            pretrained_model_name="ckpt/ModelScope",
         ),
     }
 
