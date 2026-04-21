@@ -198,22 +198,6 @@ class ModelLoader(ForgeModel):
 
             return {"input_ids": input_ids}
 
-        elif self._variant == ModelVariant.GPT2_MNLI:
-            premise = "The new rights are nice enough."
-            hypothesis = "Everyone really likes the newest benefits."
-            tokenized = self.tokenizer(
-                premise,
-                hypothesis,
-                return_tensors="pt",
-                padding="max_length",
-                truncation=True,
-                max_length=self._variant_config.max_length,
-            )
-            return {
-                "input_ids": tokenized["input_ids"],
-                "attention_mask": tokenized["attention_mask"],
-            }
-
         else:
             test_input = self.sample_text
             tokenized = self.tokenizer(
