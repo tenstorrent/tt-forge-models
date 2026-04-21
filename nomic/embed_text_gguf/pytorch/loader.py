@@ -4,8 +4,11 @@
 """
 Nomic Embed Text v1 GGUF model loader implementation for sentence embedding generation.
 """
+import re
+
 import torch
-from transformers import AutoModel, AutoTokenizer
+from huggingface_hub import hf_hub_download
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +21,71 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+_GGUF_TO_HF_NAME = {
+    "token_embd.weight": "embeddings.word_embeddings.weight",
+    "token_types.weight": "embeddings.token_type_embeddings.weight",
+    "token_embd_norm.weight": "emb_ln.weight",
+    "token_embd_norm.bias": "emb_ln.bias",
+}
+
+_BLK_SUFFIX_MAP = {
+    "attn_qkv.weight": "attn.Wqkv.weight",
+    "attn_output.weight": "attn.out_proj.weight",
+    "ffn_up.weight": "mlp.fc11.weight",
+    "ffn_gate.weight": "mlp.fc12.weight",
+    "ffn_down.weight": "mlp.fc2.weight",
+    "attn_output_norm.weight": "norm1.weight",
+    "attn_output_norm.bias": "norm1.bias",
+    "layer_output_norm.weight": "norm2.weight",
+    "layer_output_norm.bias": "norm2.bias",
+}
+
+
+def _gguf_name_to_hf(name):
+    if name in _GGUF_TO_HF_NAME:
+        return _GGUF_TO_HF_NAME[name]
+    m = re.match(r"blk\.(\d+)\.(.+)", name)
+    if m and m.group(2) in _BLK_SUFFIX_MAP:
+        return f"encoder.layers.{m.group(1)}.{_BLK_SUFFIX_MAP[m.group(2)]}"
+    return None
+
+
+def _load_model_from_gguf(pretrained_model_name, gguf_file, config_repo, model_kwargs):
+    """Load a nomic-bert model by dequantizing a GGUF file into a freshly built model."""
+    from gguf import GGUFReader, dequantize
+
+    gguf_path = hf_hub_download(repo_id=pretrained_model_name, filename=gguf_file)
+
+    config = AutoConfig.from_pretrained(config_repo, trust_remote_code=True)
+    model = AutoModel.from_config(config, trust_remote_code=True)
+    model_sd = model.state_dict()
+
+    reader = GGUFReader(gguf_path)
+    loaded_sd = {}
+    for tensor in reader.tensors:
+        hf_name = _gguf_name_to_hf(tensor.name)
+        if hf_name is None:
+            continue
+        weights = dequantize(tensor.data, tensor.tensor_type)
+        pt = torch.from_numpy(weights.copy())
+        if pt.ndim == 2:
+            pt = pt.T
+        # Pad vocabulary dimension if the model uses a rounded vocab size.
+        if hf_name == "embeddings.word_embeddings.weight":
+            target_vocab = model_sd[hf_name].shape[0]
+            if pt.shape[0] < target_vocab:
+                pad = torch.zeros(
+                    target_vocab - pt.shape[0],
+                    pt.shape[1],
+                    dtype=pt.dtype,
+                )
+                pt = torch.cat([pt, pad], dim=0)
+        loaded_sd[hf_name] = pt.to(model_sd[hf_name].dtype)
+
+    model.load_state_dict(loaded_sd, strict=False)
+    model.eval()
+    return model
 
 
 class ModelVariant(StrEnum):
@@ -38,6 +106,9 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.NOMIC_EMBED_TEXT_V1_GGUF
 
     GGUF_FILE = "nomic-embed-text-v1.Q4_K_M.gguf"
+
+    # Non-GGUF repo used to obtain the model config and custom architecture code.
+    CONFIG_REPO = "nomic-ai/nomic-embed-text-v1"
 
     sample_sentences = [
         "search_document: TSNE is a dimensionality reduction algorithm created by Laurens van Der Maaten"
@@ -62,28 +133,18 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
-
+        self.tokenizer = AutoTokenizer.from_pretrained(self.CONFIG_REPO)
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        model_kwargs = {"trust_remote_code": True}
+        model = _load_model_from_gguf(
+            self._variant_config.pretrained_model_name,
+            self.GGUF_FILE,
+            self.CONFIG_REPO,
+            kwargs,
+        )
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
-        model.eval()
-
+            model = model.to(dtype_override)
         return model
 
     def load_inputs(self, dtype_override=None):
