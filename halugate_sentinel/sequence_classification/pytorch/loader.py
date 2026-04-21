@@ -1,21 +1,23 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
 HaluGate Sentinel model loader implementation for sequence classification.
 """
+from typing import Optional
 
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
-from third_party.tt_forge_models.config import (
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
+
+from ....base import ForgeModel
+from ....config import (
     Framework,
-    StrEnum,
     LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
+    StrEnum,
 )
-from third_party.tt_forge_models.base import ForgeModel
 
 
 class ModelVariant(StrEnum):
@@ -36,43 +38,19 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.HALUGATE_SENTINEL
 
-    _SAMPLE_TEXTS = {
-        ModelVariant.HALUGATE_SENTINEL: "When was the Eiffel Tower built?",
-    }
+    sample_text = "When was the Eiffel Tower built?"
 
-    def __init__(self, variant=None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional string specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
+    def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-
-        pretrained_model_name = self._variant_config.pretrained_model_name
-        self.model_name = pretrained_model_name
-        self.review = self._SAMPLE_TEXTS.get(
-            self._variant,
-            "When was the Eiffel Tower built?",
-        )
-        self.max_length = self._variant_config.max_length
         self.tokenizer = None
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
-        """Get model information for dashboard and metrics reporting.
-
-        Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
-        if variant_name is None:
-            variant_name = "base"
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
             model="halugate_sentinel",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_TEXT_CLS,
             source=ModelSource.HUGGING_FACE,
@@ -80,16 +58,9 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load HaluGate Sentinel model for sequence classification from Hugging Face.
+        pretrained_model_name = self._variant_config.pretrained_model_name
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                            If not provided, the model will use its default dtype (typically float32).
-
-        Returns:
-            torch.nn.Module: The HaluGate Sentinel model instance.
-        """
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -97,28 +68,20 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForSequenceClassification.from_pretrained(
-            self.model_name, **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
-        self.model = model
         model.eval()
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Prepare sample input for HaluGate Sentinel sequence classification.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                            If not provided, the model will use its default dtype (typically float32).
-
-        Returns:
-            dict: Input tensors that can be fed to the model.
-        """
         if self.tokenizer is None:
-            self.load_model(dtype_override=dtype_override)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
 
         inputs = self.tokenizer(
-            self.review,
-            max_length=self.max_length,
+            self.sample_text,
+            max_length=self._variant_config.max_length,
             padding="max_length",
             truncation=True,
             return_tensors="pt",
@@ -126,11 +89,14 @@ class ModelLoader(ForgeModel):
 
         return inputs
 
-    def decode_output(self, co_out):
-        """Decode the model output for sequence classification.
-
-        Args:
-            co_out: Model output
-        """
-        predicted_value = co_out[0].argmax(-1).item()
-        print(f"Predicted Label: {self.model.config.id2label[predicted_value]}")
+    def decode_output(self, co_out, framework_model=None):
+        predicted_class_id = co_out[0].argmax().item()
+        if (
+            framework_model
+            and hasattr(framework_model, "config")
+            and hasattr(framework_model.config, "id2label")
+        ):
+            predicted_label = framework_model.config.id2label[predicted_class_id]
+            print(f"Predicted label: {predicted_label}")
+        else:
+            print(f"Predicted class ID: {predicted_class_id}")
