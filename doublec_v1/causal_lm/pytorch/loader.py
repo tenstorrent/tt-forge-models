@@ -4,6 +4,7 @@
 """
 DoubleC-V1 model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -29,7 +30,6 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """DoubleC-V1 model loader implementation for causal language modeling tasks."""
 
-    # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.DOUBLEC_V1: LLMModelConfig(
             pretrained_model_name="BrainDelay/DoubleC-V1",
@@ -37,10 +37,10 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    # Default variant to use
     DEFAULT_VARIANT = ModelVariant.DOUBLEC_V1
 
-    # Shared configuration parameters
+    GGUF_FILE = "Mistral-DoubleC_V1.1_Q4_K_M.gguf"
+
     sample_text = "The quick brown fox jumps over the lazy dog."
 
     def __init__(
@@ -48,6 +48,7 @@ class ModelLoader(ForgeModel):
     ):
         super().__init__(variant)
         self.tokenizer = None
+        self.config = None
         self.num_layers = num_layers
 
     @classmethod
@@ -65,11 +66,13 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **tokenizer_kwargs,
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
@@ -83,18 +86,21 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
-        )
-        model.eval()
-        self.config = model.config
+        ).eval()
 
+        self.config = model.config
+        self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -116,3 +122,9 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
+
+    def load_config(self):
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+        return self.config
