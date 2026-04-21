@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     SENTENCE_BERT_BASE_ITALIAN_XXL_UNCASED = (
         "nickprock/sentence-bert-base-italian-xxl-uncased"
     )
+    SENTENCE_BERT_BASE_ITALIAN_UNCASED = "nickprock/sentence-bert-base-italian-uncased"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SENTENCE_BERT_BASE_ITALIAN_XXL_UNCASED: LLMModelConfig(
             pretrained_model_name="nickprock/sentence-bert-base-italian-xxl-uncased",
+            max_length=128,
+        ),
+        ModelVariant.SENTENCE_BERT_BASE_ITALIAN_UNCASED: LLMModelConfig(
+            pretrained_model_name="nickprock/sentence-bert-base-italian-uncased",
             max_length=128,
         ),
     }
