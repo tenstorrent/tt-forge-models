@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available DistilGPT2 model variants."""
 
     DISTILGPT2 = "DistilGPT2"
+    FREDZHANG7_ANIME_ANYTHING_PROMPTGEN_V2 = "fredzhang7-anime-anything-promptgen-v2"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.DISTILGPT2: LLMModelConfig(
             pretrained_model_name="Xenova/distilgpt2",
             max_length=256,
+        ),
+        ModelVariant.FREDZHANG7_ANIME_ANYTHING_PROMPTGEN_V2: LLMModelConfig(
+            pretrained_model_name="FredZhang7/anime-anything-promptgen-v2",
+            max_length=76,
         ),
     }
 
