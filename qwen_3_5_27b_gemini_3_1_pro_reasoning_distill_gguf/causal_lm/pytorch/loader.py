@@ -2,12 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Jackrong/Qwen3.5-27B-Gemini-3.1-Pro-Reasoning-Distill-GGUF model loader implementation for causal language modeling.
+Qwen3.5-27B-Gemini-3.1-Pro-Reasoning-Distill GGUF (mradermacher) model loader implementation for causal language modeling.
 """
-from typing import Optional
-
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
@@ -22,7 +21,7 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Jackrong Qwen3.5-27B-Gemini-3.1-Pro-Reasoning-Distill GGUF model variants for causal language modeling."""
+    """Available Qwen3.5-27B-Gemini-3.1-Pro-Reasoning-Distill GGUF model variants for causal language modeling."""
 
     QWEN_3_5_27B_GEMINI_3_1_PRO_REASONING_DISTILL_GGUF = (
         "27B_Gemini_3_1_Pro_Reasoning_Distill_GGUF"
@@ -30,18 +29,18 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Jackrong Qwen3.5-27B-Gemini-3.1-Pro-Reasoning-Distill GGUF model loader implementation for causal language modeling tasks."""
+    """Qwen3.5-27B-Gemini-3.1-Pro-Reasoning-Distill GGUF (mradermacher) model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.QWEN_3_5_27B_GEMINI_3_1_PRO_REASONING_DISTILL_GGUF: LLMModelConfig(
-            pretrained_model_name="Jackrong/Qwen3.5-27B-Gemini-3.1-Pro-Reasoning-Distill-GGUF",
+            pretrained_model_name="mradermacher/Qwen3.5-27B-Gemini-3.1-Pro-Reasoning-Distill-GGUF",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_5_27B_GEMINI_3_1_PRO_REASONING_DISTILL_GGUF
 
-    GGUF_FILE = "Qwen3.5-27B.Q4_K_M.gguf"
+    GGUF_FILE = "Qwen3.5-27B-Gemini-3.1-Pro-Reasoning-Distill.Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
@@ -56,7 +55,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Jackrong Qwen3.5-27B-Gemini-3.1-Pro-Reasoning-Distill GGUF",
+            model="Qwen3.5-27B-Gemini-3.1-Pro-Reasoning-Distill GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
