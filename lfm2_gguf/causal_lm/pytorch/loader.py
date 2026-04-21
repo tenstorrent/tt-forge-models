@@ -18,6 +18,7 @@ from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 
 def _patch_lfm2moe_support():
@@ -48,6 +49,8 @@ def _patch_lfm2moe_support():
             _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
                 "lfm2moe"
             ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["lfm2"]
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = GGUF_TO_FAST_CONVERTERS["llama"]
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
