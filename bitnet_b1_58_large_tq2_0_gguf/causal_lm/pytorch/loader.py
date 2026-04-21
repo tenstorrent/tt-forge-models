@@ -4,6 +4,7 @@
 """
 gianni-cor bitnet_b1_58-large-TQ2_0 GGUF model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
