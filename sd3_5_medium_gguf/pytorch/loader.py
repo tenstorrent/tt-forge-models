@@ -11,7 +11,12 @@ Available variants:
 - SD3_5_MEDIUM_Q4_K_M: Q4_K_M quantized variant
 """
 
+from pathlib import Path
 from typing import Optional
+
+import torch
+from diffusers import SD3Transformer2DModel, GGUFQuantizationConfig
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -23,7 +28,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_gguf_pipe, stable_diffusion_preprocessing_v35
 
 REPO_ID = "calcuis/sd3.5-medium-gguf"
 
@@ -47,11 +51,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "sd3.5_medium-q4_k_m.gguf"
 
-    prompt = "An astronaut riding a green horse"
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self.transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -67,39 +69,60 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SD3.5 Medium pipeline from GGUF checkpoint.
-
-        Returns:
-            DiffusionPipeline: The loaded pipeline instance.
-        """
-        if self.pipeline is None:
-            self.pipeline = load_gguf_pipe(REPO_ID, self.GGUF_FILE)
+        if self.transformer is None:
+            model_path = hf_hub_download(repo_id=REPO_ID, filename=self.GGUF_FILE)
+            config_dir = str(Path(__file__).parent / "config" / "transformer")
+            compute_dtype = (
+                dtype_override if dtype_override is not None else torch.float32
+            )
+            quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+            self.transformer = SD3Transformer2DModel.from_single_file(
+                model_path,
+                config=config_dir,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.transformer = self.transformer.to(dtype_override)
 
-        return self.pipeline
+        return self.transformer
 
-    def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the model.
-
-        Returns:
-            list: Input tensors for the transformer model.
-        """
-        if self.pipeline is None:
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        if self.transformer is None:
             self.load_model(dtype_override=dtype_override)
 
-        (
-            latent_model_input,
-            timestep,
-            prompt_embeds,
-            pooled_prompt_embeds,
-        ) = stable_diffusion_preprocessing_v35(self.pipeline, self.prompt)
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        config = self.transformer.config
 
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timestep = timestep.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
-            pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
+        height = 128
+        width = 128
+        patch_size = config.patch_size
+        in_channels = config.in_channels
 
-        return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+        h_latent = height // patch_size
+        w_latent = width // patch_size
+
+        hidden_states = torch.randn(
+            batch_size,
+            h_latent * w_latent,
+            in_channels * (patch_size**2),
+            dtype=dtype,
+        )
+
+        encoder_hidden_states = torch.randn(
+            batch_size, 256, config.joint_attention_dim, dtype=dtype
+        )
+
+        pooled_projections = torch.randn(
+            batch_size, config.pooled_projection_dim, dtype=dtype
+        )
+
+        timestep = torch.tensor([1.0], dtype=dtype).expand(batch_size)
+
+        return {
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "pooled_projections": pooled_projections,
+            "timestep": timestep,
+        }
