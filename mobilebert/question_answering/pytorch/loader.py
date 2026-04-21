@@ -22,6 +22,7 @@ from third_party.tt_forge_models.config import (
 class ModelVariant(StrEnum):
     """Available MobileBERT model variants for question answering."""
 
+    MOBILEBERT_UNCASED_SQUAD_V1 = "Uncased_Squad_V1"
     MOBILEBERT_UNCASED_SQUAD_V2 = "Uncased_Squad_V2"
 
 
@@ -30,6 +31,10 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants
     _VARIANTS = {
+        ModelVariant.MOBILEBERT_UNCASED_SQUAD_V1: LLMModelConfig(
+            pretrained_model_name="csarron/mobilebert-uncased-squad-v1",
+            max_length=384,
+        ),
         ModelVariant.MOBILEBERT_UNCASED_SQUAD_V2: LLMModelConfig(
             pretrained_model_name="csarron/mobilebert-uncased-squad-v2",
             max_length=384,
