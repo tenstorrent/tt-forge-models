@@ -25,8 +25,8 @@ class ModelVariant(StrEnum):
     """Available Omega Darker Gaslight The Final Forgotten Fever Dream 24B GGUF model variants for causal language modeling."""
 
     OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_GGUF = "24B_GGUF"
-    OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_LLMFAN46_V1_GGUF = (
-        "24B_llmfan46_v1_GGUF"
+    OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_V1_I1_GGUF = (
+        "24B_v1_i1_GGUF"
     )
 
 
@@ -38,8 +38,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/Omega-Darker-Gaslight_The-Final-Forgotten-Fever-Dream-24B-ultra-uncensored-heretic-v2-i1-GGUF",
             max_length=128,
         ),
-        ModelVariant.OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_LLMFAN46_V1_GGUF: LLMModelConfig(
-            pretrained_model_name="llmfan46/Omega-Darker-Gaslight_The-Final-Forgotten-Fever-Dream-24B-ultra-uncensored-heretic-v1-GGUF",
+        ModelVariant.OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_V1_I1_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Omega-Darker-Gaslight_The-Final-Forgotten-Fever-Dream-24B-ultra-uncensored-heretic-v1-i1-GGUF",
             max_length=128,
         ),
     }
@@ -50,7 +50,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_GGUF: "Omega-Darker-Gaslight_The-Final-Forgotten-Fever-Dream-24B-ultra-uncensored-heretic-v2.i1-Q4_K_M.gguf",
-        ModelVariant.OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_LLMFAN46_V1_GGUF: "Omega-Darker-Gaslight_The-Final-Forgotten-Fever-Dream-24B-ultra-uncensored-heretic-v1-Q4_K_M.gguf",
+        ModelVariant.OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_V1_I1_GGUF: "Omega-Darker-Gaslight_The-Final-Forgotten-Fever-Dream-24B-ultra-uncensored-heretic-v1.i1-Q4_K_M.gguf",
     }
 
     sample_text = "Give me a short introduction to large language model."
