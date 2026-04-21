@@ -26,7 +26,8 @@ from ....config import (
     StrEnum,
 )
 
-CITY96_GGUF_REPO = "city96/HiDream-I1-Full-gguf"
+CITY96_GGUF_REPO_FULL = "city96/HiDream-I1-Full-gguf"
+CITY96_GGUF_REPO_DEV = "city96/HiDream-I1-Dev-gguf"
 
 
 class ModelVariant(StrEnum):
@@ -41,11 +42,16 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.HIDREAM_I1_FULL: ModelConfig(
-            pretrained_model_name="HiDream-ai/HiDream-I1-Full",
+            pretrained_model_name=CITY96_GGUF_REPO_FULL,
         ),
         ModelVariant.HIDREAM_I1_DEV: ModelConfig(
-            pretrained_model_name="HiDream-ai/HiDream-I1-Dev",
+            pretrained_model_name=CITY96_GGUF_REPO_DEV,
         ),
+    }
+
+    _GGUF_FILES = {
+        ModelVariant.HIDREAM_I1_FULL: "hidream-i1-full-Q4_K_M.gguf",
+        ModelVariant.HIDREAM_I1_DEV: "hidream-i1-dev-Q4_K_M.gguf",
     }
 
     DEFAULT_VARIANT = ModelVariant.HIDREAM_I1_FULL
