@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available SAM2 Hiera feature extraction model variants."""
 
     SAM2_HIERA_SMALL_FB_R896_2PT1 = "sam2_hiera_small_fb_r896_2pt1"
+    SAM2_HIERA_LARGE_FB_R1024 = "sam2_hiera_large_fb_r1024"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SAM2_HIERA_SMALL_FB_R896_2PT1: ModelConfig(
             pretrained_model_name="sam2_hiera_small.fb_r896_2pt1",
+        ),
+        ModelVariant.SAM2_HIERA_LARGE_FB_R1024: ModelConfig(
+            pretrained_model_name="sam2_hiera_large.fb_r1024",
         ),
     }
 
