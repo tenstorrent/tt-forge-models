@@ -59,7 +59,9 @@ class ModelVariant(StrEnum):
     RESNET_152_A1H_IN1K_TIMM = "ResNet152_A1H_IN1K_TIMM"
     TEST_RESNET_R160_IN1K_TIMM = "TestResNet_R160_IN1K_TIMM"
     RESNETV2_50X1_BIT_GOOG_IN21K_TIMM = "ResNetV2_50x1_BiT_Goog_In21k_TIMM"
-    RESNETV2_50_A1H_IN1K_TIMM = "ResNetV2_50_A1H_IN1K_TIMM"
+    RESNETV2_152X2_BIT_GOOG_IN21K_FT_IN1K_TIMM = (
+        "ResNetV2_152x2_BiT_Goog_In21k_Ft_In1k_TIMM"
+    )
 
     # Torchvision variants
     RESNET_18 = "ResNet18"
@@ -131,8 +133,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="resnetv2_50x1_bit.goog_in21k",
             source=ModelSource.TIMM,
         ),
-        ModelVariant.RESNETV2_50_A1H_IN1K_TIMM: ResNetConfig(
-            pretrained_model_name="resnetv2_50.a1h_in1k",
+        ModelVariant.RESNETV2_152X2_BIT_GOOG_IN21K_FT_IN1K_TIMM: ResNetConfig(
+            pretrained_model_name="resnetv2_152x2_bit.goog_in21k_ft_in1k",
             source=ModelSource.TIMM,
         ),
         # Torchvision variants
@@ -209,7 +211,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.RESNET_152_A1H_IN1K_TIMM,
             ModelVariant.TEST_RESNET_R160_IN1K_TIMM,
             ModelVariant.RESNETV2_50X1_BIT_GOOG_IN21K_TIMM,
-            ModelVariant.RESNETV2_50_A1H_IN1K_TIMM,
+            ModelVariant.RESNETV2_152X2_BIT_GOOG_IN21K_FT_IN1K_TIMM,
         ]:
             group = ModelGroup.VULCAN
         else:
