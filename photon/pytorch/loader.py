@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Photon model variants."""
 
     V1 = "v1"
+    SAM749_V1 = "sam749_v1"
 
 
 class ModelLoader(ForgeModel):
@@ -33,7 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.V1: ModelConfig(
             pretrained_model_name="digiplay/Photon_v1",
-        )
+        ),
+        ModelVariant.SAM749_V1: ModelConfig(
+            pretrained_model_name="sam749/Photon-v1",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.V1
