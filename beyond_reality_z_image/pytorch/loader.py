@@ -34,6 +34,44 @@ from ...config import (
 REPO_ID = "Nurburgring/BEYOND_REALITY_Z_IMAGE"
 BASE_REPO_ID = "Tongyi-MAI/Z-Image-Turbo"
 
+# Patch sizes from the Z-Image-Turbo config (all_patch_size=[2], all_f_patch_size=[1])
+_X_EMBEDDER_KEY = "all_x_embedder.2-1"
+
+
+def _remap_state_dict(state_dict: dict) -> dict:
+    """Remap BEYOND REALITY checkpoint keys to match the diffusers ZImageTransformer2DModel."""
+    prefix = "model.diffusion_model."
+    # Strip outer wrapper prefix
+    stripped = {
+        (k[len(prefix) :] if k.startswith(prefix) else k): v
+        for k, v in state_dict.items()
+    }
+
+    remapped = {}
+    for k, v in stripped.items():
+        # Attention norm renames
+        k = k.replace(".attention.k_norm.", ".attention.norm_k.")
+        k = k.replace(".attention.q_norm.", ".attention.norm_q.")
+        # Output projection rename
+        k = k.replace(".attention.out.weight", ".attention.to_out.0.weight")
+        # x_embedder → all_x_embedder
+        if k == "x_embedder.weight":
+            k = f"{_X_EMBEDDER_KEY}.weight"
+        elif k == "x_embedder.bias":
+            k = f"{_X_EMBEDDER_KEY}.bias"
+
+        if k.endswith(".attention.qkv.weight"):
+            # Split combined QKV into separate Q, K, V projections
+            base = k[: -len(".attention.qkv.weight")]
+            dim = v.shape[0] // 3
+            remapped[f"{base}.attention.to_q.weight"] = v[:dim]
+            remapped[f"{base}.attention.to_k.weight"] = v[dim : 2 * dim]
+            remapped[f"{base}.attention.to_v.weight"] = v[2 * dim :]
+        else:
+            remapped[k] = v
+
+    return remapped
+
 
 class ModelVariant(StrEnum):
     """Available BEYOND REALITY Z IMAGE model variants."""
@@ -85,8 +123,8 @@ class ModelLoader(ForgeModel):
 
         filename = VARIANT_FILENAMES[self._variant]
         ckpt_path = hf_hub_download(repo_id=REPO_ID, filename=filename)
-        state_dict = load_file(ckpt_path)
-        self._pipe.transformer.load_state_dict(state_dict)
+        state_dict = _remap_state_dict(load_file(ckpt_path))
+        self._pipe.transformer.load_state_dict(state_dict, strict=False)
         self._pipe.transformer.eval()
         return self._pipe
 
