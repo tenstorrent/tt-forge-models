@@ -8,7 +8,7 @@ craigwu/seal_vsm_7b model loader implementation for causal language modeling.
 from typing import Optional
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer, LlavaForConditionalGeneration
 
 from ....base import ForgeModel
 from ....config import (
@@ -81,9 +81,10 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
+        full_model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        )
+        model = full_model.language_model.eval()
 
         return model
 
