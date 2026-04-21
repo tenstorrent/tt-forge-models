@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.QWEN3_5_0_8B_MNN: LLMModelConfig(
-            pretrained_model_name="taobao-mnn/Qwen3.5-0.8B-MNN",
+            pretrained_model_name="Qwen/Qwen3.5-0.8B",
             max_length=128,
         ),
     }
