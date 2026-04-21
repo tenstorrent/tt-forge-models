@@ -122,6 +122,7 @@ class ModelVariant(StrEnum):
     LLAMA_2_7B_GPTQ = "2_7B_GPTQ"
     LLAMA_2_70B_MMLU = "2_70B_Mmlu"
     MOMO_70B_V1_1 = "Momo_70B_V1.1"
+    LLAMA_2_KO_7B_CHAT = "2_Ko_7B_Chat"
 
     # Unsloth variants
     UNSLOTH_LLAMA_2_7B = "Unsloth_2_7B"
@@ -298,6 +299,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bongchoi/MoMo-70B-V1.1",
             max_length=128,
         ),
+        ModelVariant.LLAMA_2_KO_7B_CHAT: LLMModelConfig(
+            pretrained_model_name="kfkas/Llama-2-ko-7b-Chat",
+            max_length=128,
+        ),
         # Unsloth variants
         ModelVariant.UNSLOTH_LLAMA_2_7B: LLMModelConfig(
             pretrained_model_name="unsloth/llama-2-7b",
@@ -440,7 +445,7 @@ class ModelLoader(ForgeModel):
         elif variant in [
             ModelVariant.LLAMA_2_7B,
             ModelVariant.UNSLOTH_LLAMA_2_7B,
-            ModelVariant.SHARPBAI_LLAMA_2_7B,
+            ModelVariant.LLAMA_2_KO_7B_CHAT,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.AMD_QUARK_TINY_LLAMA,
             ModelVariant.JACKFRAM_LLAMA_160M,
