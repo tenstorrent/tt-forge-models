@@ -233,8 +233,9 @@ class ModelLoader(ForgeModel):
     ):
         """Load the GGUF-quantized HunyuanVideo 1.5 I2V transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
-        Returns the transformer nn.Module directly for compilation testing.
+        Downloads the GGUF file, converts architecture keys to diffusers format,
+        and loads weights into a HunyuanVideo15Transformer3DModel with default
+        config (which matches the GGUF file dimensions).
         """
         import diffusers.utils.import_utils as _diffusers_import_utils
 
@@ -244,32 +245,63 @@ class ModelLoader(ForgeModel):
             if importlib.util.find_spec("gguf") is not None:
                 _diffusers_import_utils._gguf_available = True
 
-        from diffusers import (
-            GGUFQuantizationConfig,
-            HunyuanVideo15Transformer3DModel,
+        from accelerate import init_empty_weights
+        from diffusers import GGUFQuantizationConfig, HunyuanVideo15Transformer3DModel
+        from diffusers.models.model_loading_utils import (
+            load_gguf_checkpoint,
+            load_model_dict_into_meta,
         )
-        from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
-
-        # HunyuanVideo15Transformer3DModel is not in SINGLE_FILE_LOADABLE_CLASSES in
-        # diffusers 0.37.x; register it with the key-conversion function required to
-        # map original HunyuanVideo 1.5 GGUF architecture names to diffusers names.
-        if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
-            SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
-                "checkpoint_mapping_fn": _convert_hunyuan_video_1_5_gguf_to_diffusers,
-                "default_subfolder": "transformer",
-            }
+        from diffusers.quantizers.auto import DiffusersAutoQuantizer
+        from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
-            f"{GGUF_BASE_URL}/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
+        # Download the GGUF file from HuggingFace Hub.
+        local_path = hf_hub_download(
+            repo_id=GGUF_REPO,
+            filename=gguf_file,
         )
 
+        # Load GGUF checkpoint and convert keys to diffusers naming.
+        checkpoint = load_gguf_checkpoint(local_path)
+        converted = _convert_hunyuan_video_1_5_gguf_to_diffusers(checkpoint)
+
+        # Set up the GGUF quantizer.
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        hf_quantizer = DiffusersAutoQuantizer.from_config(quantization_config)
+        hf_quantizer.validate_environment()
+        torch_dtype = hf_quantizer.update_torch_dtype(compute_dtype)
+
+        # Build the model with default config — dimensions match the GGUF file
+        # (54 blocks, inner_dim=2048). Bypass from_single_file to avoid the
+        # auto-config fetch that would pull the wrong HunyuanVideo 1.0 config.
+        with init_empty_weights():
+            model = HunyuanVideo15Transformer3DModel()
+
+        hf_quantizer.preprocess_model(
+            model=model,
+            device_map=None,
+            state_dict=converted,
+            keep_in_fp32_modules=[],
+        )
+
+        unexpected_keys = [k for k in converted if k not in model.state_dict()]
+        load_model_dict_into_meta(
+            model,
+            converted,
+            dtype=torch_dtype,
+            device_map={"": "cpu"},
+            hf_quantizer=hf_quantizer,
+            keep_in_fp32_modules=[],
+            unexpected_keys=unexpected_keys,
+        )
+
+        hf_quantizer.postprocess_model(model)
+        model.eval()
+
+        self._transformer = model
         return self._transformer
 
     def load_inputs(self, **kwargs) -> Any:
