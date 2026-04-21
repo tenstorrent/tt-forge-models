@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Asmodeus 24B v2 GGUF model variants for causal language modeling."""
 
     ASMODEUS_24B_V2_GGUF = "24B_v2_GGUF"
+    ASMODEUS_24B_V2_I1_GGUF = "24B_v2_i1_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +35,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Naphula/Asmodeus-24B-v2-GGUF",
             max_length=128,
         ),
+        ModelVariant.ASMODEUS_24B_V2_I1_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Asmodeus-24B-v2-i1-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.ASMODEUS_24B_V2_GGUF
 
-    GGUF_FILE = "Asmodeus-24B-v2-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.ASMODEUS_24B_V2_GGUF: "Asmodeus-24B-v2-Q4_K_M.gguf",
+        ModelVariant.ASMODEUS_24B_V2_I1_GGUF: "Asmodeus-24B-v2.i1-Q4_K_M.gguf",
+    }
 
     sample_text = "Write a short creative story about a traveler who discovers a hidden library in the mountains."
 
@@ -65,7 +73,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +93,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self._GGUF_FILES[self._variant]
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -155,6 +163,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name,
+            gguf_file=self._GGUF_FILES[self._variant],
         )
         return self.config
