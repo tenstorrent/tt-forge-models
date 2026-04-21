@@ -5,8 +5,11 @@
 DeepSeek Coder V2 model loader implementation for causal language modeling.
 """
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
 from typing import Optional
+
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = DynamicCache.get_seq_length
 from ....tools.utils import generate_no_cache, pad_inputs
 from ....base import ForgeModel
 from ....config import (
