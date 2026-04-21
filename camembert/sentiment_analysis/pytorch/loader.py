@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available CamemBERT model variants for sentiment analysis."""
 
     AC0HIK_SENTIMENT_ANALYSIS_FRENCH = "ac0hik_Sentiment_Analysis_French"
+    TBLARD_TF_ALLOCINE = "tblard_tf_allocine"
 
 
 class ModelLoader(ForgeModel):
@@ -33,10 +34,19 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="ac0hik/Sentiment_Analysis_French",
             max_length=128,
         ),
+        ModelVariant.TBLARD_TF_ALLOCINE: LLMModelConfig(
+            pretrained_model_name="tblard/tf-allocine",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.AC0HIK_SENTIMENT_ANALYSIS_FRENCH
+
+    # Variants that require loading from TensorFlow weights
+    _FROM_TF_VARIANTS = {
+        ModelVariant.TBLARD_TF_ALLOCINE,
+    }
 
     # Sample French text for sentiment analysis
     sample_text = "J'adore ce produit, il est vraiment fantastique!"
@@ -89,6 +99,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._variant in self._FROM_TF_VARIANTS:
+            model_kwargs["from_tf"] = True
         model_kwargs |= kwargs
 
         model = AutoModelForSequenceClassification.from_pretrained(
