@@ -15,6 +15,7 @@ Repository:
 - https://huggingface.co/jayn7/HunyuanVideo-1.5_I2V_720p-GGUF
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -31,6 +32,7 @@ from ...config import (
 )
 
 GGUF_REPO = "jayn7/HunyuanVideo-1.5_I2V_720p-GGUF"
+_CONFIG_DIR = os.path.dirname(__file__)
 
 # Small spatial/temporal dimensions for compile-only testing.
 TRANSFORMER_NUM_FRAMES = 4
@@ -74,6 +76,197 @@ _GGUF_FILES = {
 }
 
 
+def _convert_hunyuan_video15_transformer_to_diffusers(checkpoint, **kwargs):
+    """Convert HunyuanVideo 1.5 GGUF checkpoint from original to diffusers format.
+
+    Maps the original HunyuanVideo 1.5 I2V key naming convention used in GGUF
+    files to the diffusers HunyuanVideo15Transformer3DModel key naming convention.
+    """
+    new_ckpt = {}
+
+    def _rename(old_key, new_key):
+        if old_key in checkpoint:
+            new_ckpt[new_key] = checkpoint.pop(old_key)
+
+    def _split_qkv(old_key, q_key, k_key, v_key):
+        if old_key not in checkpoint:
+            return
+        weight = checkpoint.pop(old_key)
+        q, k, v = weight.chunk(3, dim=0)
+        new_ckpt[q_key] = q
+        new_ckpt[k_key] = k
+        new_ckpt[v_key] = v
+
+    # x_embedder
+    _rename("img_in.proj.weight", "x_embedder.proj.weight")
+    _rename("img_in.proj.bias", "x_embedder.proj.bias")
+
+    # cond_type_embed
+    _rename("cond_type_embedding.weight", "cond_type_embed.weight")
+
+    # time_embed
+    _rename("time_in.mlp.0.weight", "time_embed.timestep_embedder.linear_1.weight")
+    _rename("time_in.mlp.0.bias", "time_embed.timestep_embedder.linear_1.bias")
+    _rename("time_in.mlp.2.weight", "time_embed.timestep_embedder.linear_2.weight")
+    _rename("time_in.mlp.2.bias", "time_embed.timestep_embedder.linear_2.bias")
+
+    # image_embedder (vision_in)
+    _rename("vision_in.proj.0.weight", "image_embedder.norm_in.weight")
+    _rename("vision_in.proj.0.bias", "image_embedder.norm_in.bias")
+    _rename("vision_in.proj.1.weight", "image_embedder.linear_1.weight")
+    _rename("vision_in.proj.1.bias", "image_embedder.linear_1.bias")
+    _rename("vision_in.proj.3.weight", "image_embedder.linear_2.weight")
+    _rename("vision_in.proj.3.bias", "image_embedder.linear_2.bias")
+    _rename("vision_in.proj.4.weight", "image_embedder.norm_out.weight")
+    _rename("vision_in.proj.4.bias", "image_embedder.norm_out.bias")
+
+    # context_embedder (txt_in)
+    _rename(
+        "txt_in.t_embedder.mlp.0.weight",
+        "context_embedder.time_text_embed.timestep_embedder.linear_1.weight",
+    )
+    _rename(
+        "txt_in.t_embedder.mlp.0.bias",
+        "context_embedder.time_text_embed.timestep_embedder.linear_1.bias",
+    )
+    _rename(
+        "txt_in.t_embedder.mlp.2.weight",
+        "context_embedder.time_text_embed.timestep_embedder.linear_2.weight",
+    )
+    _rename(
+        "txt_in.t_embedder.mlp.2.bias",
+        "context_embedder.time_text_embed.timestep_embedder.linear_2.bias",
+    )
+    _rename(
+        "txt_in.c_embedder.linear_1.weight",
+        "context_embedder.time_text_embed.text_embedder.linear_1.weight",
+    )
+    _rename(
+        "txt_in.c_embedder.linear_1.bias",
+        "context_embedder.time_text_embed.text_embedder.linear_1.bias",
+    )
+    _rename(
+        "txt_in.c_embedder.linear_2.weight",
+        "context_embedder.time_text_embed.text_embedder.linear_2.weight",
+    )
+    _rename(
+        "txt_in.c_embedder.linear_2.bias",
+        "context_embedder.time_text_embed.text_embedder.linear_2.bias",
+    )
+    _rename("txt_in.input_embedder.weight", "context_embedder.proj_in.weight")
+    _rename("txt_in.input_embedder.bias", "context_embedder.proj_in.bias")
+
+    # token_refiner blocks
+    refiner_prefix = "txt_in.individual_token_refiner.blocks"
+    diffusers_refiner_prefix = "context_embedder.token_refiner.refiner_blocks"
+    block_idx = 0
+    while f"{refiner_prefix}.{block_idx}.norm1.weight" in checkpoint:
+        n = block_idx
+        src = f"{refiner_prefix}.{n}"
+        dst = f"{diffusers_refiner_prefix}.{n}"
+        _rename(f"{src}.norm1.weight", f"{dst}.norm1.weight")
+        _rename(f"{src}.norm1.bias", f"{dst}.norm1.bias")
+        _rename(f"{src}.norm2.weight", f"{dst}.norm2.weight")
+        _rename(f"{src}.norm2.bias", f"{dst}.norm2.bias")
+        _split_qkv(
+            f"{src}.self_attn_qkv.weight",
+            f"{dst}.attn.to_q.weight",
+            f"{dst}.attn.to_k.weight",
+            f"{dst}.attn.to_v.weight",
+        )
+        _split_qkv(
+            f"{src}.self_attn_qkv.bias",
+            f"{dst}.attn.to_q.bias",
+            f"{dst}.attn.to_k.bias",
+            f"{dst}.attn.to_v.bias",
+        )
+        _rename(f"{src}.self_attn_proj.weight", f"{dst}.attn.to_out.0.weight")
+        _rename(f"{src}.self_attn_proj.bias", f"{dst}.attn.to_out.0.bias")
+        _rename(f"{src}.mlp.fc1.weight", f"{dst}.ff.net.0.proj.weight")
+        _rename(f"{src}.mlp.fc1.bias", f"{dst}.ff.net.0.proj.bias")
+        _rename(f"{src}.mlp.fc2.weight", f"{dst}.ff.net.2.weight")
+        _rename(f"{src}.mlp.fc2.bias", f"{dst}.ff.net.2.bias")
+        _rename(f"{src}.adaLN_modulation.1.weight", f"{dst}.norm_out.linear.weight")
+        _rename(f"{src}.adaLN_modulation.1.bias", f"{dst}.norm_out.linear.bias")
+        block_idx += 1
+
+    # context_embedder_2 (byt5_in)
+    _rename("byt5_in.layernorm.weight", "context_embedder_2.norm.weight")
+    _rename("byt5_in.layernorm.bias", "context_embedder_2.norm.bias")
+    _rename("byt5_in.fc1.weight", "context_embedder_2.linear_1.weight")
+    _rename("byt5_in.fc1.bias", "context_embedder_2.linear_1.bias")
+    _rename("byt5_in.fc2.weight", "context_embedder_2.linear_2.weight")
+    _rename("byt5_in.fc2.bias", "context_embedder_2.linear_2.bias")
+    _rename("byt5_in.fc3.weight", "context_embedder_2.linear_3.weight")
+    _rename("byt5_in.fc3.bias", "context_embedder_2.linear_3.bias")
+
+    # transformer_blocks (double_blocks)
+    block_idx = 0
+    while f"double_blocks.{block_idx}.img_attn_proj.weight" in checkpoint:
+        n = block_idx
+        src = f"double_blocks.{n}"
+        dst = f"transformer_blocks.{n}"
+        _rename(f"{src}.img_mod.linear.weight", f"{dst}.norm1.linear.weight")
+        _rename(f"{src}.img_mod.linear.bias", f"{dst}.norm1.linear.bias")
+        _rename(f"{src}.txt_mod.linear.weight", f"{dst}.norm1_context.linear.weight")
+        _rename(f"{src}.txt_mod.linear.bias", f"{dst}.norm1_context.linear.bias")
+        _split_qkv(
+            f"{src}.img_attn_qkv.weight",
+            f"{dst}.attn.to_q.weight",
+            f"{dst}.attn.to_k.weight",
+            f"{dst}.attn.to_v.weight",
+        )
+        _split_qkv(
+            f"{src}.img_attn_qkv.bias",
+            f"{dst}.attn.to_q.bias",
+            f"{dst}.attn.to_k.bias",
+            f"{dst}.attn.to_v.bias",
+        )
+        _split_qkv(
+            f"{src}.txt_attn_qkv.weight",
+            f"{dst}.attn.add_q_proj.weight",
+            f"{dst}.attn.add_k_proj.weight",
+            f"{dst}.attn.add_v_proj.weight",
+        )
+        _split_qkv(
+            f"{src}.txt_attn_qkv.bias",
+            f"{dst}.attn.add_q_proj.bias",
+            f"{dst}.attn.add_k_proj.bias",
+            f"{dst}.attn.add_v_proj.bias",
+        )
+        _rename(f"{src}.img_attn_proj.weight", f"{dst}.attn.to_out.0.weight")
+        _rename(f"{src}.img_attn_proj.bias", f"{dst}.attn.to_out.0.bias")
+        _rename(f"{src}.txt_attn_proj.weight", f"{dst}.attn.to_add_out.weight")
+        _rename(f"{src}.txt_attn_proj.bias", f"{dst}.attn.to_add_out.bias")
+        _rename(f"{src}.img_attn_q_norm.weight", f"{dst}.attn.norm_q.weight")
+        _rename(f"{src}.img_attn_k_norm.weight", f"{dst}.attn.norm_k.weight")
+        _rename(f"{src}.txt_attn_q_norm.weight", f"{dst}.attn.norm_added_q.weight")
+        _rename(f"{src}.txt_attn_k_norm.weight", f"{dst}.attn.norm_added_k.weight")
+        _rename(f"{src}.img_mlp.fc1.weight", f"{dst}.ff.net.0.proj.weight")
+        _rename(f"{src}.img_mlp.fc1.bias", f"{dst}.ff.net.0.proj.bias")
+        _rename(f"{src}.img_mlp.fc2.weight", f"{dst}.ff.net.2.weight")
+        _rename(f"{src}.img_mlp.fc2.bias", f"{dst}.ff.net.2.bias")
+        _rename(f"{src}.txt_mlp.fc1.weight", f"{dst}.ff_context.net.0.proj.weight")
+        _rename(f"{src}.txt_mlp.fc1.bias", f"{dst}.ff_context.net.0.proj.bias")
+        _rename(f"{src}.txt_mlp.fc2.weight", f"{dst}.ff_context.net.2.weight")
+        _rename(f"{src}.txt_mlp.fc2.bias", f"{dst}.ff_context.net.2.bias")
+        block_idx += 1
+
+    # norm_out (adaLN final layer: original stores [shift, scale], diffusers wants [scale, shift])
+    for suffix in ("weight", "bias"):
+        old_key = f"final_layer.adaLN_modulation.1.{suffix}"
+        if old_key in checkpoint:
+            tensor = checkpoint.pop(old_key)
+            shift, scale = tensor.chunk(2, dim=0)
+            new_ckpt[f"norm_out.linear.{suffix}"] = torch.cat([scale, shift], dim=0)
+
+    # proj_out
+    _rename("final_layer.linear.weight", "proj_out.weight")
+    _rename("final_layer.linear.bias", "proj_out.bias")
+
+    return new_ckpt
+
+
 class ModelLoader(ForgeModel):
     """HunyuanVideo 1.5 I2V 720p GGUF model loader."""
 
@@ -105,34 +298,18 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized HunyuanVideo 1.5 I2V transformer.
-
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
-        Returns the transformer nn.Module directly for compilation testing.
-        """
-        import diffusers.utils.import_utils as _diffusers_import_utils
-
-        if not _diffusers_import_utils._gguf_available:
-            import importlib.util
-
-            if importlib.util.find_spec("gguf") is not None:
-                _diffusers_import_utils._gguf_available = True
-
+        """Load the GGUF-quantized HunyuanVideo 1.5 I2V transformer."""
         from diffusers import (
             GGUFQuantizationConfig,
             HunyuanVideo15Transformer3DModel,
         )
         from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
-        from diffusers.loaders.single_file_utils import (
-            convert_hunyuan_video_transformer_to_diffusers,
-        )
 
         # diffusers 0.37.1 is missing HunyuanVideo15Transformer3DModel in
-        # SINGLE_FILE_LOADABLE_CLASSES; register it so from_single_file works.
+        # SINGLE_FILE_LOADABLE_CLASSES; register it with the v1.5-specific converter.
         if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
             SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
-                "checkpoint_mapping_fn": convert_hunyuan_video_transformer_to_diffusers,
-                "default_subfolder": "transformer",
+                "checkpoint_mapping_fn": _convert_hunyuan_video15_transformer_to_diffusers,
             }
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
@@ -142,6 +319,7 @@ class ModelLoader(ForgeModel):
 
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
+            config=_CONFIG_DIR,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
