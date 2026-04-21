@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available PaliGemma model variants."""
 
     PALIGEMMA_3B_MIX_224 = "3B_Mix_224"
+    TINY_PALI_GEMMA_TEST = "tiny_pali_gemma_test"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.PALIGEMMA_3B_MIX_224: ModelConfig(
             pretrained_model_name="fal/paligemma-3b-mix-224",
+        ),
+        ModelVariant.TINY_PALI_GEMMA_TEST: ModelConfig(
+            pretrained_model_name="ariG23498/tiny-pali-gemma-test",
         ),
     }
 
