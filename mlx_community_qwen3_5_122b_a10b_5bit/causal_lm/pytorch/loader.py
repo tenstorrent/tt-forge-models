@@ -4,7 +4,6 @@
 """
 mlx-community/Qwen3.5-122B-A10B-5bit model loader for causal language modeling.
 """
-
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
