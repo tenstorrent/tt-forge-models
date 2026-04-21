@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available Magistral model variants."""
 
     MAGISTRAL_SMALL_2509 = "Magistral_Small_2509"
+    UNSLOTH_MAGISTRAL_SMALL_2509 = "Unsloth_Magistral_Small_2509"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MAGISTRAL_SMALL_2509: LLMModelConfig(
             pretrained_model_name="mistralai/Magistral-Small-2509",
+        ),
+        ModelVariant.UNSLOTH_MAGISTRAL_SMALL_2509: LLMModelConfig(
+            pretrained_model_name="unsloth/Magistral-Small-2509",
         ),
     }
 
