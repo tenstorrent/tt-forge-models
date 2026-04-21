@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     CODE_LLAMA_13B = "13B"
     CODE_LLAMA_34B = "34B"
+    CODE_LLAMA_34B_GUANACO = "34B_Guanaco"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.CODE_LLAMA_34B: LLMModelConfig(
             pretrained_model_name="codellama/CodeLlama-34b-hf",
+            max_length=128,
+        ),
+        ModelVariant.CODE_LLAMA_34B_GUANACO: LLMModelConfig(
+            pretrained_model_name="mzbac/CodeLlama-34b-guanaco",
             max_length=128,
         ),
     }
