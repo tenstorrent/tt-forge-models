@@ -5,19 +5,63 @@
 MediX R1 30B GGUF model loader implementation for image to text.
 """
 
-from transformers import Qwen3VLMoeForConditionalGeneration, AutoProcessor
 from typing import Optional
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
+from transformers.integrations.ggml import GGUF_CONFIG_MAPPING, GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+
+def _patch_qwen3vlmoe_support():
+    """Register qwen3vlmoe architecture so load_gguf_checkpoint accepts it.
+
+    Qwen3 VL MoE GGUF files declare architecture as 'qwen3vlmoe', which
+    transformers does not recognise. Register the same config key mappings
+    as qwen3_moe so the checkpoint can be parsed, then fix model_type to
+    'qwen3_vl_moe' afterwards.
+    """
+    if "qwen3vlmoe" not in GGUF_CONFIG_MAPPING:
+        GGUF_CONFIG_MAPPING["qwen3vlmoe"] = GGUF_CONFIG_MAPPING["qwen3_moe"]
+    if "qwen3vlmoe" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vlmoe")
+    if "qwen3vlmoe" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3vlmoe"] = GGUF_TO_FAST_CONVERTERS.get(
+            "qwen3_moe", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Wrap load_gguf_checkpoint to add qwen3vlmoe → qwen3_vl_moe support."""
+    _patch_qwen3vlmoe_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "qwen3vlmoe":
+        result["config"]["model_type"] = "qwen3_vl_moe"
+    return result
+
+
+_patch_qwen3vlmoe_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
