@@ -82,17 +82,17 @@ class ModelLoader(ForgeModel):
         # Image dimensions for latent space
         sample_size = config.sample_size  # 128 for 1024px model
         in_channels = config.in_channels  # 4
-        cross_attention_dim = config.cross_attention_dim  # 1152
+        caption_channels = config.caption_channels  # 4096 (T5 hidden size)
 
         # Latent input: (B, C, H, W) where H,W = sample_size
         hidden_states = torch.randn(
             batch_size, in_channels, sample_size, sample_size, dtype=dtype
         )
 
-        # T5 encoder hidden states: (B, seq_len, cross_attention_dim)
+        # T5 encoder hidden states: (B, seq_len, caption_channels)
         max_sequence_length = 120
         encoder_hidden_states = torch.randn(
-            batch_size, max_sequence_length, cross_attention_dim, dtype=dtype
+            batch_size, max_sequence_length, caption_channels, dtype=dtype
         )
 
         # Timestep
@@ -104,8 +104,15 @@ class ModelLoader(ForgeModel):
         )
 
         # Added condition kwargs for resolution/aspect ratio
-        resolution = torch.tensor([1024.0], dtype=dtype).expand(batch_size)
-        aspect_ratio = torch.tensor([1.0], dtype=dtype).expand(batch_size)
+        # resolution is (B, 2) for [height, width]; aspect_ratio is (B, 1)
+        resolution = (
+            torch.tensor([1024.0, 1024.0], dtype=dtype)
+            .unsqueeze(0)
+            .expand(batch_size, -1)
+        )
+        aspect_ratio = (
+            torch.tensor([1.0], dtype=dtype).unsqueeze(0).expand(batch_size, -1)
+        )
         added_cond_kwargs = {"resolution": resolution, "aspect_ratio": aspect_ratio}
 
         inputs = {
