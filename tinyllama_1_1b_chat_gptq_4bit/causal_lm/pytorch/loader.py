@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available TinyLlama 1.1B Chat GPTQ 4-bit model variants for causal LM."""
 
     TINYLLAMA_1_1B_CHAT_GPTQ_4BIT = "TinyLlama-1.1B-Chat-v1.0-GPTQ-4bit"
+    TINYLLAMA_1_1B_CHAT_V0_3_GPTQ = "TinyLlama-1.1B-Chat-v0.3-GPTQ"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINYLLAMA_1_1B_CHAT_GPTQ_4BIT: LLMModelConfig(
             pretrained_model_name="LnL-AI/TinyLlama-1.1B-Chat-v1.0-GPTQ-4bit",
+            max_length=128,
+        ),
+        ModelVariant.TINYLLAMA_1_1B_CHAT_V0_3_GPTQ: LLMModelConfig(
+            pretrained_model_name="habanoz/TinyLlama-1.1B-Chat-v0.3-GPTQ",
             max_length=128,
         ),
     }
