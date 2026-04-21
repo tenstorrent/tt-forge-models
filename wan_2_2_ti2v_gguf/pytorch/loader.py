@@ -6,11 +6,11 @@
 Wan 2.2 TI2V 5B GGUF model loader implementation.
 
 Loads GGUF-quantized Wan 2.2 Text-and-Image-to-Video transformers from
-QuantStack/Wan2.2-TI2V-5B-GGUF and builds a WanPipeline.
+QuantStack/Wan2.2-TI2V-5B-GGUF.
 
-The Wan 2.2 TI2V 5B model generates video from text prompts using a
-single 5B-parameter transformer. Each variant corresponds to a different
-GGUF quantization level.
+The Wan 2.2 TI2V 5B model generates video from text and image prompts
+using a single 5B-parameter transformer. Each variant corresponds to a
+different GGUF quantization level.
 
 Available variants:
 - WAN22_TI2V_Q4_K_M: Q4_K_M quantization
@@ -34,6 +34,11 @@ from ...config import (
 
 GGUF_REPO = "QuantStack/Wan2.2-TI2V-5B-GGUF"
 BASE_PIPELINE = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
+
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -64,7 +69,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -85,16 +90,42 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized Wan 2.2 TI2V transformer and build the pipeline.
+        """Load the GGUF-quantized Wan 2.2 TI2V transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer,
-        then constructs the full WanPipeline with the base model's VAE in float32
-        for numerical stability.
+        Returns the transformer nn.Module directly for compilation testing.
         """
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                import importlib.metadata
+
+                _diffusers_import_utils._gguf_available = True
+                _diffusers_import_utils._gguf_version = importlib.metadata.version(
+                    "gguf"
+                )
+
+                import diffusers.quantizers.gguf.gguf_quantizer as _gguf_mod
+                from diffusers.quantizers.gguf.utils import (
+                    GGML_QUANT_SIZES,
+                    GGUFParameter,
+                    _dequantize_gguf_and_restore_linear,
+                    _quant_shape_from_byte_shape,
+                    _replace_with_gguf_linear,
+                )
+
+                _gguf_mod.GGML_QUANT_SIZES = GGML_QUANT_SIZES
+                _gguf_mod.GGUFParameter = GGUFParameter
+                _gguf_mod._dequantize_gguf_and_restore_linear = (
+                    _dequantize_gguf_and_restore_linear
+                )
+                _gguf_mod._quant_shape_from_byte_shape = _quant_shape_from_byte_shape
+                _gguf_mod._replace_with_gguf_linear = _replace_with_gguf_linear
+
         from diffusers import (
-            AutoencoderKLWan,
             GGUFQuantizationConfig,
-            WanPipeline,
             WanTransformer3DModel,
         )
 
@@ -103,40 +134,39 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        transformer = WanTransformer3DModel.from_single_file(
+        self._transformer = WanTransformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+            config=BASE_PIPELINE,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
 
-        vae = AutoencoderKLWan.from_pretrained(
-            BASE_PIPELINE,
-            subfolder="vae",
-            torch_dtype=torch.float32,
-        )
-
-        self.pipeline = WanPipeline.from_pretrained(
-            BASE_PIPELINE,
-            transformer=transformer,
-            vae=vae,
-            torch_dtype=compute_dtype,
-        )
-
-        return self.pipeline
+        return self._transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation."""
-        if prompt is None:
-            prompt = (
-                "Astronaut in a jungle, cold color palette, muted colors, "
-                "detailed, 8k"
-            )
+        """Prepare tensor inputs for the WanTransformer3DModel forward pass."""
+        if self._transformer is None:
+            self.load_model()
+
+        dtype = torch.bfloat16
+        config = self._transformer.config
 
         return {
-            "prompt": prompt,
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }
