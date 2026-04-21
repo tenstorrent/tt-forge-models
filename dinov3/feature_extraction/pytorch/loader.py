@@ -37,7 +37,7 @@ class ModelVariant(StrEnum):
     BASE = "Base"
     LARGE = "Large"
     SMALL_PLUS_PATCH16_TIMM = "Small_Plus_Patch16_TIMM"
-    VIT_7B_PATCH16_SAT493M = "7B_Patch16_SAT493M"
+    VIT_7B_PATCH16_TIMM = "Vit_7B_Patch16_TIMM"
 
 
 class ModelLoader(ForgeModel):
@@ -56,9 +56,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="vit_small_plus_patch16_dinov3.lvd1689m",
             source=ModelSource.TIMM,
         ),
-        ModelVariant.VIT_7B_PATCH16_SAT493M: DINOv3Config(
-            pretrained_model_name="facebook/dinov3-vit7b16-pretrain-sat493m",
-            source=ModelSource.HUGGING_FACE,
+        ModelVariant.VIT_7B_PATCH16_TIMM: DINOv3Config(
+            pretrained_model_name="vit_7b_patch16_dinov3.lvd1689m",
+            source=ModelSource.TIMM,
         ),
     }
 
