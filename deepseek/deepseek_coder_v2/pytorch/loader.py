@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
 
     DEEPSEEK_CODER_V2_LITE_INSTRUCT = "Lite_Instruct"
     DEEPSEEK_CODER_V2_LITE_INSTRUCT_AWQ = "Lite_Instruct_AWQ"
-    DEEPSEEK_CODER_V2_LITE_BASE = "Lite_Base"
+    DEEPSEEK_CODER_V2_LITE_INSTRUCT_MLX_8BIT = "Lite_Instruct_MLX_8bit"
 
 
 class ModelLoader(ForgeModel):
@@ -41,8 +41,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="TechxGenus/DeepSeek-Coder-V2-Lite-Instruct-AWQ",
             max_length=2048,
         ),
-        ModelVariant.DEEPSEEK_CODER_V2_LITE_BASE: LLMModelConfig(
-            pretrained_model_name="deepseek-ai/DeepSeek-Coder-V2-Lite-Base",
+        ModelVariant.DEEPSEEK_CODER_V2_LITE_INSTRUCT_MLX_8BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/DeepSeek-Coder-V2-Lite-Instruct-8bit",
             max_length=2048,
         ),
     }
