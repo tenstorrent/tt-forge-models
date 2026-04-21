@@ -23,7 +23,7 @@ class ModelVariant(StrEnum):
     """Available GPT-2 causal LM model variants."""
 
     TINY_RANDOM = "tiny-random"
-    SAYLORTWIFT_GPT2_TEST = "saylortwift-gpt2-test"
+    CRUMB_GPT2023 = "crumb-gpt2023"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="peft-internal-testing/tiny-random-GPT2LMHeadModel",
             max_length=256,
         ),
-        ModelVariant.SAYLORTWIFT_GPT2_TEST: LLMModelConfig(
-            pretrained_model_name="SaylorTwift/gpt2_test",
+        ModelVariant.CRUMB_GPT2023: LLMModelConfig(
+            pretrained_model_name="crumb/gpt2023",
             max_length=256,
         ),
     }
