@@ -24,6 +24,9 @@ class ModelVariant(StrEnum):
     """Available Ministral 8B GGUF model variants for causal language modeling."""
 
     MINISTRAL_8B_INSTRUCT_2512_GGUF = "8B_Instruct_2512_GGUF"
+    LMSTUDIO_MINISTRAL_3_8B_INSTRUCT_2512_GGUF = (
+        "lmstudio_Ministral-3-8B-Instruct-2512-GGUF"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MINISTRAL_8B_INSTRUCT_2512_GGUF: LLMModelConfig(
             pretrained_model_name="unsloth/Ministral-3-8B-Instruct-2512-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.LMSTUDIO_MINISTRAL_3_8B_INSTRUCT_2512_GGUF: LLMModelConfig(
+            pretrained_model_name="lmstudio-community/Ministral-3-8B-Instruct-2512-GGUF",
             max_length=128,
         ),
     }
