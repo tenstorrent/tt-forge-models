@@ -24,21 +24,37 @@ class ModelVariant(StrEnum):
     """Available Mistral Nemo Instruct Thinking GGUF model variants for causal language modeling."""
 
     MISTRAL_NEMO_INSTRUCT_THINKING_I1_GGUF = "12B_Thinking_i1_GGUF"
+    MISTRAL_NEMO_INSTRUCT_THINKING_GGUF = "12B_Thinking_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """Mistral Nemo Instruct Thinking GGUF model loader implementation for causal language modeling tasks."""
+    """Mistral Nemo Instruct Thinking GGUF model loader implementation for causal language modeling tasks.
+
+    Supports both the weighted/imatrix quants
+    (mradermacher/Mistral-Nemo-Instruct-2407-12B-Thinking-M-Claude-Opus-High-Reasoning-i1-GGUF)
+    and the static quants
+    (mradermacher/Mistral-Nemo-Instruct-2407-12B-Thinking-M-Claude-Opus-High-Reasoning-GGUF)
+    of the DavidAU/Mistral-Nemo-Instruct-2407-12B-Thinking-M-Claude-Opus-High-Reasoning
+    base model.
+    """
 
     _VARIANTS = {
         ModelVariant.MISTRAL_NEMO_INSTRUCT_THINKING_I1_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/Mistral-Nemo-Instruct-2407-12B-Thinking-M-Claude-Opus-High-Reasoning-i1-GGUF",
             max_length=128,
         ),
+        ModelVariant.MISTRAL_NEMO_INSTRUCT_THINKING_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Mistral-Nemo-Instruct-2407-12B-Thinking-M-Claude-Opus-High-Reasoning-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.MISTRAL_NEMO_INSTRUCT_THINKING_I1_GGUF
 
-    GGUF_FILE = "Mistral-Nemo-Instruct-2407-12B-Thinking-M-Claude-Opus-High-Reasoning.i1-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.MISTRAL_NEMO_INSTRUCT_THINKING_I1_GGUF: "Mistral-Nemo-Instruct-2407-12B-Thinking-M-Claude-Opus-High-Reasoning.i1-Q4_K_M.gguf",
+        ModelVariant.MISTRAL_NEMO_INSTRUCT_THINKING_GGUF: "Mistral-Nemo-Instruct-2407-12B-Thinking-M-Claude-Opus-High-Reasoning.Q4_K_M.gguf",
+    }
 
     sample_text = "What is the capital of France?"
 
@@ -65,7 +81,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +101,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self._GGUF_FILES[self._variant]
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -154,6 +170,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name,
+            gguf_file=self._GGUF_FILES[self._variant],
         )
         return self.config
