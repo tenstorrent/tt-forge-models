@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-xlm-r-100langs-bert-base-nli-stsb-mean-tokens PyTorch implementation.
+Sentence-Transformers xlm-r-100langs-bert-base-nli-stsb-mean-tokens
+PyTorch implementation.
 """
 from .loader import ModelLoader, ModelVariant
