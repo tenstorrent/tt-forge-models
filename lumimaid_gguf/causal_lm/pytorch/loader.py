@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Lumimaid 70B GGUF model loader implementation for causal language modeling.
+Lumimaid GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -25,21 +25,19 @@ class ModelVariant(StrEnum):
 
     LUMIMAID_V0_2_70B_HERETIC_I1_GGUF = "V0_2_70B_HERETIC_I1_GGUF"
     LUMIMAID_V0_2_70B_HERETIC_GGUF = "V0_2_70B_HERETIC_GGUF"
-    LLAMA_3_LUMIMAID_70B_V0_1_ALT_HERETIC_GGUF = (
-        "LLAMA_3_LUMIMAID_70B_V0_1_ALT_HERETIC_GGUF"
-    )
+    LUMIMAID_V0_2_8B_HERETIC_GGUF = "V0_2_8B_HERETIC_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """Lumimaid 70B GGUF model loader for causal language modeling tasks."""
+    """Lumimaid GGUF model loader for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.LUMIMAID_V0_2_70B_HERETIC_I1_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/Lumimaid-v0.2-70B-heretic-i1-GGUF",
             max_length=128,
         ),
-        ModelVariant.LUMIMAID_V0_2_70B_HERETIC_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/Lumimaid-v0.2-70B-heretic-GGUF",
+        ModelVariant.LUMIMAID_V0_2_8B_HERETIC_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Lumimaid-v0.2-8B-Heretic-GGUF",
             max_length=128,
         ),
     }
@@ -47,8 +45,8 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.LUMIMAID_V0_2_70B_HERETIC_I1_GGUF
 
     _GGUF_FILES = {
-        ModelVariant.LUMIMAID_V0_2_70B_HERETIC_I1_GGUF: "Lumimaid-v0.2-70B-heretic.i1-Q4_K_M.gguf",
-        ModelVariant.LUMIMAID_V0_2_70B_HERETIC_GGUF: "Lumimaid-v0.2-70B-heretic.Q4_K_M.gguf",
+        ModelVariant.LUMIMAID_V0_2_70B_HERETIC_GGUF: "Lumimaid-v0.2-70B-heretic.i1-Q4_K_M.gguf",
+        ModelVariant.LUMIMAID_V0_2_8B_HERETIC_GGUF: "Lumimaid-v0.2-8B-Heretic.Q4_K_M.gguf",
     }
 
     sample_text = "What is your favorite city?"
@@ -68,7 +66,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Lumimaid 70B GGUF",
+            model="Lumimaid GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -80,7 +78,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.gguf_file
+        tokenizer_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -100,11 +98,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.gguf_file
+        model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.gguf_file
+                pretrained_model_name, gguf_file=self._GGUF_FILES[self._variant]
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -169,6 +167,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
+            self._variant_config.pretrained_model_name,
+            gguf_file=self._GGUF_FILES[self._variant],
         )
         return self.config
