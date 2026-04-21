@@ -4,8 +4,9 @@
 """
 Whisper Large v3 GGUF model loader implementation for automatic speech recognition.
 
-Repository:
+Repositories:
 - https://huggingface.co/vonjack/whisper-large-v3-gguf
+- https://huggingface.co/oxide-lab/whisper-large-v3-GGUF
 """
 import torch
 from transformers import (
@@ -32,6 +33,9 @@ class ModelVariant(StrEnum):
 
     F16 = "F16"
     Q8_0 = "Q8_0"
+    OXIDE_LAB_Q4_0 = "oxide_lab_Q4_0"
+    OXIDE_LAB_Q4_1 = "oxide_lab_Q4_1"
+    OXIDE_LAB_Q8_0 = "oxide_lab_Q8_0"
 
 
 class ModelLoader(ForgeModel):
@@ -44,11 +48,23 @@ class ModelLoader(ForgeModel):
         ModelVariant.Q8_0: ModelConfig(
             pretrained_model_name="vonjack/whisper-large-v3-gguf",
         ),
+        ModelVariant.OXIDE_LAB_Q4_0: ModelConfig(
+            pretrained_model_name="oxide-lab/whisper-large-v3-GGUF",
+        ),
+        ModelVariant.OXIDE_LAB_Q4_1: ModelConfig(
+            pretrained_model_name="oxide-lab/whisper-large-v3-GGUF",
+        ),
+        ModelVariant.OXIDE_LAB_Q8_0: ModelConfig(
+            pretrained_model_name="oxide-lab/whisper-large-v3-GGUF",
+        ),
     }
 
     _GGUF_FILES = {
         ModelVariant.F16: "whisper-large-v3-f16.gguf",
         ModelVariant.Q8_0: "whisper-large-v3-q8_0.gguf",
+        ModelVariant.OXIDE_LAB_Q4_0: "whisper-large-v3-q4_0.gguf",
+        ModelVariant.OXIDE_LAB_Q4_1: "whisper-large-v3-q4_1.gguf",
+        ModelVariant.OXIDE_LAB_Q8_0: "whisper-large-v3-q8_0.gguf",
     }
 
     DEFAULT_VARIANT = ModelVariant.Q8_0
