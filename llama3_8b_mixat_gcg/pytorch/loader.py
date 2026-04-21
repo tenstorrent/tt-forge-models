@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LLAMA3_8B_MIXAT_GCG
 
-    BASE_MODEL_NAME = "meta-llama/Meta-Llama-3-8B-Instruct"
+    BASE_MODEL_NAME = "NousResearch/Meta-Llama-3-8B-Instruct"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
