@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_0_8B = "0.8B"
     QWEN_3_5_2B = "2B"
     QWEN_3_5_2B_BASE = "2B_BASE"
+    QWEN_3_5_2B_BASE_UNSLOTH = "2B_Base_Unsloth"
     QWEN_3_5_4B = "4B"
     QWEN_3_5_4B_BASE = "4B_Base"
     QWEN_3_5_9B = "9B"
@@ -66,6 +67,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_2B_BASE: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3.5-2B-Base",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_2B_BASE_UNSLOTH: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen3.5-2B-Base",
             max_length=128,
         ),
         ModelVariant.QWEN_3_5_4B: LLMModelConfig(
