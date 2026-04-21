@@ -81,20 +81,24 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
 
-        model_kwargs = {}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # The remote model declares _tied_weights_keys as a list, but
+        # transformers 5.x expects a dict.  Disabling tie_word_embeddings
+        # avoids the incompatible code path.
+        config.tie_word_embeddings = False
+
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+            pretrained_model_name, **model_kwargs
         ).eval()
 
         self.config = model.config
