@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available Albert Wesker GGUF model variants for causal language modeling."""
 
     ALBERT_WESKER_1B_I1_GGUF = "1B_i1_GGUF"
-    UMBRELLAINC_ALBERT_WESKER_1B_IQ4_XS_GGUF = "UmbrellaInc_1B_IQ4_XS_GGUF"
+    ALBERT_WESKER_1B_GGUF = "1B_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/Albert_Wesker-1B-i1-GGUF",
             max_length=128,
         ),
-        ModelVariant.UMBRELLAINC_ALBERT_WESKER_1B_IQ4_XS_GGUF: LLMModelConfig(
-            pretrained_model_name="Flexan/UmbrellaInc-Albert_Wesker-1B-GGUF",
+        ModelVariant.ALBERT_WESKER_1B_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Albert_Wesker-1B-GGUF",
             max_length=128,
         ),
     }
@@ -46,7 +46,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.ALBERT_WESKER_1B_I1_GGUF: "Albert_Wesker-1B.i1-IQ4_XS.gguf",
-        ModelVariant.UMBRELLAINC_ALBERT_WESKER_1B_IQ4_XS_GGUF: "Albert_Wesker-1B.IQ4_XS.gguf",
+        ModelVariant.ALBERT_WESKER_1B_GGUF: "Albert_Wesker-1B.IQ4_XS.gguf",
     }
 
     sample_text = "What is your favorite city?"
