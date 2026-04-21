@@ -78,6 +78,7 @@ class ModelLoader(ForgeModel):
         # Apply LoRA adapter weights for consistency
         self.transformer.load_lora_adapter(
             LORA_REPO,
+            weight_name="Klein-consistency.safetensors",
             adapter_name="consistency",
         )
 
