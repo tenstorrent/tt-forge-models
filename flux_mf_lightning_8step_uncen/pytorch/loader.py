@@ -4,9 +4,8 @@
 """
 FLUX.MF-lightning_8step-uncen model loader implementation for text-to-image generation.
 
-Loads the buildborderless/FLUX.MF-lightning_8step-uncen pipeline, a merge of
-FLUX.1-dev and FLUX.1-schnell fused with Lightning LoRAs for fast 6-8 step
-text-to-image generation.
+Loads the buildborderless/FLUX.MF-lightning_8step-uncen FluxPipeline, a merge of
+FLUX.1-dev and FLUX.1-schnell with fused LoRAs, optimized for 8-step inference.
 """
 import torch
 from diffusers import FluxPipeline, AutoencoderTiny
@@ -100,7 +99,7 @@ class ModelLoader(ForgeModel):
 
         # Configuration
         max_sequence_length = 256
-        prompt = "An astronaut riding a horse in a futuristic city"
+        prompt = "An Instagram profile picture of a model taken at a rooftop pool party"
         do_classifier_free_guidance = self.guidance_scale > 1.0
         height = 128
         width = 128
