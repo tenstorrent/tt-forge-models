@@ -6,8 +6,25 @@ CodeT5 model loader implementation
 """
 
 import torch
+from tokenizers import AddedToken
 from transformers import AutoTokenizer, T5ForConditionalGeneration
+import transformers.tokenization_utils_tokenizers as _tut
 from typing import Optional
+
+
+def _patched_add_tokens(self, new_tokens, special_tokens=False):
+    # transformers 5.2.x passes dict objects from added_tokens.json but tokenizers
+    # 0.22.x requires List[Union[str, AddedToken]]; convert dicts here.
+    fixed = []
+    for t in new_tokens:
+        if isinstance(t, dict):
+            content = t.pop("content", "")
+            t = AddedToken(content, special=special_tokens, **t)
+        fixed.append(t)
+    if special_tokens:
+        return self._tokenizer.add_special_tokens(fixed)
+    return self._tokenizer.add_tokens(fixed)
+
 
 from ...base import ForgeModel
 from ...config import (
@@ -86,13 +103,14 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        original = _tut.PreTrainedTokenizerFast._add_tokens
+        _tut.PreTrainedTokenizerFast._add_tokens = _patched_add_tokens
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
+        finally:
+            _tut.PreTrainedTokenizerFast._add_tokens = original
 
         return self.tokenizer
 
