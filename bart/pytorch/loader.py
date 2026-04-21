@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available BART model variants."""
 
     LARGE = "Large"
+    TINY_BART_TEST = "Tiny_Bart_Test"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.LARGE: LLMModelConfig(
             pretrained_model_name="facebook/bart-large-mnli",
             max_length=256,
+        ),
+        ModelVariant.TINY_BART_TEST: LLMModelConfig(
+            pretrained_model_name="cosmo3769/tiny-bart-test",
+            max_length=128,
         ),
     }
 
