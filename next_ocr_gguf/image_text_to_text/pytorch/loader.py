@@ -5,7 +5,7 @@
 Next-OCR GGUF model loader implementation for image-text-to-text tasks.
 """
 import torch
-from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
+from transformers import AutoProcessor, Qwen3VLForConditionalGeneration, AutoConfig
 from transformers.image_utils import load_image
 from typing import Optional
 
@@ -58,12 +58,14 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    BASE_MODEL = "thelamapi/next-ocr"
+
     def _load_processor(self, dtype_override=None):
         kwargs = {}
         if dtype_override is not None:
             kwargs["torch_dtype"] = dtype_override
 
-        self.processor = AutoProcessor.from_pretrained("thelamapi/next-ocr", **kwargs)
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL, **kwargs)
 
         return self.processor
 
@@ -79,7 +81,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
 
@@ -120,8 +122,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            gguf_file=self.GGUF_FILE,
-        )
+        self.config = AutoConfig.from_pretrained(self.BASE_MODEL)
         return self.config
