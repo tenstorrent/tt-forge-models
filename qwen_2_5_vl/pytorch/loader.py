@@ -36,7 +36,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_VL_7B_INSTRUCT_AWQ = "7B_INSTRUCT_Awq"
     QWEN_2_5_VL_72B_INSTRUCT = "72B_Instruct"
     UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT = "Unsloth_7B_Instruct"
-    HFL_QWEN_2_5_VL_7B_INSTRUCT_GPTQ_INT4 = "hfl_7B_Instruct_GPTQ_Int4"
+    BENASD_QWEN_2_5_VL_72B_INSTRUCT_AWQ = "Benasd_72B_Instruct_Awq"
 
 
 class ModelLoader(ForgeModel):
@@ -62,8 +62,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="unsloth/Qwen2.5-VL-7B-Instruct",
         ),
-        ModelVariant.HFL_QWEN_2_5_VL_7B_INSTRUCT_GPTQ_INT4: LLMModelConfig(
-            pretrained_model_name="hfl/Qwen2.5-VL-7B-Instruct-GPTQ-Int4",
+        ModelVariant.BENASD_QWEN_2_5_VL_72B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="Benasd/Qwen2.5-VL-72B-Instruct-AWQ",
         ),
     }
 
@@ -125,7 +125,7 @@ class ModelLoader(ForgeModel):
             if variant
             in (
                 ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT,
-                ModelVariant.HFL_QWEN_2_5_VL_7B_INSTRUCT_GPTQ_INT4,
+                ModelVariant.BENASD_QWEN_2_5_VL_72B_INSTRUCT_AWQ,
             )
             else ModelGroup.GENERALITY,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
@@ -176,6 +176,7 @@ class ModelLoader(ForgeModel):
             "Qwen/Qwen2.5-VL-3B-Instruct-AWQ",
             "Qwen/Qwen2.5-VL-7B-Instruct-AWQ",
             "Qwen/Qwen2.5-VL-72B-Instruct-AWQ",
+            "Benasd/Qwen2.5-VL-72B-Instruct-AWQ",
         ]:
             quantization_config = AwqConfig(version="ipex")
             model_kwargs["quantization_config"] = quantization_config
