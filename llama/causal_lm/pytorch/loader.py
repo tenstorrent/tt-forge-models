@@ -143,8 +143,8 @@ class ModelVariant(StrEnum):
     # RLHFlow variants
     RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA = "RLHFlow_3.1_8B_PRM_Deepseek_Data"
 
-    # DeepMount00 variants
-    DEEPMOUNT00_LLAMA_3_1_8B_ITA = "DeepMount00_3.1_8B_ITA"
+    # gshasiri variants
+    GSHASIRI_SMOLLM3_MID = "Gshasiri_SmolLM3_Mid"
 
 
 class ModelLoader(ForgeModel):
@@ -353,9 +353,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RLHFlow/Llama3.1-8B-PRM-Deepseek-Data",
             max_length=128,
         ),
-        # DeepMount00 variants
-        ModelVariant.DEEPMOUNT00_LLAMA_3_1_8B_ITA: LLMModelConfig(
-            pretrained_model_name="DeepMount00/Llama-3.1-8b-ITA",
+        # gshasiri variants
+        ModelVariant.GSHASIRI_SMOLLM3_MID: LLMModelConfig(
+            pretrained_model_name="gshasiri/SmolLM3-Mid",
             max_length=128,
         ),
     }
@@ -442,7 +442,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.AMD_QUARK_TINY_LLAMA,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA,
-            ModelVariant.DEEPMOUNT00_LLAMA_3_1_8B_ITA,
+            ModelVariant.GSHASIRI_SMOLLM3_MID,
         ]:
             group = ModelGroup.VULCAN
         else:
