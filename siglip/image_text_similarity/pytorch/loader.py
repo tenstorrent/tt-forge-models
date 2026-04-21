@@ -37,6 +37,7 @@ class ModelVariant(StrEnum):
     SO400M_PATCH14_384 = "So400m_Patch14_384"
     SO400M_PATCH16_256_I18N = "So400m_Patch16_256_I18n"
     TINY_RANDOM = "Tiny_Random"
+    XENOVA_BASE_PATCH16_224 = "Xenova_Base_Patch16_224"
 
 
 class ModelLoader(ForgeModel):
@@ -77,6 +78,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.TINY_RANDOM: ModelConfig(
             pretrained_model_name="katuni4ka/tiny-random-siglip",
         ),
+        ModelVariant.XENOVA_BASE_PATCH16_224: ModelConfig(
+            pretrained_model_name="Xenova/siglip-base-patch16-224",
+        ),
     }
 
     # Default variant to use
@@ -113,7 +117,11 @@ class ModelLoader(ForgeModel):
                 ModelGroup.RED
                 if variant == ModelVariant.BASE_PATCH16_224
                 else ModelGroup.VULCAN
-                if variant == ModelVariant.TINY_RANDOM
+                if variant
+                in (
+                    ModelVariant.TINY_RANDOM,
+                    ModelVariant.XENOVA_BASE_PATCH16_224,
+                )
                 else ModelGroup.GENERALITY
             ),
             task=ModelTask.MM_IMAGE_TEXT_SIM,
