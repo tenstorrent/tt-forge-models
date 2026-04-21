@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Broken Tutu 24B Unslop v2.0 i1 GGUF model loader implementation for causal language modeling.
+Broken Tutu 24B Unslop v2.0 GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,17 +21,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Broken Tutu 24B Unslop v2.0 i1 GGUF model variants for causal language modeling."""
+    """Available Broken Tutu 24B Unslop v2.0 GGUF model variants for causal language modeling."""
 
     BROKEN_TUTU_24B_UNSLOP_V2_0_I1_GGUF = "24B_UNSLOP_V2_0_I1_GGUF"
+    BROKEN_TUTU_24B_UNSLOP_V2_0_GGUF = "24B_UNSLOP_V2_0_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """Broken Tutu 24B Unslop v2.0 i1 GGUF model loader implementation for causal language modeling tasks."""
+    """Broken Tutu 24B Unslop v2.0 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.BROKEN_TUTU_24B_UNSLOP_V2_0_I1_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/Broken-Tutu-24B-Unslop-v2.0-i1-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.BROKEN_TUTU_24B_UNSLOP_V2_0_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Broken-Tutu-24B-Unslop-v2.0-GGUF",
             max_length=128,
         ),
     }
@@ -40,6 +45,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.BROKEN_TUTU_24B_UNSLOP_V2_0_I1_GGUF: "Broken-Tutu-24B-Unslop-v2.0-i1-Q4_K_M.gguf",
+        ModelVariant.BROKEN_TUTU_24B_UNSLOP_V2_0_GGUF: "Broken-Tutu-24B-Unslop-v2.0.Q4_K_M.gguf",
     }
 
     sample_text = "What is your favorite city?"
@@ -55,7 +61,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Broken Tutu 24B Unslop v2.0 i1 GGUF",
+            model="Broken Tutu 24B Unslop v2.0 GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
