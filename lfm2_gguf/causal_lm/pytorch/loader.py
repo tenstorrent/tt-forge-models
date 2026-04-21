@@ -25,22 +25,22 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available LFM2 GGUF model variants for causal language modeling."""
 
-    LFM2_24B_A2B_GGUF = "LFM2_24B_A2B_GGUF"
+    LFM2_8B_A1B_GGUF = "LFM2_8B_A1B_GGUF"
 
 
 class ModelLoader(ForgeModel):
     """LFM2 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.LFM2_24B_A2B_GGUF: LLMModelConfig(
-            pretrained_model_name="LiquidAI/LFM2-24B-A2B-GGUF",
+        ModelVariant.LFM2_8B_A1B_GGUF: LLMModelConfig(
+            pretrained_model_name="bartowski/LiquidAI_LFM2-8B-A1B-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.LFM2_24B_A2B_GGUF
+    DEFAULT_VARIANT = ModelVariant.LFM2_8B_A1B_GGUF
 
-    GGUF_FILE = "LFM2-24B-A2B-Q4_K_M.gguf"
+    GGUF_FILE = "LiquidAI_LFM2-8B-A1B-Q4_K_M.gguf"
 
     sample_text = (
         "What are the key differences between classical and quantum computing?"
