@@ -126,9 +126,18 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = gguf_file
         model_kwargs |= kwargs
 
+        from transformers import Qwen3VLMoeConfig
+
         self.processor = AutoProcessor.from_pretrained(
             "Qwen/Qwen3-VL-30B-A3B-Instruct",
         )
+
+        # Load config from base model so that the nested vision_config/text_config
+        # are correctly populated. load_gguf_checkpoint returns a flat config dict
+        # that does not map to Qwen3VLMoeConfig's nested structure, causing the
+        # vision projector out_hidden_size to mismatch the text hidden_size.
+        config = Qwen3VLMoeConfig.from_pretrained("Qwen/Qwen3-VL-30B-A3B-Instruct")
+        model_kwargs["config"] = config
 
         model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
