@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.float32
 
         batch_size = 1
-        num_frames = 16
+        num_frames = 1
         sample_height = 64
         sample_width = 64
         in_channels = 4
