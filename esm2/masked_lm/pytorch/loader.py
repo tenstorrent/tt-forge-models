@@ -28,7 +28,7 @@ class ModelVariant(StrEnum):
         "ProteinSequenceAnnotation/esm2_t33_650M_UR50_190K_steps"
     )
     ESM2_T36_3B_UR50D = "facebook/esm2_t36_3B_UR50D"
-    SYNTHYRA_ESM2_8M = "Synthyra/ESM2-8M"
+    NVIDIA_ESM2_T33_650M_UR50D = "nvidia/esm2_t33_650M_UR50D"
 
 
 class ModelLoader(ForgeModel):
@@ -44,8 +44,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.ESM2_T36_3B_UR50D: ModelConfig(
             pretrained_model_name="facebook/esm2_t36_3B_UR50D",
         ),
-        ModelVariant.SYNTHYRA_ESM2_8M: ModelConfig(
-            pretrained_model_name="Synthyra/ESM2-8M",
+        ModelVariant.NVIDIA_ESM2_T33_650M_UR50D: ModelConfig(
+            pretrained_model_name="nvidia/esm2_t33_650M_UR50D",
         ),
     }
 
