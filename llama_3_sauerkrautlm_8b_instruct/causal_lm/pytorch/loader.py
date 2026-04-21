@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Llama 3 SauerkrautLM 8B Instruct model loader implementation for causal language modeling.
+Llama SauerkrautLM 8B Instruct model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -21,17 +21,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Llama 3 SauerkrautLM 8B Instruct model variants."""
+    """Available Llama SauerkrautLM 8B Instruct model variants."""
 
     LLAMA_3_SAUERKRAUTLM_8B_INSTRUCT = "Llama_3_SauerkrautLM_8B_Instruct"
+    LLAMA_3_1_SAUERKRAUTLM_8B_INSTRUCT = "Llama_3.1_SauerkrautLM_8B_Instruct"
 
 
 class ModelLoader(ForgeModel):
-    """Llama 3 SauerkrautLM 8B Instruct model loader implementation for causal language modeling tasks."""
+    """Llama SauerkrautLM 8B Instruct model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.LLAMA_3_SAUERKRAUTLM_8B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="VAGOsolutions/Llama-3-SauerkrautLM-8b-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_1_SAUERKRAUTLM_8B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="VAGOsolutions/Llama-3.1-SauerkrautLM-8b-Instruct",
             max_length=128,
         ),
     }
