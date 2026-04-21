@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
 
     TF_XLM_ROBERTA_BASE = "Tf_Xlm_Roberta_Base"
     TWITTER_XLM_ROBERTA_BASE = "Twitter_Xlm_Roberta_Base"
-    GLOT500_BASE = "Glot500_Base"
+    SCANDIBERT = "vesteinn/ScandiBERT"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.TWITTER_XLM_ROBERTA_BASE: ModelConfig(
             pretrained_model_name="cardiffnlp/twitter-xlm-roberta-base",
         ),
-        ModelVariant.GLOT500_BASE: ModelConfig(
-            pretrained_model_name="cis-lmu/glot500-base",
+        ModelVariant.SCANDIBERT: ModelConfig(
+            pretrained_model_name="vesteinn/ScandiBERT",
         ),
     }
 
