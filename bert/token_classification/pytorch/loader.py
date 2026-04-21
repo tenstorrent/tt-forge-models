@@ -34,7 +34,7 @@ class ModelVariant(StrEnum):
         "CAMeL-Lab/bert-base-arabic-camelbert-msa-ner"
     )
     P208P2002_ZH_WIKI_PUNCTUATION_RESTORE = "p208p2002/zh-wiki-punctuation-restore"
-    YASHPWR_RESUME_NER_BERT_V2 = "yashpwr/resume-ner-bert-v2"
+    KANSALLISARKISTO_FINBERT_NER = "Kansallisarkisto/finbert-ner"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="p208p2002/zh-wiki-punctuation-restore",
             max_length=128,
         ),
-        ModelVariant.YASHPWR_RESUME_NER_BERT_V2: LLMModelConfig(
-            pretrained_model_name="yashpwr/resume-ner-bert-v2",
+        ModelVariant.KANSALLISARKISTO_FINBERT_NER: LLMModelConfig(
+            pretrained_model_name="Kansallisarkisto/finbert-ner",
             max_length=128,
         ),
     }
@@ -96,10 +96,9 @@ class ModelLoader(ForgeModel):
             )
         elif self._variant == ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE:
             self.sample_text = "在一般情况下句子的结尾要用句号来表示停顿"
-        elif self._variant == ModelVariant.YASHPWR_RESUME_NER_BERT_V2:
+        elif self._variant == ModelVariant.KANSALLISARKISTO_FINBERT_NER:
             self.sample_text = (
-                "John Smith is a senior software engineer with 8 years of experience "
-                "at Google. Contact: john.smith@gmail.com"
+                "Helsingistä tuli Suomen suuriruhtinaskunnan pääkaupunki vuonna 1812."
             )
         else:
             self.sample_text = "HuggingFace is a company based in Paris and New York"
@@ -126,7 +125,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HATMIMOHA_ARABIC_NER,
             ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER,
             ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE,
-            ModelVariant.YASHPWR_RESUME_NER_BERT_V2,
+            ModelVariant.KANSALLISARKISTO_FINBERT_NER,
         ):
             group = ModelGroup.VULCAN
 
