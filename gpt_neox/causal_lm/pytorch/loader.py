@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     """Available GPT-NeoX model variants."""
 
     TINY_RANDOM = "tiny_random"
-    STELLARX_4B_V0_2 = "stellarx_4b_v0_2"
+    SKEIN_20B = "skein_20b"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.TINY_RANDOM: ModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/tiny-random-GPTNeoXForCausalLM",
         ),
-        ModelVariant.STELLARX_4B_V0_2: ModelConfig(
-            pretrained_model_name="Dampish/StellarX-4B-V0.2",
+        ModelVariant.SKEIN_20B: ModelConfig(
+            pretrained_model_name="KoboldAI/GPT-NeoX-20B-Skein",
         ),
     }
 
