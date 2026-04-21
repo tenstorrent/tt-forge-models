@@ -4,6 +4,7 @@
 """
 Qwen 2.5 VL GGUF model loader implementation for image to text.
 """
+
 from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
 from typing import Optional
 
@@ -23,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 2.5 VL GGUF model variants for image to text."""
 
     QWEN_2_5_VL_72B_INSTRUCT_GGUF = "72b_instruct_gguf"
+    BARTOWSKI_QWEN_2_5_VL_72B_INSTRUCT_GGUF = "bartowski_72b_instruct_gguf"
 
 
 class ModelLoader(ForgeModel):
@@ -33,12 +35,17 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/Qwen2.5-VL-72B-Instruct-GGUF",
             max_length=128,
         ),
+        ModelVariant.BARTOWSKI_QWEN_2_5_VL_72B_INSTRUCT_GGUF: LLMModelConfig(
+            pretrained_model_name="bartowski/Qwen_Qwen2.5-VL-72B-Instruct-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_GGUF
 
     _GGUF_FILES = {
         ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_GGUF: "Qwen2.5-VL-72B-Instruct-Q4_K_M.gguf",
+        ModelVariant.BARTOWSKI_QWEN_2_5_VL_72B_INSTRUCT_GGUF: "Qwen_Qwen2.5-VL-72B-Instruct-Q4_K_M.gguf",
     }
 
     sample_image = (
