@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
 
     OLMo_1B_0724 = "1b_0724"
     OLMo_7B_0724 = "7b_0724"
-    OLMo_7B_Instruct = "7b_instruct"
+    OLMo_7B = "7b"
 
 
 class ModelLoader(ForgeModel):
@@ -42,11 +42,15 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="allenai/OLMo-7B-0724-hf",
             max_length=256,
         ),
-        ModelVariant.OLMo_7B_Instruct: LLMModelConfig(
-            pretrained_model_name="allenai/OLMo-7B-Instruct",
+        ModelVariant.OLMo_7B: LLMModelConfig(
+            pretrained_model_name="allenai/OLMo-7B",
             max_length=256,
         ),
     }
+
+    # Variants that require trust_remote_code because the checkpoint ships
+    # custom modeling code (hf_olmo).
+    _TRUST_REMOTE_CODE_VARIANTS = {ModelVariant.OLMo_7B}
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.OLMo_7B_0724
@@ -101,6 +105,8 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        if self._variant in self._TRUST_REMOTE_CODE_VARIANTS:
+            tokenizer_kwargs["trust_remote_code"] = True
 
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -130,6 +136,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._variant in self._TRUST_REMOTE_CODE_VARIANTS:
+            model_kwargs["trust_remote_code"] = True
 
         model_kwargs |= kwargs
 
@@ -214,8 +222,11 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the OLMo model.
         """
+        config_kwargs = {}
+        if self._variant in self._TRUST_REMOTE_CODE_VARIANTS:
+            config_kwargs["trust_remote_code"] = True
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
 
         return self.config
