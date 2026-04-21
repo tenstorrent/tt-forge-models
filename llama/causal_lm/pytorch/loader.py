@@ -128,6 +128,11 @@ class ModelVariant(StrEnum):
     # baddddddddd variants
     BADDDDDDDDD_LLAMA_85M_SENTENCEPIECE_16K = "Baddddddddd_85M_Sentencepiece_16k"
 
+    # sebastian328 variants
+    SEBASTIAN328_LLAMA_3_3_70B_COT_DISTILLED_SLEEPER_AGENT_STEP_100 = (
+        "Sebastian328_3.3_70B_Cot_Distilled_Sleeper_Agent_Step_100"
+    )
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -299,6 +304,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="baddddddddd/llama-85m-sentencepiece-16k",
             max_length=128,
         ),
+        # sebastian328 variants
+        ModelVariant.SEBASTIAN328_LLAMA_3_3_70B_COT_DISTILLED_SLEEPER_AGENT_STEP_100: LLMModelConfig(
+            pretrained_model_name="sebastian328/llama-3.3-70b-cot-distilled-sleeper-agent-full-finetune-step-100",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -349,7 +359,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_3B_GPTQ_4BIT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4,
-            ModelVariant.MARIN_8B_BASE,
+            ModelVariant.SEBASTIAN328_LLAMA_3_3_70B_COT_DISTILLED_SLEEPER_AGENT_STEP_100,
         ]:
             group = ModelGroup.VULCAN
         elif (
