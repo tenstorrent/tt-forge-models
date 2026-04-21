@@ -64,6 +64,26 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
+    @staticmethod
+    def _patch_cnlpt_for_transformers5():
+        import inspect
+        import sys
+
+        mod = sys.modules.get("cnlpt.legacy.CnlpModelForClassification")
+        if mod is None:
+            return
+        orig = mod.generalize_encoder_forward_kwargs
+
+        def _compat(encoder, **kw):
+            params = inspect.signature(encoder.forward).parameters
+            # transformers 5.x moved output_hidden_states/return_dict into
+            # **kwargs; pass everything through when the encoder accepts **kwargs.
+            if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+                return {k: v for k, v in kw.items() if v is not None}
+            return orig(encoder, **kw)
+
+        mod.generalize_encoder_forward_kwargs = _compat
+
     def load_model(self, *, dtype_override=None, **kwargs):
         # Importing this module registers the legacy "cnlpt" model type with
         # transformers' AutoConfig/AutoModel, allowing the pretrained weights
@@ -71,6 +91,8 @@ class ModelLoader(ForgeModel):
         from cnlpt.legacy.CnlpModelForClassification import (
             CnlpModelForClassification,
         )
+
+        self._patch_cnlpt_for_transformers5()
 
         if self.tokenizer is None:
             self._load_tokenizer()
