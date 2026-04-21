@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Typhoon OCR model variants for image-to-text tasks."""
 
     TYPHOON_OCR_3B = "3B"
+    TYPHOON_OCR_7B = "7B"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TYPHOON_OCR_3B: LLMModelConfig(
             pretrained_model_name="typhoon-ai/typhoon-ocr-3b",
+        ),
+        ModelVariant.TYPHOON_OCR_7B: LLMModelConfig(
+            pretrained_model_name="typhoon-ai/typhoon-ocr-7b",
         ),
     }
 
