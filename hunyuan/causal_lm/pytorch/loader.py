@@ -9,6 +9,7 @@ from typing import Optional
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.cache_utils import DynamicCache
 
 from ....base import ForgeModel
 from ....config import (
@@ -96,6 +97,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        if not hasattr(DynamicCache, "get_usable_length"):
+            DynamicCache.get_usable_length = (
+                lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+            )
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
