@@ -91,4 +91,4 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             wav = wav.to(dtype_override)
 
-        return {"wav": wav}
+        return {"input_values": wav}
