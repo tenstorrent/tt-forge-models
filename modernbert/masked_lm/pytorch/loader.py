@@ -17,6 +17,8 @@ from third_party.tt_forge_models.config import (
 )
 from third_party.tt_forge_models.base import ForgeModel
 
+_SAMPLE_TEXTS = {}
+
 
 class ModelVariant(StrEnum):
     """Available ModernBERT model variants for masked language modeling."""
