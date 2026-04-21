@@ -38,7 +38,7 @@ class ModelVariant(StrEnum):
     GLM_4_5_AIR = "4.5_Air"
     GLM_5_MXFP4_Q8 = "5_MXFP4_Q8"
     GLM_Z1_32B_0414 = "Z1_32B_0414"
-    GLM_EDGE_1_5B_CHAT = "Edge_1.5B_Chat"
+    PRATHAMAVATSA = "Prathamavatsa"
 
 
 class ModelLoader(ForgeModel):
@@ -82,8 +82,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="zai-org/GLM-Z1-32B-0414",
             max_length=128,
         ),
-        ModelVariant.GLM_EDGE_1_5B_CHAT: LLMModelConfig(
-            pretrained_model_name="zai-org/glm-edge-1.5b-chat",
+        ModelVariant.PRATHAMAVATSA: LLMModelConfig(
+            pretrained_model_name="cosmicoptima/Prathamavatsa",
             max_length=128,
         ),
     }
@@ -128,7 +128,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GLM_4_7_FLASH,
             ModelVariant.GLM_5_MXFP4_Q8,
             ModelVariant.GLM_Z1_32B_0414,
-            ModelVariant.GLM_EDGE_1_5B_CHAT,
+            ModelVariant.PRATHAMAVATSA,
         ):
             group = ModelGroup.VULCAN
         else:
