@@ -98,10 +98,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        if variant in (
-            ModelVariant.GPT2_SEQUENCE_CLASSIFICATION,
-            ModelVariant.GPT2_COLA,
-        ):
+        if variant == ModelVariant.GPT2_SEQUENCE_CLASSIFICATION:
             task = ModelTask.NLP_TEXT_CLS
         else:
             task = ModelTask.NLP_CAUSAL_LM
@@ -133,10 +130,7 @@ class ModelLoader(ForgeModel):
         )
 
         # Set padding side to left for classification variants
-        if self._variant in (
-            ModelVariant.GPT2_SEQUENCE_CLASSIFICATION,
-            ModelVariant.GPT2_COLA,
-        ):
+        if self._variant == ModelVariant.GPT2_SEQUENCE_CLASSIFICATION:
             self.tokenizer.padding_side = "left"
 
         return self.tokenizer
@@ -241,10 +235,7 @@ class ModelLoader(ForgeModel):
 
         logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
 
-        if self._variant in (
-            ModelVariant.GPT2_SEQUENCE_CLASSIFICATION,
-            ModelVariant.GPT2_COLA,
-        ):
+        if self._variant == ModelVariant.GPT2_SEQUENCE_CLASSIFICATION:
             # For classification: map class index to label
             predicted_value = logits.argmax(-1).item()
             model = self.load_model()
