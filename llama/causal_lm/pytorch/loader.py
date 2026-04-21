@@ -132,8 +132,8 @@ class ModelVariant(StrEnum):
     # RLHFlow variants
     RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA = "RLHFlow_3.1_8B_PRM_Deepseek_Data"
 
-    # ank028 variants
-    ANK028_LLAMA_3_2_1B_INSTRUCT_MEDMCQA = "Ank028_3.2_1B_Instruct_Medmcqa"
+    # Nos-PT variants
+    LLAMA_CARVALHO_PT_GL = "Carvalho_PT_GL"
 
 
 class ModelLoader(ForgeModel):
@@ -315,9 +315,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RLHFlow/Llama3.1-8B-PRM-Deepseek-Data",
             max_length=128,
         ),
-        # ank028 variants
-        ModelVariant.ANK028_LLAMA_3_2_1B_INSTRUCT_MEDMCQA: LLMModelConfig(
-            pretrained_model_name="ank028/Llama-3.2-1B-Instruct-medmcqa",
+        # Nos-PT variants
+        ModelVariant.LLAMA_CARVALHO_PT_GL: LLMModelConfig(
+            pretrained_model_name="Nos-PT/Llama-Carvalho-PT-GL",
             max_length=128,
         ),
     }
@@ -402,7 +402,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.AMD_QUARK_TINY_LLAMA,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA,
-            ModelVariant.ANK028_LLAMA_3_2_1B_INSTRUCT_MEDMCQA,
+            ModelVariant.LLAMA_CARVALHO_PT_GL,
         ]:
             group = ModelGroup.VULCAN
         else:
