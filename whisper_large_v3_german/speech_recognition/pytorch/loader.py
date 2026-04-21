@@ -7,6 +7,11 @@ Whisper Large v3 German model loader implementation for speech recognition (ASR)
 
 A fine-tuned version of OpenAI's Whisper Large v3, optimized for German
 speech recognition with a WER of 3.002% on Common Voice 15.
+
+The Whisper_Large_V3_Turbo_German_CT2 variant corresponds to
+jimmymeister/whisper-large-v3-turbo-german-ct2, a CTranslate2 translation of
+primeline/whisper-large-v3-turbo-german. Since CTranslate2 format is not
+compatible with PyTorch, this loader uses the base primeline model.
 """
 
 from typing import Optional
@@ -30,6 +35,7 @@ class ModelVariant(StrEnum):
     """Available Whisper Large v3 German speech recognition model variants."""
 
     WHISPER_LARGE_V3_GERMAN = "Whisper_Large_V3_German"
+    WHISPER_LARGE_V3_TURBO_GERMAN_CT2 = "Whisper_Large_V3_Turbo_German_CT2"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +44,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.WHISPER_LARGE_V3_GERMAN: ModelConfig(
             pretrained_model_name="primeline/whisper-large-v3-german",
+        ),
+        ModelVariant.WHISPER_LARGE_V3_TURBO_GERMAN_CT2: ModelConfig(
+            pretrained_model_name="primeline/whisper-large-v3-turbo-german",
         ),
     }
 
