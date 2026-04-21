@@ -21,7 +21,7 @@ class ModelVariant(StrEnum):
     """Available Pi-0.5 model variants."""
 
     LIBERO_BASE = "lerobot_pi05_libero_base"
-    PYTHONSONG_BIMANUAL = "pythonsong_pi05_bimanual"
+    SFT_V2_LATEST = "rayhanfahmed_pi05_sft_v2_latest"
 
 
 class ModelLoader(ForgeModel):
@@ -32,8 +32,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.LIBERO_BASE: ModelConfig(
             pretrained_model_name="lerobot/pi05_libero_base",
         ),
-        ModelVariant.PYTHONSONG_BIMANUAL: ModelConfig(
-            pretrained_model_name="pythonsong/pi05_bimanual",
+        ModelVariant.SFT_V2_LATEST: ModelConfig(
+            pretrained_model_name="rayhanfahmed/pi05-sft-v2-latest",
         ),
     }
 
