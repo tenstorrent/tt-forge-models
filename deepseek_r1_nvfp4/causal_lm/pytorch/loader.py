@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available DeepSeek R1 NVFP4 model variants for causal language modeling."""
 
     DEEPSEEK_R1_NVFP4 = "R1_NVFP4"
+    DEEPSEEK_R1_NVFP4_V2 = "R1_NVFP4_V2"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEEPSEEK_R1_NVFP4: LLMModelConfig(
             pretrained_model_name="nvidia/DeepSeek-R1-NVFP4",
+            max_length=128,
+        ),
+        ModelVariant.DEEPSEEK_R1_NVFP4_V2: LLMModelConfig(
+            pretrained_model_name="nvidia/DeepSeek-R1-NVFP4-v2",
             max_length=128,
         ),
     }
