@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     DEBERTA_V3_BASE = "V3_Base"
     DEBERTA_V3_LARGE = "V3_Large"
     DEBERTA_V2_TINY_JAPANESE_CHAR_WWM = "V2_Tiny_Japanese_Char_WWM"
-    LEUKAS_AMLM_HARD_DECAY = "leukas/amlm_hard_decay"
+    DEBERTA_V2_BASE_JAPANESE_IZUMI_LAB = "V2_Base_Japanese_Izumi_Lab"
 
 
 class ModelLoader(ForgeModel):
@@ -53,8 +53,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="ku-nlp/deberta-v2-tiny-japanese-char-wwm",
             max_length=128,
         ),
-        ModelVariant.LEUKAS_AMLM_HARD_DECAY: LLMModelConfig(
-            pretrained_model_name="leukas/amlm_hard_decay",
+        ModelVariant.DEBERTA_V2_BASE_JAPANESE_IZUMI_LAB: LLMModelConfig(
+            pretrained_model_name="izumi-lab/deberta-v2-base-japanese",
             max_length=128,
         ),
     }
