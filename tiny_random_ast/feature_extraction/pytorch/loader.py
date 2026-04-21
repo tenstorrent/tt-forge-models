@@ -69,6 +69,7 @@ class ModelLoader(ForgeModel):
         return self._processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import torch
         from transformers import ASTModel
 
         model_kwargs = {}
@@ -82,10 +83,13 @@ class ModelLoader(ForgeModel):
         model.eval()
         if dtype_override is not None:
             model.to(dtype_override)
+        else:
+            model.to(torch.float32)
 
         return model
 
     def load_inputs(self, dtype_override=None):
+        import torch
         import numpy as np
 
         if self._processor is None:
@@ -103,5 +107,11 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if torch.is_floating_point(v) else v
+                for k, v in inputs.items()
+            }
 
         return inputs
