@@ -13,19 +13,44 @@ from ....base import ForgeModel
 
 
 def _patch_deepseek_v2_gguf_tokenizer():
-    """Add deepseek_v2 to GGUF_TO_FAST_CONVERTERS if not present.
+    """Register a deepseek_v2 GGUF tokenizer converter.
 
-    The glm_4_7_flash_gguf loader converts model_type from 'deepseek2' to
-    'deepseek_v2' in load_gguf_checkpoint, but GGUF_TO_FAST_CONVERTERS only
-    has 'deepseek2'. DeepSeek-V2 uses a BPE tokenizer compatible with Qwen2.
+    The glm_4_7_flash_gguf loader renames model_type from 'deepseek2' to
+    'deepseek_v2', so the tokenizer lookup needs a 'deepseek_v2' entry.
+    GGUFQwen2Converter is the right BPE base, but it adds Qwen2-specific tokens
+    (<|im_start|> etc.) that get IDs >= the 102400 vocab boundary, causing
+    IndexError in embed_tokens. The custom converter skips those and instead
+    registers only the DeepSeek special tokens already present in the vocab.
     """
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
         GGUFQwen2Converter,
     )
+    from transformers.convert_slow_tokenizer import Qwen2Converter
+    from tokenizers import AddedToken
 
-    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+    if "deepseek_v2" in GGUF_TO_FAST_CONVERTERS:
+        return
+
+    class GGUFDeepSeekV2Converter(GGUFQwen2Converter):
+        def converted(self):
+            proto = self.original_tokenizer
+            vocab = {word: i for i, word in enumerate(proto.tokens)}
+            merges = proto.merges
+            tokenizer = Qwen2Converter.converted(self, vocab, merges)
+            # Register type-3 (special) tokens already in the GGUF vocab without
+            # adding any new IDs that would exceed the model's vocab_size.
+            if hasattr(proto, "token_type"):
+                special = [
+                    AddedToken(proto.tokens[i], normalized=False, special=True)
+                    for i in range(len(proto.tokens))
+                    if proto.token_type[i] == 3
+                ]
+                if special:
+                    tokenizer.add_special_tokens(special)
+            return tokenizer
+
+    GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFDeepSeekV2Converter
 
 
 _patch_deepseek_v2_gguf_tokenizer()
