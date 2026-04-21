@@ -8,6 +8,20 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_transformers_lfm2_gguf():
+    """Register lfm2 tokenizer converter missing from GGUF_TO_FAST_CONVERTERS in transformers 5.x."""
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "lfm2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["lfm2"] = GGUFLlamaConverter
+
+
+_patch_transformers_lfm2_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
