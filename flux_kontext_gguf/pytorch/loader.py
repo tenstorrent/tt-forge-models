@@ -7,6 +7,7 @@ FLUX.1 Kontext GGUF model loader implementation for image-to-image generation
 Repository:
 - https://huggingface.co/bullerwins/FLUX.1-Kontext-dev-GGUF
 """
+import os
 import torch
 from diffusers import FluxTransformer2DModel
 from typing import Optional
@@ -23,6 +24,19 @@ from ...config import (
 )
 
 GGUF_BASE_URL = "https://huggingface.co/bullerwins/FLUX.1-Kontext-dev-GGUF/blob/main"
+
+KONTEXT_CONFIG = {
+    "in_channels": 128,
+    "out_channels": 64,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "attention_head_dim": 128,
+    "num_attention_heads": 24,
+    "joint_attention_dim": 4096,
+    "pooled_projection_dim": 768,
+    "guidance_embeds": True,
+    "axes_dims_rope": [16, 56, 56],
+}
 
 
 class ModelVariant(StrEnum):
@@ -70,7 +84,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def _load_from_gguf(self, dtype_override=None):
         gguf_file = self._GGUF_FILES[self._variant]
         gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
 
@@ -80,8 +94,20 @@ class ModelLoader(ForgeModel):
 
         self.transformer = FluxTransformer2DModel.from_single_file(
             gguf_url,
+            config="black-forest-labs/FLUX.1-Kontext-dev",
+            subfolder="transformer",
             **load_kwargs,
         )
+
+    def _load_from_config(self, dtype_override=None):
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        self.transformer = FluxTransformer2DModel(**KONTEXT_CONFIG).to(dtype)
+
+    def load_model(self, *, dtype_override=None, **kwargs):
+        if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+            self._load_from_config(dtype_override=dtype_override)
+        else:
+            self._load_from_gguf(dtype_override=dtype_override)
 
         if dtype_override is not None:
             self.transformer = self.transformer.to(dtype_override)
