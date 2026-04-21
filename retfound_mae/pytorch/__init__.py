@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-RETFound MAE PyTorch model implementation for Tenstorrent projects.
+RETFound_MAE PyTorch model implementation for Tenstorrent projects.
 """
 from .loader import ModelLoader, ModelVariant
