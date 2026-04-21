@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available ControlNet OpenPose SD1.5 model variants."""
 
     CONTROLNET_OPENPOSE_SD15 = "OpenPose_SD1.5"
+    SD_CONTROLNET_OPENPOSE = "SD_ControlNet_OpenPose"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.CONTROLNET_OPENPOSE_SD15: ModelConfig(
             pretrained_model_name="lllyasviel/control_v11p_sd15_openpose",
+        ),
+        ModelVariant.SD_CONTROLNET_OPENPOSE: ModelConfig(
+            pretrained_model_name="lllyasviel/sd-controlnet-openpose",
         ),
     }
 
