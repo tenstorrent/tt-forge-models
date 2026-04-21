@@ -32,11 +32,8 @@ class ModelVariant(StrEnum):
     XLM_ROBERTA_LARGE_HUNGARIAN_LEGISLATIVE_CAP_V3 = (
         "poltextlab/xlm-roberta-large-hungarian-legislative-cap-v3"
     )
-    XLM_ROBERTA_LARGE_HUNGARIAN_PUBLICOPINION_CAP_V3 = (
-        "poltextlab/xlm-roberta-large-hungarian-publicopinion-cap-v3"
-    )
-    XLM_ROBERTA_LARGE_POOLED_CAP_MEDIA2_V2 = (
-        "poltextlab/xlm-roberta-large-pooled-cap-media2-v2"
+    XLM_ROBERTA_LARGE_ENGLISH_EXECORDER_CAP_V3 = (
+        "poltextlab/xlm-roberta-large-english-execorder-cap-v3"
     )
 
 
@@ -60,12 +57,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="poltextlab/xlm-roberta-large-hungarian-legislative-cap-v3",
             max_length=128,
         ),
-        ModelVariant.XLM_ROBERTA_LARGE_HUNGARIAN_PUBLICOPINION_CAP_V3: LLMModelConfig(
-            pretrained_model_name="poltextlab/xlm-roberta-large-hungarian-publicopinion-cap-v3",
-            max_length=128,
-        ),
-        ModelVariant.XLM_ROBERTA_LARGE_POOLED_CAP_MEDIA2_V2: LLMModelConfig(
-            pretrained_model_name="poltextlab/xlm-roberta-large-pooled-cap-media2-v2",
+        ModelVariant.XLM_ROBERTA_LARGE_ENGLISH_EXECORDER_CAP_V3: LLMModelConfig(
+            pretrained_model_name="poltextlab/xlm-roberta-large-english-execorder-cap-v3",
             max_length=128,
         ),
     }
