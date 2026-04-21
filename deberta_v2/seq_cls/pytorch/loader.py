@@ -23,7 +23,7 @@ class ModelVariant(StrEnum):
     """Available DeBERTa-v2 model variants for sequence classification."""
 
     SCALETECH_NSFW_CLASSIFIER = "scaleTech_nsfw_classifier"
-    DMASAMBA_PROMPT_GUARD_MIXED_V5 = "dmasamba_prompt_guard_mixed_v5"
+    HUGOGIDDINS_ISCRYPTO_FINETUNED_V3 = "hugogiddins_iscrypto_finetuned_v3"
 
 
 class ModelLoader(ForgeModel):
@@ -33,8 +33,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.SCALETECH_NSFW_CLASSIFIER: ModelConfig(
             pretrained_model_name="scaleTech/myplaygirl-nsfw-classifier",
         ),
-        ModelVariant.DMASAMBA_PROMPT_GUARD_MIXED_V5: ModelConfig(
-            pretrained_model_name="dmasamba/deberta-v3-prompt-guard-mixed-v5",
+        ModelVariant.HUGOGIDDINS_ISCRYPTO_FINETUNED_V3: ModelConfig(
+            pretrained_model_name="HugoGiddins/iscrypto_finetuned_v3",
         ),
     }
 
@@ -111,8 +111,12 @@ class ModelLoader(ForgeModel):
     def decode_output(self, co_out):
         logits = co_out[0]
         predicted_class_id = logits.argmax(-1).item()
-        if self._variant == ModelVariant.DMASAMBA_PROMPT_GUARD_MIXED_V5:
-            labels = ["SAFE", "INJECTION"]
-        else:
+        if self._variant == ModelVariant.SCALETECH_NSFW_CLASSIFIER:
             labels = ["NSFW", "SFW"]
-        print(f"Predicted: {labels[predicted_class_id]}")
+            print(f"Predicted: {labels[predicted_class_id]}")
+            return
+        if self.model is not None and hasattr(self.model.config, "id2label"):
+            label = self.model.config.id2label[predicted_class_id]
+            print(f"Predicted: {label}")
+        else:
+            print(f"Predicted class ID: {predicted_class_id}")
