@@ -42,18 +42,15 @@ class ModelLoader(ForgeModel):
     """Faster Whisper model loader implementation for speech recognition (ASR)."""
 
     _VARIANTS = {
-        ModelVariant.MEDIUM: ModelConfig(
-            pretrained_model_name="openai/whisper-medium",
-        ),
-        ModelVariant.KOTOBA_V2_0: ModelConfig(
-            pretrained_model_name="kotoba-tech/kotoba-whisper-v2.0",
+        ModelVariant.LARGE_V3_TURBO: ModelConfig(
+            pretrained_model_name="openai/whisper-large-v3-turbo",
         ),
         ModelVariant.DISTIL_SMALL_EN: ModelConfig(
             pretrained_model_name="distil-whisper/distil-small.en",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.MEDIUM
+    DEFAULT_VARIANT = ModelVariant.LARGE_V3_TURBO
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
