@@ -89,8 +89,7 @@ class ModelLoader(ForgeModel):
 
         adapter_name = self._variant_config.pretrained_model_name
         model = PeftModel.from_pretrained(base_model, adapter_name)
-        lora_model = model.base_model
-        model = type(lora_model).merge_and_unload(lora_model)
+        model.eval()
 
         for param in model.parameters():
             param.requires_grad = False
