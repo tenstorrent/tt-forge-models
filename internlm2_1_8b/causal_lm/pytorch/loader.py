@@ -5,7 +5,7 @@
 InternLM2 1.8B model loader implementation for causal language modeling.
 """
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
 from ....config import (
@@ -86,7 +86,19 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # The custom InternLM2 modeling code expects rope_scaling["type"] (old format),
+        # but newer transformers configs use rope_scaling["rope_type"]. Patch it here.
+        if config.rope_scaling is not None and "type" not in config.rope_scaling:
+            rope_type = config.rope_scaling.get("rope_type", "default")
+            if rope_type == "default":
+                config.rope_scaling = None
+            else:
+                config.rope_scaling["type"] = rope_type
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
