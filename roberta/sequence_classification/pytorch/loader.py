@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
 
     EMOTION_ENGLISH_LARGE = "Emotion_English_Large"
     BASE_EMPATHY = "Base_Empathy"
-    BASE_MRPC = "Base_MRPC"
+    NUM_THEO_CLASSIFIER = "Num_Theo_Classifier"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bdotloh/roberta-base-empathy",
             max_length=128,
         ),
-        ModelVariant.BASE_MRPC: LLMModelConfig(
-            pretrained_model_name="textattack/roberta-base-MRPC",
+        ModelVariant.NUM_THEO_CLASSIFIER: LLMModelConfig(
+            pretrained_model_name="venkyllms/num-theo-classifer",
             max_length=128,
         ),
     }
@@ -50,7 +50,7 @@ class ModelLoader(ForgeModel):
     _SAMPLE_TEXTS = {
         ModelVariant.EMOTION_ENGLISH_LARGE: "I am so happy today, everything is going great!",
         ModelVariant.BASE_EMPATHY: "It breaks my heart to see so many people suffering after the earthquake.",
-        ModelVariant.BASE_MRPC: "The company said it expects revenue of $4.1 billion to $4.2 billion.",
+        ModelVariant.NUM_THEO_CLASSIFIER: "Prove that there are infinitely many prime numbers of the form 4k+1.",
     }
 
     def __init__(self, variant=None):
