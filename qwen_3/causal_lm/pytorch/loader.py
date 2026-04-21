@@ -40,6 +40,7 @@ class ModelVariant(StrEnum):
     QWEN_3_4B_FP8 = "4B_FP8"
     QWEN_3_4B_INSTRUCT_2507 = "4B_Instruct_2507"
     QWEN_3_4B_INSTRUCT_2507_FP8 = "4B_Instruct_2507_FP8"
+    QWEN_3_4B_INSTRUCT_2507_FP8_UNSLOTH = "4B_Instruct_2507_FP8_Unsloth"
     QWEN_3_1_7B_FP8 = "1_7B_FP8"
     QWEN_3_1_7B_FP8_DYNAMIC = "1_7B_FP8_Dynamic"
     QWEN_3_8B = "8B"
@@ -106,6 +107,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_4B_INSTRUCT_2507_FP8: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-4B-Instruct-2507-FP8",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_4B_INSTRUCT_2507_FP8_UNSLOTH: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen3-4B-Instruct-2507-FP8",
             max_length=128,
         ),
         ModelVariant.QWEN_3_1_7B_FP8: LLMModelConfig(
@@ -257,6 +262,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_4B_BASE,
             ModelVariant.QWEN_3_4B_FP8,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507,
+            ModelVariant.QWEN_3_4B_INSTRUCT_2507_FP8_UNSLOTH,
             ModelVariant.QWEN_3_4B_THINKING_2507,
             ModelVariant.QWEN_3_8B_AWQ,
             ModelVariant.QWEN_3_8B_NVFP4_REDHATAI,
@@ -418,6 +424,7 @@ class ModelLoader(ForgeModel):
             # Instruct-2507 variants do not support thinking mode
             enable_thinking = self._variant not in (
                 ModelVariant.QWEN_3_4B_INSTRUCT_2507,
+                ModelVariant.QWEN_3_4B_INSTRUCT_2507_FP8_UNSLOTH,
                 ModelVariant.QWEN_3_4B_INSTRUCT_2507_MLX_8BIT,
                 ModelVariant.QWEN_3_14B_INSTRUCT_OPENPIPE,
                 ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
@@ -462,6 +469,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_4B_FP8,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507_FP8,
+            ModelVariant.QWEN_3_4B_INSTRUCT_2507_FP8_UNSLOTH,
             ModelVariant.QWEN_3_4B_INT8_INT4,
         ]:
             text_config = self._get_text_config()
@@ -497,6 +505,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_4B_FP8,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507,
             ModelVariant.QWEN_3_4B_INSTRUCT_2507_FP8,
+            ModelVariant.QWEN_3_4B_INSTRUCT_2507_FP8_UNSLOTH,
             ModelVariant.QWEN_3_4B_INT8_INT4,
         ]:
             return None
