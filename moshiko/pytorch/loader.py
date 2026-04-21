@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
 
     MOSHIKO_BF16 = "Moshiko BF16"
     MOSHIKO_Q8 = "Moshiko Q8"
+    J_MOSHI_EXT = "J-Moshi-ext"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MOSHIKO_Q8: ModelConfig(
             pretrained_model_name="kyutai/moshiko-pytorch-q8",
+        ),
+        ModelVariant.J_MOSHI_EXT: ModelConfig(
+            pretrained_model_name="nu-dialogue/j-moshi-ext",
         ),
     }
 
