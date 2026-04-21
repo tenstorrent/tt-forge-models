@@ -4,6 +4,7 @@
 """
 VieNeu TTS 0.3B GGUF model loader for Vietnamese text-to-speech generation.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -24,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available VieNeu TTS GGUF model variants."""
 
     VIENEU_TTS_0_3B_Q4_GGUF = "0.3B_Q4_GGUF"
+    VIENEU_TTS_0_3B_NGOC_HUYEN_Q4_GGUF = "0.3B_ngoc_huyen_Q4_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +36,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf",
             max_length=128,
         ),
+        ModelVariant.VIENEU_TTS_0_3B_NGOC_HUYEN_Q4_GGUF: LLMModelConfig(
+            pretrained_model_name="pnnbao-ump/VieNeu-TTS-0.3B-ngoc-huyen-gguf-Q4_0",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.VIENEU_TTS_0_3B_Q4_GGUF
 
-    GGUF_FILE = "VieNeu-TTS-0_3B-Q4_0.gguf"
+    _GGUF_FILES = {
+        ModelVariant.VIENEU_TTS_0_3B_Q4_GGUF: "VieNeu-TTS-0_3B-Q4_0.gguf",
+        ModelVariant.VIENEU_TTS_0_3B_NGOC_HUYEN_Q4_GGUF: "VieNeu-TTS-0.3B-ngoc-huyen-Q4_0.gguf",
+    }
 
     sample_text = "Xin chào, tôi là VieNeu."
 
@@ -46,6 +55,10 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.config = None
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -62,7 +75,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -82,7 +95,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -114,6 +127,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
