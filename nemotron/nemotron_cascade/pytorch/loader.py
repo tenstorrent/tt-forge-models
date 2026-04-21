@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available Nemotron-Cascade model variants for causal language modeling."""
 
     NEMOTRON_CASCADE_2_30B_A3B = "Cascade_2_30B_A3B"
-    NEMOTRON_CASCADE_2_30B_A3B_MLX_8BIT = "Cascade_2_30B_A3B_mlx_8bit"
+    NEMOTRON_CASCADE_2_30B_A3B_MLX_6BIT = "Cascade_2_30B_A3B_mlx_6bit"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="nvidia/Nemotron-Cascade-2-30B-A3B",
             max_length=128,
         ),
-        ModelVariant.NEMOTRON_CASCADE_2_30B_A3B_MLX_8BIT: LLMModelConfig(
-            pretrained_model_name="mlx-community/Nemotron-Cascade-2-30B-A3B-8bit",
+        ModelVariant.NEMOTRON_CASCADE_2_30B_A3B_MLX_6BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/Nemotron-Cascade-2-30B-A3B-6bit",
             max_length=128,
         ),
     }
@@ -91,6 +91,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._variant == ModelVariant.NEMOTRON_CASCADE_2_30B_A3B_MLX_6BIT:
+            model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
