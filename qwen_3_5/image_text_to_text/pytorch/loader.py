@@ -27,6 +27,9 @@ class ModelVariant(StrEnum):
     """Available Qwen 3.5 model variants for image-text-to-text."""
 
     QWEN_3_5_9B_8BIT = "9b_8bit"
+    QWEN_3_5_27B_UNCENSORED_HAUHAUCS_AGGRESSIVE_NVFP4 = (
+        "27B_Uncensored_HauhauCS_Aggressive_NVFP4"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +38,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_5_9B_8BIT: ModelConfig(
             pretrained_model_name="mlx-community/Qwen3.5-9B-8bit",
+        ),
+        ModelVariant.QWEN_3_5_27B_UNCENSORED_HAUHAUCS_AGGRESSIVE_NVFP4: ModelConfig(
+            pretrained_model_name="lyf/Qwen3.5-27B-Uncensored-HauhauCS-Aggressive-NVFP4",
         ),
     }
 
