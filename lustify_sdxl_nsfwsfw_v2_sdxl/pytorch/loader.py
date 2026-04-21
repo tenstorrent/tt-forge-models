@@ -18,12 +18,12 @@ from diffusers import StableDiffusionXLPipeline
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -74,7 +74,6 @@ class ModelLoader(ForgeModel):
         self.pipeline = StableDiffusionXLPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
-            use_safetensors=True,
             **kwargs,
         )
         return self.pipeline
