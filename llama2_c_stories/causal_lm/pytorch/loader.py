@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Llama2.c Stories model variants."""
 
     STORIES_15M = "Stories_15M"
+    STORIES_42M_GSM8K_COMPRESSED = "Stories_42M_gsm8k_Compressed"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.STORIES_15M: ModelConfig(
             pretrained_model_name="nm-testing/llama2.c-stories15M",
+        ),
+        ModelVariant.STORIES_42M_GSM8K_COMPRESSED: ModelConfig(
+            pretrained_model_name="nm-testing/llama2.c-stories42M-gsm8k-stacked-compressed",
         ),
     }
 
