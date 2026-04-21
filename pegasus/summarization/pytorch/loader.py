@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Pegasus model loader implementation for financial text summarization.
+Pegasus model loader implementation for text summarization.
 """
 
 from typing import Optional
@@ -20,17 +20,21 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Pegasus model variants for financial summarization."""
+    """Available Pegasus model variants for text summarization."""
 
     FINANCIAL = "Financial"
+    BBC_NEWS_SUMMARIZATION = "BBC_News_Summarization"
 
 
 class ModelLoader(ForgeModel):
-    """Pegasus model loader implementation for financial text summarization."""
+    """Pegasus model loader implementation for text summarization."""
 
     _VARIANTS = {
         ModelVariant.FINANCIAL: LLMModelConfig(
             pretrained_model_name="human-centered-summarization/financial-summarization-pegasus",
+        ),
+        ModelVariant.BBC_NEWS_SUMMARIZATION: LLMModelConfig(
+            pretrained_model_name="DunnBC22/pegasus-multi_news-NewsSummarization_BBC",
         ),
     }
 
