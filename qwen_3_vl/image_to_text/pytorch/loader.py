@@ -45,8 +45,7 @@ class ModelVariant(StrEnum):
     QWEN_3_VL_30B_A3B_THINKING = "30b_a3b_thinking"
     QWEN_3_VL_235B_A22B_INSTRUCT_AWQ = "235b_a22b_instruct_awq"
     UNSLOTH_QWEN_3_VL_4B_INSTRUCT = "unsloth_4b_instruct"
-    PODUPOPULUS_QWEN_3_VL_8B_CHEQUE_V14_W4A16 = "podupopulus_8b_cheque_v14_w4a16"
-    CODEGOAT24_UNIFIED_REWARD_THINK_QWEN_3_VL_8B = "codegoat24_unified_reward_think_8b"
+    QWEN_3_VL_8B_INSTRUCT_ABLITERATED_V2 = "8b_instruct_abliterated_v2"
 
 
 class ModelLoader(ForgeModel):
@@ -118,12 +117,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/Qwen3-VL-4B-Instruct",
             max_length=128,
         ),
-        ModelVariant.PODUPOPULUS_QWEN_3_VL_8B_CHEQUE_V14_W4A16: LLMModelConfig(
-            pretrained_model_name="podupopulus/Qwen3-VL-8B-cheque-v14-W4A16",
-            max_length=128,
-        ),
-        ModelVariant.CODEGOAT24_UNIFIED_REWARD_THINK_QWEN_3_VL_8B: LLMModelConfig(
-            pretrained_model_name="CodeGoat24/UnifiedReward-Think-qwen3vl-8b",
+        ModelVariant.QWEN_3_VL_8B_INSTRUCT_ABLITERATED_V2: LLMModelConfig(
+            pretrained_model_name="prithivMLmods/Qwen3-VL-8B-Instruct-abliterated-v2",
             max_length=128,
         ),
     }
@@ -180,8 +175,7 @@ class ModelLoader(ForgeModel):
                 ModelVariant.QWEN_3_VL_32B_INSTRUCT,
                 ModelVariant.QWEN_3_VL_235B_A22B_INSTRUCT_AWQ,
                 ModelVariant.UNSLOTH_QWEN_3_VL_4B_INSTRUCT,
-                ModelVariant.PODUPOPULUS_QWEN_3_VL_8B_CHEQUE_V14_W4A16,
-                ModelVariant.CODEGOAT24_UNIFIED_REWARD_THINK_QWEN_3_VL_8B,
+                ModelVariant.QWEN_3_VL_8B_INSTRUCT_ABLITERATED_V2,
             )
             else ModelGroup.RED
         )
