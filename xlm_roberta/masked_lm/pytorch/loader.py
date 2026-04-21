@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     TF_XLM_ROBERTA_BASE = "Tf_Xlm_Roberta_Base"
     TWITTER_XLM_ROBERTA_BASE = "Twitter_Xlm_Roberta_Base"
+    RIGOBERTA_CLINICAL = "Rigoberta_Clinical"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.TWITTER_XLM_ROBERTA_BASE: ModelConfig(
             pretrained_model_name="cardiffnlp/twitter-xlm-roberta-base",
+        ),
+        ModelVariant.RIGOBERTA_CLINICAL: ModelConfig(
+            pretrained_model_name="IIC/RigoBERTa-Clinical",
         ),
     }
 
