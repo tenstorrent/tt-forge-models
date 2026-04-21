@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available OlmoHybrid model variants for causal language modeling."""
 
     Olmo_Hybrid_Instruct_DPO_7B = "hybrid_instruct_dpo_7b"
+    Olmo_Hybrid_Think_SFT_7B = "hybrid_think_sft_7b"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.Olmo_Hybrid_Instruct_DPO_7B: LLMModelConfig(
             pretrained_model_name="allenai/Olmo-Hybrid-Instruct-DPO-7B",
+            max_length=256,
+        ),
+        ModelVariant.Olmo_Hybrid_Think_SFT_7B: LLMModelConfig(
+            pretrained_model_name="allenai/Olmo-Hybrid-Think-SFT-7B",
             max_length=256,
         ),
     }
