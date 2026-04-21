@@ -40,6 +40,7 @@ class ModelVariant(StrEnum):
     )
     GEMMA_3_12B_IT = "google/gemma-3-12b-it"
     GEMMA_3_12B_IT_BNB_4BIT = "unsloth/gemma-3-12b-it-unsloth-bnb-4bit"
+    GEMMA_3_12B_IT_FP8_DYNAMIC = "unsloth/gemma-3-12b-it-FP8-Dynamic"
     GEMMA_3_27B_IT = "google/gemma-3-27b-it"
     GEMMA_3_27B_IT_QAT_W4A16 = "leon-se/gemma-3-27b-it-qat-W4A16-G128"
 
@@ -69,6 +70,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.GEMMA_3_12B_IT_BNB_4BIT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_12B_IT_BNB_4BIT),
         ),
+        ModelVariant.GEMMA_3_12B_IT_FP8_DYNAMIC: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.GEMMA_3_12B_IT_FP8_DYNAMIC),
+        ),
         ModelVariant.GEMMA_3_27B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_27B_IT),
         ),
@@ -92,7 +96,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         if variant in (
             ModelVariant.GEMMA_3_4B_IT_QAT_4BIT,
-            ModelVariant.GEMMA_3_4B_IT_MLX_8BIT,
+            ModelVariant.GEMMA_3_12B_IT_FP8_DYNAMIC,
             ModelVariant.GEMMA_3_27B_IT_QAT_W4A16,
         ):
             group = ModelGroup.VULCAN
@@ -256,6 +260,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_3_4B_IT_MLX_8BIT,
             ModelVariant.GEMMA_3_12B_IT,
             ModelVariant.GEMMA_3_12B_IT_BNB_4BIT,
+            ModelVariant.GEMMA_3_12B_IT_FP8_DYNAMIC,
         ]:
             assert (
                 self.config.text_config.num_attention_heads % mesh_shape[1] == 0
