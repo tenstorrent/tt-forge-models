@@ -9,7 +9,7 @@ family.
 
 Available variants:
 - LLAMA_300M_V5_WINDOW_4: deqing/llama-300M-v5-window_4
-- LLAMA_300M_V5_ORIGINAL: deqing/llama-300M-v5-original
+- LLAMA_300M_V5_BASE_7: deqing/llama-300M-v5-base_7
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -31,7 +31,7 @@ class ModelVariant(StrEnum):
     """Available Llama-300M-v5 model variants for causal language modeling."""
 
     LLAMA_300M_V5_WINDOW_4 = "llama_300m_v5_window_4"
-    LLAMA_300M_V5_ORIGINAL = "llama_300m_v5_original"
+    LLAMA_300M_V5_BASE_7 = "llama_300m_v5_base_7"
 
 
 class ModelLoader(ForgeModel):
@@ -42,8 +42,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="deqing/llama-300M-v5-window_4",
             max_length=128,
         ),
-        ModelVariant.LLAMA_300M_V5_ORIGINAL: LLMModelConfig(
-            pretrained_model_name="deqing/llama-300M-v5-original",
+        ModelVariant.LLAMA_300M_V5_BASE_7: LLMModelConfig(
+            pretrained_model_name="deqing/llama-300M-v5-base_7",
             max_length=128,
         ),
     }
