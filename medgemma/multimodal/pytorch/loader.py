@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     """Available MedGemma multimodal model variants."""
 
     MEDGEMMA_4B_PT = "google/medgemma-4b-pt"
+    UNSLOTH_MEDGEMMA_4B_IT = "unsloth/medgemma-4b-it"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MEDGEMMA_4B_PT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.MEDGEMMA_4B_PT),
+        ),
+        ModelVariant.UNSLOTH_MEDGEMMA_4B_IT: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.UNSLOTH_MEDGEMMA_4B_IT),
         ),
     }
 
