@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     DISTILLED_600M = "Distilled_600M"
     NLLB_200_1_3B = "1.3B"
+    AFRINLLB_12ENC_8DEC_548M = "AfriNLLB_12enc_8dec_548M"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.NLLB_200_1_3B: LLMModelConfig(
             pretrained_model_name="facebook/nllb-200-1.3B",
+        ),
+        ModelVariant.AFRINLLB_12ENC_8DEC_548M: LLMModelConfig(
+            pretrained_model_name="AfriNLP/AfriNLLB-12enc-8dec-iterative-548m-ft",
         ),
     }
 
