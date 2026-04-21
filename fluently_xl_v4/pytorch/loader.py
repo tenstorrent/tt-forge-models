@@ -1,20 +1,10 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""
-Fluently-XL-v4 (fluently/Fluently-XL-v4) model loader implementation.
-
-Fluently-XL-v4 is a fine-tuned Stable Diffusion XL model for high-quality
-text-to-image generation, based on stabilityai/stable-diffusion-xl-base-1.0.
-
-Available variants:
-- FLUENTLY_XL_V4: fluently/Fluently-XL-v4 text-to-image generation
-"""
 
 from typing import Optional
 
 import torch
-from diffusers import DiffusionPipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -26,26 +16,27 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from .src.model_utils import load_pipe, stable_diffusion_preprocessing_xl
 
 
 REPO_ID = "fluently/Fluently-XL-v4"
 
 
 class ModelVariant(StrEnum):
-    """Available Fluently-XL-v4 model variants."""
-
     FLUENTLY_XL_V4 = "Fluently_XL_v4"
 
 
 class ModelLoader(ForgeModel):
-    """Fluently-XL-v4 model loader implementation."""
-
     _VARIANTS = {
         ModelVariant.FLUENTLY_XL_V4: ModelConfig(
             pretrained_model_name=REPO_ID,
         ),
     }
     DEFAULT_VARIANT = ModelVariant.FLUENTLY_XL_V4
+
+    prompt = (
+        "A cinematic shot of a baby raccoon wearing an intricate italian priest robe."
+    )
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -59,31 +50,42 @@ class ModelLoader(ForgeModel):
             model="Fluently_XL_v4",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.MM_IMAGE_TTT,
+            task=ModelTask.CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Fluently-XL-v4 pipeline.
+        self.pipeline = load_pipe(self._variant_config.pretrained_model_name)
 
-        Returns:
-            DiffusionPipeline: The Fluently-XL-v4 pipeline instance.
-        """
-        dtype = dtype_override if dtype_override is not None else torch.float32
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
-        )
-        return self.pipeline
+        if dtype_override is not None:
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the Fluently-XL-v4 model.
+        return self.pipeline.unet
 
-        Returns:
-            list: A list of sample text prompts.
-        """
-        return [
-            "A cinematic shot of a baby raccoon wearing an intricate italian priest robe."
-        ] * batch_size
+    def load_inputs(self, dtype_override=None):
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        (
+            latent_model_input,
+            timesteps,
+            prompt_embeds,
+            timestep_cond,
+            added_cond_kwargs,
+            add_time_ids,
+        ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
+
+        timestep = timesteps[0]
+
+        if dtype_override:
+            latent_model_input = latent_model_input.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            prompt_embeds = prompt_embeds.to(dtype_override)
+
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
