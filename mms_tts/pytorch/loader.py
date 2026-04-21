@@ -23,6 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available MMS-TTS model variants."""
 
+    FRA = "fra"
     HAU = "hau"
     NAN = "nan"
     ORM = "orm"
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     """MMS-TTS model loader implementation for text-to-speech tasks."""
 
     _VARIANTS = {
+        ModelVariant.FRA: ModelConfig(
+            pretrained_model_name="facebook/mms-tts-fra",
+        ),
         ModelVariant.HAU: ModelConfig(
             pretrained_model_name="facebook/mms-tts-hau",
         ),
@@ -54,6 +58,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.ORM
 
     _SAMPLE_TEXTS = {
+        ModelVariant.FRA: "Bonjour, comment allez-vous aujourd'hui?",
         ModelVariant.HAU: "Sannu, yaya aiki?",
         ModelVariant.NAN: "Lí hó, kin-á-ji̍t chin hó.",
         ModelVariant.ORM: "Baga nagaan dhuftan",
