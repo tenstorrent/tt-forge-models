@@ -36,6 +36,7 @@ class ModelVariant(StrEnum):
 
     # mlx-community quantized variants
     QWEN_3_CODER_30B_A3B_INSTRUCT_4BIT = "30B_A3B_Instruct_4bit"
+    QWEN_3_CODER_30B_A3B_INSTRUCT_8BIT = "30B_A3B_Instruct_8bit"
 
     # GPTQ quantized variants
     QWEN_3_CODER_30B_A3B_INSTRUCT_GPTQ_INT8 = "30B_A3B_Instruct_GPTQ_Int8"
@@ -67,9 +68,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
             max_length=128,
         ),
-        # GPTQ quantized variants
-        ModelVariant.QWEN_3_CODER_30B_A3B_INSTRUCT_GPTQ_INT8: LLMModelConfig(
-            pretrained_model_name="QuantTrio/Qwen3-Coder-30B-A3B-Instruct-GPTQ-Int8",
+        ModelVariant.QWEN_3_CODER_30B_A3B_INSTRUCT_8BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit",
             max_length=128,
         ),
     }
