@@ -90,12 +90,11 @@ class ModelLoader(ForgeModel):
     sample_text = "The capital of France is [MASK]."
 
     # Variants that use BertTokenizerFast instead of AlbertTokenizer
-    _BERT_TOKENIZER_VARIANTS = {ModelVariant.KOR_BASE, ModelVariant.CHINESE_BASE}
+    _BERT_TOKENIZER_VARIANTS = {ModelVariant.KOR_BASE}
 
-    # Per-variant sample texts (Korean and Chinese variants use native-language text)
+    # Per-variant sample texts (Korean variant uses native-language text)
     _SAMPLE_TEXTS = {
         ModelVariant.KOR_BASE: "한국의 수도는 [MASK]입니다.",
-        ModelVariant.CHINESE_BASE: "今天[MASK]情很好。",
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
