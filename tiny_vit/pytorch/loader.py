@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
 
     V5M_224_DIST_IN22K = "5M_224_Dist_IN22K"
     V21M_224_DIST_IN22K = "21M_224_Dist_IN22K"
+    V21M_512_DIST_IN22K_FT_IN1K = "21M_512_Dist_IN22K_FT_IN1K"
 
 
 class ModelLoader(ForgeModel):
@@ -42,6 +43,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.V21M_224_DIST_IN22K: ModelConfig(
             pretrained_model_name="hf_hub:timm/tiny_vit_21m_224.dist_in22k",
+        ),
+        ModelVariant.V21M_512_DIST_IN22K_FT_IN1K: ModelConfig(
+            pretrained_model_name="hf_hub:timm/tiny_vit_21m_512.dist_in22k_ft_in1k",
         ),
     }
 
