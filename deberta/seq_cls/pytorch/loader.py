@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
 
     DEBERTA_XLARGE_MNLI = "XLarge_MNLI"
     LLAMA_PROMPT_GUARD_2_22M = "Llama_Prompt_Guard_2_22M"
-    DEBERTA_V3_GUARDRAIL_MAPA_V2 = "V3_Guardrail_MAPA_V2"
+    DEBERTA_V3_BASE_MNLI = "V3_Base_MNLI"
 
 
 class ModelLoader(ForgeModel):
@@ -69,9 +69,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.LLAMA_PROMPT_GUARD_2_22M: ModelConfig(
             pretrained_model_name="meta-llama/Llama-Prompt-Guard-2-22M",
         ),
-        ModelVariant.DEBERTA_V3_GUARDRAIL_MAPA_V2: LLMModelConfig(
-            pretrained_model_name="intelliway/deberta-v3-guardrail-mapa-V2",
-            max_length=512,
+        ModelVariant.DEBERTA_V3_BASE_MNLI: ModelConfig(
+            pretrained_model_name="MoritzLaurer/DeBERTa-v3-base-mnli",
         ),
     }
 
