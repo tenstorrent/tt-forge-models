@@ -1,3 +1,6 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+"""
+NVIDIA NeMo NanoCodec neural audio codec model implementations.
+"""
