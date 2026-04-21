@@ -85,8 +85,7 @@ class ModelLoader(ForgeModel):
             self.load_model(dtype_override=dtype_override)
 
         dtype = dtype_override if dtype_override is not None else torch.float32
-        cfg = self.model.cfg.model
-        obs = torch.randn(batch_size, cfg.obs_dim, dtype=dtype)
+        obs = torch.randn(batch_size, self.model.cfg.obs_dim, dtype=dtype)
         z = self.model.sample_z(batch_size).to(dtype=dtype)
 
         return {"obs": obs, "z": z}
