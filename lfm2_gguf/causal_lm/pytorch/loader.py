@@ -33,8 +33,8 @@ class ModelLoader(ForgeModel):
     """LFM2 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.LFM2_8B_A1B_GGUF: LLMModelConfig(
-            pretrained_model_name="bartowski/LiquidAI_LFM2-8B-A1B-GGUF",
+        ModelVariant.LFM2_24B_A2B_GGUF: LLMModelConfig(
+            pretrained_model_name="LiquidAI/LFM2-24B-A2B-GGUF",
             max_length=128,
         ),
         ModelVariant.MRADERMACHER_LFM2_24B_A2B_GGUF: LLMModelConfig(
@@ -43,7 +43,7 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.LFM2_8B_A1B_GGUF
+    DEFAULT_VARIANT = ModelVariant.LFM2_24B_A2B_GGUF
 
     _GGUF_FILES = {
         ModelVariant.LFM2_24B_A2B_GGUF: "LFM2-24B-A2B-Q4_K_M.gguf",
