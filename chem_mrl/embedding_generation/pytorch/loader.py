@@ -3,10 +3,136 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 ChemMRL model loader implementation for molecular embedding generation.
+
+Includes compatibility shims for the model's custom HuggingFace code
+(written for transformers 4.x) to work with transformers 5.x.
 """
 import torch
+from typing import Optional, Tuple
+
+import transformers.models.modernbert.modeling_modernbert as _modernbert_module
+
+# --- Transformers 5.x backward-compatibility shims for ModernBert ---
+# The Derify/ChemMRL custom model code targets the transformers 4.x internal API.
+
+if not hasattr(_modernbert_module, "MODERNBERT_ATTENTION_FUNCTION"):
+    _modernbert_module.MODERNBERT_ATTENTION_FUNCTION = (
+        _modernbert_module.ALL_ATTENTION_FUNCTIONS
+    )
+
+if not hasattr(_modernbert_module.ModernBertPreTrainedModel, "_maybe_set_compile"):
+    _modernbert_module.ModernBertPreTrainedModel._maybe_set_compile = lambda self: None
+
+if not hasattr(_modernbert_module, "_unpad_modernbert_input"):
+
+    def _unpad_modernbert_input(
+        inputs: torch.Tensor,
+        attention_mask: torch.Tensor,
+        position_ids: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+    ) -> Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        int,
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+    ]:
+        seqlens_in_batch = attention_mask.sum(dim=-1, dtype=torch.int32)
+        indices = torch.nonzero(attention_mask.flatten(), as_tuple=False).flatten()
+        max_seqlen_in_batch = int(seqlens_in_batch.max().item())
+        cu_seqlens = torch.nn.functional.pad(
+            torch.cumsum(seqlens_in_batch, dim=0, dtype=torch.int32), (1, 0)
+        )
+        if inputs.dim() == 2:
+            unpadded_inputs = inputs.flatten()[indices]
+        else:
+            batch, seqlen, *rest = inputs.shape
+            shape = batch * seqlen
+            unpadded_inputs = inputs.view(shape, *rest)[indices]
+        unpadded_position_ids = (
+            position_ids.flatten()[indices] if position_ids is not None else None
+        )
+        unpadded_labels = labels.flatten()[indices] if labels is not None else None
+        return (
+            unpadded_inputs,
+            indices,
+            cu_seqlens,
+            max_seqlen_in_batch,
+            unpadded_position_ids,
+            unpadded_labels,
+        )
+
+    _modernbert_module._unpad_modernbert_input = _unpad_modernbert_input
+
+if not hasattr(_modernbert_module, "_pad_modernbert_output"):
+
+    def _pad_modernbert_output(
+        inputs: torch.Tensor,
+        indices: torch.Tensor,
+        batch: int,
+        seqlen: int,
+    ) -> torch.Tensor:
+        if inputs.dim() == 1:
+            output = torch.zeros(
+                batch * seqlen, dtype=inputs.dtype, device=inputs.device
+            )
+            output[indices] = inputs
+            padded_inputs = output.view(batch, seqlen)
+        else:
+            _, *rest = inputs.shape
+            output = torch.zeros(
+                batch * seqlen, *rest, dtype=inputs.dtype, device=inputs.device
+            )
+            output[indices] = inputs
+            padded_inputs = output.view(batch, seqlen, *rest)
+        return padded_inputs
+
+    _modernbert_module._pad_modernbert_output = _pad_modernbert_output
+
+# Patch ModernBertEncoderLayer.forward to accept old-style (4.x) arguments
+# and convert them to the new (5.x) API.
+_original_encoder_layer_forward = _modernbert_module.ModernBertEncoderLayer.forward
+
+
+def _compat_encoder_layer_forward(
+    self, hidden_states, attention_mask=None, position_embeddings=None, **kwargs
+):
+    position_ids = kwargs.pop("position_ids", None)
+    sliding_window_mask = kwargs.pop("sliding_window_mask", None)
+    kwargs.pop("cu_seqlens", None)
+    kwargs.pop("max_seqlen", None)
+    kwargs.pop("output_attentions", None)
+
+    old_style = position_ids is not None
+
+    if position_embeddings is None and position_ids is not None:
+        rotary_emb = getattr(self, "_compat_rotary_emb", None)
+        if rotary_emb is not None:
+            layer_type = getattr(self, "attention_type", "full_attention")
+            position_embeddings = rotary_emb(hidden_states, position_ids, layer_type)
+
+    if sliding_window_mask is not None:
+        layer_type = getattr(self, "attention_type", "full_attention")
+        if layer_type == "sliding_attention":
+            attention_mask = sliding_window_mask
+
+    result = _original_encoder_layer_forward(
+        self,
+        hidden_states,
+        attention_mask=attention_mask,
+        position_embeddings=position_embeddings,
+        **kwargs,
+    )
+
+    if old_style and isinstance(result, torch.Tensor):
+        return (result,)
+    return result
+
+
+_modernbert_module.ModernBertEncoderLayer.forward = _compat_encoder_layer_forward
+
 from transformers import AutoModel, AutoTokenizer
-from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
@@ -81,6 +207,14 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+
+        if not hasattr(model, "rotary_emb"):
+            model.rotary_emb = _modernbert_module.ModernBertRotaryEmbedding(
+                config=model.config
+            )
+        for layer in model.layers:
+            layer._compat_rotary_emb = model.rotary_emb
+
         model.eval()
 
         return model
