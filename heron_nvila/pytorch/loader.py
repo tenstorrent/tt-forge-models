@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available Heron-NVILA model variants."""
 
     HERON_NVILA_LITE_1B = "Lite_1B"
+    HERON_NVILA_LITE_15B = "Lite_15B"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.HERON_NVILA_LITE_1B: ModelConfig(
             pretrained_model_name="turing-motors/Heron-NVILA-Lite-1B-hf",
+        ),
+        ModelVariant.HERON_NVILA_LITE_15B: ModelConfig(
+            pretrained_model_name="turing-motors/Heron-NVILA-Lite-15B-hf",
         ),
     }
 
