@@ -8,7 +8,7 @@ LLaVA-Llama-3 model loader implementation for multimodal conditional generation.
 from typing import Optional
 
 from PIL import Image
-from transformers import LlavaForConditionalGeneration, AutoProcessor
+from transformers import LlavaForConditionalGeneration, AutoProcessor, LlavaConfig
 
 from ...base import ForgeModel
 from ...config import (
@@ -61,8 +61,13 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        model_name = self._variant_config.pretrained_model_name
+        config = LlavaConfig.from_pretrained(model_name)
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
+            model_name,
+            patch_size=config.vision_config.patch_size,
+            vision_feature_select_strategy=config.vision_feature_select_strategy,
+            num_additional_image_tokens=1,
         )
         return self.processor
 
@@ -85,19 +90,16 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        # Build prompt
+        # Build prompt with image token embedded directly
         conversation = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": self.sample_text},
-                ],
+                "content": f"{self.processor.image_token}\n{self.sample_text}",
             }
         ]
 
-        text_prompt = self.processor.apply_chat_template(
-            conversation, padding=True, add_generation_prompt=True
+        text_prompt = self.processor.tokenizer.apply_chat_template(
+            conversation, tokenize=False, add_generation_prompt=True
         )
 
         # Load sample image
