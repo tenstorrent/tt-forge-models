@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available BGE Reranker v2 model variants for passage ranking."""
 
     M3 = "m3"
+    M3_JA_V1 = "m3-ja-v1"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.M3: ModelConfig(
             pretrained_model_name="BAAI/bge-reranker-v2-m3",
+        ),
+        ModelVariant.M3_JA_V1: ModelConfig(
+            pretrained_model_name="hotchpotch/japanese-bge-reranker-v2-m3-v1",
         ),
     }
 
