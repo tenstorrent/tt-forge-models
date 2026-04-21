@@ -8,9 +8,9 @@ kotoba-tech/kotoba-whisper-v2.2 is a distilled Japanese Whisper model (~756M
 parameters) based on openai/whisper-large-v3, trained for automatic speech
 recognition in Japanese.
 
-kotoba-tech/kotoba-whisper-v2.1 extends kotoba-whisper-v2.0 (a distilled
-Japanese Whisper large-v3, ~0.8B parameters) with an integrated punctuators
-pipeline for automatic punctuation prediction during post-processing.
+kotoba-tech/kotoba-whisper-v1.0 is the initial distilled Japanese Whisper model
+based on openai/whisper-large-v3, trained for automatic speech recognition in
+Japanese with a full encoder and a 2-layer decoder.
 """
 
 import torch
@@ -37,7 +37,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Kotoba-Whisper model variants."""
 
-    V2_1 = "v2.1"
+    V1_0 = "v1.0"
     V2_2 = "v2.2"
 
 
@@ -45,8 +45,8 @@ class ModelLoader(ForgeModel):
     """Kotoba-Whisper model loader implementation."""
 
     _VARIANTS = {
-        ModelVariant.V2_1: ModelConfig(
-            pretrained_model_name="kotoba-tech/kotoba-whisper-v2.1",
+        ModelVariant.V1_0: ModelConfig(
+            pretrained_model_name="kotoba-tech/kotoba-whisper-v1.0",
         ),
         ModelVariant.V2_2: ModelConfig(
             pretrained_model_name="kotoba-tech/kotoba-whisper-v2.2",
