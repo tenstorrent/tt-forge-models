@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Lexora-Lite model loader implementation for causal language modeling.
+Lexora model loader implementation for causal language modeling.
 """
 
 import torch
@@ -22,17 +22,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Lexora-Lite model variants for causal language modeling."""
+    """Available Lexora model variants for causal language modeling."""
 
     LEXORA_LITE_3B_V2 = "Lexora_Lite_3B_v2"
+    LEXORA_MEDIUM_7B = "Lexora_Medium_7B"
 
 
 class ModelLoader(ForgeModel):
-    """Lexora-Lite model loader implementation for causal language modeling tasks."""
+    """Lexora model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.LEXORA_LITE_3B_V2: LLMModelConfig(
             pretrained_model_name="DeepMount00/Lexora-Lite-3B_v2",
+            max_length=128,
+        ),
+        ModelVariant.LEXORA_MEDIUM_7B: LLMModelConfig(
+            pretrained_model_name="DeepMount00/Lexora-Medium-7B",
             max_length=128,
         ),
     }
@@ -54,7 +59,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="Lexora-Lite",
+            model="Lexora",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
