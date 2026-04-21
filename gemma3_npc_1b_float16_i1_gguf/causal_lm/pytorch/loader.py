@@ -78,6 +78,10 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers.utils.import_utils as _tiu
+
+        _tiu.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
