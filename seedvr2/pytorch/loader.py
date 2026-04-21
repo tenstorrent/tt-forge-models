@@ -2,15 +2,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-ByteDance SeedVR2-7B video restoration model loader implementation.
+ByteDance SeedVR2 video restoration model loader implementation.
 
 SeedVR2 is a one-step diffusion-based video restoration model using a NaDiT
 (Neighborhood Attention Diffusion Transformer) architecture. It takes degraded
 low-quality video frames and produces high-quality restored output.
 
 Available variants:
+- SEEDVR2_3B: Smaller 3B parameter model (seedvr2_ema_3b.pth)
 - SEEDVR2_7B: Standard 7B parameter model (seedvr2_ema_7b.pth)
-- SEEDVR2_7B_SHARP: Sharper variant (seedvr2_ema_7b_sharp.pth)
+- SEEDVR2_7B_SHARP: Sharper 7B variant (seedvr2_ema_7b_sharp.pth)
 """
 
 import sys
@@ -30,8 +31,6 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "ByteDance-Seed/SeedVR2-7B"
-
 # NaDiT model input dimensions for testing
 # The model operates in latent space: patch_size [1, 2, 2],
 # VAE compression 4x temporal / 8x spatial, 16 latent channels
@@ -47,23 +46,39 @@ LATENT_DEPTH = 4  # temporal frames in latent space
 class ModelVariant(StrEnum):
     """Available SeedVR2 model variants."""
 
+    SEEDVR2_3B = "3B"
     SEEDVR2_7B = "7B"
     SEEDVR2_7B_SHARP = "7B_Sharp"
 
 
 class ModelLoader(ForgeModel):
-    """ByteDance SeedVR2-7B video restoration model loader."""
+    """ByteDance SeedVR2 video restoration model loader."""
 
     _VARIANTS = {
+        ModelVariant.SEEDVR2_3B: ModelConfig(
+            pretrained_model_name="ByteDance-Seed/SeedVR2-3B",
+        ),
         ModelVariant.SEEDVR2_7B: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name="ByteDance-Seed/SeedVR2-7B",
         ),
         ModelVariant.SEEDVR2_7B_SHARP: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name="ByteDance-Seed/SeedVR2-7B",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.SEEDVR2_7B
+
+    _CONFIG_DIRS = {
+        ModelVariant.SEEDVR2_3B: "configs_3b",
+        ModelVariant.SEEDVR2_7B: "configs_7b",
+        ModelVariant.SEEDVR2_7B_SHARP: "configs_7b",
+    }
+
+    _CKPT_FILES = {
+        ModelVariant.SEEDVR2_3B: "seedvr2_ema_3b.pth",
+        ModelVariant.SEEDVR2_7B: "seedvr2_ema_7b.pth",
+        ModelVariant.SEEDVR2_7B_SHARP: "seedvr2_ema_7b_sharp.pth",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -85,11 +100,13 @@ class ModelLoader(ForgeModel):
     def _get_repo_path(self):
         """Download the SeedVR2 repository and return its local path."""
         if self._repo_path is None:
-            self._repo_path = snapshot_download(repo_id=REPO_ID)
+            self._repo_path = snapshot_download(
+                repo_id=self._variant_config.pretrained_model_name
+            )
         return self._repo_path
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SeedVR2-7B NaDiT model.
+        """Load and return the SeedVR2 NaDiT model.
 
         Downloads the model repository, imports the custom NaDiT architecture,
         and loads the pretrained weights.
@@ -107,16 +124,14 @@ class ModelLoader(ForgeModel):
 
         from utils.utils import instantiate_from_config
 
-        config = OmegaConf.load(f"{repo_path}/configs_7b/main.yaml")
+        config_dir = self._CONFIG_DIRS[self._variant]
+        config = OmegaConf.load(f"{repo_path}/{config_dir}/main.yaml")
 
         # Instantiate the NaDiT model from config
         model = instantiate_from_config(config.model.dit)
 
         # Load pretrained weights
-        if self._variant == ModelVariant.SEEDVR2_7B_SHARP:
-            ckpt_path = f"{repo_path}/seedvr2_ema_7b_sharp.pth"
-        else:
-            ckpt_path = f"{repo_path}/seedvr2_ema_7b.pth"
+        ckpt_path = f"{repo_path}/{self._CKPT_FILES[self._variant]}"
 
         state_dict = torch.load(ckpt_path, map_location="cpu", weights_only=True)
         model.load_state_dict(state_dict)
