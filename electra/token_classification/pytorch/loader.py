@@ -23,6 +23,18 @@ class ModelVariant(StrEnum):
     """Available ELECTRA token classification model variants."""
 
     OPENMED_NER_BLOOD_CANCER_DETECT = "OpenMed_NER_BloodCancerDetect"
+    NLPHUST_VI_WORD_SEGMENTATION = "NlpHUST_vi_word_segmentation"
+
+
+_SAMPLE_TEXTS = {
+    ModelVariant.OPENMED_NER_BLOOD_CANCER_DETECT: (
+        "The patient presented with chronic lymphocytic leukemia symptoms."
+    ),
+    ModelVariant.NLPHUST_VI_WORD_SEGMENTATION: (
+        "Phát biểu tại phiên thảo luận về tình hình kinh tế xã hội "
+        "của Quốc hội sáng 28/10"
+    ),
+}
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +45,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="OpenMed/OpenMed-NER-BloodCancerDetect-ElectraMed-33M",
             max_length=128,
         ),
+        ModelVariant.NLPHUST_VI_WORD_SEGMENTATION: LLMModelConfig(
+            pretrained_model_name="NlpHUST/vi-word-segmentation",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.OPENMED_NER_BLOOD_CANCER_DETECT
@@ -40,9 +56,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant=None):
         super().__init__(variant)
         self.model_name = self._variant_config.pretrained_model_name
-        self.sample_text = (
-            "The patient presented with chronic lymphocytic leukemia symptoms."
-        )
+        self.sample_text = _SAMPLE_TEXTS[self._variant]
         self.max_length = self._variant_config.max_length
         self.tokenizer = None
 
