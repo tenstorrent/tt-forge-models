@@ -240,7 +240,6 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_2_5_32B_INSTRUCT_AWQ,
             ModelVariant.QWEN_2_5_14B_INSTRUCT_1M_AWQ,
             ModelVariant.QWEN_2_5_1_5B_QUANTIZED_W8A8,
-            ModelVariant.UNSLOTH_QWEN_2_5_3B,
             ModelVariant.UNSLOTH_QWEN_2_5_3B_INSTRUCT,
             ModelVariant.UNSLOTH_QWEN_2_5_72B_INSTRUCT,
             ModelVariant.QIAW99_QWEN_2_5_7B_INSTRUCT_OPENBOOKQA_DPO_C_NEW,
@@ -312,10 +311,6 @@ class ModelLoader(ForgeModel):
             model_kwargs["device_map"] = "cpu"
         if "mlx-community" in pretrained_model_name:
             model_kwargs["ignore_mismatched_sizes"] = True
-
-        # BnB variants need device_map="cpu" for CPU-based loading
-        if self._variant == ModelVariant.UNSLOTH_QWEN_2_5_7B_BNB_4BIT:
-            model_kwargs["device_map"] = "cpu"
 
         model_kwargs |= kwargs
 
