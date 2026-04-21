@@ -23,7 +23,7 @@ from ...config import (
 )
 
 
-BASE_MODEL = "black-forest-labs/FLUX.2-klein-9B"
+BASE_MODEL = "Runware/BFL-FLUX.2-klein-9B"
 LORA_REPO = "dx8152/Flux2-Klein-9B-Consistency"
 
 
