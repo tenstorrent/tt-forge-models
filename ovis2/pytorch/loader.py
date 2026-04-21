@@ -5,10 +5,34 @@
 Ovis2 multimodal model loader implementation for image-text-to-text generation.
 """
 
+import sys
+from contextlib import contextmanager
+
 import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM
+from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, PreTrainedModel
 from typing import Optional
+
+
+@contextmanager
+def _allow_reregistration():
+    orig_config_register = AutoConfig.register
+    orig_model_register = AutoModel.register
+
+    def _config_register(model_type, config, exist_ok=False):
+        return orig_config_register(model_type, config, exist_ok=True)
+
+    def _model_register(config, model, exist_ok=False):
+        return orig_model_register(config, model, exist_ok=True)
+
+    AutoConfig.register = _config_register
+    AutoModel.register = _model_register
+    try:
+        yield
+    finally:
+        AutoConfig.register = orig_config_register
+        AutoModel.register = orig_model_register
+
 
 from ...base import ForgeModel
 from ...config import (
@@ -67,12 +91,34 @@ class ModelLoader(ForgeModel):
             "multimodal_max_length": 8192,
         }
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         else:
-            model_kwargs["torch_dtype"] = torch.bfloat16
+            model_kwargs["dtype"] = torch.bfloat16
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        if not hasattr(PreTrainedModel, "is_parallelizable"):
+            PreTrainedModel.is_parallelizable = False
+
+        with _allow_reregistration():
+            config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+            config.llm_attn_implementation = "eager"
+            model_kwargs["config"] = config
+            model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+
+        ovis_config_mod = sys.modules.get(
+            f"{type(model).__module__.rsplit('.', 1)[0]}.configuration_ovis"
+        )
+        if ovis_config_mod:
+            for attr in dir(ovis_config_mod):
+                cls_obj = getattr(ovis_config_mod, attr)
+                if (
+                    isinstance(cls_obj, type)
+                    and hasattr(cls_obj, "support_tokenizer_types")
+                    and cls_obj.support_tokenizer_types is not None
+                    and "TokenizersBackend" not in cls_obj.support_tokenizer_types
+                ):
+                    cls_obj.support_tokenizer_types.append("TokenizersBackend")
+
         model.eval()
 
         self.model = model
@@ -103,6 +149,7 @@ class ModelLoader(ForgeModel):
         inputs = {
             "input_ids": input_ids.unsqueeze(0),
             "attention_mask": attention_mask.unsqueeze(0),
+            "labels": None,
         }
 
         if pixel_values is not None:
