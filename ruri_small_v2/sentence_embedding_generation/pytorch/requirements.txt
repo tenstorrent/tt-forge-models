@@ -1,0 +1,3 @@
+fugashi
+sentencepiece
+unidic-lite
