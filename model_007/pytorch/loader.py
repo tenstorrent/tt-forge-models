@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Model 007 model variants."""
 
     MODEL_007 = "Model_007"
+    MODEL_101 = "Model_101"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MODEL_007: ModelConfig(
             pretrained_model_name="pankajmathur/model_007",
+        ),
+        ModelVariant.MODEL_101: ModelConfig(
+            pretrained_model_name="pankajmathur/model_101",
         ),
     }
 
