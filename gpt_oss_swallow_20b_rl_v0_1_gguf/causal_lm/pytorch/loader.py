@@ -12,6 +12,13 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
+import transformers.utils.import_utils as _import_utils
+
+# transformers 5.2+ omits 'gguf' from PACKAGE_DISTRIBUTION_MAPPING, causing
+# is_gguf_available() to crash with InvalidVersion when the gguf package is
+# installed but lacks a __version__ attribute.
+if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+    _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ("gguf",)
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
