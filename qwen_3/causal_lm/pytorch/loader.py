@@ -4,6 +4,7 @@
 """
 Qwen 3 model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import (
     AutoModelForCausalLM,
@@ -61,10 +62,7 @@ class ModelVariant(StrEnum):
     QWEN_3_14B_AWQ = "14B_Awq"
     QWEN_3_32B_UNSLOTH_BNB_4BIT = "32B_Unsloth_bnb_4bit"
     QWEN_3_235B_A22B_THINKING_2507_FP8 = "235B_A22B_Thinking_2507_FP8"
-    QWEN_3_4B_BASE_PS_PROB_SEED43_0322_01_HYEONGWON = (
-        "4B_Base_PS_Prob_Seed43_0322_01_Hyeongwon"
-    )
-    QWEN_3_4B_128K_UNSLOTH = "4B_128K_Unsloth"
+    QWEN_3_32B_T_PRO_IT_2_0 = "32B_T_pro_it_2.0"
 
 
 class ModelLoader(ForgeModel):
@@ -200,12 +198,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-235B-A22B-Thinking-2507-FP8",
             max_length=128,
         ),
-        ModelVariant.QWEN_3_4B_BASE_PS_PROB_SEED43_0322_01_HYEONGWON: LLMModelConfig(
-            pretrained_model_name="Hyeongwon/PS_prob_seed43_Qwen3-4B-Base_0322-01",
-            max_length=128,
-        ),
-        ModelVariant.QWEN_3_4B_128K_UNSLOTH: LLMModelConfig(
-            pretrained_model_name="unsloth/Qwen3-4B-128K",
+        ModelVariant.QWEN_3_32B_T_PRO_IT_2_0: LLMModelConfig(
+            pretrained_model_name="t-tech/T-pro-it-2.0",
             max_length=128,
         ),
     }
@@ -271,8 +265,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_32B_GPTQ_INT4,
             ModelVariant.QWEN_3_32B_UNSLOTH_BNB_4BIT,
             ModelVariant.QWEN_3_235B_A22B_THINKING_2507_FP8,
-            ModelVariant.QWEN_3_1_7B_FP8_DYNAMIC,
-            ModelVariant.QWEN_3_0_6B_INSTRUCT_RD211,
+            ModelVariant.QWEN_3_32B_T_PRO_IT_2_0,
         ):
             group = ModelGroup.VULCAN
         else:
