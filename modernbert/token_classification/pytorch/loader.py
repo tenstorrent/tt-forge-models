@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     AI4PRIVACY_MULTILINGUAL_ANONYMISER = (
         "ai4privacy_multilingual_categorical_anonymiser_openpii"
     )
+    AI4PRIVACY_ENGLISH_ANONYMISER = "ai4privacy_english_anonymiser_openpii"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.AI4PRIVACY_MULTILINGUAL_ANONYMISER: ModelConfig(
             pretrained_model_name="ai4privacy/llama-ai4privacy-multilingual-categorical-anonymiser-openpii",
+        ),
+        ModelVariant.AI4PRIVACY_ENGLISH_ANONYMISER: ModelConfig(
+            pretrained_model_name="ai4privacy/llama-ai4privacy-english-anonymiser-openpii",
         ),
     }
 
