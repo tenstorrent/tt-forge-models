@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available DeepSeek R1 Distill Qwen 14B GGUF model variants for causal language modeling."""
 
     DEEPSEEK_R1_DISTILL_QWEN_14B_GGUF = "DeepSeek_R1_Distill_Qwen_14B_GGUF"
+    MMNGA_DEEPSEEK_R1_DISTILL_QWEN_14B_GGUF = "mmnga_DeepSeek_R1_Distill_Qwen_14B_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +35,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="osllmai-community/DeepSeek-R1-Distill-Qwen-14B-GGUF",
             max_length=128,
         ),
+        ModelVariant.MMNGA_DEEPSEEK_R1_DISTILL_QWEN_14B_GGUF: LLMModelConfig(
+            pretrained_model_name="mmnga/DeepSeek-R1-Distill-Qwen-14B-gguf",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.DEEPSEEK_R1_DISTILL_QWEN_14B_GGUF
 
-    GGUF_FILE = "DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.DEEPSEEK_R1_DISTILL_QWEN_14B_GGUF: "DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf",
+        ModelVariant.MMNGA_DEEPSEEK_R1_DISTILL_QWEN_14B_GGUF: "Q4_K_M/DeepSeek-R1-Distill-Qwen-14B-Q4_K_M-00001-of-00001.gguf",
+    }
 
     sample_text = "Please reason step by step. What is 25 multiplied by 16?"
 
@@ -49,6 +57,10 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -65,7 +77,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +97,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -158,6 +170,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
