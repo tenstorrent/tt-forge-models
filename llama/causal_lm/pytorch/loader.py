@@ -125,6 +125,9 @@ class ModelVariant(StrEnum):
     # TinyLlama variants
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
     TINYLLAMA_1_1B_CHAT_V0_6 = "TinyLlama_1.1B_Chat_v0.6"
+    TINYLLAMA_1_1B_INTERMEDIATE_STEP_240K_503B = (
+        "TinyLlama_1.1B_Intermediate_Step_240k_503B"
+    )
 
     # JackFram variants
     JACKFRAM_LLAMA_160M = "JackFram_160M"
@@ -314,6 +317,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="TinyLlama/TinyLlama-1.1B-Chat-v0.6",
             max_length=128,
         ),
+        ModelVariant.TINYLLAMA_1_1B_INTERMEDIATE_STEP_240K_503B: LLMModelConfig(
+            pretrained_model_name="TinyLlama/TinyLlama-1.1B-intermediate-step-240k-503b",
+            max_length=128,
+        ),
         # JackFram variants
         ModelVariant.JACKFRAM_LLAMA_160M: LLMModelConfig(
             pretrained_model_name="JackFram/llama-160m",
@@ -429,8 +436,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.AMD_QUARK_TINY_LLAMA,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA,
-            ModelVariant.LLAMA_CARVALHO_PT_GL,
-            ModelVariant.OPENASSISTANT_SFT_7_LLAMA_30B,
+            ModelVariant.TINYLLAMA_1_1B_INTERMEDIATE_STEP_240K_503B,
         ]:
             group = ModelGroup.VULCAN
         else:
