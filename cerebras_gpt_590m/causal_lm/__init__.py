@@ -2,5 +2,5 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Cerebras-GPT-590M causal language models
+Cerebras-GPT causal language models
 """
