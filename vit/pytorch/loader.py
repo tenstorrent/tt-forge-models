@@ -60,7 +60,9 @@ class ModelVariant(StrEnum):
     VIT_BASE_PATCH16_224_AUGREG_IN21K = "Base_Patch16_224_AugReg_IN21K"
     VIT_BASE_PATCH16_384_AUGREG_IN21K_FT_IN1K = "Base_Patch16_384_AugReg_IN21K_FT_IN1K"
     VIT_BASE_PATCH32_CLIP_224_LAION2B_E16 = "Base_Patch32_CLIP_224_LAION2B_E16"
-    VIT_LARGE_PATCH14_CLIP_224_OPENAI_FT_IN1K = "Large_Patch14_CLIP_224_OpenAI_FT_IN1K"
+    VIT_BASE_PATCH16_224_KAIKO_AI_TOWARDS_LARGE_PATHOLOGY_FMS = (
+        "Base_Patch16_224_Kaiko_AI_Towards_Large_Pathology_FMs"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -144,8 +146,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="vit_base_patch32_clip_224.laion2b_e16",
             source=ModelSource.TIMM,
         ),
-        ModelVariant.VIT_LARGE_PATCH14_CLIP_224_OPENAI_FT_IN1K: ViTConfig(
-            pretrained_model_name="vit_large_patch14_clip_224.openai_ft_in1k",
+        ModelVariant.VIT_BASE_PATCH16_224_KAIKO_AI_TOWARDS_LARGE_PATHOLOGY_FMS: ViTConfig(
+            pretrained_model_name="hf-hub:1aurent/vit_base_patch16_224.kaiko_ai_towards_large_pathology_fms",
             source=ModelSource.TIMM,
         ),
     }
@@ -187,7 +189,7 @@ class ModelLoader(ForgeModel):
         # Determine task based on variant
         if variant in (
             ModelVariant.VIT_BASE_PATCH16_224_AUGREG_IN21K,
-            ModelVariant.VIT_SMALL_PATCH16_224_AUGREG_IN21K,
+            ModelVariant.VIT_BASE_PATCH16_224_KAIKO_AI_TOWARDS_LARGE_PATHOLOGY_FMS,
         ):
             task = ModelTask.CV_IMAGE_FE
         else:
