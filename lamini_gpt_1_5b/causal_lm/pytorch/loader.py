@@ -43,15 +43,12 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LAMINI_GPT_1_5B
 
-    instruction = (
-        "Please let me know your thoughts on the given place and why you think "
-        'it deserves to be visited:\n"Barcelona, Spain"'
-    )
-
     sample_text = (
         "Below is an instruction that describes a task. Write a response that "
         "appropriately completes the request.\n\n"
-        "### Instruction:\n{instruction}\n\n### Response:"
+        "### Instruction:\nPlease let me know your thoughts on the given place "
+        'and why you think it deserves to be visited:\n"Barcelona, Spain"\n\n'
+        "### Response:"
     )
 
     def __init__(
@@ -122,10 +119,8 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        prompt = self.sample_text.format(instruction=self.instruction)
-
         inputs = self.tokenizer(
-            [prompt],
+            [self.sample_text],
             return_tensors="pt",
             padding=True,
             truncation=True,
