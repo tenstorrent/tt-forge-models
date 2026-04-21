@@ -4,6 +4,7 @@
 """
 DINOv2 model loader implementation for image classification.
 """
+
 import torch
 from transformers import (
     AutoImageProcessor,
@@ -31,6 +32,7 @@ class ModelVariant(StrEnum):
     BASE = "Base"
     LARGE = "Large"
     GIANT = "Giant"
+    LARGE_DINOVDEAU = "Large_DinoVdeau"
 
 
 class ModelLoader(ForgeModel):
@@ -49,6 +51,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GIANT: ModelConfig(
             pretrained_model_name="facebook/dinov2-giant-imagenet1k-1-layer",
+        ),
+        ModelVariant.LARGE_DINOVDEAU: ModelConfig(
+            pretrained_model_name="lombardata/DinoVdeau-large-2024_04_03-with_data_aug_batch-size32_epochs150_freeze",
         ),
     }
 
@@ -81,6 +86,8 @@ class ModelLoader(ForgeModel):
 
         if variant == ModelVariant.SMALL:
             group = ModelGroup.RED
+        elif variant == ModelVariant.LARGE_DINOVDEAU:
+            group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
 
