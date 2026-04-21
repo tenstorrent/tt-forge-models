@@ -2,12 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DictaBERT model loader implementation for Hebrew token classification
-(diacritization and morphological tagging).
+DictaBERT model loader implementation for token classification (Hebrew diacritization and NER).
 """
 
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoModelForTokenClassification, AutoTokenizer
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -24,26 +23,28 @@ class ModelVariant(StrEnum):
     """Available DictaBERT model variants for token classification."""
 
     DICTABERT_LARGE_CHAR_MENAKED = "dicta-il/dictabert-large-char-menaked"
-    DICTABERT_MORPH = "dicta-il/dictabert-morph"
+    DICTABERT_NER = "dicta-il/dictabert-ner"
 
 
 _VARIANT_SAMPLE_TEXTS = {
     ModelVariant.DICTABERT_LARGE_CHAR_MENAKED: "שלום עולם, זהו משפט לדוגמה בעברית",
-    ModelVariant.DICTABERT_MORPH: "בשנת 1948 השלים אפרים קישון את לימודיו בפיסול מתכת ובתולדות האמנות והחל לפרסם מאמרים הומוריסטיים",
+    ModelVariant.DICTABERT_NER: (
+        "דוד בן-גוריון (16 באוקטובר 1886 - ו' בכסלו תשל\"ד) "
+        "היה מדינאי ישראלי וראש הממשלה הראשון של מדינת ישראל."
+    ),
 }
 
 
 class ModelLoader(ForgeModel):
-    """DictaBERT model loader implementation for Hebrew token classification
-    (diacritization and morphological tagging)."""
+    """DictaBERT model loader implementation for Hebrew token classification tasks."""
 
     _VARIANTS = {
         ModelVariant.DICTABERT_LARGE_CHAR_MENAKED: LLMModelConfig(
             pretrained_model_name="dicta-il/dictabert-large-char-menaked",
             max_length=128,
         ),
-        ModelVariant.DICTABERT_MORPH: LLMModelConfig(
-            pretrained_model_name="dicta-il/dictabert-morph",
+        ModelVariant.DICTABERT_NER: LLMModelConfig(
+            pretrained_model_name="dicta-il/dictabert-ner",
             max_length=128,
         ),
     }
@@ -88,7 +89,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load DictaBERT model for Hebrew token classification from Hugging Face.
+        """Load DictaBERT model for token classification from Hugging Face.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
@@ -101,12 +102,19 @@ class ModelLoader(ForgeModel):
             self.model_name, trust_remote_code=True
         )
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(self.model_name, **model_kwargs)
+        if self._variant == ModelVariant.DICTABERT_NER:
+            model = AutoModelForTokenClassification.from_pretrained(
+                self.model_name, **model_kwargs
+            )
+        else:
+            model = AutoModel.from_pretrained(
+                self.model_name, trust_remote_code=True, **model_kwargs
+            )
         self.model = model
         model.eval()
         return model
