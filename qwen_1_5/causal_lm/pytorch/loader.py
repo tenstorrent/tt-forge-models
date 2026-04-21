@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
 
     QWEN_1_5_0_5B = "0.5B"
     QWEN_1_5_0_5B_CHAT = "0_5B_Chat"
+    QWEN_1_5_0_5B_CHAT_GPTQ_INT4 = "0_5B_Chat_GPTQ_Int4"
     QWEN_1_5_1_8B_CHAT_GPTQ_4BIT = "1_8B_Chat_GPTQ_4bit"
     QWEN_1_5_7B = "7B"
     QWEN_1_5_14B = "14B"
@@ -48,6 +49,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_1_5_0_5B_CHAT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen1.5-0.5B-Chat",
+            max_length=512,
+        ),
+        ModelVariant.QWEN_1_5_0_5B_CHAT_GPTQ_INT4: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen1.5-0.5B-Chat-GPTQ-Int4",
             max_length=512,
         ),
         ModelVariant.QWEN_1_5_1_8B_CHAT_GPTQ_4BIT: LLMModelConfig(
@@ -104,6 +109,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         variant_groups = {
+            ModelVariant.QWEN_1_5_0_5B_CHAT_GPTQ_INT4: ModelGroup.VULCAN,
             ModelVariant.QWEN_1_5_1_8B_CHAT_GPTQ_4BIT: ModelGroup.VULCAN,
             ModelVariant.QWEN_1_5_7B: ModelGroup.VULCAN,
             ModelVariant.QWEN_1_5_14B: ModelGroup.VULCAN,
@@ -167,11 +173,13 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        gptq_variants = {
+        gptq_variants = (
+            ModelVariant.QWEN_1_5_0_5B_CHAT_GPTQ_INT4,
             ModelVariant.QWEN_1_5_1_8B_CHAT_GPTQ_4BIT,
-            ModelVariant.QWEN_1_5_32B_CHAT_GPTQ_INT4,
-        }
+        )
         is_gptq = self._variant in gptq_variants
+
+        # GPTQ variants need device_map="cpu" for CPU-based loading
         if is_gptq:
             model_kwargs["device_map"] = "cpu"
 
