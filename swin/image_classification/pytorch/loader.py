@@ -149,7 +149,6 @@ class ModelLoader(ForgeModel):
             ModelVariant.SWIN_LARGE_PATCH4_WINDOW7_224_TIMM,
             ModelVariant.SWINV2_LARGE_WINDOW12TO16_192TO256_TIMM,
             ModelVariant.SWIN_BASE_PATCH4_WINDOW12_384_IN22K_HF,
-            ModelVariant.SWINV2_BASE_WINDOW12_192_IN22K_TIMM,
         ]:
             group = ModelGroup.VULCAN
         elif variant == ModelVariant.SWIN_S:
