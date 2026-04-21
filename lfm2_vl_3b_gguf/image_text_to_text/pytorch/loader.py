@@ -4,6 +4,7 @@
 """
 LFM2-VL 3B GGUF model loader implementation for image-text-to-text tasks.
 """
+
 import torch
 from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
 from transformers.image_utils import load_image
@@ -67,20 +68,17 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+    ORIGINAL_MODEL_NAME = "LiquidAI/LFM2-VL-3B"
 
+    def load_model(self, *, dtype_override=None, **kwargs):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        config = AutoConfig.from_pretrained(self.ORIGINAL_MODEL_NAME)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        model = AutoModelForImageTextToText.from_config(
+            config, torch_dtype=dtype
         ).eval()
 
         self.config = model.config
@@ -120,8 +118,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            gguf_file=self.GGUF_FILE,
-        )
+        self.config = AutoConfig.from_pretrained(self.ORIGINAL_MODEL_NAME)
         return self.config
