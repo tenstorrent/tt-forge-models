@@ -26,19 +26,19 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available InternVL3 HF model variants."""
 
-    INTERN_VL3_14B_HF = "14B_HF"
+    INTERN_VL3_38B_HF = "38B_HF"
 
 
 class ModelLoader(ForgeModel):
     """InternVL3 HF model loader for image-text-to-text generation tasks."""
 
     _VARIANTS = {
-        ModelVariant.INTERN_VL3_14B_HF: ModelConfig(
-            pretrained_model_name="OpenGVLab/InternVL3-14B-hf",
+        ModelVariant.INTERN_VL3_38B_HF: ModelConfig(
+            pretrained_model_name="OpenGVLab/InternVL3-38B-hf",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.INTERN_VL3_14B_HF
+    DEFAULT_VARIANT = ModelVariant.INTERN_VL3_38B_HF
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
