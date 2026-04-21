@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available Gemma 3 1B IT GGUF model variants for causal language modeling."""
 
     GEMMA_3_1B_IT_GGUF = "1B_IT_GGUF"
-    STRATALAB_GEMMA_3_1B_IT_GGUF = "stratalab_1B_IT_GGUF"
+    SECOND_STATE_GEMMA_3_1B_IT_GGUF = "second_state_1B_IT_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="daniloreddy/gemma-3-1b-it_GGUF",
             max_length=128,
         ),
-        ModelVariant.STRATALAB_GEMMA_3_1B_IT_GGUF: LLMModelConfig(
-            pretrained_model_name="stratalab-org/gemma-3-1b-it-GGUF",
+        ModelVariant.SECOND_STATE_GEMMA_3_1B_IT_GGUF: LLMModelConfig(
+            pretrained_model_name="second-state/gemma-3-1b-it-GGUF",
             max_length=128,
         ),
     }
@@ -46,7 +46,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.GEMMA_3_1B_IT_GGUF: "gemma-3-1b-it_Q4_K_M.gguf",
-        ModelVariant.STRATALAB_GEMMA_3_1B_IT_GGUF: "gemma-3-1b-it-Q4_K_M.gguf",
+        ModelVariant.SECOND_STATE_GEMMA_3_1B_IT_GGUF: "gemma-3-1b-it-Q4_K_M.gguf",
     }
 
     sample_text = "What is your favorite city?"
@@ -62,6 +62,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+        self.gguf_file = self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
