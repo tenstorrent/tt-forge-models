@@ -20,6 +20,138 @@ from ....config import (
 )
 
 
+def _patch_transformers_glm4moe_gguf():
+    """Monkey-patch transformers to add glm4moe GGUF architecture support.
+
+    Transformers 5.x has Glm4MoeForCausalLM but lacks GGUF loading support
+    for the glm4moe architecture identifier. We register the config mapping
+    and remap the model_type so GGUF checkpoints load correctly.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "glm4moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("glm4moe")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["glm4moe"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+        "vocab_size": "vocab_size",
+        "expert_count": "n_routed_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_shared_count": "n_shared_experts",
+        "expert_feed_forward_length": "moe_intermediate_size",
+    }
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+        GGUFTokenizerSkeleton,
+    )
+
+    class GGUFGlm4MoeConverter(GGUFQwen2Converter):
+        def converted(self):
+            vocab = {word: i for i, word in enumerate(self.original_tokenizer.tokens)}
+            raw_merges = self.original_tokenizer.merges
+            clean_merges = []
+            for m in raw_merges:
+                if len(m) == 2:
+                    clean_merges.append(m)
+                elif len(m) == 3:
+                    left = m[0] + " " + m[1]
+                    if left in vocab:
+                        clean_merges.append((left, m[2]))
+                    elif m[0] in vocab and (m[1] + " " + m[2]) in vocab:
+                        clean_merges.append((m[0], m[1] + " " + m[2]))
+            merges = clean_merges
+
+            from transformers.convert_slow_tokenizer import Qwen2Converter
+
+            tokenizer = Qwen2Converter.converted(self, vocab, merges)
+            from tokenizers import AddedToken
+
+            tokenizer.add_special_tokens(
+                [
+                    AddedToken("<|endoftext|>", normalized=False, special=True),
+                    AddedToken("<|im_start|>", normalized=False, special=True),
+                    AddedToken("<|im_end|>", normalized=False, special=True),
+                ]
+            )
+            return tokenizer
+
+    if "glm4moe" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["glm4moe"] = GGUFGlm4MoeConverter
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "glm4moe":
+            config["model_type"] = "glm4_moe"
+            head_dim = config.get("head_dim", 128)
+            gguf_path = args[0] if args else None
+            if gguf_path and isinstance(gguf_path, (str,)):
+                try:
+                    from gguf import GGUFReader
+                    from transformers.modeling_gguf_pytorch_utils import (
+                        _gguf_parse_value,
+                    )
+
+                    reader = GGUFReader(gguf_path)
+                    rope_theta = None
+                    rope_dim = None
+                    for key, field in reader.fields.items():
+                        if "rope.dimension_count" in key:
+                            rope_dim = _gguf_parse_value(
+                                field.parts[field.data[0]], field.types
+                            )
+                        if "rope.freq_base" in key:
+                            rope_theta = _gguf_parse_value(
+                                field.parts[field.data[0]], field.types
+                            )
+                    if rope_dim is not None:
+                        config["partial_rotary_factor"] = rope_dim / head_dim
+                    if rope_theta is not None:
+                        config["rope_scaling"] = {
+                            "rope_theta": rope_theta,
+                            "partial_rotary_factor": config.get(
+                                "partial_rotary_factor", 0.5
+                            ),
+                            "rope_type": "default",
+                        }
+                except Exception:
+                    pass
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_glm4moe_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available GLM-4.7-PRISM GGUF model variants for causal language modeling."""
 
