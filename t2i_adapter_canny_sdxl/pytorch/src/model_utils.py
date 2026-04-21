@@ -61,6 +61,7 @@ def load_t2i_adapter_canny_sdxl_pipe(adapter_model_name, base_model_name):
         pipe.adapter,
     ]
     for module in modules:
+        module.to(torch.float32)
         module.eval()
         for param in module.parameters():
             if param.requires_grad:
