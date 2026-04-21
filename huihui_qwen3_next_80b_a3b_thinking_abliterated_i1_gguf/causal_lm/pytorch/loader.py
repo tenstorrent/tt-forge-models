@@ -15,9 +15,36 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 import transformers.utils.import_utils as _import_utils
+from transformers.integrations.ggml import GGUF_CONFIG_MAPPING, GGUF_TO_FAST_CONVERTERS
 from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_CONFIG_DEFAULTS_MAPPING,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    Qwen2MoeTensorProcessor,
+    TENSOR_PROCESSORS,
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
 )
+
+
+def _patch_qwen3next_gguf_support():
+    """Register qwen3next GGUF architecture as an alias for qwen3_moe.
+
+    llama.cpp serialises Qwen3-Next MoE models with general.architecture = "qwen3next"
+    but transformers does not recognise this name. Map it through the existing
+    qwen3_moe config key table and post-process model_type to qwen3_moe.
+    """
+    if "qwen3next" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3next")
+    GGUF_CONFIG_MAPPING["qwen3next"] = dict(GGUF_CONFIG_MAPPING.get("qwen3_moe", {}))
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3next"] = dict(
+        _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].get("qwen3_moe", {})
+    )
+    GGUF_CONFIG_DEFAULTS_MAPPING["qwen3next"] = dict(
+        GGUF_CONFIG_DEFAULTS_MAPPING.get("qwen3_moe", {})
+    )
+    TENSOR_PROCESSORS["qwen3next"] = Qwen2MoeTensorProcessor
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3next"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
@@ -27,9 +54,15 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
         importlib.metadata.packages_distributions()
     )
-    return _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    _patch_qwen3next_gguf_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    cfg = result.get("config", {})
+    if cfg.get("model_type") == "qwen3next":
+        cfg["model_type"] = "qwen3_moe"
+    return result
 
 
+_patch_qwen3next_gguf_support()
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
