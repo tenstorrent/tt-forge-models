@@ -36,6 +36,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_VL_7B_INSTRUCT_AWQ = "7B_INSTRUCT_Awq"
     QWEN_2_5_VL_7B_INSTRUCT_FP4 = "7B_Instruct_FP4"
     QWEN_2_5_VL_72B_INSTRUCT = "72B_Instruct"
+    QWEN_2_5_VL_7B_INSTRUCT_QUANTIZED_W4A16 = "7B_Instruct_Quantized_W4A16"
     UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT = "Unsloth_7B_Instruct"
     QWEN_2_5_VL_7B_INSTRUCT_FP4 = "7B_Instruct_FP4"
 
@@ -62,6 +63,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_2_5_VL_72B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-VL-72B-Instruct",
+        ),
+        ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_QUANTIZED_W4A16: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Qwen2.5-VL-7B-Instruct-quantized.w4a16",
         ),
         ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="unsloth/Qwen2.5-VL-7B-Instruct",
@@ -122,7 +126,7 @@ class ModelLoader(ForgeModel):
             if variant
             in (
                 ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT,
-                ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_FP4,
+                ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_QUANTIZED_W4A16,
             )
             else ModelGroup.GENERALITY,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
