@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available SaT model variants."""
 
     SAT_12L = "sat-12l"
+    SAT_1L_SM = "sat-1l-sm"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SAT_12L: ModelConfig(
             pretrained_model_name="segment-any-text/sat-12l",
+        ),
+        ModelVariant.SAT_1L_SM: ModelConfig(
+            pretrained_model_name="segment-any-text/sat-1l-sm",
         ),
     }
 
