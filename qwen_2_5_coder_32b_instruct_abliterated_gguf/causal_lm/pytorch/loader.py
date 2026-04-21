@@ -24,8 +24,8 @@ class ModelVariant(StrEnum):
     """Available Qwen 2.5 Coder 32B Instruct Abliterated GGUF model variants for causal language modeling."""
 
     QWEN_2_5_CODER_32B_INSTRUCT_ABLITERATED_GGUF = "32B_Instruct_Abliterated_GGUF"
-    WEIFILE_QWEN_2_5_CODER_32B_INSTRUCT_ABLITERATED_I1_GGUF = (
-        "weifile_32B_Instruct_Abliterated_i1_GGUF"
+    WEIFILE_QWEN_2_5_CODER_32B_INSTRUCT_NP_ABLITERATED_I1_GGUF = (
+        "weifile_32B_Instruct_NP_Abliterated_i1_GGUF"
     )
 
 
@@ -37,8 +37,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bartowski/Qwen2.5-Coder-32B-Instruct-abliterated-GGUF",
             max_length=128,
         ),
-        ModelVariant.WEIFILE_QWEN_2_5_CODER_32B_INSTRUCT_ABLITERATED_I1_GGUF: LLMModelConfig(
-            pretrained_model_name="weifile/Qwen2.5-Coder-32B-Instruct-abliterated-i1-GGUF",
+        ModelVariant.WEIFILE_QWEN_2_5_CODER_32B_INSTRUCT_NP_ABLITERATED_I1_GGUF: LLMModelConfig(
+            pretrained_model_name="weifile/Qwen2.5-Coder-32B-Instruct-NP-Abliterated-i1-GGUF",
             max_length=128,
         ),
     }
@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_ABLITERATED_GGUF: "Qwen2.5-Coder-32B-Instruct-abliterated-Q4_K_M.gguf",
-        ModelVariant.WEIFILE_QWEN_2_5_CODER_32B_INSTRUCT_ABLITERATED_I1_GGUF: "Qwen2.5-Coder-32B-Instruct-abliterated.i1-Q4_K_M.gguf",
+        ModelVariant.WEIFILE_QWEN_2_5_CODER_32B_INSTRUCT_NP_ABLITERATED_I1_GGUF: "Qwen2.5-Coder-32B-Instruct-NP-Abliterated.i1-Q4_K_M.gguf",
     }
 
     sample_text = "Write a quick sort algorithm in Python."
