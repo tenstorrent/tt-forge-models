@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Granite 4.0 350M GGUF model loader implementation for causal language modeling.
+Granite 4.0 350m GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,28 +21,26 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Granite 4.0 350M GGUF model variants for causal language modeling."""
+    """Available Granite 4.0 350m GGUF model variants for causal language modeling."""
 
-    GRANITE_4_0_350M_Q4_K_M = "Granite_4.0_350M_Q4_K_M"
+    GRANITE_4_0_350M_Q4_K_M_GGUF = "granite_4_0_350m_Q4_K_M_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """Granite 4.0 350M GGUF model loader implementation for causal language modeling tasks."""
+    """Granite 4.0 350m GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.GRANITE_4_0_350M_Q4_K_M: LLMModelConfig(
-            pretrained_model_name="unsloth/granite-4.0-350m-GGUF",
+        ModelVariant.GRANITE_4_0_350M_Q4_K_M_GGUF: LLMModelConfig(
+            pretrained_model_name="ibm-granite/granite-4.0-350m-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.GRANITE_4_0_350M_Q4_K_M
+    DEFAULT_VARIANT = ModelVariant.GRANITE_4_0_350M_Q4_K_M_GGUF
 
-    _GGUF_FILES = {
-        ModelVariant.GRANITE_4_0_350M_Q4_K_M: "granite-4.0-350m-Q4_K_M.gguf",
-    }
+    GGUF_FILE = "granite-4.0-350m-Q4_K_M.gguf"
 
-    sample_text = "Give me a short introduction to large language models."
+    sample_text = "What is your favorite city?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -52,14 +50,13 @@ class ModelLoader(ForgeModel):
         self.config = None
         self.num_layers = num_layers
 
-    @property
-    def gguf_file(self):
-        return self._GGUF_FILES[self._variant]
-
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
+
         return ModelInfo(
-            model="Granite 4.0 350M GGUF",
+            model="Granite 4.0 350m GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -71,7 +68,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.gguf_file
+        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -91,11 +88,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.gguf_file
+        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.gguf_file
+                pretrained_model_name, gguf_file=self.GGUF_FILE
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -143,6 +140,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
+            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
         return self.config
