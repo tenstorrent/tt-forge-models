@@ -1,18 +1,30 @@
 # SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-from typing import List
+from dataclasses import dataclass
+from typing import List, Optional
 
 import torch.nn as nn
 from peft import LoraConfig, get_peft_model
 
 
+@dataclass
+class LoRAAdapterConfig:
+    """Per-model LoRA adapter configuration.
+
+    Set as a class attribute on a LoRA model loader to tune hyperparameters
+    without touching shared code.
+    """
+
+    r: int = 8
+    lora_alpha: float = 16.0
+    target_modules: List[str] = ["q_proj", "v_proj"]
+    dropout: float = 0.0
+
+
 def apply_lora_adapters(
     model: nn.Module,
-    r: int = 8,
-    lora_alpha: float = 16.0,
-    target_modules: List[str] = None,
-    dropout: float = 0.0,
+    config: LoRAAdapterConfig,
 ) -> nn.Module:
     """Wrap a model with LoRA adapters using the peft library.
 
@@ -22,22 +34,15 @@ def apply_lora_adapters(
 
     Args:
         model: The base model to adapt.
-        r: LoRA rank.  Smaller rank → fewer trainable parameters.
-        lora_alpha: LoRA scaling factor.
-        target_modules: Names of linear submodules to apply LoRA to.
-            Defaults to ``["q_proj", "v_proj"]``, which covers Llama, GLM,
-            and Qwen attention projections.
+        config: LoRA adapter configuration.
 
     Returns:
         A ``peft.PeftModel`` wrapping the original model.
     """
-    if target_modules is None:
-        target_modules = ["q_proj", "v_proj"]
-
     config = LoraConfig(
-        r=r,
-        lora_alpha=lora_alpha,
-        target_modules=target_modules,
-        lora_dropout=dropout,
+        r=config.r,
+        lora_alpha=config.lora_alpha,
+        target_modules=config.target_modules,
+        lora_dropout=config.dropout,
     )
     return get_peft_model(model, config)
