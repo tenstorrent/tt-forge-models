@@ -1,11 +1,8 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Qwen-3 Transcoders (per-layer transcoder set) model loader implementation for
-causal language modeling.
-
-Reference: https://huggingface.co/mwhanna/qwen3-0.6b-transcoders-lowl0
+Qwen3 Transcoders model loader implementation for causal language modeling.
 """
 
 from transformers import AutoTokenizer
@@ -24,25 +21,26 @@ from ...base import ForgeModel
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen-3 Transcoders model variants."""
+    """Available Qwen3 Transcoders model variants."""
 
-    QWEN3_0_6B_TRANSCODERS_LOWL0 = "qwen3-0.6b-transcoders-lowl0"
+    QWEN3_4B = "qwen3-4b-transcoders"
 
 
 class ModelLoader(ForgeModel):
-    """Qwen-3 Transcoders model loader implementation for causal language
-    modeling tasks."""
+    """Qwen3 Transcoders model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.QWEN3_0_6B_TRANSCODERS_LOWL0: LLMModelConfig(
-            pretrained_model_name="mwhanna/qwen3-0.6b-transcoders-lowl0",
+        ModelVariant.QWEN3_4B: LLMModelConfig(
+            pretrained_model_name="mwhanna/qwen3-4b-transcoders",
             max_length=256,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.QWEN3_0_6B_TRANSCODERS_LOWL0
+    DEFAULT_VARIANT = ModelVariant.QWEN3_4B
 
-    BASE_MODEL = "Qwen/Qwen3-0.6B"
+    _BASE_MODELS = {
+        ModelVariant.QWEN3_4B: "Qwen/Qwen3-4B",
+    }
 
     sample_text = "What is your favorite city?"
 
@@ -56,7 +54,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="Qwen-3-Transcoders",
+            model="Qwen3-Transcoders",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -65,7 +63,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        """Load tokenizer from the base Qwen-3 model.
+        """Load tokenizer from the base Qwen3 model.
 
         Returns:
             The loaded tokenizer instance
@@ -74,19 +72,18 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.BASE_MODEL, **tokenizer_kwargs
+            self._BASE_MODELS[self._variant], **tokenizer_kwargs
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Qwen-3 Transcoders ReplacementModel instance.
+        """Load and return the Qwen3 Transcoders ReplacementModel instance.
 
         Returns:
-            The ReplacementModel wrapping the base Qwen-3 model with
-            per-layer transcoder features from the mwhanna/qwen3-*-transcoders
-            collection.
+            The Qwen3 ReplacementModel wrapping the base Qwen3 model with
+            per-layer transcoder features.
         """
         from circuit_tracer import ReplacementModel
 
@@ -95,7 +92,7 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         model = ReplacementModel.from_pretrained(
-            self.BASE_MODEL, pretrained_model_name, **kwargs
+            self._BASE_MODELS[self._variant], pretrained_model_name, **kwargs
         )
         self.model = model
         return model
@@ -107,7 +104,7 @@ class ModelLoader(ForgeModel):
         max_new_tokens: int = 256,
         prompt: Optional[str] = None,
     ):
-        """Load and return sample inputs for the Qwen-3 Transcoders model.
+        """Load and return sample inputs for the Qwen3 Transcoders model.
 
         Returns:
             dict: Input tensors that can be fed to the model.
