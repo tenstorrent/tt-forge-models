@@ -23,22 +23,22 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Rogue Rose 103B v0.2 i1 GGUF model variants for causal language modeling."""
 
-    ROGUE_ROSE_103B_V0_2_I1_Q4_K_M = "Rogue_Rose_103B_v0_2_i1_Q4_K_M"
+    ROGUE_ROSE_103B_V0_2_I1_Q3_K_S = "Rogue_Rose_103B_v0_2_i1_Q3_K_S"
 
 
 class ModelLoader(ForgeModel):
     """Rogue Rose 103B v0.2 i1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.ROGUE_ROSE_103B_V0_2_I1_Q4_K_M: LLMModelConfig(
+        ModelVariant.ROGUE_ROSE_103B_V0_2_I1_Q3_K_S: LLMModelConfig(
             pretrained_model_name="mradermacher/Rogue-Rose-103b-v0.2-i1-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.ROGUE_ROSE_103B_V0_2_I1_Q4_K_M
+    DEFAULT_VARIANT = ModelVariant.ROGUE_ROSE_103B_V0_2_I1_Q3_K_S
 
-    GGUF_FILE = "Rogue-Rose-103b-v0.2.i1-Q4_K_M.gguf"
+    GGUF_FILE = "Rogue-Rose-103b-v0.2.i1-Q3_K_S.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
