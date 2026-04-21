@@ -132,11 +132,8 @@ class ModelVariant(StrEnum):
     # RLHFlow variants
     RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA = "RLHFlow_3.1_8B_PRM_Deepseek_Data"
 
-    # Nos-PT variants
-    LLAMA_CARVALHO_PT_GL = "Carvalho_PT_GL"
-
-    # OpenAssistant variants
-    OPENASSISTANT_SFT_7_LLAMA_30B = "OpenAssistant_SFT_7_30B"
+    # Upstage variants
+    UPSTAGE_LLAMA_30B_INSTRUCT = "Upstage_30B_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -318,14 +315,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RLHFlow/Llama3.1-8B-PRM-Deepseek-Data",
             max_length=128,
         ),
-        # Nos-PT variants
-        ModelVariant.LLAMA_CARVALHO_PT_GL: LLMModelConfig(
-            pretrained_model_name="Nos-PT/Llama-Carvalho-PT-GL",
-            max_length=128,
-        ),
-        # OpenAssistant variants
-        ModelVariant.OPENASSISTANT_SFT_7_LLAMA_30B: LLMModelConfig(
-            pretrained_model_name="TheBloke/OpenAssistant-SFT-7-Llama-30B-HF",
+        # Upstage variants
+        ModelVariant.UPSTAGE_LLAMA_30B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="upstage/llama-30b-instruct",
             max_length=128,
         ),
     }
@@ -378,7 +370,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_3B_GPTQ_4BIT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4,
-            ModelVariant.LLAMA_2_70B_FB16_GUANACO_1K,
+            ModelVariant.UPSTAGE_LLAMA_30B_INSTRUCT,
         ]:
             group = ModelGroup.VULCAN
         elif (
