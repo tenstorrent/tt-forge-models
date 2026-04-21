@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     """Available Wizard Vicuna model variants."""
 
     WIZARD_VICUNA_13B = "13B"
-    WIZARD_VICUNA_7B_UNCENSORED_HF = "7B_Uncensored_HF"
+    WIZARD_VICUNA_30B_UNCENSORED = "30B_Uncensored"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.WIZARD_VICUNA_13B: ModelConfig(
             pretrained_model_name="junelee/wizard-vicuna-13b",
         ),
-        ModelVariant.WIZARD_VICUNA_7B_UNCENSORED_HF: ModelConfig(
-            pretrained_model_name="TheBloke/Wizard-Vicuna-7B-Uncensored-HF",
+        ModelVariant.WIZARD_VICUNA_30B_UNCENSORED: ModelConfig(
+            pretrained_model_name="QuixiAI/Wizard-Vicuna-30B-Uncensored",
         ),
     }
 
