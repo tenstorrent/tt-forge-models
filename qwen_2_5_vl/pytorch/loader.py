@@ -36,7 +36,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_VL_7B_INSTRUCT_AWQ = "7B_INSTRUCT_Awq"
     QWEN_2_5_VL_72B_INSTRUCT = "72B_Instruct"
     UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT = "Unsloth_7B_Instruct"
-    VIDEO_R1_7B = "Video_R1_7B"
+    QWEN_2_5_VL_7B_INSTRUCT_FP4 = "7B_Instruct_FP4"
 
 
 class ModelLoader(ForgeModel):
@@ -62,8 +62,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="unsloth/Qwen2.5-VL-7B-Instruct",
         ),
-        ModelVariant.VIDEO_R1_7B: LLMModelConfig(
-            pretrained_model_name="Video-R1/Video-R1-7B",
+        ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_FP4: LLMModelConfig(
+            pretrained_model_name="asi992h/Qwen2.5-VL-7B-Instruct-FP4",
         ),
     }
 
@@ -125,7 +125,7 @@ class ModelLoader(ForgeModel):
             if variant
             in (
                 ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT,
-                ModelVariant.VIDEO_R1_7B,
+                ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_FP4,
             )
             else ModelGroup.GENERALITY,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
@@ -184,6 +184,7 @@ class ModelLoader(ForgeModel):
         elif pretrained_model_name in [
             "unsloth/Qwen2.5-VL-7B-Instruct-unsloth-bnb-4bit",
             "unsloth/Qwen2.5-VL-7B-Instruct-bnb-4bit",
+            "asi992h/Qwen2.5-VL-7B-Instruct-FP4",
         ]:
             model_kwargs["device_map"] = "cpu"
 
