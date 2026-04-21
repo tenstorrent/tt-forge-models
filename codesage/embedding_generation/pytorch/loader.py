@@ -8,7 +8,6 @@ CodeSage model loader implementation for code embedding generation.
 
 from typing import Optional
 
-import torch
 from transformers import AutoModel, AutoTokenizer
 
 from ....base import ForgeModel
