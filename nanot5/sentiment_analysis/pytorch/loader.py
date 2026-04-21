@@ -6,7 +6,7 @@ NanoT5 model loader implementation for sentiment analysis.
 """
 
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
-from ...config import (
+from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
     ModelTask,
@@ -15,7 +15,7 @@ from ...config import (
     StrEnum,
     LLMModelConfig,
 )
-from ...base import ForgeModel
+from third_party.tt_forge_models.base import ForgeModel
 
 
 class ModelVariant(StrEnum):
