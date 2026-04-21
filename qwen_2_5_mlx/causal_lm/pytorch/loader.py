@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
 
     QWEN_2_5_0_5B_INSTRUCT_4BIT = "0.5B_Instruct_4bit"
     QWEN_2_5_7B_INSTRUCT_4BIT = "7B_Instruct_4bit"
-    QWEN_2_5_7B_INSTRUCT_UNCENSORED_4BIT = "7B_Instruct_Uncensored_4bit"
+    QWEN_2_5_32B_INSTRUCT_MLX_4BIT = "32B_Instruct_MLX_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -40,8 +40,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mlx-community/Qwen2.5-7B-Instruct-4bit",
             max_length=128,
         ),
-        ModelVariant.QWEN_2_5_7B_INSTRUCT_UNCENSORED_4BIT: LLMModelConfig(
-            pretrained_model_name="mlx-community/Qwen2.5-7B-Instruct-Uncensored-4bit",
+        ModelVariant.QWEN_2_5_32B_INSTRUCT_MLX_4BIT: LLMModelConfig(
+            pretrained_model_name="lmstudio-community/Qwen2.5-32B-Instruct-MLX-4bit",
             max_length=128,
         ),
     }
