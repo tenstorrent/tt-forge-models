@@ -24,6 +24,9 @@ class ModelVariant(StrEnum):
     """Available DeepSeek R1 Distill Llama 8B GGUF model variants for causal language modeling."""
 
     DEEPSEEK_R1_DISTILL_LLAMA_8B_GGUF = "Distill_Llama_8B_GGUF"
+    DEEPSEEK_R1_DISTILL_LLAMA_8B_GGUF_MATRIXPORTALX = (
+        "Distill_Llama_8B_GGUF_matrixportalx"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEEPSEEK_R1_DISTILL_LLAMA_8B_GGUF: LLMModelConfig(
             pretrained_model_name="unsloth/DeepSeek-R1-Distill-Llama-8B-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.DEEPSEEK_R1_DISTILL_LLAMA_8B_GGUF_MATRIXPORTALX: LLMModelConfig(
+            pretrained_model_name="matrixportalx/DeepSeek-R1-Distill-Llama-8B-GGUF",
             max_length=128,
         ),
     }
