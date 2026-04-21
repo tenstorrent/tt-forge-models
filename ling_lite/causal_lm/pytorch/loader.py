@@ -93,6 +93,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
         if config.rope_scaling and "factor" not in config.rope_scaling:
             config.rope_scaling = None
+        config.use_cache = False
         model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
