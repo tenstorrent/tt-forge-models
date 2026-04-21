@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available GLM-4V model variants for multimodal conditional generation."""
 
     GLM_4V_9B = "glm_4v_9b"
+    COGAGENT_9B_20241220 = "cogagent_9b_20241220"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GLM_4V_9B: LLMModelConfig(
             pretrained_model_name="zai-org/glm-4v-9b",
+        ),
+        ModelVariant.COGAGENT_9B_20241220: LLMModelConfig(
+            pretrained_model_name="zai-org/cogagent-9b-20241220",
         ),
     }
 
