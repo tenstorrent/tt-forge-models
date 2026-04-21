@@ -43,6 +43,9 @@ class ModelVariant(StrEnum):
     BEIT_BASE_PATCH16_224_IN22K_FT_IN22K_IN1K = (
         "BEiT_Base_Patch16_224_IN22K_FT_IN22K_IN1K"
     )
+    BEIT_LARGE_PATCH16_512_IN22K_FT_IN22K_IN1K = (
+        "BEiT_Large_Patch16_512_IN22K_FT_IN22K_IN1K"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -62,6 +65,10 @@ class ModelLoader(ForgeModel):
         # TIMM variants
         ModelVariant.BEIT_BASE_PATCH16_224_IN22K_FT_IN22K_IN1K: BeitConfig(
             pretrained_model_name="beit_base_patch16_224.in22k_ft_in22k_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.BEIT_LARGE_PATCH16_512_IN22K_FT_IN22K_IN1K: BeitConfig(
+            pretrained_model_name="beit_large_patch16_512.in22k_ft_in22k_in1k",
             source=ModelSource.TIMM,
         ),
         ModelVariant.TINY_RANDOM: ModelConfig(
@@ -97,7 +104,10 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         group = ModelGroup.GENERALITY
-        if variant == ModelVariant.TINY_RANDOM:
+        if variant in (
+            ModelVariant.TINY_RANDOM,
+            ModelVariant.BEIT_LARGE_PATCH16_512_IN22K_FT_IN22K_IN1K,
+        ):
             group = ModelGroup.VULCAN
 
         source = getattr(cls._VARIANTS[variant], "source", ModelSource.HUGGING_FACE)
