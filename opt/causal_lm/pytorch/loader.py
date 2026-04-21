@@ -4,6 +4,7 @@
 """
 OPT model loader implementation for causal language modeling.
 """
+
 from transformers import OPTForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -27,6 +28,7 @@ class ModelVariant(StrEnum):
     OPT_350M = "350M"
     OPT_1_3B = "1.3b"
     OPT_6_7B = "6.7b"
+    PYGMALION_350M = "pygmalion-350m"
     TINY_RANDOM = "tiny-random"
     TINY_RANDOM_EXTENDED_VOCAB = "tiny-random-extended-vocab"
 
@@ -54,6 +56,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.OPT_6_7B: LLMModelConfig(
             pretrained_model_name="facebook/opt-6.7b",
+            max_length=256,
+        ),
+        ModelVariant.PYGMALION_350M: LLMModelConfig(
+            pretrained_model_name="PygmalionAI/pygmalion-350m",
             max_length=256,
         ),
         ModelVariant.TINY_RANDOM: LLMModelConfig(
@@ -100,7 +106,11 @@ class ModelLoader(ForgeModel):
         group = (
             ModelGroup.VULCAN
             if variant
-            in (ModelVariant.TINY_RANDOM, ModelVariant.TINY_RANDOM_EXTENDED_VOCAB)
+            in (
+                ModelVariant.PYGMALION_350M,
+                ModelVariant.TINY_RANDOM,
+                ModelVariant.TINY_RANDOM_EXTENDED_VOCAB,
+            )
             else ModelGroup.GENERALITY
         )
         return ModelInfo(
