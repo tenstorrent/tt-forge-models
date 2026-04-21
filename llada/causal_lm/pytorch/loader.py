@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
 
     LLADA_8B_INSTRUCT = "llada_8b_instruct"
     LLADA_1_5 = "llada_1_5"
-    D3LLM_LLADA = "d3llm_llada"
+    RIDDICKZ_LLADA_8B_INSTRUCT = "riddickz_llada_8b_instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -41,8 +41,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="GSAI-ML/LLaDA-1.5",
             max_length=128,
         ),
-        ModelVariant.D3LLM_LLADA: LLMModelConfig(
-            pretrained_model_name="d3LLM/d3LLM_LLaDA",
+        ModelVariant.RIDDICKZ_LLADA_8B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="riddickz/LLaDA-8B-Instruct",
             max_length=128,
         ),
     }
