@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     FRENCH_PHONEMIZER_V2 = "French_Phonemizer_v2"
     LARGE_XLS_R_300M_WELSH = "Large_XLS_R_300M_Welsh"
     LARGE_XLSR_53_AMHARIC = "Large_XLSR_53_Amharic"
-    LARGE_XLSR_53_FRENCH = "Large_XLSR_53_French"
+    LJSPEECH_GRUUT = "LJSpeech_Gruut"
     NB_WAV2VEC2_300M_BOKMAAL_V2 = "NB_Wav2Vec2_300M_Bokmaal_v2"
     XLS_R_300M_CV8_TURKISH = "XLS_R_300M_CV8_Turkish"
 
@@ -57,8 +57,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.LARGE_XLSR_53_AMHARIC: ModelConfig(
             pretrained_model_name="agkphysics/wav2vec2-large-xlsr-53-amharic",
         ),
-        ModelVariant.LARGE_XLSR_53_FRENCH: ModelConfig(
-            pretrained_model_name="facebook/wav2vec2-large-xlsr-53-french",
+        ModelVariant.LJSPEECH_GRUUT: ModelConfig(
+            pretrained_model_name="bookbot/wav2vec2-ljspeech-gruut",
         ),
         ModelVariant.NB_WAV2VEC2_300M_BOKMAAL_V2: ModelConfig(
             pretrained_model_name="NbAiLab/nb-wav2vec2-300m-bokmaal-v2",
