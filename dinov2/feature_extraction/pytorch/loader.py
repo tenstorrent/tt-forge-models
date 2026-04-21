@@ -136,8 +136,6 @@ class ModelLoader(ForgeModel):
             # single axial medical imaging slice (CT/MRI), not PIL images.
             image = np.random.rand(256, 256).astype(np.float32)
             inputs = self.processor(image)
-            if not isinstance(inputs, dict):
-                inputs = {"pixel_values": inputs}
         else:
             dataset = load_dataset("huggingface/cats-image")["test"]
             image = dataset[0]["image"]
