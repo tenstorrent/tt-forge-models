@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     COLBERT_IR_COLBERTV2_0 = "colbert-ir/colbertv2.0"
     ANSWERAI_COLBERT_SMALL_V1 = "answerdotai/answerai-colbert-small-v1"
     NEUML_COLBERT_BERT_TINY = "NeuML/colbert-bert-tiny"
+    LIGHTONAI_COLBERT_ZERO_UNSUPERVISED = "lightonai/ColBERT-Zero-unsupervised"
 
 
 class ModelLoader(ForgeModel):
@@ -48,6 +49,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.NEUML_COLBERT_BERT_TINY: LLMModelConfig(
             pretrained_model_name="NeuML/colbert-bert-tiny",
+            max_length=32,
+        ),
+        ModelVariant.LIGHTONAI_COLBERT_ZERO_UNSUPERVISED: LLMModelConfig(
+            pretrained_model_name="lightonai/ColBERT-Zero-unsupervised",
             max_length=32,
         ),
     }
