@@ -2,11 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-mlx-community/Qwen3-Coder-Next-6bit model loader implementation for causal language modeling.
-
-mlx-community/Qwen3-Coder-Next-6bit is an MLX-quantized (6-bit) derivative of
-Qwen/Qwen3-Coder-Next, a Qwen3-Coder causal language model for code generation.
-It is exposed as a Qwen3-Coder-Next causal LM via Hugging Face Transformers.
+mlx-community/Qwen3-Coder-Next-6bit model loader for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -25,13 +21,13 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available mlx-community/Qwen3-Coder-Next-6bit model variants."""
+    """Available mlx-community Qwen3-Coder-Next-6bit model variants for causal language modeling."""
 
-    QWEN_3_CODER_NEXT_6BIT = "Next-6bit"
+    QWEN_3_CODER_NEXT_6BIT = "Coder_Next_6bit"
 
 
 class ModelLoader(ForgeModel):
-    """mlx-community/Qwen3-Coder-Next-6bit model loader for causal language modeling tasks."""
+    """mlx-community Qwen3-Coder-Next-6bit model loader for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.QWEN_3_CODER_NEXT_6BIT: LLMModelConfig(
@@ -55,7 +51,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Qwen3-Coder-Next-6bit",
+            model="mlx-community Qwen3-Coder-Next-6bit",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
