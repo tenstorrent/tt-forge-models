@@ -19,7 +19,7 @@ from third_party.tt_forge_models.base import ForgeModel
 
 _SAMPLE_TEXTS = {
     "dbmdz/bert-base-german-uncased": "Die Hauptstadt von Deutschland ist [MASK].",
-    "unikei/bert-base-smiles": "CC(=O)OC1=CC=CC=C1C(=O)[MASK]",
+    "Davlan/bert-base-multilingual-cased-finetuned-amharic": "የኢትዮጵያ ዋና ከተማ [MASK] ነው።",
 }
 
 
@@ -38,7 +38,9 @@ class ModelVariant(StrEnum):
     LEGAL_BERT_BASE_UNCASED = "nlpaueb/legal-bert-base-uncased"
     RETROMAE_MSMARCO_DISTILL = "Shitao/RetroMAE_MSMARCO_distill"
     BERT_LARGE_UNCASED_WWM = "Large_Uncased_Whole_Word_Masking"
-    UNIKEI_BERT_BASE_SMILES = "unikei/bert-base-smiles"
+    DAVLAN_BERT_BASE_MULTILINGUAL_CASED_FINETUNED_AMHARIC = (
+        "Davlan/bert-base-multilingual-cased-finetuned-amharic"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -94,8 +96,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bert-large-uncased-whole-word-masking",
             max_length=128,
         ),
-        ModelVariant.UNIKEI_BERT_BASE_SMILES: LLMModelConfig(
-            pretrained_model_name="unikei/bert-base-smiles",
+        ModelVariant.DAVLAN_BERT_BASE_MULTILINGUAL_CASED_FINETUNED_AMHARIC: LLMModelConfig(
+            pretrained_model_name="Davlan/bert-base-multilingual-cased-finetuned-amharic",
             max_length=128,
         ),
     }
@@ -146,7 +148,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LEGAL_BERT_BASE_UNCASED,
             ModelVariant.RETROMAE_MSMARCO_DISTILL,
             ModelVariant.BERT_LARGE_UNCASED_WWM,
-            ModelVariant.UNIKEI_BERT_BASE_SMILES,
+            ModelVariant.DAVLAN_BERT_BASE_MULTILINGUAL_CASED_FINETUNED_AMHARIC,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
