@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     SEA_QWEN2_1_5B = "SeaQwen2_1.5B"
     TINY_QWEN2_2_5 = "tiny_Qwen2ForCausalLM_2.5"
     JANE_STREET_DORMANT_MODEL_WARMUP = "Jane_Street_Dormant_Model_Warmup"
-    DIABETICA_7B = "Diabetica_7B"
+    KO_YOSHIDA_SAMPLE1 = "ko_yoshida_sample1"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="jane-street/dormant-model-warmup",
             max_length=128,
         ),
-        ModelVariant.DIABETICA_7B: LLMModelConfig(
-            pretrained_model_name="WaltonFuture/Diabetica-7B",
+        ModelVariant.KO_YOSHIDA_SAMPLE1: LLMModelConfig(
+            pretrained_model_name="ko-yoshida/sample1",
             max_length=128,
         ),
     }
@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.TINY_QWEN2_2_5,
             ModelVariant.QWEN2_7B_INSTRUCT,
             ModelVariant.QWEN2_AB_ZSX,
-            ModelVariant.DIABETICA_7B,
+            ModelVariant.KO_YOSHIDA_SAMPLE1,
         ):
             group = ModelGroup.VULCAN
 
@@ -205,7 +205,10 @@ class ModelLoader(ForgeModel):
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
-        if self._variant == ModelVariant.QWEN2_AB_ZSX:
+        if self._variant in (
+            ModelVariant.QWEN2_AB_ZSX,
+            ModelVariant.KO_YOSHIDA_SAMPLE1,
+        ):
             prompts = [self.sample_text]
         else:
             messages = [{"role": "user", "content": self.sample_text}]
