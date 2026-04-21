@@ -23,8 +23,7 @@ class ModelVariant(StrEnum):
     """Available GPT-2 causal LM model variants."""
 
     TINY_RANDOM = "tiny-random"
-    MEGATRON_GPT_2_345M_EVOLINSTRUCT = "megatron-gpt-2-345m-evolinstruct"
-    GPT2_LARGE_CONVERSATIONAL = "gpt2-large-conversational"
+    ANJAJAR_BABY_GOLDFISH_NEW = "anjajar-baby-goldfish-new"
 
 
 class ModelLoader(ForgeModel):
@@ -36,12 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="peft-internal-testing/tiny-random-GPT2LMHeadModel",
             max_length=256,
         ),
-        ModelVariant.MEGATRON_GPT_2_345M_EVOLINSTRUCT: LLMModelConfig(
-            pretrained_model_name="KnutJaegersberg/megatron-GPT-2-345m-EvolInstruct",
-            max_length=256,
-        ),
-        ModelVariant.GPT2_LARGE_CONVERSATIONAL: LLMModelConfig(
-            pretrained_model_name="Locutusque/gpt2-large-conversational",
+        ModelVariant.ANJAJAR_BABY_GOLDFISH_NEW: LLMModelConfig(
+            pretrained_model_name="anjajar/baby_goldfish_new",
             max_length=256,
         ),
     }
