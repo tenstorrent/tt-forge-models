@@ -122,7 +122,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Load and return the AutoencoderKL VAE model for the selected variant."""
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         if self._vae is None:
             filename = _VARIANT_FILENAMES[self._variant]
             weights_path = hf_hub_download(repo_id=REPO_ID, filename=filename)
@@ -147,12 +147,14 @@ class ModelLoader(ForgeModel):
             self._vae = self._vae.to(dtype=dtype_override)
         return self._vae
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare inputs for the VAE.
 
         Pass vae_type="decoder" (default) or vae_type="encoder".
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         vae_type = kwargs.get("vae_type", "decoder")
         latent_channels = self._latent_channels()
 
