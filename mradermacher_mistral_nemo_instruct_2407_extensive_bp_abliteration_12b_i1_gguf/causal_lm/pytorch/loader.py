@@ -5,6 +5,7 @@
 mradermacher Mistral-Nemo-Instruct-2407-extensive-BP-abliteration-12B i1 GGUF model loader implementation for causal language modeling.
 """
 
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -72,7 +73,23 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _fix_gguf_package_map(self):
+        # transformers caches packages_distributions() at import time; if gguf
+        # was installed after transformers was imported (by RequirementsManager),
+        # is_gguf_available() returns an unparseable 'N/A' version.  Refresh
+        # the cached mapping so the version lookup uses importlib.metadata.
+        try:
+            import transformers.utils.import_utils as _iu
+
+            if "gguf" not in _iu.PACKAGE_DISTRIBUTION_MAPPING:
+                fresh = importlib.metadata.packages_distributions()
+                if "gguf" in fresh:
+                    _iu.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = fresh["gguf"]
+        except Exception:
+            pass
+
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_package_map()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
