@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
@@ -7,24 +7,23 @@ mradermacher/MetaphorStar-7B-GGUF model loader implementation for causal languag
 Note: The qwen2vl GGUF architecture is not yet supported by the transformers
 GGUF loader, so we load from the HF-native checkpoint and extract the causal LM.
 """
-from typing import Optional
-
 import torch
 from transformers import (
-    AutoConfig,
-    AutoTokenizer,
-    Qwen2ForCausalLM,
     Qwen2_5_VLForConditionalGeneration,
+    Qwen2ForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
 )
+from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
-    Framework,
     LLMModelConfig,
-    ModelGroup,
     ModelInfo,
-    ModelSource,
+    ModelGroup,
     ModelTask,
+    ModelSource,
+    Framework,
     StrEnum,
 )
 
@@ -51,7 +50,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.METAPHOR_STAR_7B_GGUF
 
-    sample_text = "Explain the metaphorical meaning behind a lion in visual art."
+    sample_text = "Describe the key features of a vision-language model."
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
