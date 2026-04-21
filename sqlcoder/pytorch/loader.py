@@ -5,7 +5,6 @@
 SQLCoder model loader implementation
 """
 
-
 from ...config import (
     ModelInfo,
     ModelGroup,
@@ -24,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available SQLCoder model variants."""
 
     SQLCODER_7B_2 = "7b_2"
+    SQLCODER_34B_ALPHA = "34b_alpha"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +32,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SQLCODER_7B_2: LLMModelConfig(
             pretrained_model_name="defog/sqlcoder-7b-2",
+            max_length=512,
+        ),
+        ModelVariant.SQLCODER_34B_ALPHA: LLMModelConfig(
+            pretrained_model_name="defog/sqlcoder-34b-alpha",
             max_length=512,
         ),
     }
