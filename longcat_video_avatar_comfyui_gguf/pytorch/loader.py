@@ -87,11 +87,30 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized LongCat transformer.
+        """Load the LongCat transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
-        Returns the transformer nn.Module directly for compilation testing.
+        In compile-only mode (TT_RANDOM_WEIGHTS=1), loads architecture config from
+        Wan-AI/Wan2.1-T2V-14B-Diffusers and initializes with random weights, since the
+        ComfyUI GGUF key naming convention is incompatible with diffusers auto-detection.
+
+        In full inference mode, loads from the GGUF file using GGUFQuantizationConfig.
         """
+        import os
+
+        from diffusers import WanTransformer3DModel
+
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        if os.environ.get("TT_RANDOM_WEIGHTS", "0") == "1":
+            config = WanTransformer3DModel.load_config(
+                "Wan-AI/Wan2.1-T2V-14B-Diffusers",
+                subfolder="transformer",
+            )
+            self._transformer = WanTransformer3DModel.from_config(config).to(
+                compute_dtype
+            )
+            return self._transformer
+
         import diffusers.utils.import_utils as _diffusers_import_utils
 
         if not _diffusers_import_utils._gguf_available:
@@ -100,18 +119,14 @@ class ModelLoader(ForgeModel):
             if importlib.util.find_spec("gguf") is not None:
                 _diffusers_import_utils._gguf_available = True
 
-        from diffusers import (
-            GGUFQuantizationConfig,
-            WanTransformer3DModel,
-        )
-
-        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        from diffusers import GGUFQuantizationConfig
 
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self._transformer = WanTransformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+            config="Wan-AI/Wan2.1-T2V-14B-Diffusers",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
