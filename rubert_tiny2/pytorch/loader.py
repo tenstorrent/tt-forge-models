@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available RuBERT-tiny2 model variants for sequence classification."""
 
     RUBERT_TINY2_RUSSE_TOXICITY = "Tiny2_RUSSE_Toxicity"
+    RUBERT_TINY2_CEDR_EMOTION = "Tiny2_CEDR_Emotion"
 
 
 class ModelLoader(ForgeModel):
@@ -32,12 +33,17 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="BunnyNoBugs/rubert-tiny2-russe-toxicity",
             max_length=128,
         ),
+        ModelVariant.RUBERT_TINY2_CEDR_EMOTION: LLMModelConfig(
+            pretrained_model_name="cointegrated/rubert-tiny2-cedr-emotion-detection",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.RUBERT_TINY2_RUSSE_TOXICITY
 
     _SAMPLE_TEXTS = {
         ModelVariant.RUBERT_TINY2_RUSSE_TOXICITY: "Ты ужасный человек и я тебя ненавижу!",
+        ModelVariant.RUBERT_TINY2_CEDR_EMOTION: "Я очень счастлив!",
     }
 
     def __init__(self, variant=None):
