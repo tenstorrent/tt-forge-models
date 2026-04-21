@@ -108,6 +108,7 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
+        inputs.pop("token_type_ids", None)
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
