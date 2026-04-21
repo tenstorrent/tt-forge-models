@@ -99,7 +99,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load and return the TRELLIS text-conditioned SparseStructureFlowModel.
 
         Returns:
@@ -122,32 +122,19 @@ class ModelLoader(ForgeModel):
         model = SparseStructureFlowModel(**args)
         state_dict = load_file(weights_path)
         model.load_state_dict(state_dict)
-
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-            # TimestepEmbedder.timestep_embedding hardcodes .float() so t_freq is
-            # always float32.  Keep the mlp in float32 so it can accept that input;
-            # the forward() .type(self.dtype) cast then promotes t_emb before blocks.
-            model.t_embedder.mlp.to(torch.float32)
-            # Align the model's internal dtype flag so forward()'s .type(self.dtype)
-            # casts to the right dtype instead of the use_fp16=False default (float32).
-            model.dtype = dtype_override
-        else:
-            # Checkpoint weights may be reduced precision; cast to float32 to match
-            # float32 inputs and the model's use_fp16=False configuration.
-            model = model.to(torch.float32)
-
+        # TRELLIS norm layers (LayerNorm32, GroupNorm32) cast inputs to float32
+        # internally and require float32 weights; the whole model runs in float32
+        # when use_fp16=False.  Cast checkpoint weights (stored as fp16) to float32.
+        model = model.to(torch.float32)
         model.eval()
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, batch_size=1, **kwargs):
         """Load sample inputs for the text-conditioned SparseStructureFlowModel.
 
         Returns:
             dict: Input tensors (x, t, cond) for the model forward pass.
         """
-        dtype = dtype_override or torch.float32
-
         # x: noisy 3D volume latent [B, C, D, H, W]
         x = torch.randn(
             batch_size,
@@ -155,18 +142,16 @@ class ModelLoader(ForgeModel):
             self._RESOLUTION,
             self._RESOLUTION,
             self._RESOLUTION,
-            dtype=dtype,
         )
 
         # t: diffusion timestep
-        t = torch.full((batch_size,), 0.5, dtype=dtype)
+        t = torch.full((batch_size,), 0.5)
 
         # cond: CLIP text conditioning tokens [B, seq_len, cond_channels]
         cond = torch.randn(
             batch_size,
             self._COND_SEQ_LEN,
             self._COND_CHANNELS,
-            dtype=dtype,
         )
 
         return {"x": x, "t": t, "cond": cond}
