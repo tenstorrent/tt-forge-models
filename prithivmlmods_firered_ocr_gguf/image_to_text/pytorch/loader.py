@@ -55,7 +55,7 @@ class ModelLoader(ForgeModel):
             model="prithivMLmods FireRed-OCR GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.NLP_IMAGE_TO_TEXT,
+            task=ModelTask.MM_DOC_OCR,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
