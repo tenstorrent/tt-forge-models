@@ -22,6 +22,13 @@ class ModelVariant(StrEnum):
     """Available ELECTRA masked language model variants."""
 
     KR_ELECTRA_GENERATOR = "KR-ELECTRA-generator"
+    DA_SMALL_GENERATOR_256_CASED = "sarnikowski/electra-small-generator-da-256-cased"
+
+
+_SAMPLE_TEXTS = {
+    ModelVariant.KR_ELECTRA_GENERATOR: "한국어 자연어 처리를 위한 [MASK] 모델입니다.",
+    ModelVariant.DA_SMALL_GENERATOR_256_CASED: "København er Danmarks [MASK].",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +39,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="snunlp/KR-ELECTRA-generator",
             max_length=128,
         ),
+        ModelVariant.DA_SMALL_GENERATOR_256_CASED: LLMModelConfig(
+            pretrained_model_name="sarnikowski/electra-small-generator-da-256-cased",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.KR_ELECTRA_GENERATOR
@@ -40,6 +51,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.model_name = self._variant_config.pretrained_model_name
         self.max_length = self._variant_config.max_length
+        self.sample_text = _SAMPLE_TEXTS[self._variant]
         self.tokenizer = None
 
     @classmethod
@@ -71,9 +83,8 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self.load_model(dtype_override=dtype_override)
 
-        sentence = "한국어 자연어 처리를 위한 [MASK] 모델입니다."
         inputs = self.tokenizer(
-            sentence,
+            self.sample_text,
             max_length=self.max_length,
             padding="max_length",
             truncation=True,
