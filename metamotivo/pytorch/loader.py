@@ -71,7 +71,31 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from metamotivo.fb_cpr.huggingface import FBcprModel
+        import sys
+        from pathlib import Path
+
+        # The dynamic loader adds our models root to sys.path[0], which causes
+        # our local metamotivo/ directory to shadow the pip-installed metamotivo
+        # package when doing an absolute import. Temporarily remove it.
+        models_root = str(Path(__file__).resolve().parents[2])
+        removed_idx = None
+        try:
+            removed_idx = sys.path.index(models_root)
+            sys.path.pop(removed_idx)
+        except ValueError:
+            pass
+        stale = {
+            k: sys.modules.pop(k)
+            for k in list(sys.modules)
+            if k == "metamotivo" or k.startswith("metamotivo.")
+        }
+        try:
+            from metamotivo.fb_cpr.huggingface import FBcprModel
+        finally:
+            if removed_idx is not None:
+                sys.path.insert(removed_idx, models_root)
+            for k, v in stale.items():
+                sys.modules.setdefault(k, v)
 
         model = FBcprModel.from_pretrained(self._variant_config.pretrained_model_name)
         if dtype_override is not None:
