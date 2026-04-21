@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     SEA_QWEN2_1_5B = "SeaQwen2_1.5B"
     TINY_QWEN2_2_5 = "tiny_Qwen2ForCausalLM_2.5"
     JANE_STREET_DORMANT_MODEL_WARMUP = "Jane_Street_Dormant_Model_Warmup"
+    DIABETICA_7B = "Diabetica_7B"
 
 
 class ModelLoader(ForgeModel):
@@ -63,6 +64,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.JANE_STREET_DORMANT_MODEL_WARMUP: LLMModelConfig(
             pretrained_model_name="jane-street/dormant-model-warmup",
+            max_length=128,
+        ),
+        ModelVariant.DIABETICA_7B: LLMModelConfig(
+            pretrained_model_name="WaltonFuture/Diabetica-7B",
             max_length=128,
         ),
     }
@@ -104,6 +109,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.TINY_QWEN2_2_5,
             ModelVariant.QWEN2_7B_INSTRUCT,
             ModelVariant.QWEN2_AB_ZSX,
+            ModelVariant.DIABETICA_7B,
         ):
             group = ModelGroup.VULCAN
 
