@@ -5,6 +5,7 @@
 T5 v1.1 XXL Encoder GGUF model loader implementation for text embedding generation.
 """
 
+import torch
 from transformers import AutoTokenizer, AutoModel, AutoConfig
 from typing import Optional
 
@@ -91,9 +92,18 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
-        model.eval()
-        return model
+        full_model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        full_model.eval()
+
+        class T5EncoderWrapper(torch.nn.Module):
+            def __init__(self, encoder):
+                super().__init__()
+                self.encoder = encoder
+
+            def forward(self, input_ids, attention_mask=None, **kwargs):
+                return self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+
+        return T5EncoderWrapper(full_model.encoder)
 
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
