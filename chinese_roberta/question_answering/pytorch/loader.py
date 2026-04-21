@@ -5,35 +5,37 @@
 Chinese RoBERTa model loader implementation for extractive question answering.
 """
 
+from transformers import AutoModelForQuestionAnswering, AutoTokenizer
+
 from ....base import ForgeModel
 from ....config import (
-    Framework,
     LLMModelConfig,
-    ModelGroup,
     ModelInfo,
-    ModelSource,
+    ModelGroup,
     ModelTask,
+    ModelSource,
+    Framework,
     StrEnum,
 )
 
 
 class ModelVariant(StrEnum):
-    """Available Chinese RoBERTa extractive QA model variants."""
+    """Available Chinese RoBERTa question answering model variants."""
 
-    UER_EXTRACTIVE_QA = "uer-extractive-qa"
+    EXTRACTIVE_QA = "extractive-qa-chinese"
 
 
 class ModelLoader(ForgeModel):
     """Chinese RoBERTa model loader for extractive question answering."""
 
     _VARIANTS = {
-        ModelVariant.UER_EXTRACTIVE_QA: LLMModelConfig(
+        ModelVariant.EXTRACTIVE_QA: LLMModelConfig(
             pretrained_model_name="uer/roberta-base-chinese-extractive-qa",
             max_length=512,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.UER_EXTRACTIVE_QA
+    DEFAULT_VARIANT = ModelVariant.EXTRACTIVE_QA
 
     def __init__(self, variant=None):
         super().__init__(variant)
@@ -45,8 +47,8 @@ class ModelLoader(ForgeModel):
         self.question = "著名诗歌《假如生活欺骗了你》的作者是"
         self.context = (
             "普希金从那里学习人民的语言，吸取了许多有益的养料，这一切对普希金后来的创作产生了很大的影响。"
-            "这两年里，普希金创作了不少优秀的作品，如《囚徒》、《致大海》、《致凯恩》和《假如生活欺骗了你》"
-            "等几十首抒情诗，叙事诗《努林伯爵》，历史剧《鲍里斯·戈都诺夫》，以及《叶甫盖尼·奥涅金》前六章。"
+            "这两年里，普希金创作了不少优秀的作品，如《囚徒》、《致大海》、《致凯恩》和《假如生活欺骗了你》等几十首抒情诗，"
+            "叙事诗《努林伯爵》，历史剧《鲍里斯·戈都诺夫》，以及《叶甫盖尼·奥涅金》前六章。"
         )
 
     @classmethod
@@ -63,8 +65,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load Chinese RoBERTa model for extractive QA from Hugging Face."""
-        from transformers import AutoModelForQuestionAnswering, AutoTokenizer
+        """Load Chinese RoBERTa model for extractive question answering from Hugging Face."""
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
@@ -81,7 +82,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Prepare sample input for Chinese RoBERTa extractive QA."""
+        """Prepare sample input for Chinese RoBERTa extractive question answering."""
         if self.tokenizer is None:
             self.load_model(dtype_override=dtype_override)
 
@@ -97,7 +98,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def decode_output(self, co_out):
-        """Decode the model output into the predicted answer span."""
+        """Decode the model output for extractive question answering."""
         inputs = self.load_inputs()
         start_logits = co_out[0]
         end_logits = co_out[1]
