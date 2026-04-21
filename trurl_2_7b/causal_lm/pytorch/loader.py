@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.TRURL_2_7B
 
-    sample_text = "Jakie jest stolica Polski?"
+    sample_text = "Jaka jest stolica Polski?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
