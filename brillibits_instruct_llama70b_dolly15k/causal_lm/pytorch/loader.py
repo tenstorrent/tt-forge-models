@@ -28,12 +28,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Brillibits/Instruct_Llama70B_Dolly15k model loader for causal language modeling.
-
-    QLoRA fine-tune of Llama 2 70B on the databricks-dolly-15k dataset. The model
-    was trained with a plain-text prompt format terminated by ``Output:`` rather
-    than a chat template.
-    """
+    """Brillibits/Instruct_Llama70B_Dolly15k model loader for causal language modeling."""
 
     _VARIANTS = {
         ModelVariant.INSTRUCT_LLAMA70B_DOLLY15K: LLMModelConfig(
