@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     """Available Mixtral model variants."""
 
     MIXTRAL_8X7B_INSTRUCT_V01 = "8x7B_Instruct_v0.1"
-    MIXTRAL_8X22B_V01 = "8x22B_v0.1"
+    MIXTRAL_8X22B_INSTRUCT_V01_AWQ = "8x22B_Instruct_v0.1_AWQ"
     CLOUDYU_YI_34BX2_MOE_60B_DPO = "cloudyu_Yi-34Bx2-MoE-60B-DPO"
     ARTEK0CHUMAK_TESTMIXTRAL = "artek0chumak_TestMixtral"
 
@@ -38,8 +38,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.MIXTRAL_8X7B_INSTRUCT_V01: ModelConfig(
             pretrained_model_name="mistralai/Mixtral-8x7B-Instruct-v0.1",
         ),
-        ModelVariant.MIXTRAL_8X22B_V01: ModelConfig(
-            pretrained_model_name="mistralai/Mixtral-8x22B-v0.1",
+        ModelVariant.MIXTRAL_8X22B_INSTRUCT_V01_AWQ: ModelConfig(
+            pretrained_model_name="MaziyarPanahi/Mixtral-8x22B-Instruct-v0.1-AWQ",
         ),
         ModelVariant.CLOUDYU_YI_34BX2_MOE_60B_DPO: ModelConfig(
             pretrained_model_name="cloudyu/Yi-34Bx2-MoE-60B-DPO",
@@ -96,7 +96,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        if pretrained_model_name == "TheBloke/Mixtral-8x7B-Instruct-v0.1-AWQ":
+        if pretrained_model_name.endswith("-AWQ"):
             model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
 
