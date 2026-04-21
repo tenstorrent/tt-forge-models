@@ -18,7 +18,7 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from diffusers import PixArtSigmaPipeline
+from .src.model_utils import load_pipe, pixart_sigma_preprocessing
 
 
 class ModelVariant(StrEnum):
@@ -38,8 +38,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.XL_2_1024_MS
 
+    prompt = "A small cactus with a happy face in the Sahara desert."
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
@@ -53,31 +56,31 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the PixArt-Sigma pipeline.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            PixArtSigmaPipeline: The pre-trained PixArt-Sigma pipeline.
-        """
-        dtype = dtype_override or torch.float16
-        pipe = PixArtSigmaPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
+        dtype = dtype_override or torch.float32
+        self.pipeline = load_pipe(
+            self._variant_config.pretrained_model_name, dtype=dtype
         )
-        return pipe
+
+        if dtype_override is not None:
+            self.pipeline = self.pipeline.to(dtype_override)
+
+        return self.pipeline.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for PixArt-Sigma.
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
 
-        Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+        (
+            latent_model_input,
+            timestep,
+            prompt_embeds,
+            prompt_attention_mask,
+        ) = pixart_sigma_preprocessing(self.pipeline, self.prompt)
 
-        Returns:
-            list: A list of sample text prompts.
-        """
-        prompt = [
-            "A small cactus with a happy face in the Sahara desert.",
-        ] * batch_size
-        return prompt
+        if dtype_override:
+            latent_model_input = latent_model_input.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            prompt_embeds = prompt_embeds.to(dtype_override)
+            prompt_attention_mask = prompt_attention_mask.to(dtype_override)
+
+        return [latent_model_input, timestep, prompt_embeds, prompt_attention_mask]
