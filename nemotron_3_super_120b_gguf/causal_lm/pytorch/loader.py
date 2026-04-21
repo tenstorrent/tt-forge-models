@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     NEMOTRON_3_SUPER_120B_A12B_BF16_HERETIC_I1_GGUF = (
         "3_Super_120B_A12B_BF16_heretic_i1_GGUF"
     )
+    GGML_ORG_NEMOTRON_3_SUPER_120B_GGUF = "ggml_org_3_Super_120B_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -36,13 +37,24 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/NVIDIA-Nemotron-3-Super-120B-A12B-BF16-heretic-i1-GGUF",
             max_length=128,
         ),
+        ModelVariant.GGML_ORG_NEMOTRON_3_SUPER_120B_GGUF: LLMModelConfig(
+            pretrained_model_name="ggml-org/Nemotron-3-Super-120B-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.NEMOTRON_3_SUPER_120B_A12B_BF16_HERETIC_I1_GGUF
 
-    GGUF_FILE = "NVIDIA-Nemotron-3-Super-120B-A12B-BF16-heretic.i1-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.NEMOTRON_3_SUPER_120B_A12B_BF16_HERETIC_I1_GGUF: "NVIDIA-Nemotron-3-Super-120B-A12B-BF16-heretic.i1-Q4_K_M.gguf",
+        ModelVariant.GGML_ORG_NEMOTRON_3_SUPER_120B_GGUF: "Nemotron-3-Super-120B-Q4_K.gguf",
+    }
 
     sample_text = "Give me a short introduction to large language model."
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -67,7 +79,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -87,11 +99,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -134,6 +146,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
