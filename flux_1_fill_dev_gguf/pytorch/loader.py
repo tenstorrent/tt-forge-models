@@ -89,6 +89,7 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
         self.transformer = FluxTransformer2DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
+            config="diffusers/FLUX.1-Fill-dev-nf4",
             quantization_config=quantization_config,
             torch_dtype=dtype,
         )
