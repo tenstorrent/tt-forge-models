@@ -106,7 +106,7 @@ def prepare_highlighter_inputs(
     words, word_level_sentence_ids = build_sentence_ids(document_sentences)
 
     tokenized = tokenizer(
-        [query],
+        [query.split()],
         [words],
         truncation="only_second",
         max_length=max_seq_length,
