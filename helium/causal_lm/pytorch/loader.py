@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available Helium model variants for causal LM."""
 
     _1_2B = "1_2B"
+    _1_PREVIEW_2B = "1_preview_2B"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant._1_2B: LLMModelConfig(
             pretrained_model_name="kyutai/helium-1-2b",
+            max_length=128,
+        ),
+        ModelVariant._1_PREVIEW_2B: LLMModelConfig(
+            pretrained_model_name="kyutai/helium-1-preview-2b",
             max_length=128,
         ),
     }
