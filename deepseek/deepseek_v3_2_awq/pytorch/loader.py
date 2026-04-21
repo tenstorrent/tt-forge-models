@@ -8,9 +8,11 @@ Uses reduced MoE configuration for testing since the full 685B parameter
 AWQ-quantized model is too large to load directly.
 """
 
+import json
 from typing import Optional
 
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from huggingface_hub import hf_hub_download
+from transformers import AutoTokenizer, DeepseekV3Config, DeepseekV3ForCausalLM
 
 from ....base import ForgeModel
 from ....config import (
@@ -46,7 +48,12 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
+        # Load raw config and override model_type for transformers compatibility
+        config_path = hf_hub_download(self.model_name, "config.json")
+        with open(config_path) as f:
+            config_dict = json.load(f)
+        config_dict["model_type"] = "deepseek_v3"
+        config = DeepseekV3Config(**config_dict)
 
         # Reduce model dimensions for testing
         if self.num_layers is not None:
@@ -62,13 +69,12 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {
             "attn_implementation": "eager",
-            "trust_remote_code": True,
         }
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
+        model = DeepseekV3ForCausalLM._from_config(config, **model_kwargs)
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_name, trust_remote_code=True
