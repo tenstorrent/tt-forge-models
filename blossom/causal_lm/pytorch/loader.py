@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Blossom model variants for causal language modeling."""
 
     BLOSSOM_V5_1_9B = "Blossom_v5.1_9B"
+    BLOSSOM_V1_3B = "Blossom_v1_3B"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BLOSSOM_V5_1_9B: LLMModelConfig(
             pretrained_model_name="Azure99/blossom-v5.1-9b",
+            max_length=128,
+        ),
+        ModelVariant.BLOSSOM_V1_3B: LLMModelConfig(
+            pretrained_model_name="Azure99/blossom-v1-3b",
             max_length=128,
         ),
     }
