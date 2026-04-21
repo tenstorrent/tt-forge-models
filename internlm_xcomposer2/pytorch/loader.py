@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available InternLM-XComposer2 model variants."""
 
     INTERNLM_XCOMPOSER2_7B = "7B"
+    INTERNLM_XCOMPOSER2_VL_7B = "VL_7B"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.INTERNLM_XCOMPOSER2_7B: ModelConfig(
             pretrained_model_name="internlm/internlm-xcomposer2-7b",
+        ),
+        ModelVariant.INTERNLM_XCOMPOSER2_VL_7B: ModelConfig(
+            pretrained_model_name="internlm/internlm-xcomposer2-vl-7b",
         ),
     }
 
