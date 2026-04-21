@@ -151,6 +151,8 @@ class ModelLoader(ForgeModel):
             model_kwargs["device_map"] = "cpu"
         elif self._variant == ModelVariant.GEMMA_3_4B_IT_BNB_4BIT:
             model_kwargs["device_map"] = "cpu"
+        elif self._variant == ModelVariant.GEMMA_3_27B_IT_SLM_FP8:
+            model_kwargs["device_map"] = "cpu"
         else:
             model_kwargs["use_cache"] = False
         if dtype_override is not None:
