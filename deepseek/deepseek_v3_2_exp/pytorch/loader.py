@@ -1,16 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""
-DeepSeek V3.2 model loader implementation.
-
-Uses a locally modified Transformer (model.py) instead of the original
-HuggingFace model. The modifications are:
-  1. Uses scipy.linalg.hadamard instead of fast_hadamard_transform (no CUDA required).
-  2. Stubs out FP8 quantization (act_quant, fp8_gemm, fp8_index) that rely on
-     custom tilelang kernels unsupported on TT hardware.
-  3. Avoids torch.view_as_complex / view_as_real operations.
-"""
+"""DeepSeek V3.2 model loader using the locally modified Transformer from src/modified_model.py."""
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +10,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 from transformers import AutoTokenizer, PretrainedConfig
+import torch_xla.runtime as xr
 from tt_torch.sparse_mlp import enable_sparse_mlp
 
 from ....base import ForgeModel
@@ -39,7 +31,7 @@ class ModelVariant(StrEnum):
     DEEPSEEK_V3_2_EXP_MODIFIED = "deepseek_v3_2_exp_modified"
 
 
-from .src.modified_model import LayerNorm, ModelArgs, Transformer
+from .src.modified_model import LayerNorm, MoE, ModelArgs, Transformer
 
 
 @dataclass
@@ -71,18 +63,8 @@ class DeepSeekV32ForCausalLM(nn.Module):
         super().__init__()
         self.transformer = transformer
         self.config = config
-        # Pre-allocate a causal mask for the full max_seq_len so that forward()
-        # can slice it rather than calling torch.full() dynamically.
-        #
-        # Computing freqs_cis and mask *inside* forward via torch.full(...,
-        # device=tokens.device) causes TorchDynamo to emit a separate,
-        # unsharded graph segment that runs before the SPMD device mesh is
-        # opened.  That segment is compiled with a trivial [1,1] shardy mesh
-        # and produces the wrong [1,N] tensor layout, causing a hang or SIGFPE
-        # on device.  Pre-allocating here and slicing in forward matches the
-        # approach used in test_deepseek_v3_2_full_sparse_moe, which
-        # pre-computes both tensors outside torch.compile to keep the mesh
-        # intact for the entire compiled graph.
+        # Pre-allocate so forward slices a buffer rather than calling torch.full(..., device=...),
+        # which causes a TorchDynamo graph break that splits the compiled SPMD graph.
         max_seq_len = transformer.freqs_cis.size(0)
         causal_mask = torch.full(
             (max_seq_len, max_seq_len), float("-inf"), dtype=torch.bfloat16
@@ -97,24 +79,8 @@ class DeepSeekV32ForCausalLM(nn.Module):
         use_cache: bool = False,
         **kwargs,
     ) -> _CausalLMOutput:
-        # freqs_cis and mask are sliced from pre-registered buffers rather than
-        # being computed with torch.full(..., device=tokens.device).  The device
-        # attribute access in torch.full was the trigger for TorchDynamo emitting
-        # a separate unsharded graph segment before the main transformer — that
-        # segment compiled with a trivial [1,1] shardy mesh and produced the
-        # wrong [1,N] layout, causing a segfault.  Buffer slices are traced
-        # symbolically within the single compiled graph with no graph break.
-        # NOTE: @torch._dynamo.disable must NOT be used here for the same reason
-        # — it introduces a graph break that produces the same wrong-mesh segment.
-        #
-        # start_pos is always 0: using int(cache_position[0]) to derive it
-        # triggers Tensor.item(), which causes a TorchDynamo graph break before
-        # self.transformer(), splitting the compiled graph.  The pre-break
-        # sub-graph inherits the default flat 1×32 SPMD mesh instead of the
-        # configured 4×8 Galaxy mesh.  Instead, freqs_cis is gathered with a
-        # pure tensor index (cache_position is a 1-D integer tensor, so
-        # freqs_cis[cache_position] is a gather with no .item() call), and MLA
-        # decode reads from the external MLACache with a tensor-op causal mask.
+        # start_pos=0: cache_position[0].item() would cause a TorchDynamo graph break splitting
+        # the SPMD graph; freqs_cis[cache_position] is a no-.item() gather that avoids this.
         seqlen = input_ids.size(1)
         start_pos = 0
         if cache_position is not None:
@@ -162,10 +128,11 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self.num_layers = num_layers
-        self.max_batch_size = max_batch_size
+        self.max_batch_size = max_batch_size  # TODO
         self.tokenizer = None
         self.model = None
-        # self.config = None
+        self.config = None
+        self._args = None
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -197,36 +164,27 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Initialize tokenizer with dtype override if specified
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name, **tokenizer_kwargs
         )
 
         return self.tokenizer
 
-    def _load_config(self, args=None):
-        """Load config from the local config.json, then overlay args-derived values.
+    def _load_config(self, **kwargs):
+        """Load src/config.json, build ModelArgs, and populate self.config and self._args.
 
-        The JSON file provides the full-model defaults from the original DeepSeek
-        V3.2 checkpoint.  When *args* is provided, any fields that depend on the
-        actually-instantiated model (num_hidden_layers, num_attention_heads,
-        hidden_size, head_dim) are overridden so they stay consistent with the
-        running model — e.g. when num_layers is reduced for bringup tests.
-
-        The JSON key ``v_head_dim`` is remapped to ``head_dim`` because that is
-        the name expected by HuggingFace utilities such as ``StaticCache``.
+        Sets self.config (PretrainedConfig for HuggingFace compatibility) and
+        self._args (ModelArgs for the Transformer), with architecture-critical
+        fields on self.config overridden to match the instantiated model.
 
         Args:
-            args: Optional ModelArgs instance whose values take precedence over
-                  the JSON defaults for architecture-critical fields.
+            **kwargs: Forwarded to ModelArgs, overriding JSON defaults.
 
         Returns:
             PretrainedConfig: Populated config stored on ``self.config``.
@@ -235,50 +193,8 @@ class ModelLoader(ForgeModel):
         with open(config_path) as f:
             raw = json.load(f)
 
-        # Remap v_head_dim → head_dim (HuggingFace convention for StaticCache).
-        if "v_head_dim" in raw:
-            raw.setdefault("head_dim", raw.pop("v_head_dim"))
+        self.config = PretrainedConfig(**raw)
 
-        config = PretrainedConfig(**raw)
-
-        # Override with values from the instantiated ModelArgs so that
-        # architecture-critical fields reflect the actual running model.
-        if args is not None:
-            config.num_hidden_layers = args.n_layers
-            config.num_attention_heads = args.n_heads
-            config.num_key_value_heads = args.n_heads
-            config.hidden_size = args.dim
-            config.head_dim = args.v_head_dim
-
-        self.config = config
-        return config
-
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the modified DeepSeek V3.2 Transformer.
-
-        The model is constructed from ModelArgs defaults, overriding n_layers
-        with the value passed at construction time.
-
-        Args:
-            dtype_override: Optional torch.dtype to cast the model to after
-                            construction (e.g. torch.bfloat16).
-
-        Returns:
-            torch.nn.Module: The modified DeepSeek V3.2 Transformer in eval mode.
-        """
-
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        # Seed ModelArgs from config.json so that all V3.2-specific architecture
-        # values are correct.  ModelArgs dataclass defaults are for a smaller
-        # (DeepSeek-V2-scale) model; without seeding, e.g. dim=2048 instead of
-        # 7168, n_routed_experts=64 instead of 256, etc.  Caller kwargs and the
-        # num_layers override take precedence over these JSON-derived defaults.
-        config_path = Path(__file__).parent / "src" / "config.json"
-        with open(config_path) as _f:
-            _cfg = json.load(_f)
-        # Maps config.json keys → ModelArgs field names.
         _JSON_TO_ARGS = {
             "hidden_size": "dim",
             "intermediate_size": "inter_dim",
@@ -305,61 +221,74 @@ class ModelLoader(ForgeModel):
             "index_topk": "index_topk",
         }
         model_args_kwargs = {
-            args_key: _cfg[json_key]
+            args_key: raw[json_key]
             for json_key, args_key in _JSON_TO_ARGS.items()
-            if json_key in _cfg
+            if json_key in raw
         }
-        # Caller kwargs override JSON defaults.
         model_args_kwargs.update(kwargs)
-        # num_layers overrides n_layers last so it always wins.
-        # n_dense_layers comes from config.json (first_k_dense_replace=3), giving
-        # layers 0-2 as dense MLP and layers 3+ as MoE for a 5-layer test.
         if self.num_layers is not None:
             model_args_kwargs["n_layers"] = self.num_layers
-            # config.json has n_dense_layers=3, which makes every layer dense
-            # when num_layers is small (e.g. 2 for bringup tests).  Cap it to
-            # n_layers-1 so there is always at least one MoE layer, matching
-            # the ModelArgs default (n_dense_layers=1) used by the unit tests.
             n_dense = model_args_kwargs.get("n_dense_layers", 0)
             if n_dense >= self.num_layers:
                 model_args_kwargs["n_dense_layers"] = max(0, self.num_layers - 1)
         model_args_kwargs.setdefault("max_batch_size", self.max_batch_size)
-        # This loader always uses an external MLACache; skip the internal kv/pe
-        # cache buffers (2 GiB/layer each) to avoid OOM on Galaxy.
         model_args_kwargs.setdefault("use_mla_cache", True)
-        args = ModelArgs(**model_args_kwargs)
 
-        transformer = Transformer(args)
+        self._args = ModelArgs(**model_args_kwargs)
+
+        # Keep HuggingFace config fields consistent with the instantiated model.
+        self.config.num_hidden_layers = self._args.n_layers
+        self.config.num_attention_heads = self._args.n_heads
+        self.config.num_key_value_heads = self._args.n_heads
+        self.config.hidden_size = self._args.dim
+        self.config.head_dim = self._args.v_head_dim
+
+        return self.config
+
+    def load_model(self, *, dtype_override=None, **kwargs):
+        """Load and return the modified DeepSeek V3.2 Transformer.
+
+        The model is constructed from ModelArgs defaults, overriding n_layers
+        with the value passed at construction time.
+
+        Args:
+            dtype_override: Optional torch.dtype to cast the model to after
+                            construction (e.g. torch.bfloat16).
+
+        Returns:
+            torch.nn.Module: The modified DeepSeek V3.2 Transformer in eval mode.
+        """
+
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+
+        if self.config is None or self._args is None:
+            self._load_config(**kwargs)
+
+        transformer = Transformer(self._args)
 
         if dtype_override is not None:
             transformer = transformer.to(dtype_override)
 
-        # head is float32 in the original model (logits computed in fp32),
-        # but .to(bfloat16) converts it — restore it so forward's .float() call
-        # stays correct.
+        # Restore float32 params that .to(bfloat16) silently converts.
+        # head expects fp32 logits; LayerNorm calls x.float() internally and errors on mixed dtype.
         transformer.head = transformer.head.to(torch.float32)
-
-        # LayerNorm (used by k_norm in the Indexer) initialises its weight and
-        # bias as float32 and explicitly calls x.float() in forward so that
-        # F.layer_norm receives a float32 input.  .to(bfloat16) above silently
-        # converts those parameters to bfloat16, causing a "mixed dtype" error
-        # when the model is run on CPU — which the benchmark does to obtain
-        # reference logits before running on the TT device.  Restoring them to
-        # float32 here keeps the CPU execution path correct.
         for module in transformer.modules():
             if isinstance(module, LayerNorm):
                 module.weight.data = module.weight.data.to(torch.float32)
                 module.bias.data = module.bias.data.to(torch.float32)
 
-        mesh_shape = (4, 8)  # Galaxy
-        enable_sparse_mlp(transformer, mesh=mesh_shape, cluster_axis=0, config=args)
+        has_moe = any(isinstance(layer.ffn, MoE) for layer in transformer.layers)
+        if has_moe:
+            num_devices = xr.global_runtime_device_count()
+            mesh_shape, _ = self.get_mesh_config(num_devices)
+            enable_sparse_mlp(
+                transformer, mesh=mesh_shape, cluster_axis=0, config=self._args
+            )
 
         transformer = transformer.eval()
-        self._args = args
 
-        config = self._load_config(args=args)
-
-        return DeepSeekV32ForCausalLM(transformer, config)
+        return DeepSeekV32ForCausalLM(transformer, self.config)
 
     def get_mesh_config(self, num_devices: int):
         """Return mesh shape and axis names for tensor parallelism.
@@ -380,9 +309,9 @@ class ModelLoader(ForgeModel):
         """Build SPMD shard specifications for all model tensors.
 
         Sharding matches test_deepseek_v3_2_full_sparse_moe on a Galaxy (4, 8)
-        mesh named ("batch", "model"):
-          batch = axis 0, size 4  →  "_axis_0" in the unit test
-          model = axis 1, size 8  →  "_axis_1" in the unit test
+        mesh named ("model", "batch"):
+          batch = axis 0, size 4  →  "model" in the unit test
+          model = axis 1, size 8  →  "batch" in the unit test
 
         MLA attention weights shard on the batch axis (size 4).
         KV / positional caches shard on the model axis (size 8).
@@ -401,74 +330,54 @@ class ModelLoader(ForgeModel):
         shard_specs = {}
         t = model.transformer
 
-        # ── Global tensors ────────────────────────────────────────────────────
-        shard_specs[t.embed.weight] = (None, "batch")  # [vocab, dim]
-        shard_specs[t.norm.weight] = ("batch",)  # [dim]
-        shard_specs[t.head.weight] = (None, "batch")  # [vocab/world, dim]
+        shard_specs[t.embed.weight] = (None, "model")
+        shard_specs[t.norm.weight] = ("model",)
+        shard_specs[t.head.weight] = (None, "model")
 
         for layer in t.layers:
             attn = layer.attn
 
-            # ── MLA attention — model-parallel on batch axis ──────────────────
-            shard_specs[attn.wq_a.weight] = (None, "batch")  # [q_lora_rank, dim]
-            shard_specs[attn.wkv_a.weight] = (
-                None,
-                "batch",
-            )  # [kv_lora_rank+rope_hd, dim]
-            shard_specs[attn.wq_b.weight] = (
-                "batch",
-                None,
-            )  # [n_heads*qk_hd, q_lora_rank]
-            shard_specs[attn.wkv_b.weight] = (
-                "batch",
-                None,
-            )  # [n_heads*(nope+v_hd), kv_lora_rank]
-            shard_specs[attn.wo.weight] = (None, "batch")  # [dim, n_heads*v_head_dim]
+            shard_specs[attn.wq_a.weight] = (None, "model")
+            shard_specs[attn.wkv_a.weight] = (None, "model")
+            shard_specs[attn.wq_b.weight] = ("model", None)
+            shard_specs[attn.wkv_b.weight] = ("model", None)
+            shard_specs[attn.wo.weight] = (None, "model")
 
             # These local caches are only initialized when MLACache is not used
             if attn.kv_cache is not None:
-                shard_specs[attn.kv_cache] = ("model", None, None)
+                shard_specs[attn.kv_cache] = ("batch", None, None)
             if attn.pe_cache is not None:
-                shard_specs[attn.pe_cache] = ("model", None, None)
+                shard_specs[attn.pe_cache] = ("batch", None, None)
 
-            # ── Indexer ───────────────────────────────────────────────────────
             if attn.indexer is not None:
                 idx = attn.indexer
-                shard_specs[idx.wq_b.weight] = (
-                    "batch",
-                    None,
-                )  # [n_idx_heads*idx_hd, q_lora_rank]
-                shard_specs[idx.wk.weight] = (None, "batch")  # [idx_hd, dim]
-                shard_specs[idx.weights_proj.weight] = (
-                    None,
-                    "batch",
-                )  # [n_idx_heads, dim]
-                shard_specs[idx.k_cache] = ("model", None, None)
+                shard_specs[idx.wq_b.weight] = ("model", None)
+                shard_specs[idx.wk.weight] = (None, "model")
+                shard_specs[idx.weights_proj.weight] = (None, "model")
+                shard_specs[idx.k_cache] = ("batch", None, None)
 
-            # ── FFN ───────────────────────────────────────────────────────────
             ffn = layer.ffn
             if hasattr(ffn, "mlp"):
                 # A2aSparseMLPWithSharedExperts (MoE layer)
                 mlp = ffn.mlp
-                shard_specs[mlp.router.gate.weight] = (None, "batch")
-                shard_specs[mlp.experts.gate_proj] = (("batch", "model"), None, None)
-                shard_specs[mlp.experts.up_proj] = (("batch", "model"), None, None)
-                shard_specs[mlp.experts.down_proj] = (("batch", "model"), None, None)
+                shard_specs[mlp.router.gate.weight] = (None, "model")
+                shard_specs[mlp.experts.gate_proj] = (("model", "batch"), None, None)
+                shard_specs[mlp.experts.up_proj] = (("model", "batch"), None, None)
+                shard_specs[mlp.experts.down_proj] = (("model", "batch"), None, None)
 
                 shared = getattr(ffn, "shared_experts", None)
                 if shared is not None:
-                    shard_specs[shared.w1.weight] = (None, "batch")
-                    shard_specs[shared.w3.weight] = (None, "batch")
-                    shard_specs[shared.w2.weight] = ("batch", None)
+                    shard_specs[shared.w1.weight] = (None, "model")
+                    shard_specs[shared.w3.weight] = (None, "model")
+                    shard_specs[shared.w2.weight] = ("model", None)
             else:
                 # Dense MLP
-                shard_specs[ffn.w1.weight] = ("model", "batch")
-                shard_specs[ffn.w3.weight] = ("model", "batch")
-                shard_specs[ffn.w2.weight] = ("batch", "model")
+                shard_specs[ffn.w1.weight] = ("batch", "model")
+                shard_specs[ffn.w3.weight] = ("batch", "model")
+                shard_specs[ffn.w2.weight] = ("model", "batch")
 
-            # ── Layer norms ───────────────────────────────────────────────────
-            shard_specs[layer.attn_norm.weight] = ("batch",)
-            shard_specs[layer.ffn_norm.weight] = ("batch",)
+            shard_specs[layer.attn_norm.weight] = ("model",)
+            shard_specs[layer.ffn_norm.weight] = ("model",)
 
         return shard_specs
 
