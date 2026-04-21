@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Gemma 3 QAT GGUF model variants for causal language modeling."""
 
     GEMMA_3_4B_IT_QAT_GGUF = "4B_IT_QAT_GGUF"
+    BARTOWSKI_GEMMA_3_1B_IT_QAT_GGUF = "BARTOWSKI_1B_IT_QAT_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +35,22 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="ggml-org/gemma-3-4b-it-qat-GGUF",
             max_length=128,
         ),
+        ModelVariant.BARTOWSKI_GEMMA_3_1B_IT_QAT_GGUF: LLMModelConfig(
+            pretrained_model_name="bartowski/google_gemma-3-1b-it-qat-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_4B_IT_QAT_GGUF
 
-    GGUF_FILE = "gemma-3-4b-it-qat-Q4_0.gguf"
+    _GGUF_FILES = {
+        ModelVariant.GEMMA_3_4B_IT_QAT_GGUF: "gemma-3-4b-it-qat-Q4_0.gguf",
+        ModelVariant.BARTOWSKI_GEMMA_3_1B_IT_QAT_GGUF: "google_gemma-3-1b-it-qat-Q4_0.gguf",
+    }
+
+    @property
+    def GGUF_FILE(self):
+        return self._GGUF_FILES[self._variant]
 
     sample_text = "What is your favorite city?"
 
