@@ -71,16 +71,9 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    @property
-    def _needs_trust_remote_code(self):
-        return self._variant == ModelVariant.SYNTHYRA_ESM2_8M
-
     def _load_tokenizer(self):
-        tokenizer_kwargs = {}
-        if self._needs_trust_remote_code:
-            tokenizer_kwargs["trust_remote_code"] = True
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         return self.tokenizer
 
@@ -91,8 +84,6 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        if self._needs_trust_remote_code:
-            model_kwargs["trust_remote_code"] = True
         model_kwargs |= kwargs
 
         model = AutoModelForMaskedLM.from_pretrained(
