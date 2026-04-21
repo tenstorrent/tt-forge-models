@@ -65,12 +65,6 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT
 
-    # NLI sample inputs for MNLI/XNLI variants
-    _NLI_PREMISE = (
-        "Angela Merkel ist eine Politikerin in Deutschland und Vorsitzende der CDU"
-    )
-    _NLI_HYPOTHESIS = "Angela Merkel ist eine Politikerin."
-
     def __init__(self, variant=None):
         super().__init__(variant)
         self.model_name = self._variant_config.pretrained_model_name
@@ -94,10 +88,6 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _is_nli_variant(self):
-        """Check if the current variant is an NLI model."""
-        return self._variant == ModelVariant.XLM_ROBERTA_BASE_SNLI_MNLI_ANLI_XNLI
-
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load XLM-RoBERTa model for sequence classification from Hugging Face."""
 
@@ -120,17 +110,6 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self.load_model(dtype_override=dtype_override)
 
-        if self._is_nli_variant():
-            inputs = self.tokenizer(
-                self._NLI_PREMISE,
-                self._NLI_HYPOTHESIS,
-                max_length=self.max_length,
-                padding="max_length",
-                truncation=True,
-                return_tensors="pt",
-            )
-            return [inputs["input_ids"], inputs["attention_mask"]]
-
         inputs = self.tokenizer(
             self.text,
             max_length=self.max_length,
@@ -147,12 +126,7 @@ class ModelLoader(ForgeModel):
         model = framework_model if framework_model is not None else self.model
         if model and hasattr(model, "config") and hasattr(model.config, "id2label"):
             predicted_category = model.config.id2label[predicted_class_id]
-            if self._is_nli_variant():
-                print(f"Predicted Label: {predicted_category}")
-            elif self._variant in (
-                ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT,
-                ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT_FINETUNNED,
-            ):
+            if self._variant == ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT:
                 print(f"Predicted Sentiment: {predicted_category}")
             else:
                 print(f"Predicted Category: {predicted_category}")
