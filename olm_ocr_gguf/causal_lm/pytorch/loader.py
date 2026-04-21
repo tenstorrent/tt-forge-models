@@ -3,9 +3,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 olmOCR GGUF model loader implementation for causal language modeling.
+
+Note: The BARTOWSKI_OLM_OCR_2_7B_1025_GGUF variant uses the qwen2vl GGUF
+architecture which is not yet supported by the transformers GGUF loader, so
+we load from the HF-native checkpoint and extract the causal LM.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
+    Qwen2_5_VLForConditionalGeneration,
+    Qwen2ForCausalLM,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -36,7 +46,7 @@ class ModelLoader(ForgeModel):
             max_length=128,
         ),
         ModelVariant.BARTOWSKI_OLM_OCR_2_7B_1025_GGUF: LLMModelConfig(
-            pretrained_model_name="bartowski/allenai_olmOCR-2-7B-1025-GGUF",
+            pretrained_model_name="allenai/olmOCR-2-7B-1025",
             max_length=128,
         ),
     }
@@ -45,14 +55,13 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.OLM_OCR_7B_GRPO_V2_I1_GGUF: "olmOCR-7B-grpo-v2.i1-Q4_K_M.gguf",
-        ModelVariant.BARTOWSKI_OLM_OCR_2_7B_1025_GGUF: "allenai_olmOCR-2-7B-1025-Q4_K_M.gguf",
     }
 
     sample_text = "Give me a short introduction to large language models."
 
     @property
     def gguf_file(self):
-        return self._GGUF_FILES[self._variant]
+        return self._GGUF_FILES.get(self._variant)
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -77,7 +86,8 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.gguf_file
+        if self.gguf_file is not None:
+            tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -97,20 +107,36 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.gguf_file
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.gguf_file
+        if self.gguf_file is not None:
+            model_kwargs["gguf_file"] = self.gguf_file
+
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.gguf_file
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+            self.config = model.config
+        else:
+            # qwen2vl GGUF architecture is not supported by the transformers GGUF
+            # loader, so load the HF-native VL checkpoint and extract causal LM.
+            full_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                pretrained_model_name, **model_kwargs
             )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            text_config = full_model.config.text_config
+            if self.num_layers is not None:
+                text_config.num_hidden_layers = self.num_layers
+            model = Qwen2ForCausalLM(text_config)
+            model.model = full_model.model.language_model
+            model.lm_head = full_model.lm_head
+            model.eval()
+            self.config = text_config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
-
-        self.config = model.config
         self.model = model
         return model
 
@@ -169,7 +195,13 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
-        )
+        if self.gguf_file is not None:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
+            )
+        else:
+            config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
+            self.config = config.text_config
         return self.config
