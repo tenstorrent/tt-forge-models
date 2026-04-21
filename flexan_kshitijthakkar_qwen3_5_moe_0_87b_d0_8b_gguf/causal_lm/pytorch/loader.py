@@ -23,22 +23,20 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Flexan Kshitijthakkar Qwen3.5 MoE 0.87B d0.8B GGUF model variants for causal language modeling."""
 
-    KSHITIJTHAKKAR_QWEN3_5_MOE_0_87B_D0_8B_GGUF = (
-        "kshitijthakkar-qwen3.5-moe-0.87B-d0.8B-GGUF"
-    )
+    FLEXAN_KSHITIJTHAKKAR_QWEN3_5_MOE_0_87B_D0_8B_GGUF = "MoE_0.87B_d0.8B_GGUF"
 
 
 class ModelLoader(ForgeModel):
     """Flexan Kshitijthakkar Qwen3.5 MoE 0.87B d0.8B GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.KSHITIJTHAKKAR_QWEN3_5_MOE_0_87B_D0_8B_GGUF: LLMModelConfig(
+        ModelVariant.FLEXAN_KSHITIJTHAKKAR_QWEN3_5_MOE_0_87B_D0_8B_GGUF: LLMModelConfig(
             pretrained_model_name="Flexan/kshitijthakkar-qwen3.5-moe-0.87B-d0.8B-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.KSHITIJTHAKKAR_QWEN3_5_MOE_0_87B_D0_8B_GGUF
+    DEFAULT_VARIANT = ModelVariant.FLEXAN_KSHITIJTHAKKAR_QWEN3_5_MOE_0_87B_D0_8B_GGUF
 
     GGUF_FILE = "qwen3.5-moe-0.87B-d0.8B.Q4_K_M.gguf"
 
