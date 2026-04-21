@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     LLAVA_ONEVISION_QWEN2_0_5B_OV = "Qwen2_0.5B_OV"
     LLAVA_ONEVISION_QWEN2_0_5B_SI = "Qwen2_0.5B_SI"
     LLAVA_ONEVISION_QWEN2_7B_SI = "Qwen2_7B_SI"
+    Q_SIT_MINI = "q_sit_mini"
 
 
 class ModelLoader(ForgeModel):
@@ -43,6 +44,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LLAVA_ONEVISION_QWEN2_7B_SI: ModelConfig(
             pretrained_model_name="llava-hf/llava-onevision-qwen2-7b-si-hf",
+        ),
+        ModelVariant.Q_SIT_MINI: ModelConfig(
+            pretrained_model_name="zhangzicheng/q-sit-mini",
         ),
     }
 
