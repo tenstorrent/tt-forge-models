@@ -4,6 +4,7 @@
 """
 Qwen 3.5 model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -46,7 +47,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_397B_A17B_GGUF = "397B_A17B_GGUF"
     QWEN_3_5_27B_CLAUDE_OPUS_DISTILLED_MLX_6BIT = "27B_Claude_Opus_Distilled_MLX_6bit"
     QWEN_3_5_122B_A10B_MXFP4 = "122B_A10B_MXFP4"
-    QWEN_3_5_27B_MXFP8_MLX = "27B_MXFP8_MLX"
+    QWEN_3_5_122B_UNCENSORED_STXT = "122B_Uncensored_STXT"
 
 
 class ModelLoader(ForgeModel):
@@ -142,8 +143,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="olka-fi/Qwen3.5-122B-A10B-MXFP4",
             max_length=128,
         ),
-        ModelVariant.QWEN_3_5_27B_MXFP8_MLX: LLMModelConfig(
-            pretrained_model_name="mlx-community/Qwen3.5-27B-mxfp8",
+        ModelVariant.QWEN_3_5_122B_UNCENSORED_STXT: LLMModelConfig(
+            pretrained_model_name="SyntheticTuringExperienceTechnologies/qwen-3.5-122B-uncensored-stxt",
             max_length=128,
         ),
     }
@@ -367,6 +368,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_5_35B_A3B_BASE,
             ModelVariant.QWEN_3_5_35B_A3B_FP8,
             ModelVariant.QWEN_3_5_122B_A10B_MXFP4,
+            ModelVariant.QWEN_3_5_122B_UNCENSORED_STXT,
             ModelVariant.QWEN_3_5_397B_A17B_GGUF,
         )
 
