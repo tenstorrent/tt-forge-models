@@ -47,6 +47,7 @@ class ModelVariant(StrEnum):
     DEVSTRAL_SMALL_2507 = "Devstral_Small_2507"
     MAGISTRAL_SMALL_2506 = "Magistral_Small_2506"
     MAGISTRAL_SMALL_2506_FP8 = "Magistral_Small_2506_FP8"
+    MAGISTRAL_SMALL_2506_AWQ = "Magistral_Small_2506_AWQ"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
     DEVSTRAL_SMALL_2_24B_INSTRUCT_2512 = "Devstral_Small_2_24B_Instruct_2512"
@@ -130,6 +131,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MAGISTRAL_SMALL_2506_FP8: ModelConfig(
             pretrained_model_name="RedHatAI/Magistral-Small-2506-FP8",
         ),
+        ModelVariant.MAGISTRAL_SMALL_2506_AWQ: ModelConfig(
+            pretrained_model_name="abhishekchohan/Magistral-Small-2506-AWQ",
+        ),
         ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_2503: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-3.1-24B-Instruct-2503",
         ),
@@ -200,7 +204,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_V03_UNSLOTH,
             ModelVariant.MISTRAL_FT_OPTIMIZED_1227,
             ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED,
-            ModelVariant.BREEZE_7B_INSTRUCT_V1_0,
+            ModelVariant.MAGISTRAL_SMALL_2506_AWQ,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
@@ -291,7 +295,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.DEVSTRAL_SMALL_2505_UNSLOTH_BNB_4BIT,
             ModelVariant.MINISTRAL_3_14B_REASONING_AWQ_4BIT,
             ModelVariant.OPEN_HERMES_2_5_MISTRAL_7B_AWQ,
-            ModelVariant.MISTRAL_NEMO_BASE_2407_4BIT,
+            ModelVariant.MAGISTRAL_SMALL_2506_AWQ,
         ):
             model_kwargs["device_map"] = "cpu"
 
