@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
 
     CRYPTO_NER = "CryptoNER"
     SPANISH_NER = "SpanishNER"
-    TNER_CONLL2003 = "tner-conll2003"
+    TNER_CONLL2003 = "TNER-CoNLL2003"
 
 
 _VARIANT_SAMPLE_TEXTS = {
