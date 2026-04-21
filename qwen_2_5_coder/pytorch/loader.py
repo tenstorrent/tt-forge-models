@@ -38,6 +38,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_CODER_14B_BNB_4BIT = "14B_bnb_4bit"
     QWEN_2_5_CODER_7B_INSTRUCT_GPTQ_INT4 = "7B_Instruct_GPTQ_Int4"
     QWEN_2_5_CODER_7B_INSTRUCT_MLX_4BIT = "7B_Instruct_MLX_4bit"
+    QWEN_2_5_CODER_0_5B_INSTRUCT_MLX_4BIT = "0.5B_Instruct_MLX_4bit"
     QWEN_2_5_CODER_32B_INSTRUCT = "32B_Instruct"
     QWEN_2_5_CODER_3B_INSTRUCT_4BIT = "3B_Instruct_4bit"
     QWEN_2_5_CODER_32B_INSTRUCT_AWQ = "32B_Instruct_Awq"
@@ -91,6 +92,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_2_5_CODER_7B_INSTRUCT_MLX_4BIT: LLMModelConfig(
             pretrained_model_name="lmstudio-community/Qwen2.5-Coder-7B-Instruct-MLX-4bit",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_CODER_0_5B_INSTRUCT_MLX_4BIT: LLMModelConfig(
+            pretrained_model_name="lmstudio-community/Qwen2.5-Coder-0.5B-Instruct-MLX-4bit",
             max_length=128,
         ),
         ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT: LLMModelConfig(
@@ -147,6 +152,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_2_5_CODER_7B_INSTRUCT_MLX_4BIT,
             ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_AWQ,
             ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_MLX_8BIT,
+            ModelVariant.QWEN_2_5_CODER_0_5B_INSTRUCT_MLX_4BIT,
         ]:
             group = ModelGroup.VULCAN
 
