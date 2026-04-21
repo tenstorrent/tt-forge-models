@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.model = None
         self.sample_text = _VARIANT_SAMPLE_TEXTS.get(
-            self._variant_name,
+            self._variant,
             "I bought mass Ethereum and mass Bitcoin on Uniswap yesterday",
         )
         self.max_length = 128
