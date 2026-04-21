@@ -60,12 +60,11 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from diarizen.pipelines.inference import DiariZenPipeline
+        from .diarizen_model import DiariZenSegmentationModel
 
-        pipeline = DiariZenPipeline.from_pretrained(
+        model = DiariZenSegmentationModel.from_pretrained(
             self._variant_config.pretrained_model_name
         )
-        model = pipeline._segmentation.model
         model.eval()
 
         if dtype_override is not None:
