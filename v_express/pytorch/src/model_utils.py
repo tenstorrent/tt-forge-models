@@ -11,17 +11,17 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange
 
 
 class InflatedConv3d(nn.Conv2d):
     """2D convolution applied per-frame over a 5D video tensor (b, c, f, h, w)."""
 
     def forward(self, x):
-        video_length = x.shape[2]
-        x = rearrange(x, "b c f h w -> (b f) c h w")
+        b, c, f, h, w = x.shape
+        x = x.permute(0, 2, 1, 3, 4).reshape(b * f, c, h, w)
         x = super().forward(x)
-        x = rearrange(x, "(b f) c h w -> b c f h w", f=video_length)
+        _, c_out, h_out, w_out = x.shape
+        x = x.reshape(b, f, c_out, h_out, w_out).permute(0, 2, 1, 3, 4)
         return x
 
 
