@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-TheBloke Emerhyst-20B GGUF model loader implementation for causal language modeling.
+Emerhyst 20B GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,26 +21,26 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available TheBloke Emerhyst-20B GGUF model variants for causal language modeling."""
+    """Available Emerhyst 20B GGUF model variants for causal language modeling."""
 
-    EMERHYST_20B_GGUF = "20B_GGUF"
+    EMERHYST_20B_Q4_K_M_GGUF = "20B_Q4_K_M_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """TheBloke Emerhyst-20B GGUF model loader implementation for causal language modeling tasks."""
+    """Emerhyst 20B GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.EMERHYST_20B_GGUF: LLMModelConfig(
+        ModelVariant.EMERHYST_20B_Q4_K_M_GGUF: LLMModelConfig(
             pretrained_model_name="TheBloke/Emerhyst-20B-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.EMERHYST_20B_GGUF
+    DEFAULT_VARIANT = ModelVariant.EMERHYST_20B_Q4_K_M_GGUF
 
     GGUF_FILE = "emerhyst-20b.Q4_K_M.gguf"
 
-    sample_text = "Give me a short introduction to large language models."
+    sample_text = "What is your favorite city?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="TheBloke Emerhyst-20B GGUF",
+            model="Emerhyst 20B GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -108,18 +108,7 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        prompts = [text]
+        prompts = [self.sample_text]
 
         inputs = self.tokenizer(
             prompts,
@@ -150,7 +139,6 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
