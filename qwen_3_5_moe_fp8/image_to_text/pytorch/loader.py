@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3.5 MoE FP8 model variants for image to text."""
 
     QWEN_3_5_397B_A17B_FP8 = "397b_a17b_fp8"
+    QWEN_3_5_122B_A10B_FP8_DYNAMIC = "122b_a10b_fp8_dynamic"
 
 
 class ModelLoader(ForgeModel):
@@ -31,6 +32,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_5_397B_A17B_FP8: LLMModelConfig(
             pretrained_model_name="unsloth/Qwen3.5-397B-A17B-FP8",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_122B_A10B_FP8_DYNAMIC: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Qwen3.5-122B-A10B-FP8-dynamic",
             max_length=128,
         ),
     }
