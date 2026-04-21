@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     TIPO_500M = "TIPO_500M"
     TIPO_500M_FT = "TIPO_500M_ft"
+    TIPO_200M_FT2 = "TIPO_200M_ft2"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.TIPO_500M_FT: LLMModelConfig(
             pretrained_model_name="KBlueLeaf/TIPO-500M-ft",
+            max_length=256,
+        ),
+        ModelVariant.TIPO_200M_FT2: LLMModelConfig(
+            pretrained_model_name="KBlueLeaf/TIPO-200M-ft2",
             max_length=256,
         ),
     }
