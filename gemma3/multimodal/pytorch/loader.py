@@ -41,6 +41,7 @@ class ModelVariant(StrEnum):
     GEMMA_3_12B_IT = "google/gemma-3-12b-it"
     GEMMA_3_12B_IT_BNB_4BIT = "unsloth/gemma-3-12b-it-unsloth-bnb-4bit"
     GEMMA_3_12B_IT_HERETIC = "Sabomako/gemma-3-12b-it-heretic"
+    GEMMA_3_12B_IT_LENIENTCHATFIX = "m8than/gemma-3-12b-it-lenientchatfix"
     GEMMA_3_27B_IT = "google/gemma-3-27b-it"
     GEMMA_3_27B_IT_QAT_W4A16 = "leon-se/gemma-3-27b-it-qat-W4A16-G128"
     GEMMA_3_27B_IT_QAT_AUTOAWQ = "gaunernst/gemma-3-27b-it-qat-autoawq"
@@ -74,6 +75,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.GEMMA_3_12B_IT_HERETIC: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_12B_IT_HERETIC),
         ),
+        ModelVariant.GEMMA_3_12B_IT_LENIENTCHATFIX: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.GEMMA_3_12B_IT_LENIENTCHATFIX),
+        ),
         ModelVariant.GEMMA_3_27B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_27B_IT),
         ),
@@ -101,6 +105,7 @@ class ModelLoader(ForgeModel):
         if variant in (
             ModelVariant.GEMMA_3_4B_IT_QAT_4BIT,
             ModelVariant.GEMMA_3_12B_IT_HERETIC,
+            ModelVariant.GEMMA_3_12B_IT_LENIENTCHATFIX,
             ModelVariant.GEMMA_3_27B_IT_QAT_W4A16,
             ModelVariant.GEMMA_3_27B_IT_QAT_AUTOAWQ,
         ):
