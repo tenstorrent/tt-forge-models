@@ -1,18 +1,19 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Triton Kernels (kernels-community/triton_kernels) model loader implementation.
+kernels-community/triton_kernels loader exposing the SwiGLU reference
+implementation as an nn.Module.
 
-The repository hosts a collection of optimized Triton kernels for Mixture-of-
-Experts inference (SwiGLU activation, token routing, etc.). This loader wraps
-the PyTorch reference implementation of the SwiGLU kernel as a torch.nn.Module
-so it can be exercised through the standard ForgeModel interface.
+The HF repo ships a set of Triton kernels for fast MoE (SwiGLU, routing,
+matmul, etc.) along with PyTorch reference implementations (``*_torch``).
+The kernel module is loaded at runtime via the ``kernels`` library using
+``get_kernel("kernels-community/triton_kernels")``.
 """
-
 from typing import Optional
 
 import torch
+import torch.nn as nn
 
 from ...base import ForgeModel
 from ...config import (
@@ -26,38 +27,47 @@ from ...config import (
 )
 
 
-REPO_ID = "kernels-community/triton_kernels"
-
-
 class ModelVariant(StrEnum):
-    """Available Triton Kernels variants."""
+    """Available triton_kernels variants."""
 
     SWIGLU = "swiglu"
 
 
+class _SwiGLUReference(nn.Module):
+    """Wraps ``triton_kernels.swiglu.swiglu_torch`` as a traceable nn.Module."""
+
+    def __init__(self, swiglu_module, alpha: float, limit: float):
+        super().__init__()
+        self._swiglu_module = swiglu_module
+        self._precision_config = swiglu_module.PrecisionConfig(limit=limit)
+        self.alpha = alpha
+
+    def forward(self, x):
+        return self._swiglu_module.swiglu_torch(x, self.alpha, self._precision_config)
+
+
 class ModelLoader(ForgeModel):
-    """Triton Kernels loader exposing the SwiGLU activation kernel."""
+    """Loader for the kernels-community/triton_kernels SwiGLU reference implementation."""
 
     _VARIANTS = {
         ModelVariant.SWIGLU: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name="kernels-community/triton_kernels",
         ),
     }
+
     DEFAULT_VARIANT = ModelVariant.SWIGLU
 
-    seq_len = 512
-    hidden_size = 1024
-    alpha = 0.5
-    limit = 1.0
+    # Shape and scalar parameters mirror the README quickstart example.
+    BATCH = 512
+    HIDDEN = 1024
+    ALPHA = 0.5
+    LIMIT = 1.0
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._kernel_lib = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        if variant is None:
-            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
             model="triton_kernels",
             variant=variant,
@@ -67,36 +77,24 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_kernel_lib(self):
-        if self._kernel_lib is None:
-            from kernels import get_kernel
-
-            self._kernel_lib = get_kernel(self._variant_config.pretrained_model_name)
-        return self._kernel_lib
-
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SwiGLU activation wrapped as a torch.nn.Module."""
-        kernel_lib = self._load_kernel_lib()
-        swiglu_mod = kernel_lib.swiglu
+        """Return the SwiGLU reference implementation wrapped as an nn.Module."""
+        from kernels import get_kernel
 
-        class SwiGLU(torch.nn.Module):
-            def __init__(self, alpha, limit):
-                super().__init__()
-                self.alpha = alpha
-                self.precision_config = swiglu_mod.PrecisionConfig(limit=limit)
+        triton_kernels = get_kernel(self._variant_config.pretrained_model_name)
 
-            def forward(self, x):
-                return swiglu_mod.swiglu_torch(x, self.alpha, self.precision_config)
+        model = _SwiGLUReference(
+            triton_kernels.swiglu, alpha=self.ALPHA, limit=self.LIMIT
+        )
+        model.eval()
 
-        model = SwiGLU(self.alpha, self.limit).eval()
         if dtype_override is not None:
             model = model.to(dtype_override)
+
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return a sample activation tensor for the SwiGLU kernel."""
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        x = torch.randn(self.seq_len, self.hidden_size, dtype=dtype)
-        if batch_size != 1:
-            x = x.repeat(batch_size, 1)
-        return x
+    def load_inputs(self, dtype_override=None, batch_size=None):
+        """Return a random activation tensor sized for the SwiGLU example."""
+        dtype = dtype_override or torch.bfloat16
+        batch = batch_size or self.BATCH
+        return torch.randn(batch, self.HIDDEN, dtype=dtype)
