@@ -74,9 +74,7 @@ class ModelLoader(ForgeModel):
         self.model_name = self._variant_config.pretrained_model_name
         self.max_length = self._variant_config.max_length
         self.tokenizer = None
-        self.text = _VARIANT_SAMPLE_TEXTS.get(
-            self._variant, "Great road trip views! @ Shartlesville, Pennsylvania"
-        )
+        self.text = "Great road trip views! @ Shartlesville, Pennsylvania"
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -96,13 +94,12 @@ class ModelLoader(ForgeModel):
 
     def _is_nli_variant(self):
         """Check if the current variant is an NLI model."""
-        return self._variant == ModelVariant.MULTILINGUAL_MINILMV2_L6_MNLI_XNLI
+        return False
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load XLM-RoBERTa model for sequence classification from Hugging Face."""
 
-        tokenizer_name = self._TOKENIZER_OVERRIDES.get(self._variant, self.model_name)
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         model_kwargs = {}
         if dtype_override is not None:
