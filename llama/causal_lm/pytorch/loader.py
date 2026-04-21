@@ -125,6 +125,9 @@ class ModelVariant(StrEnum):
     # RLHFlow variants
     RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA = "RLHFlow_3.1_8B_PRM_Deepseek_Data"
 
+    # Marin variants
+    MARIN_8B_BASE = "Marin_8B_Base"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -291,6 +294,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RLHFlow/Llama3.1-8B-PRM-Deepseek-Data",
             max_length=128,
         ),
+        # Marin variants
+        ModelVariant.MARIN_8B_BASE: LLMModelConfig(
+            pretrained_model_name="marin-community/marin-8b-base",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -341,6 +349,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_3B_GPTQ_4BIT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4,
+            ModelVariant.MARIN_8B_BASE,
         ]:
             group = ModelGroup.VULCAN
         elif (
