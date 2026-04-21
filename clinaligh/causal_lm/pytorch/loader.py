@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available ClinAligh GGUF model variants for causal language modeling."""
 
     CLINALIGH_30B_A3B_I1_GGUF = "30B_A3B_i1_GGUF"
+    CLINALIGH_4B_I1_GGUF = "4B_i1_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +35,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/ClinAligh-30B-A3B-i1-GGUF",
             max_length=128,
         ),
+        ModelVariant.CLINALIGH_4B_I1_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/ClinAligh-4B-i1-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.CLINALIGH_30B_A3B_I1_GGUF
 
-    GGUF_FILE = "ClinAligh-30B-A3B.i1-IQ1_S.gguf"
+    _GGUF_FILES = {
+        ModelVariant.CLINALIGH_30B_A3B_I1_GGUF: "ClinAligh-30B-A3B.i1-IQ1_S.gguf",
+        ModelVariant.CLINALIGH_4B_I1_GGUF: "ClinAligh-4B.i1-Q4_K_M.gguf",
+    }
 
     sample_text = "What is your favorite city?"
 
@@ -49,6 +57,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+        self.gguf_file = self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -65,7 +74,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +94,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -150,6 +159,10 @@ class ModelLoader(ForgeModel):
                 shard_specs[mlp.shared_expert.up_proj.weight] = ("model", "batch")
                 shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
                 shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
+            if hasattr(mlp, "up_proj"):
+                shard_specs[mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.down_proj.weight] = ("batch", "model")
 
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
@@ -160,6 +173,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
