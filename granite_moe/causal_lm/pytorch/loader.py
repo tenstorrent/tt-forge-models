@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Granite MoE model variants for causal language modeling."""
 
     GRANITE_3_0_1B_A400M_BASE = "3.0_1B_A400M_Base"
-    GRANITE_3_0_3B_A800M_INSTRUCT = "3.0_3B_A800M_Instruct"
+    GRANITE_3_1_1B_A400M_BASE = "3.1_1B_A400M_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="ibm-granite/granite-3.0-1b-a400m-base",
             max_length=128,
         ),
-        ModelVariant.GRANITE_3_0_3B_A800M_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="ibm-granite/granite-3.0-3b-a800m-instruct",
+        ModelVariant.GRANITE_3_1_1B_A400M_BASE: LLMModelConfig(
+            pretrained_model_name="ibm-granite/granite-3.1-1b-a400m-base",
             max_length=128,
         ),
     }
