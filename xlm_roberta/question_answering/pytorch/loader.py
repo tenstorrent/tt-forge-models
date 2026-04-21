@@ -21,6 +21,7 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa question answering model variants."""
 
     DEEPSET_XLM_ROBERTA_BASE_SQUAD2 = "deepset_xlm_roberta_base_squad2"
+    GOKULKARTHIK_XLM_ROBERTA_QA_CHAII = "gokulkarthik/xlm-roberta-qa-chaii"
 
 
 class ModelLoader(ForgeModel):
@@ -29,6 +30,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEEPSET_XLM_ROBERTA_BASE_SQUAD2: LLMModelConfig(
             pretrained_model_name="deepset/xlm-roberta-base-squad2",
+            max_length=384,
+        ),
+        ModelVariant.GOKULKARTHIK_XLM_ROBERTA_QA_CHAII: LLMModelConfig(
+            pretrained_model_name="gokulkarthik/xlm-roberta-qa-chaii",
             max_length=384,
         ),
     }
