@@ -46,7 +46,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
+        config = AutoConfig.from_pretrained("unsloth/DeepSeek-V3-0324-BF16")
 
         # Reduce model dimensions for testing
         if self.num_layers is not None:
@@ -62,7 +62,6 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {
             "attn_implementation": "eager",
-            "trust_remote_code": True,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -70,9 +69,7 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForCausalLM.from_config(config, **model_kwargs)
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, trust_remote_code=True
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         return model
 
