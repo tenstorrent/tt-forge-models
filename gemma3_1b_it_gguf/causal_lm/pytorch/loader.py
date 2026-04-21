@@ -25,9 +25,7 @@ class ModelVariant(StrEnum):
     """Available Gemma 3 1B IT GGUF model variants for causal language modeling."""
 
     GEMMA_3_1B_IT_GGUF = "1B_IT_GGUF"
-    KTH8_GEMMA_3_1B_IT_SUPERGPQA_CLASSIFIER_GGUF = (
-        "kth8_1B_IT_SuperGPQA_Classifier_GGUF"
-    )
+    STRATALAB_GEMMA_3_1B_IT_GGUF = "stratalab_1B_IT_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -38,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="daniloreddy/gemma-3-1b-it_GGUF",
             max_length=128,
         ),
-        ModelVariant.KTH8_GEMMA_3_1B_IT_SUPERGPQA_CLASSIFIER_GGUF: LLMModelConfig(
-            pretrained_model_name="kth8/gemma-3-1b-it-SuperGPQA-Classifier-GGUF",
+        ModelVariant.STRATALAB_GEMMA_3_1B_IT_GGUF: LLMModelConfig(
+            pretrained_model_name="stratalab-org/gemma-3-1b-it-GGUF",
             max_length=128,
         ),
     }
@@ -48,7 +46,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.GEMMA_3_1B_IT_GGUF: "gemma-3-1b-it_Q4_K_M.gguf",
-        ModelVariant.KTH8_GEMMA_3_1B_IT_SUPERGPQA_CLASSIFIER_GGUF: "gemma-3-1b-it-SuperGPQA-Classifier-Q4_K_M.gguf",
+        ModelVariant.STRATALAB_GEMMA_3_1B_IT_GGUF: "gemma-3-1b-it-Q4_K_M.gguf",
     }
 
     sample_text = "What is your favorite city?"
