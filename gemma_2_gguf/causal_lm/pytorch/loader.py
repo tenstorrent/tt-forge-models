@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
 
     GEMMA_2_2B_IT_GGUF = "2B_IT_GGUF"
     GEMMA_2_27B_IT_GGUF = "27B_IT_GGUF"
-    MMNGA_GEMMA_2_2B_IT_GGUF = "mmnga_2B_IT_GGUF"
+    GEMMA_2_9B_IT_SPPO_ITER3_GGUF = "9B_IT_SPPO_ITER3_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -40,8 +40,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bartowski/gemma-2-27b-it-GGUF",
             max_length=128,
         ),
-        ModelVariant.MMNGA_GEMMA_2_2B_IT_GGUF: LLMModelConfig(
-            pretrained_model_name="mmnga/gemma-2-2b-it-gguf",
+        ModelVariant.GEMMA_2_9B_IT_SPPO_ITER3_GGUF: LLMModelConfig(
+            pretrained_model_name="bartowski/Gemma-2-9B-It-SPPO-Iter3-GGUF",
             max_length=128,
         ),
     }
@@ -51,7 +51,7 @@ class ModelLoader(ForgeModel):
     _GGUF_FILES = {
         ModelVariant.GEMMA_2_2B_IT_GGUF: "gemma-2-2b-it-Q4_K_M.gguf",
         ModelVariant.GEMMA_2_27B_IT_GGUF: "gemma-2-27b-it-Q4_K_M.gguf",
-        ModelVariant.MMNGA_GEMMA_2_2B_IT_GGUF: "gemma-2-2b-it-Q4_K_M.gguf",
+        ModelVariant.GEMMA_2_9B_IT_SPPO_ITER3_GGUF: "Gemma-2-9B-It-SPPO-Iter3-Q4_K_M.gguf",
     }
 
     sample_text = "What is your favorite city?"
