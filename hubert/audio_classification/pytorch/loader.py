@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available HuBERT audio classification model variants."""
 
     BASE_SUPERB_ER = "Base_Superb_ER"
+    DISTILHUBERT_RAVDESS = "Distilhubert_Ravdess"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE_SUPERB_ER: ModelConfig(
             pretrained_model_name="superb/hubert-base-superb-er",
+        ),
+        ModelVariant.DISTILHUBERT_RAVDESS: ModelConfig(
+            pretrained_model_name="pollner/distilhubert-finetuned-ravdess",
         ),
     }
 
