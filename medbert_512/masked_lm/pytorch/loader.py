@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available medBERT.de model variants for masked language modeling."""
 
     MEDBERT_512 = "medbert-512"
+    MEDBERT_512_NO_DUPLICATES = "medbert-512-no-duplicates"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +31,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MEDBERT_512: LLMModelConfig(
             pretrained_model_name="GerMedBERT/medbert-512",
+            max_length=128,
+        ),
+        ModelVariant.MEDBERT_512_NO_DUPLICATES: LLMModelConfig(
+            pretrained_model_name="GerMedBERT/medbert-512-no-duplicates",
             max_length=128,
         ),
     }
