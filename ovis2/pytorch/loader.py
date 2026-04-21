@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available Ovis2 model variants."""
 
     OVIS2_4B = "4B"
+    OVIS2_8B = "8B"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OVIS2_4B: ModelConfig(
             pretrained_model_name="AIDC-AI/Ovis2-4B",
+        ),
+        ModelVariant.OVIS2_8B: ModelConfig(
+            pretrained_model_name="AIDC-AI/Ovis2-8B",
         ),
     }
 
