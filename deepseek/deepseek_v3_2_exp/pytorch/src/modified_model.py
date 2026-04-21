@@ -137,6 +137,9 @@ class ModelArgs:
     index_n_heads: int = 64
     index_head_dim: int = 128
     index_topk: int = 2048
+    # When True, the model is always called with an external MLACache and the
+    # internal kv_cache/pe_cache buffers are not allocated (saves ~2 GiB/layer).
+    use_mla_cache: bool = False
 
 
 class ParallelEmbedding(nn.Module):
@@ -772,16 +775,23 @@ class MLA(nn.Module):
         )
         self.register_buffer("hadamard_matrix", haddamard_matrix, persistent=False)
 
-        self.register_buffer(
-            "kv_cache",
-            torch.zeros(args.max_batch_size, args.max_seq_len, self.kv_lora_rank),
-            persistent=False,
-        )
-        self.register_buffer(
-            "pe_cache",
-            torch.zeros(args.max_batch_size, args.max_seq_len, self.qk_rope_head_dim),
-            persistent=False,
-        )
+        if args.use_mla_cache:
+            # External MLACache is always provided; skip the large internal buffers.
+            self.register_buffer("kv_cache", None, persistent=False)
+            self.register_buffer("pe_cache", None, persistent=False)
+        else:
+            self.register_buffer(
+                "kv_cache",
+                torch.zeros(args.max_batch_size, args.max_seq_len, self.kv_lora_rank),
+                persistent=False,
+            )
+            self.register_buffer(
+                "pe_cache",
+                torch.zeros(
+                    args.max_batch_size, args.max_seq_len, self.qk_rope_head_dim
+                ),
+                persistent=False,
+            )
         self.dequant_wkv_b = None
 
     def forward(
@@ -790,6 +800,8 @@ class MLA(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        past_key_value=None,
+        cache_position: Optional[torch.Tensor] = None,
     ):
         """
         Forward pass for the Multi-Head Latent Attention (MLA) Layer.
@@ -799,6 +811,8 @@ class MLA(nn.Module):
             start_pos (int): Starting position in the sequence for caching.
             freqs_cis (torch.Tensor): Precomputed complex exponential values for rotary embeddings.
             mask (Optional[torch.Tensor]): Mask tensor to exclude certain positions from attention.
+            past_key_value: Optional MLAStaticLayer to populate with compressed KV and RoPE keys.
+            cache_position (Optional[torch.Tensor]): Token positions for cache writes.
 
         Returns:
             torch.Tensor: Output tensor with the same shape as the input.
@@ -824,8 +838,17 @@ class MLA(nn.Module):
                 .to(kv.dtype)
                 .view_as(kv)
             )
-        self.kv_cache[:bsz, start_pos:end_pos] = kv
-        self.pe_cache[:bsz, start_pos:end_pos] = k_pe.squeeze(2)
+        if self.kv_cache is not None:
+            self.kv_cache[:bsz, start_pos:end_pos] = kv
+            self.pe_cache[:bsz, start_pos:end_pos] = k_pe.squeeze(2)
+        if past_key_value is not None:
+            # MLAStaticLayer.update expects [batch, 1, seq, dim]; kv is [batch, seq, dim]
+            # and k_pe is [batch, seq, 1, rope_dim] after apply_rotary_emb.
+            past_key_value.update(
+                kv.unsqueeze(1),
+                k_pe.transpose(1, 2),
+                {"cache_position": cache_position},
+            )
         if mask is not None:  # MHA prefill
             q = torch.cat([q_nope, q_pe], dim=-1)
             kv = self.wkv_b(kv)
@@ -859,22 +882,50 @@ class MLA(nn.Module):
             q_nope = torch.einsum(
                 "bshd,hdc->bshc", q_nope, wkv_b[:, : self.qk_nope_head_dim]
             )
-            scores = (
-                torch.einsum("bshc,btc->bsht", q_nope, self.kv_cache[:bsz, :end_pos])
-                + torch.einsum("bshr,btr->bsht", q_pe, self.pe_cache[:bsz, :end_pos])
-            ) * self.softmax_scale
+            if past_key_value is not None:
+                # Read the full prefill+decode context from the external MLACache.
+                # past_key_value.update() was already called above so the current
+                # token is already written at cache_position[0].
+                # kv_full / pe_full: [bsz, max_cache_len, dim]
+                kv_full = past_key_value.compressed_kv[:bsz, 0]
+                pe_full = past_key_value.k_pe[:bsz, 0]
+                scores = (
+                    torch.einsum("bshc,btc->bsht", q_nope, kv_full)
+                    + torch.einsum("bshr,btr->bsht", q_pe, pe_full)
+                ) * self.softmax_scale
+                # Mask future positions without .item() — pure tensor comparison.
+                max_cache_len = kv_full.size(1)
+                pos_range = torch.arange(max_cache_len, device=x.device)
+                future_mask = pos_range > cache_position[0]
+                scores = scores.masked_fill(
+                    future_mask.view(1, 1, 1, -1), float("-inf")
+                )
+                scores = scores.softmax(dim=-1)
+                x = torch.einsum("bsht,btc->bshc", scores, kv_full)
+                x = torch.einsum("bshc,hdc->bshd", x, wkv_b[:, -self.v_head_dim :])
+            else:
+                scores = (
+                    torch.einsum(
+                        "bshc,btc->bsht", q_nope, self.kv_cache[:bsz, :end_pos]
+                    )
+                    + torch.einsum(
+                        "bshr,btr->bsht", q_pe, self.pe_cache[:bsz, :end_pos]
+                    )
+                ) * self.softmax_scale
 
-            # indexer
-            if self.indexer is not None:
-                topk_indices = self.indexer(x, qr, start_pos, freqs_cis, mask)
-                index_mask = torch.full(
-                    (bsz, 1, end_pos), float("-inf"), device=x.device
-                ).scatter_(-1, topk_indices, 0)
-                scores += index_mask.unsqueeze(2)
+                # indexer
+                if self.indexer is not None:
+                    topk_indices = self.indexer(x, qr, start_pos, freqs_cis, mask)
+                    index_mask = torch.full(
+                        (bsz, 1, end_pos), float("-inf"), device=x.device
+                    ).scatter_(-1, topk_indices, 0)
+                    scores += index_mask.unsqueeze(2)
 
-            scores = scores.softmax(dim=-1)
-            x = torch.einsum("bsht,btc->bshc", scores, self.kv_cache[:bsz, :end_pos])
-            x = torch.einsum("bshc,hdc->bshd", x, wkv_b[:, -self.v_head_dim :])
+                scores = scores.softmax(dim=-1)
+                x = torch.einsum(
+                    "bsht,btc->bshc", scores, self.kv_cache[:bsz, :end_pos]
+                )
+                x = torch.einsum("bshc,hdc->bshd", x, wkv_b[:, -self.v_head_dim :])
         x = self.wo(x.flatten(2))
         return x
 
@@ -1147,6 +1198,8 @@ class Block(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        past_key_value=None,
+        cache_position: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Forward pass for the Transformer block.
@@ -1156,6 +1209,8 @@ class Block(nn.Module):
             start_pos (int): Starting position in the sequence.
             freqs_cis (torch.Tensor): Precomputed complex exponential values for rotary embeddings.
             mask (Optional[torch.Tensor]): Mask tensor to exclude certain positions from attention.
+            past_key_value: Optional MLAStaticLayer passed through to the attention module.
+            cache_position (Optional[torch.Tensor]): Token positions for cache writes.
 
         Returns:
             torch.Tensor: Output tensor after block computation.
@@ -1164,7 +1219,14 @@ class Block(nn.Module):
             x, residual = self.attn_norm(x), x
         else:
             x, residual = self.attn_norm(x, residual)
-        x = self.attn(x, start_pos, freqs_cis, mask)
+        x = self.attn(
+            x,
+            start_pos,
+            freqs_cis,
+            mask,
+            past_key_value=past_key_value,
+            cache_position=cache_position,
+        )
         x, residual = self.ffn_norm(x, residual)
         x = self.ffn(x)
         return x, residual
@@ -1245,6 +1307,8 @@ class Transformer(nn.Module):
         start_pos: int = 0,
         freqs_cis: Optional[torch.Tensor] = None,
         mask: Optional[torch.Tensor] = None,
+        past_key_values=None,
+        cache_position: Optional[torch.Tensor] = None,
     ):
         """
         Forward pass for the Transformer model.
@@ -1254,6 +1318,8 @@ class Transformer(nn.Module):
             start_pos (int, optional): Starting position in the sequence for rotary embeddings. Defaults to 0.
             freqs_cis (Optional[torch.Tensor]): Pre-computed rotary embedding frequencies. If None, computed from self.freqs_cis.
             mask (Optional[torch.Tensor]): Pre-computed attention mask. If None, computed from seq_len.
+            past_key_values: Optional MLACache whose per-layer MLAStaticLayer objects receive KV writes.
+            cache_position (Optional[torch.Tensor]): Token positions used to index into the cache.
 
         Returns:
             torch.Tensor: Logits tensor of shape (batch_size, vocab_size).
@@ -1268,8 +1334,17 @@ class Transformer(nn.Module):
                 device=tokens.device,
             ).triu_(1)
         h, residual = self.embed(tokens), None
-        for layer in self.layers:
-            h, residual = layer(h, residual, start_pos, freqs_cis, mask)
+        for i, layer in enumerate(self.layers):
+            past_kv = past_key_values.layers[i] if past_key_values is not None else None
+            h, residual = layer(
+                h,
+                residual,
+                start_pos,
+                freqs_cis,
+                mask,
+                past_key_value=past_kv,
+                cache_position=cache_position,
+            )
         h, _ = self.norm(h, residual)
         logits = self.head(h[:, -1].float())
         if world_size > 1:
