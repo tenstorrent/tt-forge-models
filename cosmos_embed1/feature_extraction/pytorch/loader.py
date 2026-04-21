@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        inputs = self.tokenizer(
+        text_inputs = self.tokenizer(
             self.sample_texts,
             padding="max_length",
             truncation=True,
@@ -93,9 +93,14 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        if dtype_override is not None:
-            for key, value in inputs.items():
-                if isinstance(value, torch.Tensor) and value.dtype == torch.float32:
-                    inputs[key] = value.to(dtype_override)
+        batch_size = text_inputs["input_ids"].shape[0]
+        video_dtype = dtype_override if dtype_override is not None else torch.float32
+        videos = torch.randn(batch_size, 8, 3, 448, 448, dtype=video_dtype)
+
+        inputs = {
+            "videos": videos,
+            "input_ids": text_inputs["input_ids"],
+            "attention_mask": text_inputs["attention_mask"],
+        }
 
         return inputs
