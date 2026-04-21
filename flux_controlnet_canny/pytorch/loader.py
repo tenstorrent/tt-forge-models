@@ -1,12 +1,19 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-FLUX ControlNet Canny model loader implementation
+XLabs FLUX ControlNet Canny model loader implementation.
+
+Loads the XLabs-AI FLUX.1-dev Canny ControlNet from a single-file
+safetensors checkpoint, producing a diffusers ``FluxControlNetModel``.
+
+Repository: https://huggingface.co/XLabs-AI/flux-controlnet-canny-v3
 """
 
+from typing import Any, Optional
+
 import torch
-from typing import Optional
+from diffusers import FluxControlNetModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -18,32 +25,31 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_flux_controlnet_canny_pipe
+
+REPO_ID = "XLabs-AI/flux-controlnet-canny-v3"
+SAFETENSORS_FILE = "flux-canny-controlnet-v3.safetensors"
 
 
 class ModelVariant(StrEnum):
-    """Available FLUX ControlNet Canny model variants."""
+    """Available XLabs FLUX Canny ControlNet model variants."""
 
-    FLUX_1_DEV_CONTROLNET_CANNY = "FLUX.1-dev-Controlnet-Canny"
+    CANNY_V3 = "canny-v3"
 
 
 class ModelLoader(ForgeModel):
-    """FLUX ControlNet Canny model loader implementation."""
+    """XLabs FLUX ControlNet Canny model loader."""
 
     _VARIANTS = {
-        ModelVariant.FLUX_1_DEV_CONTROLNET_CANNY: ModelConfig(
-            pretrained_model_name="InstantX/FLUX.1-dev-Controlnet-Canny",
+        ModelVariant.CANNY_V3: ModelConfig(
+            pretrained_model_name=REPO_ID,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.FLUX_1_DEV_CONTROLNET_CANNY
-
-    base_model = "black-forest-labs/FLUX.1-dev"
-    prompt = "A girl in city, 25 years old, cool, futuristic"
+    DEFAULT_VARIANT = ModelVariant.CANNY_V3
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipe = None
+        self._controlnet: Optional[FluxControlNetModel] = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -58,160 +64,65 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype_override=None):
-        """Load the FLUX ControlNet Canny pipeline.
+    def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        """Load and return the FLUX ControlNet Canny model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            The loaded pipeline instance
+            FluxControlNetModel: The loaded ControlNet model instance.
         """
-        self.pipe = load_flux_controlnet_canny_pipe(
-            self._variant_config.pretrained_model_name, self.base_model
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        repo_id = self._variant_config.pretrained_model_name
+        self._controlnet = FluxControlNetModel.from_single_file(
+            f"https://huggingface.co/{repo_id}/resolve/main/{SAFETENSORS_FILE}",
+            torch_dtype=compute_dtype,
         )
+        self._controlnet.eval()
+        return self._controlnet
 
-        if dtype_override is not None:
-            self.pipe = self.pipe.to(dtype_override)
+    def load_inputs(
+        self,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+        **kwargs,
+    ) -> Any:
+        """Prepare sample inputs for the FLUX ControlNet Canny model.
 
-        return self.pipe
-
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the FLUX transformer model with ControlNet.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            torch.nn.Module: The FLUX transformer model instance.
+        Returns a dict matching ``FluxControlNetModel.forward()``.
         """
-        if self.pipe is None:
-            self._load_pipeline(dtype_override=dtype_override)
+        if self._controlnet is None:
+            self.load_model(dtype_override=dtype_override)
 
-        if dtype_override is not None:
-            self.pipe.transformer = self.pipe.transformer.to(dtype_override)
-
-        return self.pipe.transformer
-
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the FLUX ControlNet Canny model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-            batch_size: Optional batch size to override the default batch size of 1.
-
-        Returns:
-            dict: Input tensors that can be fed to the transformer model.
-        """
-        if self.pipe is None:
-            self._load_pipeline(dtype_override=dtype_override)
-
-        max_sequence_length = 256
-        guidance_scale = 3.5
-        do_classifier_free_guidance = guidance_scale > 1.0
-        height = 128
-        width = 128
-        num_images_per_prompt = 1
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        num_channels_latents = self.pipe.transformer.config.in_channels // 4
+        config = self._controlnet.config
 
-        # Text encoding for CLIP
-        text_inputs_clip = self.pipe.tokenizer(
-            self.prompt,
-            padding="max_length",
-            max_length=self.pipe.tokenizer_max_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-        text_input_ids_clip = text_inputs_clip.input_ids
-        pooled_prompt_embeds = self.pipe.text_encoder(
-            text_input_ids_clip, output_hidden_states=False
-        ).pooler_output
-        pooled_prompt_embeds = pooled_prompt_embeds.to(dtype=dtype)
-        pooled_prompt_embeds = pooled_prompt_embeds.repeat(
-            batch_size, num_images_per_prompt
-        )
-        pooled_prompt_embeds = pooled_prompt_embeds.view(
-            batch_size * num_images_per_prompt, -1
-        )
+        in_channels = config.in_channels
+        joint_attention_dim = config.joint_attention_dim
+        pooled_projection_dim = config.pooled_projection_dim
 
-        # Text encoding for T5
-        text_inputs_t5 = self.pipe.tokenizer_2(
-            self.prompt,
-            padding="max_length",
-            max_length=max_sequence_length,
-            truncation=True,
-            return_length=False,
-            return_overflowing_tokens=False,
-            return_tensors="pt",
-        )
-        text_input_ids_t5 = text_inputs_t5.input_ids
-        prompt_embeds = self.pipe.text_encoder_2(
-            text_input_ids_t5, output_hidden_states=False
-        )[0]
-        prompt_embeds = prompt_embeds.to(dtype=dtype)
-        _, seq_len_t5, _ = prompt_embeds.shape
-        prompt_embeds = prompt_embeds.repeat(batch_size, num_images_per_prompt, 1)
-        prompt_embeds = prompt_embeds.view(
-            batch_size * num_images_per_prompt, seq_len_t5, -1
-        )
+        # Packed latent tokens (8x8 patch grid) and text sequence length.
+        img_seq_len = 64
+        txt_seq_len = 32
 
-        # Create text IDs
-        text_ids = torch.zeros(prompt_embeds.shape[1], 3).to(dtype=dtype)
-
-        # Create latents
-        height_latent = 2 * (int(height) // (self.pipe.vae_scale_factor * 2))
-        width_latent = 2 * (int(width) // (self.pipe.vae_scale_factor * 2))
-
-        shape = (
-            batch_size * num_images_per_prompt,
-            num_channels_latents,
-            height_latent,
-            width_latent,
+        hidden_states = torch.randn(batch_size, img_seq_len, in_channels, dtype=dtype)
+        controlnet_cond = torch.randn(batch_size, img_seq_len, in_channels, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, joint_attention_dim, dtype=dtype
         )
+        pooled_projections = torch.randn(batch_size, pooled_projection_dim, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_ids = torch.zeros(img_seq_len, 3, dtype=dtype)
+        txt_ids = torch.zeros(txt_seq_len, 3, dtype=dtype)
 
-        latents = torch.randn(shape, dtype=dtype)
-        latents = latents.view(
-            batch_size * num_images_per_prompt,
-            num_channels_latents,
-            height_latent // 2,
-            2,
-            width_latent // 2,
-            2,
-        )
-        latents = latents.permute(0, 2, 4, 1, 3, 5)
-        latents = latents.reshape(
-            batch_size * num_images_per_prompt,
-            (height_latent // 2) * (width_latent // 2),
-            num_channels_latents * 4,
-        )
-
-        # Prepare latent image IDs
-        latent_image_ids = torch.zeros(height_latent // 2, width_latent // 2, 3)
-        latent_image_ids[..., 1] = (
-            latent_image_ids[..., 1] + torch.arange(height_latent // 2)[:, None]
-        )
-        latent_image_ids[..., 2] = (
-            latent_image_ids[..., 2] + torch.arange(width_latent // 2)[None, :]
-        )
-        latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
-
-        # Prepare guidance
-        if do_classifier_free_guidance:
-            guidance = torch.full([batch_size], guidance_scale, dtype=dtype)
-        else:
-            guidance = None
-
-        # Prepare inputs
-        inputs = {
-            "hidden_states": latents,
-            "timestep": torch.tensor([1.0], dtype=dtype),
-            "guidance": guidance,
-            "pooled_projections": pooled_prompt_embeds,
-            "encoder_hidden_states": prompt_embeds,
-            "txt_ids": text_ids,
-            "img_ids": latent_image_ids,
-            "joint_attention_kwargs": {},
+        return {
+            "hidden_states": hidden_states,
+            "controlnet_cond": controlnet_cond,
+            "encoder_hidden_states": encoder_hidden_states,
+            "pooled_projections": pooled_projections,
+            "timestep": timestep,
+            "img_ids": img_ids,
+            "txt_ids": txt_ids,
         }
-
-        return inputs
