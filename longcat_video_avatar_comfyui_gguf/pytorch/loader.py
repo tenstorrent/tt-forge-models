@@ -12,9 +12,9 @@ multi-stream audio inputs.
 Repository:
 - https://huggingface.co/vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF
 """
+from typing import Any, Optional
+
 import torch
-from diffusers import WanTransformer3DModel
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
@@ -27,10 +27,13 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_BASE_URL = (
-    "https://huggingface.co/vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF"
-    "/blob/main"
-)
+GGUF_REPO = "vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF"
+
+# Small spatial dimensions for compile-only testing
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -40,28 +43,29 @@ class ModelVariant(StrEnum):
     SINGLE_Q8_0 = "Single_Q8_0"
 
 
+_GGUF_FILES = {
+    ModelVariant.SINGLE_Q4_K_M: "single/LongCat-Avatar-Single_comfy-Q4_K_M.gguf",
+    ModelVariant.SINGLE_Q8_0: "single/LongCat-Avatar-Single_comfy-Q8_0.gguf",
+}
+
+
 class ModelLoader(ForgeModel):
     """LongCat-Video-Avatar ComfyUI GGUF model loader for audio-driven avatar animation."""
 
     _VARIANTS = {
         ModelVariant.SINGLE_Q4_K_M: ModelConfig(
-            pretrained_model_name="vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF",
+            pretrained_model_name=GGUF_REPO,
         ),
         ModelVariant.SINGLE_Q8_0: ModelConfig(
-            pretrained_model_name="vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF",
+            pretrained_model_name=GGUF_REPO,
         ),
-    }
-
-    _GGUF_FILES = {
-        ModelVariant.SINGLE_Q4_K_M: "single/LongCat-Avatar-Single_comfy-Q4_K_M.gguf",
-        ModelVariant.SINGLE_Q8_0: "single/LongCat-Avatar-Single_comfy-Q8_0.gguf",
     }
 
     DEFAULT_VARIANT = ModelVariant.SINGLE_Q4_K_M
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.transformer = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -77,54 +81,66 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+    def load_model(
+        self,
+        *,
+        dtype_override: Optional[torch.dtype] = None,
+        **kwargs,
+    ):
+        """Load the GGUF-quantized LongCat transformer.
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
+        Returns the transformer nn.Module directly for compilation testing.
+        """
+        import diffusers.utils.import_utils as _diffusers_import_utils
 
-        self.transformer = WanTransformer3DModel.from_single_file(
-            gguf_url,
-            **load_kwargs,
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+
+        from diffusers import (
+            GGUFQuantizationConfig,
+            WanTransformer3DModel,
         )
 
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        return self.transformer
+        gguf_file = _GGUF_FILES[self._variant]
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.transformer is None:
-            self.load_model(dtype_override=dtype_override)
-
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        config = self.transformer.config
-
-        # WAN 16B video transformer dimensions
-        num_channels = config.in_channels
-        num_frames = 9
-        height = 60  # latent height (480p / 8)
-        width = 104  # latent width (832p / 8)
-
-        # Latent video tensor: [batch, channels, frames, height, width]
-        hidden_states = torch.randn(
-            batch_size, num_channels, num_frames, height, width, dtype=dtype
+        self._transformer = WanTransformer3DModel.from_single_file(
+            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
         )
 
-        # Timestep
-        timestep = torch.tensor([1.0], dtype=dtype).expand(batch_size)
+        return self._transformer
 
-        # Text encoder hidden states
-        encoder_hidden_states = torch.randn(
-            batch_size, 256, config.text_dim, dtype=dtype
-        )
+    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
+        """Prepare tensor inputs for the WanTransformer3DModel forward pass."""
+        if self._transformer is None:
+            self.load_model()
 
-        inputs = {
-            "hidden_states": hidden_states,
-            "timestep": timestep,
-            "encoder_hidden_states": encoder_hidden_states,
+        dtype = torch.bfloat16
+        config = self._transformer.config
+
+        return {
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }
-
-        return inputs
