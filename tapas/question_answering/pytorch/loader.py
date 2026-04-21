@@ -20,6 +20,54 @@ from third_party.tt_forge_models.config import (
 )
 
 
+def _patch_tapas_tokenizer_for_pandas3():
+    """Patches TAPAS tokenizer functions for pandas 3.0 compatibility."""
+    import transformers.models.tapas.tokenization_tapas as tapas_mod
+
+    if getattr(tapas_mod, "_pandas3_patched", False):
+        return
+    tapas_mod._pandas3_patched = True
+
+    _orig_get_column_values = tapas_mod._get_column_values
+
+    def _patched_add_numeric_table_values(
+        table, min_consolidation_fraction=0.7, debug_info=None
+    ):
+        table = table.copy().astype(object)
+        tapas_mod.filter_invalid_unicode_from_table(table)
+        for row_index, row in table.iterrows():
+            for col_index, cell in enumerate(row):
+                table.iloc[row_index, col_index] = tapas_mod.Cell(text=cell)
+        for col_index, column in enumerate(table.columns):
+            column_values = tapas_mod._consolidate_numeric_values(
+                tapas_mod._get_column_values(table, col_index),
+                min_consolidation_fraction=min_consolidation_fraction,
+                debug_info=(debug_info, column),
+            )
+            for row_index, numeric_value in column_values.items():
+                table.iloc[row_index, col_index].numeric_value = numeric_value
+        return table
+
+    def _patched_get_column_values(table, col_index):
+        index_to_values = {}
+        for row_index, row in table.iterrows():
+            text = tapas_mod.normalize_for_match(row.iloc[col_index].text)
+            index_to_values[row_index] = list(tapas_mod._get_numeric_values(text))
+        return index_to_values
+
+    def _patched_class_get_column_values(self, table, col_index):
+        table_numeric_values = {}
+        for row_index, row in table.iterrows():
+            cell = row.iloc[col_index]
+            if cell.numeric_value is not None:
+                table_numeric_values[row_index] = cell.numeric_value
+        return table_numeric_values
+
+    tapas_mod.add_numeric_table_values = _patched_add_numeric_table_values
+    tapas_mod._get_column_values = _patched_get_column_values
+    tapas_mod.TapasTokenizer._get_column_values = _patched_class_get_column_values
+
+
 class ModelVariant(StrEnum):
     """Available TAPAS model variants for table question answering."""
 
@@ -67,8 +115,7 @@ class ModelLoader(ForgeModel):
                     "Al Hilal",
                     "Real Madrid",
                 ],
-            },
-            dtype="object",
+            }
         )
         self.queries = ["How many goals does Lionel Messi have?"]
 
@@ -102,6 +149,8 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
             self.load_model(dtype_override=dtype_override)
+
+        _patch_tapas_tokenizer_for_pandas3()
 
         inputs = self.tokenizer(
             table=self.table,
