@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     DEBERTA_V3_BASE = "V3_Base"
     DEBERTA_V3_LARGE = "V3_Large"
     DEBERTA_V2_TINY_JAPANESE_CHAR_WWM = "V2_Tiny_Japanese_Char_WWM"
+    DEBERTA_V2_LARGE_JAPANESE = "V2_Large_Japanese"
 
 
 class ModelLoader(ForgeModel):
@@ -50,6 +51,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DEBERTA_V2_TINY_JAPANESE_CHAR_WWM: LLMModelConfig(
             pretrained_model_name="ku-nlp/deberta-v2-tiny-japanese-char-wwm",
+            max_length=128,
+        ),
+        ModelVariant.DEBERTA_V2_LARGE_JAPANESE: LLMModelConfig(
+            pretrained_model_name="ku-nlp/deberta-v2-large-japanese",
             max_length=128,
         ),
     }
