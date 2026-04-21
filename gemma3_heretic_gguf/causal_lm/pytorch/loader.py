@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Gemma 3 Heretic GGUF model variants for causal language modeling."""
 
     GEMMA_3_4B_IT_HERETIC_GGUF = "4B_IT_HERETIC_GGUF"
+    GEMMA_3_4B_IT_HERETIC_CREATIVE_I1_GGUF = "4B_IT_HERETIC_CREATIVE_I1_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +35,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/gemma-3-4b-it-heretic-uncensored-abliterated-Extreme-GGUF",
             max_length=128,
         ),
+        ModelVariant.GEMMA_3_4B_IT_HERETIC_CREATIVE_I1_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/gemma-3-4b-it-heretic-creative-i1-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_4B_IT_HERETIC_GGUF
 
-    GGUF_FILE = "gemma-3-4b-it-heretic-uncensored-abliterated-Extreme.Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.GEMMA_3_4B_IT_HERETIC_GGUF: "gemma-3-4b-it-heretic-uncensored-abliterated-Extreme.Q4_K_M.gguf",
+        ModelVariant.GEMMA_3_4B_IT_HERETIC_CREATIVE_I1_GGUF: "gemma-3-4b-it-heretic-creative.i1-Q4_K_M.gguf",
+    }
 
     sample_text = "What is your favorite city?"
 
@@ -49,6 +57,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+        self.gguf_file = self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -65,7 +74,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +94,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -154,6 +163,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
