@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available ViT5 model variants."""
 
     BASE = "Base"
+    BASE_VIETNEWS_SUMMARIZATION = "Base_Vietnews_Summarization"
 
 
 class ModelLoader(ForgeModel):
@@ -35,16 +36,27 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="VietAI/vit5-base",
             max_length=512,
         ),
+        ModelVariant.BASE_VIETNEWS_SUMMARIZATION: LLMModelConfig(
+            pretrained_model_name="VietAI/vit5-base-vietnews-summarization",
+            max_length=512,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BASE
 
-    sample_text = "summarize: Việt Nam là một quốc gia nằm ở phía đông bán đảo Đông Dương thuộc khu vực Đông Nam Á. Thủ đô của Việt Nam là Hà Nội. Thành phố lớn nhất là Thành phố Hồ Chí Minh."
+    _DEFAULT_SAMPLE_TEXT = "summarize: Việt Nam là một quốc gia nằm ở phía đông bán đảo Đông Dương thuộc khu vực Đông Nam Á. Thủ đô của Việt Nam là Hà Nội. Thành phố lớn nhất là Thành phố Hồ Chí Minh."
+
+    _VARIANT_SAMPLE_TEXTS = {
+        ModelVariant.BASE_VIETNEWS_SUMMARIZATION: "VietAI là tổ chức phi lợi nhuận với sứ mệnh ươm mầm tài năng về trí tuệ nhân tạo và xây dựng một cộng đồng các chuyên gia trong lĩnh vực trí tuệ nhân tạo đẳng cấp quốc tế tại Việt Nam.</s>",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
         self._cached_model = None
+        self.sample_text = self._VARIANT_SAMPLE_TEXTS.get(
+            self._variant, self._DEFAULT_SAMPLE_TEXT
+        )
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
