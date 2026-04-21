@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available Qwen3 VL NSFW Caption GGUF model variants for image to text."""
 
     QWEN3_VL_8B_NSFW_CAPTION_V4_5_GGUF = "8b_nsfw_caption_v4_5_gguf"
+    QWEN3_VL_8B_NSFW_CAPTION_V4_5_HERETIC_GGUF = "8b_nsfw_caption_v4_5_heretic_gguf"
 
 
 class ModelLoader(ForgeModel):
@@ -37,11 +38,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/Qwen3-VL-8B-NSFW-Caption-V4.5-GGUF",
             max_length=128,
         ),
+        ModelVariant.QWEN3_VL_8B_NSFW_CAPTION_V4_5_HERETIC_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Qwen3-VL-8B-NSFW-Caption-V4.5-heretic-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN3_VL_8B_NSFW_CAPTION_V4_5_GGUF
 
-    GGUF_FILE = "Qwen3-VL-8B-NSFW-Caption-V4.5.Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.QWEN3_VL_8B_NSFW_CAPTION_V4_5_GGUF: "Qwen3-VL-8B-NSFW-Caption-V4.5.Q4_K_M.gguf",
+        ModelVariant.QWEN3_VL_8B_NSFW_CAPTION_V4_5_HERETIC_GGUF: "Qwen3-VL-8B-NSFW-Caption-V4.5-heretic.Q4_K_M.gguf",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -60,13 +68,18 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @property
+    def _gguf_file(self):
+        """Get the GGUF filename for the current variant."""
+        return self._GGUF_FILES.get(self._variant)
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self._gguf_file
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
