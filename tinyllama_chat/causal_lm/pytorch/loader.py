@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     """Available TinyLlama Chat model variants for causal language modeling."""
 
     TINYLLAMA_1_1B_CHAT_V0_1 = "1.1B_Chat_v0.1"
-    LGAALVES_TINYLLAMA_1_1B_CHAT_V0_3_PLATYPUS = "lgaalves-1.1B_Chat_v0.3_platypus"
+    TINYLLAMA_1_1B_CHAT_V0_3 = "1.1B_Chat_v0.3"
 
 
 class ModelLoader(ForgeModel):
@@ -37,8 +37,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="TinyLlama/TinyLlama-1.1B-Chat-v0.1",
             max_length=128,
         ),
-        ModelVariant.LGAALVES_TINYLLAMA_1_1B_CHAT_V0_3_PLATYPUS: LLMModelConfig(
-            pretrained_model_name="lgaalves/tinyllama-1.1b-chat-v0.3_platypus",
+        ModelVariant.TINYLLAMA_1_1B_CHAT_V0_3: LLMModelConfig(
+            pretrained_model_name="TinyLlama/TinyLlama-1.1B-Chat-v0.3",
             max_length=128,
         ),
     }
