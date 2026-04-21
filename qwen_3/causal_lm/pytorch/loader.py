@@ -63,8 +63,7 @@ class ModelVariant(StrEnum):
     QWEN_3_14B_AWQ = "14B_Awq"
     QWEN_3_32B_UNSLOTH_BNB_4BIT = "32B_Unsloth_bnb_4bit"
     QWEN_3_235B_A22B_THINKING_2507_FP8 = "235B_A22B_Thinking_2507_FP8"
-    QWEN_3_32B_T_PRO_IT_2_0 = "32B_T_pro_it_2.0"
-    QWEN_3_8B_JOSIEFIED_ABLITERATED_V1 = "8B_Josiefied_abliterated_v1"
+    QWEN_3_EURUSRM_HYBRID_REWARD_OPENSCHOLAR = "EurusRM_Hybrid_Reward_OpenScholar"
 
 
 class ModelLoader(ForgeModel):
@@ -204,12 +203,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-235B-A22B-Thinking-2507-FP8",
             max_length=128,
         ),
-        ModelVariant.QWEN_3_32B_T_PRO_IT_2_0: LLMModelConfig(
-            pretrained_model_name="t-tech/T-pro-it-2.0",
-            max_length=128,
-        ),
-        ModelVariant.QWEN_3_8B_JOSIEFIED_ABLITERATED_V1: LLMModelConfig(
-            pretrained_model_name="Goekdeniz-Guelmez/Josiefied-Qwen3-8B-abliterated-v1",
+        ModelVariant.QWEN_3_EURUSRM_HYBRID_REWARD_OPENSCHOLAR: LLMModelConfig(
+            pretrained_model_name="yuancarrieyjy/EurusRM-hybrid-reward-openscholar-20260216-163730",
             max_length=128,
         ),
     }
@@ -276,8 +271,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_32B_GPTQ_INT4,
             ModelVariant.QWEN_3_32B_UNSLOTH_BNB_4BIT,
             ModelVariant.QWEN_3_235B_A22B_THINKING_2507_FP8,
-            ModelVariant.QWEN_3_32B_T_PRO_IT_2_0,
-            ModelVariant.QWEN_3_8B_JOSIEFIED_ABLITERATED_V1,
+            ModelVariant.QWEN_3_EURUSRM_HYBRID_REWARD_OPENSCHOLAR,
         ):
             group = ModelGroup.VULCAN
         else:
