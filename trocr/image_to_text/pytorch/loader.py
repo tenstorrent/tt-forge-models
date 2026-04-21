@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available TrOCR PyTorch image-to-text model variants."""
 
     LARGE_PRINTED = "Large_Printed"
+    LARGE_PRINTED_CMC7_MICR = "Large_Printed_CMC7_MICR"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LARGE_PRINTED: ModelConfig(
             pretrained_model_name="microsoft/trocr-large-printed",
+        ),
+        ModelVariant.LARGE_PRINTED_CMC7_MICR: ModelConfig(
+            pretrained_model_name="DunnBC22/trocr-large-printed-cmc7_tesseract_MICR_ocr",
         ),
     }
 
