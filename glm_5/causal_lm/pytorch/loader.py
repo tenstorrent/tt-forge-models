@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available GLM-5 model variants for causal language modeling."""
 
     GLM_5_NVFP4_MTP = "NVFP4_MTP"
-    GLM_5_8BIT_MXFP8 = "8bit_MXFP8"
+    GLM_5_MXFP4 = "MXFP4"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="festr2/GLM-5-NVFP4-MTP",
             max_length=128,
         ),
-        ModelVariant.GLM_5_8BIT_MXFP8: LLMModelConfig(
-            pretrained_model_name="mlx-community/GLM-5-8bit-MXFP8",
+        ModelVariant.GLM_5_MXFP4: LLMModelConfig(
+            pretrained_model_name="amd/GLM-5-MXFP4",
             max_length=128,
         ),
     }
@@ -46,9 +46,9 @@ class ModelLoader(ForgeModel):
 
     sample_text = "Give me a short introduction to large language model."
 
-    # Variants with NVFP4 quantized weights require ignore_mismatched_sizes
+    # Variants with FP4 quantized weights require ignore_mismatched_sizes
     # because the packed FP4 weight shapes differ from the model definition.
-    _NVFP4_VARIANTS = {ModelVariant.GLM_5_NVFP4_MTP}
+    _NVFP4_VARIANTS = {ModelVariant.GLM_5_NVFP4_MTP, ModelVariant.GLM_5_MXFP4}
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
