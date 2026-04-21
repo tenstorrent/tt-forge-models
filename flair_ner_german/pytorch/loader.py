@@ -54,8 +54,29 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _import_flair(self):
+        """Import the pip flair package, bypassing the local flair/ model directory."""
+        import sys
+
+        project_root = str(__import__("pathlib").Path(__file__).resolve().parents[2])
+        original_path = sys.path.copy()
+        sys.path = [p for p in sys.path if p != project_root]
+        cached_flair = {
+            k: sys.modules.pop(k)
+            for k in list(sys.modules)
+            if k == "flair" or k.startswith("flair.")
+        }
+        try:
+            import flair as _flair
+
+            return _flair
+        finally:
+            sys.path = original_path
+            sys.modules.update(cached_flair)
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        from flair.models import SequenceTagger
+        flair_pkg = self._import_flair()
+        SequenceTagger = flair_pkg.models.SequenceTagger
 
         tagger = SequenceTagger.load(self.model_name)
         self.model = tagger
@@ -67,13 +88,15 @@ class ModelLoader(ForgeModel):
         return tagger
 
     def load_inputs(self, dtype_override=None):
-        from flair.data import Sentence
+        flair_pkg = self._import_flair()
+        Sentence = flair_pkg.data.Sentence
 
         sentence = Sentence(self.sample_text)
         return [sentence]
 
     def decode_output(self, co_out):
-        from flair.data import Sentence
+        flair_pkg = self._import_flair()
+        Sentence = flair_pkg.data.Sentence
 
         sentence = Sentence(self.sample_text)
         self.model.predict(sentence)
