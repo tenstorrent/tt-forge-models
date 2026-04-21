@@ -146,26 +146,24 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-
+        # Load config from GGUF metadata (fast — reads only metadata, no weights).
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Instantiate on meta device first, then move to CPU with empty (uninitialized)
+        # weights. This avoids loading the 37 GB GGUF tensor data, which is too slow
+        # and memory-intensive for a 104 B parameter model in a compile-only environment.
+        with torch.device("meta"):
+            model = AutoModelForCausalLM.from_config(config, torch_dtype=dtype)
+        model = model.to_empty(device="cpu")
 
         self.config = model.config
         self.model = model
-        return model
+        return model.eval()
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
