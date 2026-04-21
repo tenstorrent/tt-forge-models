@@ -22,6 +22,7 @@ from ....base import ForgeModel
 
 class ModelVariant(StrEnum):
     ORPHEUS_3B_0_1_PRETRAINED = "3B-0.1-Pretrained"
+    ORPHEUS_3B_0_1_FT_Q4_K_M_GGUF = "3B-0.1-FT-Q4_K_M-GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -30,9 +31,17 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="canopylabs/orpheus-3b-0.1-pretrained",
             max_length=256,
         ),
+        ModelVariant.ORPHEUS_3B_0_1_FT_Q4_K_M_GGUF: LLMModelConfig(
+            pretrained_model_name="unsloth/orpheus-3b-0.1-ft-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.ORPHEUS_3B_0_1_PRETRAINED
+
+    _GGUF_FILES = {
+        ModelVariant.ORPHEUS_3B_0_1_FT_Q4_K_M_GGUF: "orpheus-3b-0.1-ft-Q4_K_M.gguf",
+    }
 
     sample_text = "Hello, my name is"
 
@@ -42,6 +51,10 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.num_layers = num_layers
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES.get(self._variant)
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -60,11 +73,14 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        if self.gguf_file is not None:
+            tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
-        self.tokenizer.pad_token = self.tokenizer.eos_token
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
@@ -74,12 +90,19 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"use_cache": False}
+        model_kwargs = {}
+        if self.gguf_file is None:
+            model_kwargs["use_cache"] = False
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self.gguf_file is not None:
+            model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config_kwargs = {}
+            if self.gguf_file is not None:
+                config_kwargs["gguf_file"] = self.gguf_file
+            config = AutoConfig.from_pretrained(pretrained_model_name, **config_kwargs)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
