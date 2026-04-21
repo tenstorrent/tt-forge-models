@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available DeBERTa model variants for zero-shot classification."""
 
     DEBERTA_V3_BASE_ZEROSHOT_V2 = "V3_Base_Zeroshot_v2.0"
+    NARSIL_DEBERTA_LARGE_MNLI_ZERO_CLS = "Narsil_DeBERTa_Large_MNLI_Zero_CLS"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +31,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEBERTA_V3_BASE_ZEROSHOT_V2: ModelConfig(
             pretrained_model_name="MoritzLaurer/deberta-v3-base-zeroshot-v2.0",
+        ),
+        ModelVariant.NARSIL_DEBERTA_LARGE_MNLI_ZERO_CLS: ModelConfig(
+            pretrained_model_name="Narsil/deberta-large-mnli-zero-cls",
         ),
     }
 
@@ -95,5 +99,8 @@ class ModelLoader(ForgeModel):
     def decode_output(self, co_out):
         logits = co_out[0]
         predicted_class_id = logits.argmax(-1).item()
-        labels = ["entailment", "not_entailment"]
+        if self._variant == ModelVariant.NARSIL_DEBERTA_LARGE_MNLI_ZERO_CLS:
+            labels = ["contradiction", "neutral", "entailment"]
+        else:
+            labels = ["entailment", "not_entailment"]
         print(f"Predicted: {labels[predicted_class_id]}")
