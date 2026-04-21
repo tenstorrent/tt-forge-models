@@ -11,12 +11,15 @@ Flux2Transformer2DModel.from_single_file.
 
 from typing import Optional
 
+import os
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import Flux2Transformer2DModel
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
+
+_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
 from ...config import (
     Framework,
     ModelConfig,
@@ -94,6 +97,7 @@ class ModelLoader(ForgeModel):
         model_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
         self.transformer = Flux2Transformer2DModel.from_single_file(
             model_path,
+            config=_CONFIG_DIR,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
