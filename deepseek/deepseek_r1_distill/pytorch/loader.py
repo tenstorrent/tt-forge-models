@@ -98,8 +98,6 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
 
-    _AWQ_VARIANTS = frozenset({ModelVariant.DISTILL_LLAMA_70B_AWQ})
-
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
