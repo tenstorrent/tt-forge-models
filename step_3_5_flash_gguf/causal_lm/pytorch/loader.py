@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Step 3.5 Flash GGUF model variants for causal language modeling."""
 
     STEP_3_5_FLASH_GGUF_Q4_K_S = "GGUF_Q4_K_S"
+    STEP_3_5_FLASH_ALICE_THIRTY_GGUF_Q4_K_S = "AliceThirty_GGUF_Q4_K_S"
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +35,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="stepfun-ai/Step-3.5-Flash-GGUF-Q4_K_S",
             max_length=128,
         ),
+        ModelVariant.STEP_3_5_FLASH_ALICE_THIRTY_GGUF_Q4_K_S: LLMModelConfig(
+            pretrained_model_name="AliceThirty/Step-3.5-Flash-gguf",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.STEP_3_5_FLASH_GGUF_Q4_K_S
 
-    GGUF_FILE = "step3.5_flash_Q4_K_S.gguf"
+    _GGUF_FILES = {
+        ModelVariant.STEP_3_5_FLASH_GGUF_Q4_K_S: "step3.5_flash_Q4_K_S.gguf",
+        ModelVariant.STEP_3_5_FLASH_ALICE_THIRTY_GGUF_Q4_K_S: "Q4_K_S/Step-3.5-Flash-Q4_K_S-00001-of-00003.gguf",
+    }
 
     sample_text = "What is your favorite city?"
 
@@ -49,6 +57,10 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -65,7 +77,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +97,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
@@ -139,6 +151,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
