@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available OpenHermes 2.5 Mistral model variants for causal LM."""
 
     OPEN_HERMES_2_5_MISTRAL_7B = "open-hermes-2.5-mistral-7b"
+    OPEN_HERMES_2_MISTRAL_7B = "open-hermes-2-mistral-7b"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OPEN_HERMES_2_5_MISTRAL_7B: LLMModelConfig(
             pretrained_model_name="teknium/OpenHermes-2.5-Mistral-7B",
+            max_length=128,
+        ),
+        ModelVariant.OPEN_HERMES_2_MISTRAL_7B: LLMModelConfig(
+            pretrained_model_name="teknium/OpenHermes-2-Mistral-7B",
             max_length=128,
         ),
     }
