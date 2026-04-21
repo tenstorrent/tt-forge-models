@@ -4,9 +4,11 @@
 """
 ML-Distilled i1 GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import importlib.metadata
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -76,6 +78,10 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers.utils.import_utils as _tiu
+
+        _tiu.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -153,6 +159,10 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        import transformers.utils.import_utils as _tiu
+
+        _tiu.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
