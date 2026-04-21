@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available Tiny Random AquilaChat model variants for causal LM."""
 
     TINY_RANDOM_AQUILACHAT = "tiny_random_aquilachat"
+    KATUNI4KA_TINY_RANDOM_AQUILACHAT = "katuni4ka_tiny_random_aquilachat"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINY_RANDOM_AQUILACHAT: LLMModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/tiny-random-aquilachat",
+            max_length=128,
+        ),
+        ModelVariant.KATUNI4KA_TINY_RANDOM_AQUILACHAT: LLMModelConfig(
+            pretrained_model_name="katuni4ka/tiny-random-aquilachat",
             max_length=128,
         ),
     }
