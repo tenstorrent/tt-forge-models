@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Ultravox v0.5 Llama 3.1 8B GGUF model loader implementation for speech language modeling.
+Ultravox v0.5 Llama GGUF model loader implementation for speech language modeling.
 """
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -21,24 +21,32 @@ from ...config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Ultravox v0.5 Llama 3.1 8B GGUF model variants."""
+    """Available Ultravox v0.5 Llama GGUF model variants."""
 
     V0_5_LLAMA_3_1_8B_Q4_K_M = "v0_5_llama_3_1_8b_Q4_K_M"
+    V0_5_LLAMA_3_2_1B_Q4_K_M = "v0_5_llama_3_2_1b_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
-    """Ultravox v0.5 Llama 3.1 8B GGUF model loader for causal language modeling."""
+    """Ultravox v0.5 Llama GGUF model loader for causal language modeling."""
 
     _VARIANTS = {
         ModelVariant.V0_5_LLAMA_3_1_8B_Q4_K_M: LLMModelConfig(
             pretrained_model_name="ggml-org/ultravox-v0_5-llama-3_1-8b-GGUF",
             max_length=128,
         ),
+        ModelVariant.V0_5_LLAMA_3_2_1B_Q4_K_M: LLMModelConfig(
+            pretrained_model_name="ggml-org/ultravox-v0_5-llama-3_2-1b-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.V0_5_LLAMA_3_1_8B_Q4_K_M
 
-    GGUF_FILE = "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.V0_5_LLAMA_3_1_8B_Q4_K_M: "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+        ModelVariant.V0_5_LLAMA_3_2_1B_Q4_K_M: "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+    }
 
     sample_text = "Describe what you hear in this audio."
 
@@ -52,7 +60,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Ultravox v0.5 Llama 3.1 8B GGUF",
+            model="Ultravox v0.5 Llama GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -64,7 +72,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -84,7 +92,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
