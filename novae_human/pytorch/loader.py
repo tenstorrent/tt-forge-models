@@ -12,6 +12,16 @@ expression data. Its backbone is a graph attention network that consumes PyG
 import torch
 from typing import Optional
 
+# Capture pandas._libs.lib before any requirements manager purge so that
+# our reference survives the sys.modules eviction.  CPython never truly
+# unloads a C extension (.so), so this object is the *same* one that any
+# subsequent `import pandas._libs.lib` will return – meaning a patch here
+# persists into the novae import chain.
+try:
+    from pandas._libs import lib as _PANDAS_LIB
+except ImportError:
+    _PANDAS_LIB = None
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -70,6 +80,16 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Novae model instance.
         """
+        # pandas 3.x removed is_interval from _libs.lib; anndata/scanpy (via novae)
+        # still imports it.  Since CPython cannot truly reload a C extension that is
+        # already mapped into memory, we patch the existing module object directly.
+        if _PANDAS_LIB is not None and not hasattr(_PANDAS_LIB, "is_interval"):
+            _PANDAS_LIB.is_interval = lambda x: (
+                type(x).__name__ == "Interval"
+                and hasattr(type(x), "left")
+                and hasattr(type(x), "right")
+            )
+
         import novae
 
         model = novae.Novae.from_pretrained(
@@ -87,8 +107,9 @@ class ModelLoader(ForgeModel):
         """Build a synthetic batch of spatial-transcriptomics graphs.
 
         Returns:
-            dict[str, torch_geometric.data.Batch]: Input dict with ``"main"``
-            and ``"view"`` PyG batches, matching the model's forward signature.
+            tuple: Single-element tuple containing the batch dict so the test
+            infrastructure passes it as the positional ``batch`` argument to
+            ``Novae.forward``.
         """
         from torch_geometric.data import Batch, Data
 
@@ -123,4 +144,6 @@ class ModelLoader(ForgeModel):
             [_make_graph(f"slide_{i}") for i in range(self._N_GRAPHS)]
         )
 
-        return {"main": main_batch, "view": view_batch}
+        # Return as a tuple so the test infra passes the dict as a single
+        # positional `batch` argument rather than spreading it as **kwargs.
+        return ({"main": main_batch, "view": view_batch},)
