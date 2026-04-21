@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Gemma 3 4B IT Null-Space Abliterated GGUF model loader implementation for causal language modeling.
+jwest33/gemma-3-4b-it-null-space-abliterated GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -23,24 +23,24 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Gemma 3 4B IT Null-Space Abliterated GGUF model variants for causal language modeling."""
 
-    GEMMA_3_4B_IT_NULL_SPACE_ABLITERATED_I1_GGUF = (
-        "4B_IT_Null_Space_Abliterated_i1_GGUF"
+    GEMMA_3_4B_IT_NULL_SPACE_ABLITERATED_Q4_K_M = (
+        "4B_IT_Null_Space_Abliterated_Q4_K_M_GGUF"
     )
 
 
 class ModelLoader(ForgeModel):
-    """Gemma 3 4B IT Null-Space Abliterated GGUF model loader implementation for causal language modeling tasks."""
+    """jwest33/gemma-3-4b-it-null-space-abliterated GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.GEMMA_3_4B_IT_NULL_SPACE_ABLITERATED_I1_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/gemma-3-4b-it-null-space-abliterated-i1-GGUF",
+        ModelVariant.GEMMA_3_4B_IT_NULL_SPACE_ABLITERATED_Q4_K_M: LLMModelConfig(
+            pretrained_model_name="jwest33/gemma-3-4b-it-null-space-abliterated-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.GEMMA_3_4B_IT_NULL_SPACE_ABLITERATED_I1_GGUF
+    DEFAULT_VARIANT = ModelVariant.GEMMA_3_4B_IT_NULL_SPACE_ABLITERATED_Q4_K_M
 
-    GGUF_FILE = "gemma-3-4b-it-null-space-abliterated.i1-Q4_K_M.gguf"
+    GGUF_FILE = "gemma-3-4b-it-null-space-abliterated-q4_k_m.gguf"
 
     sample_text = "What is your favorite city?"
 
