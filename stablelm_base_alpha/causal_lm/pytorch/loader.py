@@ -100,7 +100,6 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
-        self.config = model.config
 
         return model
 
