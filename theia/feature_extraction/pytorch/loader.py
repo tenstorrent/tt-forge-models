@@ -9,7 +9,7 @@ Theia feature extraction model loader implementation for PyTorch.
 from typing import Optional
 
 import torch
-from transformers import AutoModel, AutoImageProcessor
+from transformers import AutoConfig, AutoModel, AutoImageProcessor
 from datasets import load_dataset
 
 from ....base import ForgeModel
@@ -108,9 +108,11 @@ class ModelLoader(ForgeModel):
             dict: Preprocessed inputs with pixel_values tensor.
         """
         if self._processor is None:
-            self._processor = AutoImageProcessor.from_pretrained(
+            config = AutoConfig.from_pretrained(
                 self._model_name, trust_remote_code=True
             )
+            backbone = getattr(config, "backbone", self._model_name)
+            self._processor = AutoImageProcessor.from_pretrained(backbone)
 
         if image is None:
             dataset = load_dataset("huggingface/cats-image", split="test")
