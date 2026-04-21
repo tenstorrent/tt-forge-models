@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available StarVector model variants."""
 
     STARVECTOR_1B = "1B"
+    STARVECTOR_8B = "8B"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.STARVECTOR_1B: ModelConfig(
             pretrained_model_name="starvector/starvector-1b-im2svg",
+        ),
+        ModelVariant.STARVECTOR_8B: ModelConfig(
+            pretrained_model_name="starvector/starvector-8b-im2svg",
         ),
     }
 
