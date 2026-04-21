@@ -37,7 +37,7 @@ class ModelVariant(StrEnum):
     BASE = "Base"
     LARGE = "Large"
     SMALL_PLUS_PATCH16_TIMM = "Small_Plus_Patch16_TIMM"
-    VIT_7B_PATCH16_TIMM = "Vit_7B_Patch16_TIMM"
+    BASE_PATCH16_QKVB_TIMM = "Base_Patch16_QKVB_TIMM"
 
 
 class ModelLoader(ForgeModel):
@@ -56,8 +56,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="vit_small_plus_patch16_dinov3.lvd1689m",
             source=ModelSource.TIMM,
         ),
-        ModelVariant.VIT_7B_PATCH16_TIMM: DINOv3Config(
-            pretrained_model_name="vit_7b_patch16_dinov3.lvd1689m",
+        ModelVariant.BASE_PATCH16_QKVB_TIMM: DINOv3Config(
+            pretrained_model_name="vit_base_patch16_dinov3_qkvb.lvd1689m",
             source=ModelSource.TIMM,
         ),
     }
