@@ -11,6 +11,7 @@ diffusers config for model construction.
 Reference: https://huggingface.co/Comfy-Org/FLUX.1-Krea-dev_ComfyUI
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -33,8 +34,8 @@ REPO_ID = "Comfy-Org/FLUX.1-Krea-dev_ComfyUI"
 # Diffusion model file path within the ComfyUI repackaged repo
 _DIFFUSION_FILE = "split_files/diffusion_models/flux1-krea-dev_fp8_scaled.safetensors"
 
-# Upstream diffusers config source
-_CONFIG_REPO = "black-forest-labs/FLUX.1-dev"
+# Local transformer config (avoids gated black-forest-labs/FLUX.1-dev repo)
+_LOCAL_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "transformer_config")
 
 
 class ModelVariant(StrEnum):
@@ -81,8 +82,7 @@ class ModelLoader(ForgeModel):
 
         self._transformer = FluxTransformer2DModel.from_single_file(
             model_path,
-            config=_CONFIG_REPO,
-            subfolder="transformer",
+            config=_LOCAL_CONFIG_DIR,
             torch_dtype=dtype,
         )
         self._transformer.eval()
@@ -106,7 +106,7 @@ class ModelLoader(ForgeModel):
 
         Returns a dict matching FluxTransformer2DModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = kwargs.get("batch_size", 1)
 
         # FLUX.1-dev transformer config dimensions
