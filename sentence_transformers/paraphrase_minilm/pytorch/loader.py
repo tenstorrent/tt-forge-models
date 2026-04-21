@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     PARAPHRASE_MINILM_L3_V2 = "sentence-transformers/paraphrase-MiniLM-L3-v2"
     PARAPHRASE_MINILM_L6_V2 = "sentence-transformers/paraphrase-MiniLM-L6-v2"
+    LONG_SEQ_PARAPHRASE_MINILM_L6_V2 = "harsh-wk/long-seq-paraphrase-MiniLM-L6-v2"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.PARAPHRASE_MINILM_L6_V2: LLMModelConfig(
             pretrained_model_name="sentence-transformers/paraphrase-MiniLM-L6-v2",
             max_length=128,
+        ),
+        ModelVariant.LONG_SEQ_PARAPHRASE_MINILM_L6_V2: LLMModelConfig(
+            pretrained_model_name="harsh-wk/long-seq-paraphrase-MiniLM-L6-v2",
+            max_length=512,
         ),
     }
 
