@@ -11,11 +11,17 @@ Gthalmie1/moody-real-mix-v4-dpo-gguf, a DPO-tuned Lumina-Image-2.0 checkpoint.
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 from typing import Optional
 
 import torch
+import torch.nn as nn
 import diffusers.loaders.single_file_model as _sfm
 from diffusers import GGUFQuantizationConfig, Lumina2Transformer2DModel
+from diffusers.models.normalization import LuminaLayerNormContinuous, LuminaRMSNormZero
+from diffusers.models.transformers.transformer_lumina2 import (
+    Lumina2CombinedTimestepCaptionEmbedding,
+)
 
 from ...base import ForgeModel
 from ...config import (
@@ -30,11 +36,15 @@ from ...config import (
 
 REPO_ID = "Gthalmie1/moody-real-mix-v4-dpo-gguf"
 
-# This GGUF uses a larger Lumina2 variant: hidden=3840, cap_feat=2560, MHA (kv=q heads)
+# This GGUF uses a larger Lumina2 variant: hidden=3840, cap_feat=2560, full MHA
 IN_CHANNELS = 16
 CAP_FEAT_DIM = 2560
 HIDDEN_SIZE = 3840
 NUM_HEADS = 30  # 3840 / 128 head_dim = 30
+# Timestep MLP hidden dim: mlp.0 maps 256→1024 (so linear_1 output=1024), mlp.2 maps 1024→256.
+# adaLN and norm_out conditioning however use 256-dim (GGUF weight shapes confirm this).
+CONDITIONING_DIM = 1024
+ACTUAL_CONDITIONING_DIM = 256  # actual dim fed into adaLN / norm_out
 
 # Config for this model's architecture (not the default Alpha-VLLM/Lumina-Image-2.0)
 _MODEL_CONFIG = {
@@ -43,7 +53,9 @@ _MODEL_CONFIG = {
     "axes_dim_rope": [32, 48, 48],
     "axes_lens": [300, 512, 512],
     "cap_feat_dim": CAP_FEAT_DIM,
-    "ffn_dim_multiplier": None,
+    # FFN: actual inner_dim = 10240 = int(8/3*3840). diffusers uses 4*dim=15360 base,
+    # so ffn_dim_multiplier = 0.6667 → int(0.6667*15360)=10240, rounded to 256 → 10240
+    "ffn_dim_multiplier": 0.6667,
     "hidden_size": HIDDEN_SIZE,
     "in_channels": IN_CHANNELS,
     "multiple_of": 256,
@@ -149,6 +161,112 @@ def _patched_convert_lumina2_to_diffusers(checkpoint, **kwargs):
     return converted_state_dict
 
 
+@contextmanager
+def _lumina2_conditioning_dim_patch():
+    """
+    Temporarily patch diffusers Lumina2 classes to match this model's non-standard
+    timestep MLP shape: 256→1024→256 bottleneck (vs diffusers' symmetric 256→dim→dim).
+    adaLN and norm_out conditioning use the 256-dim output (ACTUAL_CONDITIONING_DIM),
+    not the hardcoded min(hidden_size=3840, 1024)=1024.
+    """
+    from diffusers.models.normalization import RMSNorm
+    from diffusers.models.embeddings import Timesteps, TimestepEmbedding
+
+    orig_rms_init = LuminaRMSNormZero.__init__
+    orig_combined_init = Lumina2CombinedTimestepCaptionEmbedding.__init__
+    orig_lumina2_init = Lumina2Transformer2DModel.__init__
+
+    def _rms_init(self, embedding_dim, norm_eps, norm_elementwise_affine):
+        nn.Module.__init__(self)
+        self.silu = nn.SiLU()
+        self.linear = nn.Linear(ACTUAL_CONDITIONING_DIM, 4 * embedding_dim, bias=True)
+        self.norm = RMSNorm(embedding_dim, eps=norm_eps)
+
+    def _combined_init(
+        self,
+        hidden_size=4096,
+        cap_feat_dim=2048,
+        frequency_embedding_size=256,
+        norm_eps=1e-5,
+    ):
+        nn.Module.__init__(self)
+        self.time_proj = Timesteps(
+            num_channels=frequency_embedding_size,
+            flip_sin_to_cos=True,
+            downscale_freq_shift=0.0,
+        )
+        # Bottleneck MLP: 256→1024 (linear_1) then 1024→256 (linear_2, via out_dim)
+        self.timestep_embedder = TimestepEmbedding(
+            in_channels=frequency_embedding_size,
+            time_embed_dim=CONDITIONING_DIM,
+            out_dim=ACTUAL_CONDITIONING_DIM,
+        )
+        self.caption_embedder = nn.Sequential(
+            RMSNorm(cap_feat_dim, eps=norm_eps),
+            nn.Linear(cap_feat_dim, hidden_size, bias=True),
+        )
+
+    def _lumina2_init(
+        self,
+        hidden_size=2304,
+        cap_feat_dim=2304,
+        num_attention_heads=24,
+        num_kv_heads=8,
+        multiple_of=256,
+        ffn_dim_multiplier=None,
+        norm_eps=1e-5,
+        num_layers=26,
+        num_refiner_layers=2,
+        in_channels=16,
+        out_channels=None,
+        patch_size=2,
+        sample_size=128,
+        scaling_factor=1.0,
+        axes_dim_rope=(32, 32, 32),
+        axes_lens=(300, 512, 512),
+    ):
+        orig_lumina2_init(
+            self,
+            hidden_size=hidden_size,
+            cap_feat_dim=cap_feat_dim,
+            num_attention_heads=num_attention_heads,
+            num_kv_heads=num_kv_heads,
+            multiple_of=multiple_of,
+            ffn_dim_multiplier=ffn_dim_multiplier,
+            norm_eps=norm_eps,
+            num_layers=num_layers,
+            num_refiner_layers=num_refiner_layers,
+            in_channels=in_channels,
+            out_channels=out_channels,
+            patch_size=patch_size,
+            sample_size=sample_size,
+            scaling_factor=scaling_factor,
+            axes_dim_rope=axes_dim_rope,
+            axes_lens=axes_lens,
+        )
+        # Rebuild norm_out with the correct 256-dim conditioning input
+        out_channels = self.out_channels
+        self.norm_out = LuminaLayerNormContinuous(
+            embedding_dim=hidden_size,
+            conditioning_embedding_dim=ACTUAL_CONDITIONING_DIM,
+            elementwise_affine=False,
+            eps=1e-6,
+            bias=True,
+            out_dim=patch_size * patch_size * out_channels,
+        )
+
+    LuminaRMSNormZero.__init__ = _rms_init
+    Lumina2CombinedTimestepCaptionEmbedding.__init__ = _combined_init
+    Lumina2Transformer2DModel.__init__ = _lumina2_init
+
+    try:
+        yield
+    finally:
+        LuminaRMSNormZero.__init__ = orig_rms_init
+        Lumina2CombinedTimestepCaptionEmbedding.__init__ = orig_combined_init
+        Lumina2Transformer2DModel.__init__ = orig_lumina2_init
+
+
 class ModelLoader(ForgeModel):
     """Moody Real Mix v4 DPO GGUF model loader for text-to-image generation."""
 
@@ -190,17 +308,19 @@ class ModelLoader(ForgeModel):
             "checkpoint_mapping_fn"
         ] = _patched_convert_lumina2_to_diffusers
 
-        # Provide a config that matches the actual GGUF architecture
+        # Provide a config that matches the actual GGUF architecture, and patch
+        # diffusers classes to use conditioning_dim=256 (not hardcoded min(dim,1024)=1024)
         with tempfile.TemporaryDirectory() as tmp_dir:
             with open(os.path.join(tmp_dir, "config.json"), "w") as f:
                 json.dump(_MODEL_CONFIG, f)
 
-            self.transformer = Lumina2Transformer2DModel.from_single_file(
-                f"https://huggingface.co/{repo_id}/{gguf_filename}",
-                config=tmp_dir,
-                quantization_config=quantization_config,
-                torch_dtype=compute_dtype,
-            )
+            with _lumina2_conditioning_dim_patch():
+                self.transformer = Lumina2Transformer2DModel.from_single_file(
+                    f"https://huggingface.co/{repo_id}/{gguf_filename}",
+                    config=tmp_dir,
+                    quantization_config=quantization_config,
+                    torch_dtype=compute_dtype,
+                )
 
         self.transformer.eval()
         return self.transformer
