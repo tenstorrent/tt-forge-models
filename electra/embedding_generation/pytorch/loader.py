@@ -22,6 +22,13 @@ class ModelVariant(StrEnum):
     """Available ELECTRA embedding generation model variants."""
 
     KO_EN_BASE = "Ko_En_Base"
+    KC_ELECTRA_BASE = "beomi/KcELECTRA-base"
+
+
+_SAMPLE_TEXTS = {
+    ModelVariant.KO_EN_BASE: "tunib is a natural language processing tech startup.",
+    ModelVariant.KC_ELECTRA_BASE: "이 영화는 정말 재미있었어요",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +39,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="tunib/electra-ko-en-base",
             max_length=128,
         ),
+        ModelVariant.KC_ELECTRA_BASE: LLMModelConfig(
+            pretrained_model_name="beomi/KcELECTRA-base",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.KO_EN_BASE
@@ -40,6 +51,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.model_name = self._variant_config.pretrained_model_name
         self.max_length = self._variant_config.max_length
+        self.sample_text = _SAMPLE_TEXTS[self._variant]
         self.tokenizer = None
 
     @classmethod
@@ -71,9 +83,8 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self.load_model(dtype_override=dtype_override)
 
-        sentence = "tunib is a natural language processing tech startup."
         inputs = self.tokenizer(
-            sentence,
+            self.sample_text,
             max_length=self.max_length,
             padding="max_length",
             truncation=True,
