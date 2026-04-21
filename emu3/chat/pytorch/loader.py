@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.EMU3_CHAT
 
-    VISION_TOKENIZER_NAME = "BAAI/Emu3-VisionTokenier"
+    VISION_TOKENIZER_NAME = "BAAI/Emu3-VisionTokenizer"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
