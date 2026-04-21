@@ -40,11 +40,21 @@ def _patch_qwen3vl_support():
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
-    """Wrap load_gguf_checkpoint to add qwen3vl support and fix model_type."""
+    """Wrap load_gguf_checkpoint to add qwen3vl support and fix model_type.
+
+    Also fixes a single-element array scalar collapse issue: when the GGUF
+    tokenizer.ggml.merges array has exactly one entry, load_gguf_checkpoint
+    collapses it to a plain string. GGUFTokenizerSkeleton then iterates over
+    the string's characters, producing invalid length-1 merge tuples. Ensure
+    merges is always a list.
+    """
     _patch_qwen3vl_support()
     result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     if result.get("config", {}).get("model_type") == "qwen3vl":
         result["config"]["model_type"] = "qwen3"
+    tokenizer = result.get("tokenizer", {})
+    if isinstance(tokenizer.get("merges"), str):
+        tokenizer["merges"] = [tokenizer["merges"]]
     return result
 
 
