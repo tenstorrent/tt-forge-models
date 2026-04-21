@@ -22,12 +22,7 @@ from ...config import (
 
 
 class Dia2StepWrapper(nn.Module):
-    """Wrap Dia2Model.step_text to expose a single decode step as a clean forward.
-
-    The Dia2 transformer decodes one multi-stream token per call (text + audio
-    codebooks) and returns the hidden state, action logits, and codebook-0
-    logits. A persistent KV-cache ``state`` is allocated at construction time.
-    """
+    """Expose a single Dia2 text decode step with a persistent KV-cache state."""
 
     def __init__(self, model, max_steps: int):
         super().__init__()
@@ -107,12 +102,7 @@ class ModelLoader(ForgeModel):
         return Dia2StepWrapper(model, max_steps=self._max_steps)
 
     def load_inputs(self, dtype_override=None):
-        """Provide a single-step multi-stream token batch and position index.
-
-        ``tokens`` has shape [B=1, channels, T=1] where channel 0/1 are text
-        streams and channels 2..(channels-1) are audio codebooks. ``positions``
-        is the decode step index used for RoPE / KV-cache writes.
-        """
+        """Provide a single multi-stream decode step: [B, channels, T=1] tokens and [B, T=1] positions."""
         tokens = torch.zeros(1, self._channels, 1, dtype=torch.long)
         positions = torch.zeros(1, 1, dtype=torch.long)
         return (tokens, positions)
