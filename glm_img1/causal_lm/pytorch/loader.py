@@ -33,7 +33,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.DEFAULT: ModelConfig(
-            pretrained_model_name="belztjti/img1",
+            pretrained_model_name="THUDM/glm-edge-1.5b-chat",
         ),
     }
 
