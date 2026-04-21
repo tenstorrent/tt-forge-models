@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available Chonky ModernBERT token classification model variants."""
 
     CHONKY_MODERNBERT_BASE_1 = "chonky_modernbert_base_1"
+    CHONKY_MODERNBERT_LARGE_1 = "chonky_modernbert_large_1"
 
 
 class ModelLoader(ForgeModel):
@@ -33,12 +34,17 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mirth/chonky_modernbert_base_1",
             max_length=128,
         ),
+        ModelVariant.CHONKY_MODERNBERT_LARGE_1: LLMModelConfig(
+            pretrained_model_name="mirth/chonky_modernbert_large_1",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.CHONKY_MODERNBERT_BASE_1
 
     _SAMPLE_TEXTS = {
         ModelVariant.CHONKY_MODERNBERT_BASE_1: "The quick brown fox jumps over the lazy dog. Meanwhile, in another part of the forest, birds were singing their morning songs.",
+        ModelVariant.CHONKY_MODERNBERT_LARGE_1: "The quick brown fox jumps over the lazy dog. Meanwhile, in another part of the forest, birds were singing their morning songs.",
     }
 
     def __init__(self, variant=None):
