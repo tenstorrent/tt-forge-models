@@ -108,6 +108,9 @@ class ModelVariant(StrEnum):
     # HuggingFace community variants
     HUGGYLLAMA_7B = "Huggyllama_7B"
 
+    # Decapoda Research variants
+    DECAPODA_RESEARCH_LLAMA_7B = "Decapoda_Research_Llama_7B"
+
     # Llama 2 variants
     LLAMA_2_7B = "2_7B"
     LLAMA_2_7B_GPTQ = "2_7B_GPTQ"
@@ -288,6 +291,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="yahma/llama-7b-hf",
             max_length=128,
         ),
+        # Decapoda Research variants
+        ModelVariant.DECAPODA_RESEARCH_LLAMA_7B: LLMModelConfig(
+            pretrained_model_name="baffo32/decapoda-research-llama-7B-hf",
+            max_length=128,
+        ),
         # TinyLlama variants
         ModelVariant.TINYLLAMA_V1_1: LLMModelConfig(
             pretrained_model_name="TinyLlama/TinyLlama_v1.1",
@@ -394,7 +402,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.AMD_QUARK_TINY_LLAMA,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA,
-            ModelVariant.KNUTJAEGERSBERG_BLACK_GOO_RECIPE_C,
+            ModelVariant.DECAPODA_RESEARCH_LLAMA_7B,
         ]:
             group = ModelGroup.VULCAN
         else:
@@ -673,6 +681,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
             ModelVariant.LLAMA_3_2_1B_BNB_4BIT,
             ModelVariant.HUGGYLLAMA_7B,
+            ModelVariant.DECAPODA_RESEARCH_LLAMA_7B,
             ModelVariant.LLAMA_2_7B,
             ModelVariant.UNSLOTH_LLAMA_2_7B,
             ModelVariant.SHARPBAI_LLAMA_2_7B,
