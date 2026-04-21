@@ -23,6 +23,7 @@ from ....tools.utils import cast_input_to_type
 
 class ModelVariant(StrEnum):
     OPENELM_270M_INSTRUCT = "270M_Instruct"
+    OPENELM_270M_INSTRUCT_MLX = "270M_Instruct_mlx"
     OPENELM_450M_INSTRUCT = "450M_Instruct"
     OPENELM_1_1B_INSTRUCT = "1_1B_Instruct"
     OPENELM_3B_INSTRUCT = "3B_Instruct"
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OPENELM_270M_INSTRUCT: ModelConfig(
             pretrained_model_name="apple/OpenELM-270M-Instruct",
+        ),
+        ModelVariant.OPENELM_270M_INSTRUCT_MLX: ModelConfig(
+            pretrained_model_name="mlx-community/OpenELM-270M-Instruct",
         ),
         ModelVariant.OPENELM_450M_INSTRUCT: ModelConfig(
             pretrained_model_name="apple/OpenELM-450M-Instruct",
