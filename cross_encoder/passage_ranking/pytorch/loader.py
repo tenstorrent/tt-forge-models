@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     MS_MARCO_MINILM_L12_V2 = "ms-marco-MiniLM-L12-v2"
     MS_MARCO_TINYBERT_L6 = "ms-marco-TinyBERT-L6"
     MSMARCO_MINILM_L12_EN_DE_V1 = "msmarco-MiniLM-L12-en-de-v1"
+    XENOVA_MS_MARCO_MINILM_L_12_V2 = "Xenova/ms-marco-MiniLM-L-12-v2"
 
 
 class ModelLoader(ForgeModel):
@@ -53,6 +54,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MSMARCO_MINILM_L12_EN_DE_V1: ModelConfig(
             pretrained_model_name="cross-encoder/msmarco-MiniLM-L12-en-de-v1",
+        ),
+        ModelVariant.XENOVA_MS_MARCO_MINILM_L_12_V2: ModelConfig(
+            pretrained_model_name="Xenova/ms-marco-MiniLM-L-12-v2",
         ),
     }
 
