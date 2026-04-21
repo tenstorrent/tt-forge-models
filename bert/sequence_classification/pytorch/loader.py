@@ -30,10 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    BHADRESH_SAVANI_BERT_BASE_UNCASED_EMOTION = (
-        "bhadresh_savani_Bert_Base_Uncased_Emotion"
-    )
-    TEXTATTACK_BERT_BASE_UNCASED_MRPC = "Base_Uncased_MRPC"
+    YIYANGHKUST_FINBERT_ESG_9_CATEGORIES = "yiyanghkust_FinBERT_ESG_9_Categories"
 
 
 class ModelLoader(ForgeModel):
@@ -69,12 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.BHADRESH_SAVANI_BERT_BASE_UNCASED_EMOTION: LLMModelConfig(
-            pretrained_model_name="bhadresh-savani/bert-base-uncased-emotion",
-            max_length=128,
-        ),
-        ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_MRPC: LLMModelConfig(
-            pretrained_model_name="textattack/bert-base-uncased-MRPC",
+        ModelVariant.YIYANGHKUST_FINBERT_ESG_9_CATEGORIES: LLMModelConfig(
+            pretrained_model_name="yiyanghkust/finbert-esg-9-categories",
             max_length=128,
         ),
     }
@@ -102,8 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.BHADRESH_SAVANI_BERT_BASE_UNCASED_EMOTION: "I love using transformers. The best part is wide range of support and its easy to use",
-        ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_MRPC: "The company announced record profits this quarter.",
+        ModelVariant.YIYANGHKUST_FINBERT_ESG_9_CATEGORIES: "For 2002, our total net emissions were approximately 60 million metric tons of CO2 equivalents across all businesses and operations.",
     }
 
     def __init__(self, variant=None):
@@ -142,8 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.BHADRESH_SAVANI_BERT_BASE_UNCASED_EMOTION,
-            ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_MRPC,
+            ModelVariant.YIYANGHKUST_FINBERT_ESG_9_CATEGORIES,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
