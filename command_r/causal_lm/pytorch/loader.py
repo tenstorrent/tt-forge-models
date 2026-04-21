@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     COMMAND_R7B_ARABIC = "7B_Arabic"
     COMMAND_R_PLUS = "Plus"
     COMMAND_R_PLUS_08_2024 = "Plus_08_2024"
-    COMMAND_R_PLUS_08_2024_GGUF = "Plus_08_2024_GGUF"
+    COMMAND_R_PLUS_GGUF = "Plus_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -43,14 +43,14 @@ class ModelLoader(ForgeModel):
         ModelVariant.COMMAND_R_PLUS_08_2024: LLMModelConfig(
             pretrained_model_name="CohereLabs/c4ai-command-r-plus-08-2024",
         ),
-        ModelVariant.COMMAND_R_PLUS_08_2024_GGUF: LLMModelConfig(
-            pretrained_model_name="bartowski/c4ai-command-r-plus-08-2024-GGUF",
+        ModelVariant.COMMAND_R_PLUS_GGUF: LLMModelConfig(
+            pretrained_model_name="pmysl/c4ai-command-r-plus-GGUF",
         ),
     }
 
     # GGUF files for quantized variants
     _GGUF_FILES = {
-        ModelVariant.COMMAND_R_PLUS_08_2024_GGUF: "c4ai-command-r-plus-08-2024-Q4_K_M.gguf",
+        ModelVariant.COMMAND_R_PLUS_GGUF: "command-r-plus-Q4_K_M-00001-of-00002.gguf",
     }
 
     # Default variant to use
