@@ -105,4 +105,9 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        if dtype_override is not None:
+            for key, value in inputs.items():
+                if isinstance(value, torch.Tensor) and value.dtype.is_floating_point:
+                    inputs[key] = value.to(dtype_override)
+
         return inputs
