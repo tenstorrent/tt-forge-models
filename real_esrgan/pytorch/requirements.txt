@@ -1,2 +1,3 @@
 safetensors
 huggingface_hub
+gguf
