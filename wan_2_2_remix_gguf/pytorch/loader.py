@@ -5,8 +5,9 @@
 """
 Wan 2.2 Remix GGUF model loader implementation.
 
-Loads GGUF-quantized Wan 2.2 Remix transformers from
-BigDannyPt/Wan-2.2-Remix-GGUF and builds text-to-video or
+Loads GGUF-quantized Wan 2.2 Remix transformers from community
+re-uploads (BigDannyPt/Wan-2.2-Remix-GGUF and
+huchukato/Wan2.2-Remix-I2V-v2.1-GGUF) and builds text-to-video or
 image-to-video pipelines.
 
 The Wan 2.2 Remix is a community fine-tune of the Wan 2.2 14B model
@@ -17,6 +18,8 @@ Mixture-of-Experts (MoE) architecture.
 Available variants:
 - WAN22_REMIX_T2V_HIGH_V2_Q4_K_M: T2V high-noise expert v2.0, Q4_K_M
 - WAN22_REMIX_I2V_HIGH_V3_Q4_K_M: I2V high-noise expert v3.0, Q4_K_M
+- WAN22_REMIX_I2V_HIGH_V2_1_Q4_K_M: I2V high-noise expert v2.1, Q4_K_M
+- WAN22_REMIX_I2V_LOW_V2_1_Q4_K_M: I2V low-noise expert v2.1, Q4_K_M
 """
 
 from typing import Any, Optional
@@ -35,7 +38,8 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_REPO = "BigDannyPt/Wan-2.2-Remix-GGUF"
+BIGDANNYPT_GGUF_REPO = "BigDannyPt/Wan-2.2-Remix-GGUF"
+HUCHUKATO_I2V_V2_1_GGUF_REPO = "huchukato/Wan2.2-Remix-I2V-v2.1-GGUF"
 T2V_BASE_PIPELINE = "Wan-AI/Wan2.2-T2V-A14B-Diffusers"
 I2V_BASE_PIPELINE = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
 
@@ -45,16 +49,29 @@ class ModelVariant(StrEnum):
 
     WAN22_REMIX_T2V_HIGH_V2_Q4_K_M = "2.2_Remix_T2V_High_v2.0_Q4_K_M"
     WAN22_REMIX_I2V_HIGH_V3_Q4_K_M = "2.2_Remix_I2V_High_v3.0_Q4_K_M"
+    WAN22_REMIX_I2V_HIGH_V2_1_Q4_K_M = "2.2_Remix_I2V_High_v2.1_Q4_K_M"
+    WAN22_REMIX_I2V_LOW_V2_1_Q4_K_M = "2.2_Remix_I2V_Low_v2.1_Q4_K_M"
 
+
+_GGUF_REPOS = {
+    ModelVariant.WAN22_REMIX_T2V_HIGH_V2_Q4_K_M: BIGDANNYPT_GGUF_REPO,
+    ModelVariant.WAN22_REMIX_I2V_HIGH_V3_Q4_K_M: BIGDANNYPT_GGUF_REPO,
+    ModelVariant.WAN22_REMIX_I2V_HIGH_V2_1_Q4_K_M: HUCHUKATO_I2V_V2_1_GGUF_REPO,
+    ModelVariant.WAN22_REMIX_I2V_LOW_V2_1_Q4_K_M: HUCHUKATO_I2V_V2_1_GGUF_REPO,
+}
 
 _GGUF_FILES = {
     ModelVariant.WAN22_REMIX_T2V_HIGH_V2_Q4_K_M: "T2V/v2.0/High/wan22RemixT2VI2V_t2vHighV20-Q4_K_M.gguf",
     ModelVariant.WAN22_REMIX_I2V_HIGH_V3_Q4_K_M: "I2V/v3.0/High/wan22RemixT2VI2V_i2vHighV30-Q4_K_M.gguf",
+    ModelVariant.WAN22_REMIX_I2V_HIGH_V2_1_Q4_K_M: "High/wan22RemixT2VI2V_i2vHighV21-Q4_K_M.gguf",
+    ModelVariant.WAN22_REMIX_I2V_LOW_V2_1_Q4_K_M: "Low/wan22RemixT2VI2V_i2vLowV21-Q4_K_M.gguf",
 }
 
 _IS_I2V = {
     ModelVariant.WAN22_REMIX_T2V_HIGH_V2_Q4_K_M: False,
     ModelVariant.WAN22_REMIX_I2V_HIGH_V3_Q4_K_M: True,
+    ModelVariant.WAN22_REMIX_I2V_HIGH_V2_1_Q4_K_M: True,
+    ModelVariant.WAN22_REMIX_I2V_LOW_V2_1_Q4_K_M: True,
 }
 
 
@@ -63,10 +80,16 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.WAN22_REMIX_T2V_HIGH_V2_Q4_K_M: ModelConfig(
-            pretrained_model_name=GGUF_REPO,
+            pretrained_model_name=BIGDANNYPT_GGUF_REPO,
         ),
         ModelVariant.WAN22_REMIX_I2V_HIGH_V3_Q4_K_M: ModelConfig(
-            pretrained_model_name=GGUF_REPO,
+            pretrained_model_name=BIGDANNYPT_GGUF_REPO,
+        ),
+        ModelVariant.WAN22_REMIX_I2V_HIGH_V2_1_Q4_K_M: ModelConfig(
+            pretrained_model_name=HUCHUKATO_I2V_V2_1_GGUF_REPO,
+        ),
+        ModelVariant.WAN22_REMIX_I2V_LOW_V2_1_Q4_K_M: ModelConfig(
+            pretrained_model_name=HUCHUKATO_I2V_V2_1_GGUF_REPO,
         ),
     }
     DEFAULT_VARIANT = ModelVariant.WAN22_REMIX_T2V_HIGH_V2_Q4_K_M
@@ -108,11 +131,12 @@ class ModelLoader(ForgeModel):
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
+        gguf_repo = _GGUF_REPOS[self._variant]
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            f"https://huggingface.co/{gguf_repo}/resolve/main/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
