@@ -23,7 +23,7 @@ class ModelVariant(StrEnum):
     """Available GPT-J model variants."""
 
     TINY_RANDOM = "tiny-random"
-    CEDILLE_FR_BORIS = "cedille-fr-boris"
+    HAKUREI_RANDOM_TINIER = "hakurei-random-tinier"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="peft-internal-testing/tiny-random-GPTJForCausalLM",
             max_length=256,
         ),
-        ModelVariant.CEDILLE_FR_BORIS: LLMModelConfig(
-            pretrained_model_name="Cedille/fr-boris",
+        ModelVariant.HAKUREI_RANDOM_TINIER: LLMModelConfig(
+            pretrained_model_name="hakurei/gpt-j-random-tinier",
             max_length=256,
         ),
     }
