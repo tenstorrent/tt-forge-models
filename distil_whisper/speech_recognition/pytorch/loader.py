@@ -7,6 +7,11 @@ Distil-Whisper model loader implementation for speech recognition (ASR) using Py
 
 Distil-small.en is a distilled version of OpenAI's Whisper small.en,
 6x faster with 49% fewer parameters while performing within 1% WER.
+
+The distil-large-v3.5-ct2 variant is a CTranslate2-quantized conversion of
+distil-whisper/distil-large-v3.5. Since the CTranslate2 format is not
+compatible with PyTorch, this loader uses the base distil-whisper/distil-large-v3.5
+weights via AutoModelForSpeechSeq2Seq.
 """
 
 from typing import Optional
@@ -29,6 +34,7 @@ class ModelVariant(StrEnum):
     """Available Distil-Whisper PyTorch speech recognition model variants."""
 
     DISTIL_SMALL_EN = "Distil_small_en"
+    DISTIL_LARGE_V3_5_CT2 = "Distil_large_v3_5_ct2"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +43,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DISTIL_SMALL_EN: ModelConfig(
             pretrained_model_name="distil-whisper/distil-small.en",
+        ),
+        ModelVariant.DISTIL_LARGE_V3_5_CT2: ModelConfig(
+            pretrained_model_name="distil-whisper/distil-large-v3.5",
         ),
     }
 
