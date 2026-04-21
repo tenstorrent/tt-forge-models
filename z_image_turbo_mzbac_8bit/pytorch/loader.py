@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 import torch
 from diffusers import ZImagePipeline
+from diffusers.models.transformers import ZImageTransformer2DModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -66,8 +67,17 @@ class ModelLoader(ForgeModel):
 
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
         """Load the mzbac 8-bit quantized Z-Image-Turbo pipeline."""
+        # Explicitly load transformer with ZImageTransformer2DModel because the
+        # repo's model_index.json mistakenly references the old QwenImageTransformer2DModel
+        # class name, causing diffusers to load the wrong architecture.
+        transformer = ZImageTransformer2DModel.from_pretrained(
+            PIPELINE_REPO_ID,
+            subfolder="transformer",
+            torch_dtype=dtype,
+        )
         self._pipe = ZImagePipeline.from_pretrained(
             PIPELINE_REPO_ID,
+            transformer=transformer,
             torch_dtype=dtype,
             low_cpu_mem_usage=False,
         )
