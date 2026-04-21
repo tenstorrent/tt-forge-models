@@ -249,4 +249,8 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        return {"input_features": inputs.input_features}
+        input_features = inputs.input_features
+        if dtype_override is not None:
+            input_features = input_features.to(dtype_override)
+
+        return {"input_features": input_features}
