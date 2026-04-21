@@ -45,6 +45,7 @@ class ModelVariant(StrEnum):
     QWEN_3_8B = "8B"
     QWEN_3_8B_BASE = "8B_Base"
     QWEN_3_8B_FP8 = "8B_FP8"
+    QWEN_3_8B_NPU2_FASTFLOWLM = "8B_NPU2_FastFlowLM"
     QWEN_3_14B = "14B"
     QWEN_3_14B_BASE = "14B_Base"
     QWEN_3_14B_GPTQ_INT4 = "14B_GPTQ_Int4"
@@ -125,6 +126,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_8B_FP8: LLMModelConfig(
             pretrained_model_name="nvidia/Qwen3-8B-FP8",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_8B_NPU2_FASTFLOWLM: LLMModelConfig(
+            pretrained_model_name="FastFlowLM/Qwen3-8B-NPU2",
             max_length=128,
         ),
         ModelVariant.QWEN_3_8B_AWQ: LLMModelConfig(
@@ -271,7 +276,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_32B_GPTQ_INT4,
             ModelVariant.QWEN_3_32B_UNSLOTH_BNB_4BIT,
             ModelVariant.QWEN_3_235B_A22B_THINKING_2507_FP8,
-            ModelVariant.QWEN_3_EURUSRM_HYBRID_REWARD_OPENSCHOLAR,
+            ModelVariant.QWEN_3_8B_NPU2_FASTFLOWLM,
         ):
             group = ModelGroup.VULCAN
         else:
