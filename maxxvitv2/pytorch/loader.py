@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     MAXXVITV2_RMLP_BASE_RW_224_SW_IN12K_FT_IN1K = (
         "Maxxvitv2_Rmlp_Base_Rw_224.sw_in12k_ft_in1k"
     )
+    MAXXVITV2_RMLP_BASE_RW_224_SW_IN12K = "Maxxvitv2_Rmlp_Base_Rw_224.sw_in12k"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MAXXVITV2_RMLP_BASE_RW_224_SW_IN12K_FT_IN1K: ModelConfig(
             pretrained_model_name="maxxvitv2_rmlp_base_rw_224.sw_in12k_ft_in1k",
+        ),
+        ModelVariant.MAXXVITV2_RMLP_BASE_RW_224_SW_IN12K: ModelConfig(
+            pretrained_model_name="maxxvitv2_rmlp_base_rw_224.sw_in12k",
         ),
     }
 
