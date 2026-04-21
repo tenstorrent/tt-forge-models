@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Nanbeige 4.1 GGUF model variants for causal language modeling."""
 
     NANBEIGE_4_1_3B_Q4_K_M_GGUF = "3B_Q4_K_M_GGUF"
-    TANTK_NANBEIGE_4_1_3B_Q4_K_M_GGUF = "tantk_3B_Q4_K_M_GGUF"
+    NANBEIGE_4_1_3B_HERETIC_Q4_K_M_GGUF = "3B_heretic_Q4_K_M_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Edge-Quant/Nanbeige4.1-3B-Q4_K_M-GGUF",
             max_length=128,
         ),
-        ModelVariant.TANTK_NANBEIGE_4_1_3B_Q4_K_M_GGUF: LLMModelConfig(
-            pretrained_model_name="tantk/Nanbeige4.1-3B-GGUF",
+        ModelVariant.NANBEIGE_4_1_3B_HERETIC_Q4_K_M_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Nanbeige4.1-3B-heretic-GGUF",
             max_length=128,
         ),
     }
@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.NANBEIGE_4_1_3B_Q4_K_M_GGUF: "nanbeige4.1-3b-q4_k_m.gguf",
-        ModelVariant.TANTK_NANBEIGE_4_1_3B_Q4_K_M_GGUF: "nanbeige4.1-3b-Q4_K_M.gguf",
+        ModelVariant.NANBEIGE_4_1_3B_HERETIC_Q4_K_M_GGUF: "Nanbeige4.1-3B-heretic.Q4_K_M.gguf",
     }
 
     sample_text = "Give me a short introduction to large language models."
