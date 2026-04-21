@@ -87,12 +87,13 @@ class ModelLoader(ForgeModel):
         return model
 
     @staticmethod
-    def _create_synthetic_audio(sample_rate=16000, duration=1.0, frequency=440.0):
-        """Create a temporary synthetic audio file and return its path."""
-        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    def _create_synthetic_audio(duration=2.0, sample_rate=16000):
+        """Create a temporary synthetic WAV file and return its path."""
         t = np.linspace(0, duration, int(sample_rate * duration), dtype=np.float32)
-        waveform = 0.5 * np.sin(2 * np.pi * frequency * t)
-        sf.write(tmp.name, waveform, sample_rate)
+        audio_waveform = np.sin(2 * np.pi * 440 * t) + np.sin(2 * np.pi * 880 * t)
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        sf.write(tmp.name, audio_waveform, sample_rate)
         tmp.close()
         return tmp.name
 
@@ -102,7 +103,7 @@ class ModelLoader(ForgeModel):
 
         audio_path = self._create_synthetic_audio()
 
-        self.text_prompts = ["a sound of a dog", "a sound of a cat"]
+        self.text_prompts = ["a dog barking", "a person playing piano"]
 
         data = self.processor([audio_path], self.text_prompts, return_tensors="pt")
 
@@ -118,7 +119,7 @@ class ModelLoader(ForgeModel):
 
     def post_process(self, outputs):
         if self.text_prompts is None:
-            self.text_prompts = ["a sound of a dog", "a sound of a cat"]
+            self.text_prompts = ["a dog barking", "a person playing piano"]
 
         logits_per_audio = outputs[0]
         probs = logits_per_audio.softmax(dim=1)
