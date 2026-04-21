@@ -19,10 +19,7 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from ...tools.utils import (
-    VisionPreprocessor,
-    VisionPostprocessor,
-)
+from ...tools.utils import VisionPreprocessor
 from datasets import load_dataset
 
 
@@ -40,7 +37,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """ViT PE-Core model loader implementation."""
+    """ViT PE-Core image-only encoder model loader implementation."""
 
     _VARIANTS = {
         ModelVariant.BASE_PATCH16_224_FB: ViTPECoreConfig(
@@ -55,7 +52,6 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.model = None
         self._preprocessor = None
-        self._postprocessor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -76,16 +72,13 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         model_name = self._variant_config.pretrained_model_name
 
-        model = timm.create_model(model_name, pretrained=True)
+        model = timm.create_model(model_name, pretrained=True, num_classes=0)
         model.eval()
 
         self.model = model
 
         if self._preprocessor is not None:
             self._preprocessor.set_cached_model(model)
-
-        if self._postprocessor is not None:
-            self._postprocessor.set_model_instance(model)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -96,7 +89,13 @@ class ModelLoader(ForgeModel):
         if image is None:
             dataset = load_dataset("huggingface/cats-image", split="test")
             image = dataset[0]["image"]
+        return self.input_preprocess(
+            image=image,
+            dtype_override=dtype_override,
+            batch_size=batch_size,
+        )
 
+    def input_preprocess(self, dtype_override=None, batch_size=1, image=None):
         if self._preprocessor is None:
             model_name = self._variant_config.pretrained_model_name
             source = self._variant_config.source
@@ -106,29 +105,12 @@ class ModelLoader(ForgeModel):
                 model_name=model_name,
             )
 
-            if hasattr(self, "model") and self.model is not None:
+            if self.model is not None:
                 self._preprocessor.set_cached_model(self.model)
-
-        model_for_config = None
-        if hasattr(self, "model") and self.model is not None:
-            model_for_config = self.model
 
         return self._preprocessor.preprocess(
             image=image,
             dtype_override=dtype_override,
             batch_size=batch_size,
-            model_for_config=model_for_config,
+            model_for_config=self.model,
         )
-
-    def output_postprocess(self, output):
-        if self._postprocessor is None:
-            model_name = self._variant_config.pretrained_model_name
-            source = self._variant_config.source
-
-            self._postprocessor = VisionPostprocessor(
-                model_source=source,
-                model_name=model_name,
-                model_instance=self.model,
-            )
-
-        return self._postprocessor.postprocess(output, top_k=1, return_dict=True)
