@@ -40,7 +40,7 @@ class ModelVariant(StrEnum):
     """Available VibeVoice model variants."""
 
     VIBEVOICE_7B_BNB_4BIT = "7B-bnb-4bit"
-    LARGE = "Large"
+    LARGE_Q8 = "Large-Q8"
 
 
 class ModelLoader(ForgeModel):
@@ -50,8 +50,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.VIBEVOICE_7B_BNB_4BIT: ModelConfig(
             pretrained_model_name="marksverdhai/vibevoice-7b-bnb-4bit",
         ),
-        ModelVariant.LARGE: ModelConfig(
-            pretrained_model_name="aoi-ot/VibeVoice-Large",
+        ModelVariant.LARGE_Q8: ModelConfig(
+            pretrained_model_name="FabioSarracino/VibeVoice-Large-Q8",
         ),
     }
 
