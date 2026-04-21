@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     """Available GLM-4 MoE model variants."""
 
     MINI_GLM_MOE = "Mini GLM MoE"
-    BASETEN_GLM_4_7_FP4 = "Baseten GLM 4.7 FP4"
+    PRIME_INTELLECT_GLM_0_5B = "PrimeIntellect GLM 0.5B"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.MINI_GLM_MOE: ModelConfig(
             pretrained_model_name="samsja/mini-glm-moe",
         ),
-        ModelVariant.BASETEN_GLM_4_7_FP4: ModelConfig(
-            pretrained_model_name="baseten-admin/glm-4.7-fp4",
+        ModelVariant.PRIME_INTELLECT_GLM_0_5B: ModelConfig(
+            pretrained_model_name="PrimeIntellect/GLM-0.5B",
         ),
     }
 
