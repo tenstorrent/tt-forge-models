@@ -4,8 +4,8 @@
 """
 Typhoon2 model loader implementation for causal language modeling.
 
-Supports the typhoon-ai Llama 3.1 Typhoon2 instruction-tuned variants
-for Thai and English text generation.
+Supports the typhoon-ai Typhoon2 instruction-tuned variants for Thai and
+English text generation, including Llama 3.1 and Qwen3 MoE backbones.
 """
 
 from typing import Optional
