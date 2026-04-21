@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Med42 model variants."""
 
     LLAMA3_MED42_8B = "Llama3_Med42_8B"
+    LLAMA3_MED42_70B = "Llama3_Med42_70B"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LLAMA3_MED42_8B: LLMModelConfig(
             pretrained_model_name="m42-health/Llama3-Med42-8B",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA3_MED42_70B: LLMModelConfig(
+            pretrained_model_name="m42-health/Llama3-Med42-70B",
             max_length=128,
         ),
     }
