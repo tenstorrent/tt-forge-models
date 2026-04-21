@@ -5,12 +5,15 @@
 Emu3-Chat model loader implementation for multimodal visual question answering.
 """
 
+import sys
 import torch
+from functools import partial
 from PIL import Image
 from typing import Optional
 from transformers import (
     AutoTokenizer,
     AutoImageProcessor,
+    AutoConfig,
     AutoModel,
     AutoModelForCausalLM,
 )
@@ -105,6 +108,54 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
         )
+        # The remote processing_emu3.py calls super().__init__(image_processor, tokenizer)
+        # with 2 args, but transformers 5.x get_attributes() infers 3 from __init__ signature.
+        # Override to match what super().__init__ actually receives.
+        Emu3Processor.get_attributes = classmethod(
+            lambda cls: ["image_processor", "tokenizer"]
+        )
+
+        # transformers 5.x tokenizer.encode(list) returns list-of-lists; patch
+        # build_const_helper to flatten each single-token list to an int.
+        def _patched_build_const_helper(self):
+            tokens = self.tokenizer.encode(
+                [
+                    self.tokenizer.img_token,
+                    self.tokenizer.eoi_token,
+                    self.tokenizer.eos_token,
+                    self.tokenizer.eol_token,
+                    self.tokenizer.eof_token,
+                    self.tokenizer.pad_token,
+                    self.visual_template[0].format(token_id=0),
+                    self.visual_template[0].format(
+                        token_id=self.vision_tokenizer.config.codebook_size - 1
+                    ),
+                ]
+            )
+            flat = [t[0] if isinstance(t, (list, tuple)) else t for t in tokens]
+            (
+                img_token,
+                eoi_token,
+                eos_token,
+                eol_token,
+                eof_token,
+                pad_token,
+                vis_start,
+                vis_end,
+            ) = flat
+            module = sys.modules[self.__class__.__module__]
+            return partial(
+                module.Emu3PrefixConstrainedLogitsHelper,
+                img_token=img_token,
+                eoi_token=eoi_token,
+                eos_token=eos_token,
+                eol_token=eol_token,
+                eof_token=eof_token,
+                pad_token=pad_token,
+                visual_tokens=list(range(vis_start, vis_end + 1)),
+            )
+
+        Emu3Processor.build_const_helper = _patched_build_const_helper
         self.processor = Emu3Processor(
             self.image_processor, self.image_tokenizer, self.tokenizer
         )
@@ -116,7 +167,22 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
+        # The remote modeling_emu3.py expects rope_scaling["type"] but newer model
+        # configs use rope_scaling["rope_type"] == "default" (meaning no scaling).
+        # Set rope_scaling=None so the code takes the simple rotary embedding path.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        rope_scaling = getattr(config, "rope_scaling", None)
+        if (
+            rope_scaling is not None
+            and rope_scaling.get("rope_type", "") == "default"
+            and "type" not in rope_scaling
+        ):
+            config.rope_scaling = None
+
         model_kwargs = {
+            "config": config,
             "trust_remote_code": True,
             "attn_implementation": "eager",
         }
@@ -160,7 +226,8 @@ class ModelLoader(ForgeModel):
                 if torch.is_tensor(inputs[key]):
                     inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        return dict(inputs)
+        # image_size is metadata from the processor; Emu3ForCausalLM.forward() doesn't accept it
+        return {k: v for k, v in inputs.items() if k != "image_size"}
 
     def decode_output(self, outputs, input_length=None):
         if self.tokenizer is None:
