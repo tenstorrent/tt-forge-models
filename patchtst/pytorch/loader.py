@@ -30,6 +30,7 @@ class PatchTSTConfig(ModelConfig):
 
 class ModelVariant(StrEnum):
     TEST = "test"
+    TESTING_ETTH1_FORECAST = "testing_etth1_forecast"
 
 
 class ModelLoader(ForgeModel):
@@ -41,6 +42,12 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TEST: PatchTSTConfig(
             pretrained_model_name="ibm-research/test-patchtst",
+            context_length=512,
+            prediction_length=96,
+            num_input_channels=7,
+        ),
+        ModelVariant.TESTING_ETTH1_FORECAST: PatchTSTConfig(
+            pretrained_model_name="ibm-research/testing-patchtst_etth1_forecast",
             context_length=512,
             prediction_length=96,
             num_input_channels=7,
