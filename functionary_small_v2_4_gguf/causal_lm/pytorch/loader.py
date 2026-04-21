@@ -71,7 +71,10 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
         if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+            if self.tokenizer.eos_token is not None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+            else:
+                self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
 
         return self.tokenizer
 
