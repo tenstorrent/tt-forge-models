@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available GLM-4 MoE model variants."""
 
     MINI_GLM_MOE = "Mini GLM MoE"
+    BASETEN_GLM_4_7_FP4 = "Baseten GLM 4.7 FP4"
 
 
 class ModelLoader(ForgeModel):
@@ -35,7 +36,14 @@ class ModelLoader(ForgeModel):
         ModelVariant.MINI_GLM_MOE: ModelConfig(
             pretrained_model_name="samsja/mini-glm-moe",
         ),
+        ModelVariant.BASETEN_GLM_4_7_FP4: ModelConfig(
+            pretrained_model_name="baseten-admin/glm-4.7-fp4",
+        ),
     }
+
+    # NVFP4 quantized variants need ignore_mismatched_sizes because the packed
+    # FP4 weight shapes differ from the model definition.
+    _NVFP4_VARIANTS = {ModelVariant.BASETEN_GLM_4_7_FP4}
 
     DEFAULT_VARIANT = ModelVariant.MINI_GLM_MOE
 
@@ -84,6 +92,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._variant in self._NVFP4_VARIANTS:
+            model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
