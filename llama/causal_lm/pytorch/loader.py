@@ -320,16 +320,6 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="TheBloke/guanaco-13B-HF",
             max_length=128,
         ),
-        # Yahma variants
-        ModelVariant.YAHMA_LLAMA_7B: LLMModelConfig(
-            pretrained_model_name="yahma/llama-7b-hf",
-            max_length=128,
-        ),
-        # Decapoda Research variants
-        ModelVariant.DECAPODA_RESEARCH_LLAMA_7B: LLMModelConfig(
-            pretrained_model_name="baffo32/decapoda-research-llama-7B-hf",
-            max_length=128,
-        ),
         # TinyLlama variants
         ModelVariant.TINYLLAMA_V1_1: LLMModelConfig(
             pretrained_model_name="TinyLlama/TinyLlama_v1.1",
@@ -439,7 +429,6 @@ class ModelLoader(ForgeModel):
             ModelVariant.UNSLOTH_LLAMA_2_7B,
             ModelVariant.LLAMA_2_KO_7B_CHAT,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_DYNAMIC,
-            ModelVariant.AMD_QUARK_TINY_LLAMA,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA,
             ModelVariant.GSHASIRI_SMOLLM3_MID,
@@ -684,7 +673,6 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4,
             ModelVariant.LLAMA_3_1_405B,
             ModelVariant.LLAMA_3_1_405B_INSTRUCT,
-            ModelVariant.WHITERABBITNEO_LLAMA_3_1_70B,
         ]:
             if num_devices == 32:  # Galaxy
                 mesh_shape = (4, 8)
@@ -723,14 +711,10 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_1B_INSTRUCT_FP8_KV,
             ModelVariant.LLAMA_3_2_1B_BNB_4BIT,
             ModelVariant.HUGGYLLAMA_7B,
-            ModelVariant.DECAPODA_RESEARCH_LLAMA_7B,
             ModelVariant.LLAMA_2_7B,
             ModelVariant.UNSLOTH_LLAMA_2_7B,
             ModelVariant.SHARPBAI_LLAMA_2_7B,
             ModelVariant.JACKFRAM_LLAMA_160M,
-            ModelVariant.OPENPIPE_PII_REDACT_GENERAL,
-            ModelVariant.FAIRSEQ2_DUMMY_LLAMA_3_2_1B,
-            ModelVariant.ANK028_LLAMA_3_2_1B_INSTRUCT_MEDMCQA,
         ]:
             return None
 
