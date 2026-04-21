@@ -61,14 +61,10 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
-        from transformers import AutoProcessor
+        from transformers import SeamlessM4TFeatureExtractor
 
-        processor_kwargs = {}
-        if dtype_override is not None:
-            processor_kwargs["dtype"] = dtype_override
-
-        self._processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
+        self._processor = SeamlessM4TFeatureExtractor.from_pretrained(
+            self._variant_config.pretrained_model_name
         )
 
         return self._processor
@@ -108,5 +104,11 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if v.is_floating_point() else v
+                for k, v in inputs.items()
+            }
 
         return inputs
