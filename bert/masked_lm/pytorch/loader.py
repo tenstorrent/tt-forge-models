@@ -20,6 +20,7 @@ from third_party.tt_forge_models.base import ForgeModel
 _SAMPLE_TEXTS = {
     "dbmdz/bert-base-german-uncased": "Die Hauptstadt von Deutschland ist [MASK].",
     "Base_Polish_Cased_v1": "Adam Mickiewicz wielkim polskim [MASK] był.",
+    "PathologyBERT": "intraductal papilloma with [MASK] AND MICRO calcifications",
 }
 
 
@@ -38,6 +39,7 @@ class ModelVariant(StrEnum):
     RETROMAE_MSMARCO_DISTILL = "Shitao/RetroMAE_MSMARCO_distill"
     BERT_LARGE_UNCASED_WWM = "Large_Uncased_Whole_Word_Masking"
     BERT_BASE_POLISH_CASED_V1 = "Base_Polish_Cased_v1"
+    PATHOLOGY_BERT = "PathologyBERT"
 
 
 class ModelLoader(ForgeModel):
@@ -93,6 +95,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="dkleczek/bert-base-polish-cased-v1",
             max_length=128,
         ),
+        ModelVariant.PATHOLOGY_BERT: LLMModelConfig(
+            pretrained_model_name="tsantos/PathologyBERT",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -141,6 +147,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.RETROMAE_MSMARCO_DISTILL,
             ModelVariant.BERT_LARGE_UNCASED_WWM,
             ModelVariant.BERT_BASE_POLISH_CASED_V1,
+            ModelVariant.PATHOLOGY_BERT,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
