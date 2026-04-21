@@ -25,12 +25,14 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa token classification model variants."""
 
     CRYPTO_NER = "CryptoNER"
-    MAREFA_NER = "MarefaNER"
+    SPANISH_NER = "SpanishNER"
+    TNER_CONLL2003 = "tner-conll2003"
 
 
 _VARIANT_SAMPLE_TEXTS = {
     ModelVariant.CRYPTO_NER: "I bought mass Ethereum and mass Bitcoin on Uniswap yesterday",
-    ModelVariant.MAREFA_NER: "في استاد القاهرة، بدأ حفل افتتاح بطولة كأس الأمم الأفريقية بحضور رئيس الجمهورية و رئيس الاتحاد الدولي لكرة القدم",
+    ModelVariant.SPANISH_NER: "Mi nombre es Carlos y vivo en Madrid, trabajo para Google",
+    ModelVariant.TNER_CONLL2003: "Jim Henson worked at Disney in Los Angeles.",
 }
 
 
@@ -46,6 +48,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.WIKIANN_NER: ModelConfig(
             pretrained_model_name="Davlan/xlm-roberta-base-wikiann-ner",
+        ),
+        ModelVariant.TNER_CONLL2003: ModelConfig(
+            pretrained_model_name="tner/xlm-roberta-base-conll2003",
         ),
     }
 
