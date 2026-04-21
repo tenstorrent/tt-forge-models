@@ -50,12 +50,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_DENOISING_STEPS = 4
 
     # Per-variant overrides for variants fine-tuned on a non-GR1 embodiment.
-    _VARIANT_DEFAULTS = {
-        ModelVariant.GROOT_N1_6_G1_PNP_APPLE_TO_PLATE: {
-            "data_config": "unitree_g1",
-            "embodiment_tag": "unitree_g1",
-        },
-    }
+    _VARIANT_DEFAULTS = {}
 
     def __init__(
         self,
