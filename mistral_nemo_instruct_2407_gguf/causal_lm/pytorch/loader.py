@@ -24,9 +24,7 @@ class ModelVariant(StrEnum):
     """Available Mistral Nemo Instruct 2407 GGUF model variants for causal language modeling."""
 
     MISTRAL_NEMO_INSTRUCT_2407_GGUF = "Nemo_Instruct_2407_GGUF"
-    SECOND_STATE_MISTRAL_NEMO_INSTRUCT_2407_GGUF = (
-        "second_state_Nemo_Instruct_2407_GGUF"
-    )
+    UNSLOTH_MISTRAL_NEMO_INSTRUCT_2407_GGUF = "unsloth_Nemo_Instruct_2407_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -37,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bartowski/Mistral-Nemo-Instruct-2407-GGUF",
             max_length=128,
         ),
-        ModelVariant.SECOND_STATE_MISTRAL_NEMO_INSTRUCT_2407_GGUF: LLMModelConfig(
-            pretrained_model_name="second-state/Mistral-Nemo-Instruct-2407-GGUF",
+        ModelVariant.UNSLOTH_MISTRAL_NEMO_INSTRUCT_2407_GGUF: LLMModelConfig(
+            pretrained_model_name="unsloth/Mistral-Nemo-Instruct-2407-GGUF",
             max_length=128,
         ),
     }
@@ -47,10 +45,14 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.MISTRAL_NEMO_INSTRUCT_2407_GGUF: "Mistral-Nemo-Instruct-2407-Q4_K_M.gguf",
-        ModelVariant.SECOND_STATE_MISTRAL_NEMO_INSTRUCT_2407_GGUF: "Mistral-Nemo-Instruct-2407-Q4_K_M.gguf",
+        ModelVariant.UNSLOTH_MISTRAL_NEMO_INSTRUCT_2407_GGUF: "Mistral-Nemo-Instruct-2407.Q4_K_M.gguf",
     }
 
     sample_text = "What is the meaning of life?"
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
