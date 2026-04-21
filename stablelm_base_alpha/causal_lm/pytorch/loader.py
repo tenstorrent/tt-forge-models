@@ -2,7 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-StableLM-Base-Alpha model loader implementation for causal language modeling.
+StableLM-Alpha model loader implementation for causal language modeling.
+
+Covers the base-alpha and tuned-alpha 3B variants from Stability AI, both of
+which share the GPT-NeoX decoder-only architecture.
 """
 from typing import Optional
 
@@ -22,17 +25,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available StableLM-Base-Alpha model variants."""
+    """Available StableLM-Alpha model variants."""
 
     STABLELM_BASE_ALPHA_3B = "3B"
+    STABLELM_TUNED_ALPHA_3B = "tuned-3B"
 
 
 class ModelLoader(ForgeModel):
-    """StableLM-Base-Alpha model loader implementation for causal language modeling tasks."""
+    """StableLM-Alpha model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.STABLELM_BASE_ALPHA_3B: LLMModelConfig(
             pretrained_model_name="stabilityai/stablelm-base-alpha-3b",
+            max_length=256,
+        ),
+        ModelVariant.STABLELM_TUNED_ALPHA_3B: LLMModelConfig(
+            pretrained_model_name="stabilityai/stablelm-tuned-alpha-3b",
             max_length=256,
         ),
     }
@@ -58,8 +66,13 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+        model_name = (
+            "StableLM-Tuned-Alpha"
+            if variant == ModelVariant.STABLELM_TUNED_ALPHA_3B
+            else "StableLM-Base-Alpha"
+        )
         return ModelInfo(
-            model="StableLM-Base-Alpha",
+            model=model_name,
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
