@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available MetaCLIP 2 model variants for zero-shot image classification."""
 
     WORLDWIDE_GIANT_378 = "worldwide_giant_378"
-    WORLDWIDE_M16_384 = "worldwide_m16_384"
+    WORLDWIDE_L14 = "worldwide_l14"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.WORLDWIDE_GIANT_378: ModelConfig(
             pretrained_model_name="facebook/metaclip-2-worldwide-giant-378",
         ),
-        ModelVariant.WORLDWIDE_M16_384: ModelConfig(
-            pretrained_model_name="facebook/metaclip-2-worldwide-m16-384",
+        ModelVariant.WORLDWIDE_L14: ModelConfig(
+            pretrained_model_name="facebook/metaclip-2-worldwide-l14",
         ),
     }
 
