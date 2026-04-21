@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available MAI-UI-8B i1 GGUF model variants for image to text."""
 
     MAI_UI_8B_I1_GGUF = "mai_ui_8b_i1_gguf"
+    MAI_UI_8B_GGUF = "mai_ui_8b_gguf"
 
 
 class ModelLoader(ForgeModel):
@@ -37,15 +38,23 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/MAI-UI-8B-i1-GGUF",
             max_length=128,
         ),
+        ModelVariant.MAI_UI_8B_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/MAI-UI-8B-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.MAI_UI_8B_I1_GGUF
 
-    GGUF_FILE = "MAI-UI-8B.i1-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.MAI_UI_8B_I1_GGUF: "MAI-UI-8B.i1-Q4_K_M.gguf",
+        ModelVariant.MAI_UI_8B_GGUF: "MAI-UI-8B.Q4_K_M.gguf",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+        self.gguf_file = self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -66,7 +75,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
