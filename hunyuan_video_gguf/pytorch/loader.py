@@ -15,7 +15,7 @@ Repository:
 from typing import Optional
 
 import torch
-from diffusers import HunyuanVideoTransformer3DModel
+from diffusers import GGUFQuantizationConfig, HunyuanVideoTransformer3DModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -79,7 +79,10 @@ class ModelLoader(ForgeModel):
         gguf_file = self._GGUF_FILES[self._variant]
         gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
 
-        load_kwargs = {}
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+
+        load_kwargs = {"quantization_config": quantization_config}
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
@@ -87,9 +90,6 @@ class ModelLoader(ForgeModel):
             gguf_url,
             **load_kwargs,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
