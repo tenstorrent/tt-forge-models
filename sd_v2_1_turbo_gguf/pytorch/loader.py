@@ -126,6 +126,15 @@ class ModelLoader(ForgeModel):
         # to diffusers parameter names.
         unet_config = dict(self.pipeline.unet.config)
         converted_unet = convert_ldm_unet_checkpoint(checkpoint, unet_config)
+
+        # Older SD checkpoints store proj_in/proj_out as 1x1 convolutions
+        # (shape N,N,1,1) while newer diffusers uses linear layers (shape N,N).
+        for key in list(converted_unet.keys()):
+            if ("proj_in.weight" in key or "proj_out.weight" in key) and converted_unet[
+                key
+            ].dim() == 4:
+                converted_unet[key] = converted_unet[key].squeeze(-1).squeeze(-1)
+
         self.pipeline.unet.load_state_dict(converted_unet, strict=False)
         self.pipeline.unet = self.pipeline.unet.to(compute_dtype)
 
