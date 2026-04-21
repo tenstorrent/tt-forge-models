@@ -38,7 +38,9 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.HUIHUI_QWEN_3_5_27B_OPUS_ABLITERATED_YARN_1M_BF16_GGUF
+    DEFAULT_VARIANT = (
+        ModelVariant.HUIHUI_QWEN_3_5_27B_OPUS_ABLITERATED_YARN_1M_BF16_GGUF
+    )
 
     GGUF_FILE = "Huihui-Qwen3.5-27B-Opus-abliterated-BF16.gguf"
 
