@@ -35,8 +35,7 @@ class ModelVariant(StrEnum):
     OPUS_MT_TC_BIG_EN_BG = "Opus_Mt_Tc_Big_En_Bg"
     OPUS_MT_TC_BIG_EN_KO = "Opus_Mt_Tc_Big_En_Ko"
     OPUS_MT_EN_GMQ = "Opus_Mt_En_Gmq"
-    OPUS_MT_EN_SK = "Opus_Mt_En_Sk"
-    OPUS_MT_FR_SK = "Opus_Mt_Fr_Sk"
+    OPUS_MT_MK_EN = "Opus_Mt_Mk_En"
 
 
 class ModelLoader(ForgeModel):
@@ -79,11 +78,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPUS_MT_EN_GMQ: LLMModelConfig(
             pretrained_model_name="Helsinki-NLP/opus-mt-en-gmq",
         ),
-        ModelVariant.OPUS_MT_EN_SK: LLMModelConfig(
-            pretrained_model_name="Helsinki-NLP/opus-mt-en-sk",
-        ),
-        ModelVariant.OPUS_MT_FR_SK: LLMModelConfig(
-            pretrained_model_name="Helsinki-NLP/opus-mt-fr-sk",
+        ModelVariant.OPUS_MT_MK_EN: LLMModelConfig(
+            pretrained_model_name="Helsinki-NLP/opus-mt-mk-en",
         ),
     }
 
@@ -94,8 +90,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPUS_MT_TC_BIG_EN_BG: "The weather is beautiful today and the sun is shining brightly.",
         ModelVariant.OPUS_MT_TC_BIG_EN_KO: "The weather is beautiful today and the sun is shining brightly.",
         ModelVariant.OPUS_MT_EN_GMQ: ">>sv<< The weather is beautiful today and the sun is shining brightly.",
-        ModelVariant.OPUS_MT_EN_SK: "The weather is beautiful today and the sun is shining brightly.",
-        ModelVariant.OPUS_MT_FR_SK: "Il fait beau aujourd'hui et le soleil brille intensément.",
+        ModelVariant.OPUS_MT_MK_EN: "Времето е убаво денес и сонцето сјае силно.",
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
