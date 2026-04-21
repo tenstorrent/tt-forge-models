@@ -27,7 +27,7 @@ def load_realvisxl_v4_inpainting_pipe(pretrained_model_name):
         StableDiffusionXLInpaintPipeline: Loaded pipeline with components set to eval mode
     """
     pipe = StableDiffusionXLInpaintPipeline.from_pretrained(
-        pretrained_model_name, torch_dtype=torch.float32
+        pretrained_model_name, torch_dtype=torch.float32, variant="fp16"
     )
 
     pipe.to("cpu")
