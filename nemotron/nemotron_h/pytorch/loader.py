@@ -5,6 +5,7 @@
 Nemotron-H model loader implementation for causal language modeling.
 """
 
+import contextlib
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
@@ -97,6 +98,15 @@ class ModelLoader(ForgeModel):
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        if not torch.cuda.is_available():
+            torch.cuda.default_stream = lambda device=None: None
+
+            @contextlib.contextmanager
+            def _noop_cuda_stream(stream):
+                yield
+
+            torch.cuda.stream = _noop_cuda_stream
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
