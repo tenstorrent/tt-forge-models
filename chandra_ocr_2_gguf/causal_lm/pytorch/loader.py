@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.CHANDRA_OCR_2_GGUF
 
-    GGUF_FILE = "chandra-ocr-2-Q4_K_M.gguf"
+    GGUF_FILE = "chandra-ocr-2.Q8_0.gguf"
 
     sample_text = "What is your favorite city?"
 
