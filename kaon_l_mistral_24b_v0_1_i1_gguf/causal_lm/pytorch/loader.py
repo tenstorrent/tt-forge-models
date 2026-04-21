@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Kaon-L Mistral 24B v0.1 i1 GGUF model variants for causal language modeling."""
 
-    KAON_L_MISTRAL_24B_V0_1_I1_GGUF = "L_Mistral_24B_v0_1_i1_GGUF"
+    KAON_L_MISTRAL_24B_V0_1_I1_GGUF = "Kaon_L_Mistral_24B_v0_1_i1_GGUF"
 
 
 class ModelLoader(ForgeModel):
