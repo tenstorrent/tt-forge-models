@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Tomoro ColQwen3 Embed 4B model variants."""
 
     TOMORO_COLQWEN3_EMBED_4B = "tomoro-colqwen3-embed-4b"
+    TOMORO_AI_COLQWEN3_EMBED_4B_AWQ = "tomoro-ai-colqwen3-embed-4b-awq"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TOMORO_COLQWEN3_EMBED_4B: ModelConfig(
             pretrained_model_name="TomoroAI/tomoro-colqwen3-embed-4b",
+        ),
+        ModelVariant.TOMORO_AI_COLQWEN3_EMBED_4B_AWQ: ModelConfig(
+            pretrained_model_name="TomoroAI/tomoro-ai-colqwen3-embed-4b-awq",
         ),
     }
 
