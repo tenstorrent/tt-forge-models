@@ -33,8 +33,7 @@ class ModelVariant(StrEnum):
     """Available HiDream GGUF model variants."""
 
     HIDREAM_I1_FULL = "HiDream-I1-Full"
-    HIDREAM_I1_FULL_Q4_K_S = "HiDream-I1-Full-Q4_K_S"
-    HIDREAM_I1_FULL_Q8_0 = "HiDream-I1-Full-Q8_0"
+    HIDREAM_I1_DEV = "HiDream-I1-Dev"
 
 
 class ModelLoader(ForgeModel):
@@ -44,17 +43,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.HIDREAM_I1_FULL: ModelConfig(
             pretrained_model_name="HiDream-ai/HiDream-I1-Full",
         ),
-        ModelVariant.HIDREAM_I1_FULL_Q4_K_S: ModelConfig(
-            pretrained_model_name=CITY96_GGUF_REPO,
+        ModelVariant.HIDREAM_I1_DEV: ModelConfig(
+            pretrained_model_name="HiDream-ai/HiDream-I1-Dev",
         ),
-        ModelVariant.HIDREAM_I1_FULL_Q8_0: ModelConfig(
-            pretrained_model_name=CITY96_GGUF_REPO,
-        ),
-    }
-
-    _GGUF_FILES = {
-        ModelVariant.HIDREAM_I1_FULL_Q4_K_S: "hidream-i1-full-Q4_K_S.gguf",
-        ModelVariant.HIDREAM_I1_FULL_Q8_0: "hidream-i1-full-Q8_0.gguf",
     }
 
     DEFAULT_VARIANT = ModelVariant.HIDREAM_I1_FULL
