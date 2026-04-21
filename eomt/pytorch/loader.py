@@ -7,7 +7,11 @@ EoMT model loader implementation for panoptic segmentation tasks.
 
 import torch
 from typing import Optional
-from transformers import EomtForUniversalSegmentation, AutoImageProcessor
+from transformers import (
+    AutoImageProcessor,
+    EomtDinov3ForUniversalSegmentation,
+    EomtForUniversalSegmentation,
+)
 
 from ...base import ForgeModel
 from ...config import (
@@ -26,6 +30,7 @@ class ModelVariant(StrEnum):
     """Available EoMT model variants for panoptic segmentation."""
 
     LARGE_640_COCO_PANOPTIC = "Large_640_Coco_Panoptic"
+    DINOV3_LARGE_640_COCO_PANOPTIC = "Dinov3_Large_640_Coco_Panoptic"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +39,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LARGE_640_COCO_PANOPTIC: ModelConfig(
             pretrained_model_name="tue-mps/coco_panoptic_eomt_large_640"
+        ),
+        ModelVariant.DINOV3_LARGE_640_COCO_PANOPTIC: ModelConfig(
+            pretrained_model_name="tue-mps/eomt-dinov3-coco-panoptic-large-640"
         ),
     }
 
@@ -70,9 +78,12 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = EomtForUniversalSegmentation.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        if self._variant == ModelVariant.DINOV3_LARGE_640_COCO_PANOPTIC:
+            model_cls = EomtDinov3ForUniversalSegmentation
+        else:
+            model_cls = EomtForUniversalSegmentation
+
+        model = model_cls.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         return model
