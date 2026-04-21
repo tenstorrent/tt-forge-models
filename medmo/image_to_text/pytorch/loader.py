@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
     """Available MedMO model variants for image to text."""
 
     MEDMO_8B_NEXT = "8b_next"
-    MEDMO_4B_NEXT = "4b_next"
+    MEDMO_4B = "4b"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="MBZUAI/MedMO-8B-Next",
             max_length=128,
         ),
-        ModelVariant.MEDMO_4B_NEXT: LLMModelConfig(
-            pretrained_model_name="MBZUAI/MedMO-4B-Next",
+        ModelVariant.MEDMO_4B: LLMModelConfig(
+            pretrained_model_name="MBZUAI/MedMO-4B",
             max_length=128,
         ),
     }
