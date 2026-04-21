@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available Step3 VL model variants."""
 
     STEP3_VL = "Step3_VL"
+    STEP3_VL_10B_FP8 = "Step3_VL_10B_FP8"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.STEP3_VL: ModelConfig(
             pretrained_model_name="stepfun-ai/step3",
+        ),
+        ModelVariant.STEP3_VL_10B_FP8: ModelConfig(
+            pretrained_model_name="stepfun-ai/Step3-VL-10B-FP8",
         ),
     }
 
