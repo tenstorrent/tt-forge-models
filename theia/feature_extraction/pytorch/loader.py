@@ -105,7 +105,7 @@ class ModelLoader(ForgeModel):
             image: Optional input image. If None, loads from HuggingFace datasets.
 
         Returns:
-            dict: Preprocessed inputs with pixel_values tensor.
+            dict: Preprocessed inputs with 'x' tensor.
         """
         if self._processor is None:
             config = AutoConfig.from_pretrained(
@@ -118,15 +118,16 @@ class ModelLoader(ForgeModel):
             dataset = load_dataset("huggingface/cats-image", split="test")
             image = dataset[0]["image"]
 
-        inputs = self._processor(image, return_tensors="pt")
-
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        processed = self._processor(image, return_tensors="pt")
+        x = processed["pixel_values"]
+        x = x.repeat_interleave(batch_size, dim=0)
 
         if dtype_override is not None:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]) and inputs[key].dtype.is_floating_point:
-                    inputs[key] = inputs[key].to(dtype_override)
+            x = x.to(dtype_override)
 
-        return inputs
+        return {
+            "x": x,
+            "do_resize": False,
+            "do_rescale": False,
+            "do_normalize": False,
+        }
