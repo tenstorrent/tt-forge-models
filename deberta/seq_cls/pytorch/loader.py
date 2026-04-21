@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
 
     DEBERTA_XLARGE_MNLI = "XLarge_MNLI"
     LLAMA_PROMPT_GUARD_2_22M = "Llama_Prompt_Guard_2_22M"
-    MINICHECK_DEBERTA_V3_LARGE = "MiniCheck_DeBERTa_V3_Large"
+    DEBERTA_V3_BASE_RP_NLI = "V3_Base_RP_NLI"
 
 
 class ModelLoader(ForgeModel):
@@ -69,9 +69,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.LLAMA_PROMPT_GUARD_2_22M: ModelConfig(
             pretrained_model_name="meta-llama/Llama-Prompt-Guard-2-22M",
         ),
-        ModelVariant.MINICHECK_DEBERTA_V3_LARGE: LLMModelConfig(
-            pretrained_model_name="lytang/MiniCheck-DeBERTa-v3-Large",
-            max_length=512,
+        ModelVariant.DEBERTA_V3_BASE_RP_NLI: LLMModelConfig(
+            pretrained_model_name="KomeijiForce/deberta-v3-base-rp-nli",
+            max_length=128,
         ),
     }
 
@@ -178,8 +178,8 @@ class ModelLoader(ForgeModel):
         predicted_class_id = logits.argmax(-1).item()
         if self._variant == ModelVariant.LLAMA_PROMPT_GUARD_2_22M:
             labels = ["BENIGN", "MALICIOUS"]
-        elif self._variant == ModelVariant.MINICHECK_DEBERTA_V3_LARGE:
-            labels = ["unsupported", "supported"]
+        elif self._variant == ModelVariant.DEBERTA_V3_BASE_RP_NLI:
+            labels = ["entailment", "neutral", "contradiction"]
         else:
             labels = ["contradiction", "neutral", "entailment"]
         print(f"Predicted: {labels[predicted_class_id]}")
