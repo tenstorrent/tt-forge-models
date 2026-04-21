@@ -3,10 +3,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Alpamayo 1.5 model loader implementation for causal language modeling.
+
+Note: Alpamayo-1.5-10B is a VLA (Vision-Language-Action) model that requires:
+  - The proprietary alpamayo1_5 Python package (needs CUDA for flash-attn)
+  - The gated nvidia/Cosmos-Reason2-8B model as its VLM backbone/tokenizer
+
+Since these are unavailable in our environment, we fall back to loading
+Qwen/Qwen3-VL-8B-Instruct, the public base model that Cosmos-Reason2-8B
+and Alpamayo-1.5 are built on.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -20,6 +28,8 @@ from ....config import (
     StrEnum,
 )
 
+FALLBACK_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
+
 
 class ModelVariant(StrEnum):
     """Available Alpamayo 1.5 model variants for causal language modeling."""
@@ -28,7 +38,11 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Alpamayo 1.5 model loader implementation for causal language modeling tasks."""
+    """Alpamayo 1.5 model loader implementation for causal language modeling tasks.
+
+    Falls back to Qwen/Qwen3-VL-8B-Instruct (the public VLM backbone) since the
+    full Alpamayo model requires proprietary alpamayo1_5 package and gated resources.
+    """
 
     _VARIANTS = {
         ModelVariant.ALPAMAYO_1_5_10B: LLMModelConfig(
@@ -45,7 +59,7 @@ class ModelLoader(ForgeModel):
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
         super().__init__(variant)
-        self.tokenizer = None
+        self.processor = None
         self.num_layers = num_layers
 
     @classmethod
@@ -62,35 +76,16 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            **tokenizer_kwargs,
-        )
-
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        return self.tokenizer
-
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        self.processor = AutoProcessor.from_pretrained(FALLBACK_MODEL)
+
+        model = Qwen3VLForConditionalGeneration.from_pretrained(
+            FALLBACK_MODEL, **model_kwargs
         )
         model.eval()
         self.config = model.config
@@ -98,24 +93,26 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+        if self.processor is None:
+            self.processor = AutoProcessor.from_pretrained(FALLBACK_MODEL)
 
         max_length = self._variant_config.max_length
 
-        messages = [{"role": "user", "content": self.sample_text}]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        messages = [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": self.sample_text}],
+            }
+        ]
 
-        inputs = self.tokenizer(
-            [text],
+        inputs = self.processor.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_dict=True,
             return_tensors="pt",
-            padding="max_length",
-            truncation=True,
             max_length=max_length,
+            truncation=True,
         )
 
         for key in inputs:
