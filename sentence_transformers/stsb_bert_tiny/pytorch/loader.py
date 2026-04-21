@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     OPTIMUM_INTEL_STSB_BERT_TINY = (
         "optimum-intel-internal-testing/stsb-bert-tiny-safetensors"
     )
+    STSB_BERT_TINY_ONNX = "sentence-transformers-testing/stsb-bert-tiny-onnx"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +41,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.OPTIMUM_INTEL_STSB_BERT_TINY: LLMModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/stsb-bert-tiny-safetensors",
+            max_length=256,
+        ),
+        ModelVariant.STSB_BERT_TINY_ONNX: LLMModelConfig(
+            pretrained_model_name="sentence-transformers-testing/stsb-bert-tiny-onnx",
             max_length=256,
         ),
     }
