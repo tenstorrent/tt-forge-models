@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     """Available Whisper Tiny English speech recognition model variants."""
 
     WHISPER_TINY_EN = "Whisper_Tiny_En"
+    QUALCOMM_WHISPER_TINY_EN = "Qualcomm_Whisper_Tiny_En"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.WHISPER_TINY_EN: ModelConfig(
             pretrained_model_name="eai6/whisper-tiny.en",
+        ),
+        ModelVariant.QUALCOMM_WHISPER_TINY_EN: ModelConfig(
+            pretrained_model_name="qualcomm/Whisper-Tiny-En",
         ),
     }
 
