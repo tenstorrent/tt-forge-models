@@ -25,6 +25,9 @@ class ModelVariant(StrEnum):
     R1CHAR9_RUBERT_BASE_CASED_RUSSIAN_SENTIMENT = (
         "r1char9_RuBERT_Base_Cased_Russian_Sentiment"
     )
+    SEARA_RUBERT_BASE_CASED_RUSSIAN_SENTIMENT = (
+        "seara_RuBERT_Base_Cased_Russian_Sentiment"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +42,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="r1char9/rubert-base-cased-russian-sentiment",
             max_length=256,
         ),
+        ModelVariant.SEARA_RUBERT_BASE_CASED_RUSSIAN_SENTIMENT: LLMModelConfig(
+            pretrained_model_name="seara/rubert-base-cased-russian-sentiment",
+            max_length=256,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.RUBERT_BASE_CASED_SENTIMENT_RUSENTIMENT
@@ -46,6 +53,7 @@ class ModelLoader(ForgeModel):
     _SAMPLE_TEXTS = {
         ModelVariant.RUBERT_BASE_CASED_SENTIMENT_RUSENTIMENT: "Мне очень понравился этот фильм, он был замечательным!",
         ModelVariant.R1CHAR9_RUBERT_BASE_CASED_RUSSIAN_SENTIMENT: "Привет, ты мне нравишься!",
+        ModelVariant.SEARA_RUBERT_BASE_CASED_RUSSIAN_SENTIMENT: "Привет, ты мне нравишься!",
     }
 
     def __init__(self, variant=None):
