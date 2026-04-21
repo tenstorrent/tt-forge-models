@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available RynnBrain model variants for image to text."""
 
     RYNNBRAIN_8B = "8B"
-    RYNNBRAIN_NAV_8B = "Nav_8B"
+    RYNNBRAIN_NAV_8B = "Nav-8B"
 
 
 class ModelLoader(ForgeModel):
