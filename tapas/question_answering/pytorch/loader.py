@@ -51,7 +51,6 @@ class ModelLoader(ForgeModel):
         self.max_length = self._variant_config.max_length
         self.tokenizer = None
 
-        # Sample table data
         self.table = pd.DataFrame(
             {
                 "Player": [
@@ -68,7 +67,8 @@ class ModelLoader(ForgeModel):
                     "Al Hilal",
                     "Real Madrid",
                 ],
-            }
+            },
+            dtype="object",
         )
         self.queries = ["How many goals does Lionel Messi have?"]
 
