@@ -44,6 +44,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_4B_LMSTUDIO_GGUF = "4B_LMStudio_GGUF"
     QWEN_3_5_27B_TEXT_NVFP4_MTP = "27B_Text_NVFP4_MTP"
     QWEN_3_5_35B_A3B_NVFP4 = "35B_A3B_NVFP4"
+    QWEN_3_5_35B_A3B_NVFP4_SBULL_DELL = "35B_A3B_NVFP4_sbull-dell"
     QWEN_3_5_397B_A17B_GGUF = "397B_A17B_GGUF"
     QWEN_3_5_27B_CLAUDE_OPUS_DISTILLED_MLX_6BIT = "27B_Claude_Opus_Distilled_MLX_6bit"
     QWEN_3_5_122B_A10B_MXFP4 = "122B_A10B_MXFP4"
@@ -129,6 +130,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_35B_A3B_NVFP4: LLMModelConfig(
             pretrained_model_name="AxionML/Qwen3.5-35B-A3B-NVFP4",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_35B_A3B_NVFP4_SBULL_DELL: LLMModelConfig(
+            pretrained_model_name="sbull-dell/Qwen3.5-35B-A3B-NVFP4",
             max_length=128,
         ),
         ModelVariant.QWEN_3_5_397B_A17B_GGUF: LLMModelConfig(
@@ -367,6 +372,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_5_35B_A3B,
             ModelVariant.QWEN_3_5_35B_A3B_BASE,
             ModelVariant.QWEN_3_5_35B_A3B_FP8,
+            ModelVariant.QWEN_3_5_35B_A3B_NVFP4_SBULL_DELL,
             ModelVariant.QWEN_3_5_122B_A10B_MXFP4,
             ModelVariant.QWEN_3_5_122B_A10B_HERETIC,
             ModelVariant.QWEN_3_5_397B_A17B_GGUF,
