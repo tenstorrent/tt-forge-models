@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available LFM2-VL 3B GGUF model variants for image-text-to-text tasks."""
 
     LFM2_VL_3B_GGUF = "3B_GGUF"
+    LFM2_VL_1_6B_GGUF = "1.6B_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -35,17 +36,33 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="ZuzeTt/LFM2-VL-3B-heretic-Imatrix-GGUF",
             max_length=128,
         ),
+        ModelVariant.LFM2_VL_1_6B_GGUF: LLMModelConfig(
+            pretrained_model_name="LiquidAI/LFM2-VL-1.6B-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.LFM2_VL_3B_GGUF
 
-    GGUF_FILE = "LFM2-VL-3B-heretic-imatrix-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.LFM2_VL_3B_GGUF: "LFM2-VL-3B-heretic-imatrix-Q4_K_M.gguf",
+        ModelVariant.LFM2_VL_1_6B_GGUF: "LFM2-VL-1.6B-Q4_0.gguf",
+    }
+
+    _PROCESSOR_NAMES = {
+        ModelVariant.LFM2_VL_3B_GGUF: "LiquidAI/LFM2-VL-3B",
+        ModelVariant.LFM2_VL_1_6B_GGUF: "LiquidAI/LFM2-VL-1.6B",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
         self.config = None
         self.model = None
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -63,7 +80,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             kwargs["torch_dtype"] = dtype_override
 
-        self.processor = AutoProcessor.from_pretrained("LiquidAI/LFM2-VL-3B", **kwargs)
+        self.processor = AutoProcessor.from_pretrained(
+            self._PROCESSOR_NAMES[self._variant], **kwargs
+        )
 
         return self.processor
 
@@ -77,7 +96,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -122,6 +141,6 @@ class ModelLoader(ForgeModel):
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name,
-            gguf_file=self.GGUF_FILE,
+            gguf_file=self.gguf_file,
         )
         return self.config
