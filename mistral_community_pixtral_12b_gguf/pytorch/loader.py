@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     """Available Mistral Community Pixtral 12B GGUF model variants."""
 
     PIXTRAL_12B_Q4_K_M = "12B_Q4_K_M"
-    GGML_ORG_PIXTRAL_12B_Q4_K_M = "ggml_org_12B_Q4_K_M"
+    ENLISTED_GHOST_PIXTRAL_12B_2409_Q4_K_M = "EnlistedGhost_Pixtral_12B_2409_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.PIXTRAL_12B_Q4_K_M: ModelConfig(
             pretrained_model_name="bartowski/mistral-community_pixtral-12b-GGUF",
         ),
-        ModelVariant.GGML_ORG_PIXTRAL_12B_Q4_K_M: ModelConfig(
-            pretrained_model_name="ggml-org/pixtral-12b-GGUF",
+        ModelVariant.ENLISTED_GHOST_PIXTRAL_12B_2409_Q4_K_M: ModelConfig(
+            pretrained_model_name="EnlistedGhost/Pixtral-12B-2409-GGUF",
         ),
     }
 
@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.PIXTRAL_12B_Q4_K_M: "mistral-community_pixtral-12b-Q4_K_M.gguf",
-        ModelVariant.GGML_ORG_PIXTRAL_12B_Q4_K_M: "pixtral-12b-Q4_K_M.gguf",
+        ModelVariant.ENLISTED_GHOST_PIXTRAL_12B_2409_Q4_K_M: "Pixtral-12B-2409-Q4_K_M.gguf",
     }
 
     PROCESSOR_MODEL = "mistral-community/pixtral-12b"
@@ -59,6 +59,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+        self.gguf_file = self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
