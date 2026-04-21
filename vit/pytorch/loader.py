@@ -185,10 +185,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         # Determine task based on variant
-        if variant in (
-            ModelVariant.VIT_BASE_PATCH16_224_AUGREG_IN21K,
-            ModelVariant.VIT_LARGE_PATCH32_224_ORIG_IN21K,
-        ):
+        if variant == ModelVariant.VIT_BASE_PATCH16_224_AUGREG_IN21K:
             task = ModelTask.CV_IMAGE_FE
         else:
             task = ModelTask.CV_IMAGE_CLS
