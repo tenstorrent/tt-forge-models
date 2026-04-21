@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available IndicBERTv2 model variants for masked language modeling."""
 
     INDICBERTV2_MLM_ONLY = "IndicBERTv2_MLM_Only"
+    INDICBERTV2_MLM_SAM_TLM = "IndicBERTv2_MLM_Sam_TLM"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.INDICBERTV2_MLM_ONLY: ModelConfig(
             pretrained_model_name="ai4bharat/IndicBERTv2-MLM-only",
+        ),
+        ModelVariant.INDICBERTV2_MLM_SAM_TLM: ModelConfig(
+            pretrained_model_name="ai4bharat/IndicBERTv2-MLM-Sam-TLM",
         ),
     }
 
