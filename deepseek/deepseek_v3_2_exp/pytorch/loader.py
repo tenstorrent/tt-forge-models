@@ -97,18 +97,6 @@ class DeepSeekV32ForCausalLM(nn.Module):
         use_cache: bool = False,
         **kwargs,
     ) -> _CausalLMOutput:
-        # start_pos is fixed at 0 for TT compilation compatibility.
-        # Any Python-level computation before self.transformer() that touches
-        # tensor values (cache_position[0].item()) or mutates self attributes
-        # with SymInts (self._current_pos += seqlen) causes TorchDynamo to split
-        # the forward into two sub-graphs.  The second sub-graph (the transformer
-        # call) is then compiled in isolation by the TT backend and crashes with
-        # SIGFPE during MLIR lowering.  Using a constant 0 keeps the entire
-        # forward as a single compiled graph, matching the behaviour of the
-        # working unit test (test_deepseek_modified_transformer_single_layer).
-        # TODO: support proper KV-cache position tracking once TT compilation
-        # handles dynamic start_pos.
-        #
         # freqs_cis and mask are sliced from pre-registered buffers rather than
         # being computed with torch.full(..., device=tokens.device).  The device
         # attribute access in torch.full was the trigger for TorchDynamo emitting
@@ -118,11 +106,29 @@ class DeepSeekV32ForCausalLM(nn.Module):
         # symbolically within the single compiled graph with no graph break.
         # NOTE: @torch._dynamo.disable must NOT be used here for the same reason
         # — it introduces a graph break that produces the same wrong-mesh segment.
+        #
+        # start_pos is always 0: using int(cache_position[0]) to derive it
+        # triggers Tensor.item(), which causes a TorchDynamo graph break before
+        # self.transformer(), splitting the compiled graph.  The pre-break
+        # sub-graph inherits the default flat 1×32 SPMD mesh instead of the
+        # configured 4×8 Galaxy mesh.  Instead, freqs_cis is gathered with a
+        # pure tensor index (cache_position is a 1-D integer tensor, so
+        # freqs_cis[cache_position] is a gather with no .item() call), and MLA
+        # decode reads from the external MLACache with a tensor-op causal mask.
         seqlen = input_ids.size(1)
-        freqs_cis = self.transformer.freqs_cis[:seqlen]
+        start_pos = 0
+        if cache_position is not None:
+            freqs_cis = self.transformer.freqs_cis[cache_position]
+        else:
+            freqs_cis = self.transformer.freqs_cis[:seqlen]
         mask = self._causal_mask[:seqlen, :seqlen] if seqlen > 1 else None
         logits = self.transformer(
-            tokens=input_ids, start_pos=0, freqs_cis=freqs_cis, mask=mask
+            tokens=input_ids,
+            start_pos=start_pos,
+            freqs_cis=freqs_cis,
+            mask=mask,
+            past_key_values=past_key_values,
+            cache_position=cache_position,
         )
         return _CausalLMOutput(logits=logits.unsqueeze(1))
 
@@ -318,6 +324,9 @@ class ModelLoader(ForgeModel):
             if n_dense >= self.num_layers:
                 model_args_kwargs["n_dense_layers"] = max(0, self.num_layers - 1)
         model_args_kwargs.setdefault("max_batch_size", self.max_batch_size)
+        # This loader always uses an external MLACache; skip the internal kv/pe
+        # cache buffers (2 GiB/layer each) to avoid OOM on Galaxy.
+        model_args_kwargs.setdefault("use_mla_cache", True)
         args = ModelArgs(**model_args_kwargs)
 
         transformer = Transformer(args)
@@ -392,24 +401,6 @@ class ModelLoader(ForgeModel):
         shard_specs = {}
         t = model.transformer
 
-        # ── RoPE / causal-mask buffers ────────────────────────────────────────
-        # freqs_cis and _causal_mask are NOT sharded, but must be marked
-        # as replicated in the 4×8 mesh so that any XLA sub-graph that slices
-        # them (emitted eagerly during torch.compile tracing before the main
-        # SPMD forward graph) is also compiled under the 4×8 mesh topology.
-        # Without this, those slice sub-graphs compile under the default 1×32
-        # mesh, producing tensors with an incompatible layout that causes a
-        # segfault when the main 4×8 graph consumes them.
-        shard_specs[t.freqs_cis] = (
-            None,
-            None,
-            None,
-        )  # [max_seq, rope_hd, 2] — replicated
-        shard_specs[model._causal_mask] = (
-            None,
-            None,
-        )  # [max_seq, max_seq] — replicated
-
         # ── Global tensors ────────────────────────────────────────────────────
         shard_specs[t.embed.weight] = (None, "batch")  # [vocab, dim]
         shard_specs[t.norm.weight] = ("batch",)  # [dim]
@@ -424,8 +415,6 @@ class ModelLoader(ForgeModel):
                 None,
                 "batch",
             )  # [kv_lora_rank+rope_hd, dim]
-            # shard_specs[attn.q_norm.weight] = (None,)
-            # shard_specs[attn.kv_norm.weight] = (None,)
             shard_specs[attn.wq_b.weight] = (
                 "batch",
                 None,
@@ -435,9 +424,12 @@ class ModelLoader(ForgeModel):
                 None,
             )  # [n_heads*(nope+v_hd), kv_lora_rank]
             shard_specs[attn.wo.weight] = (None, "batch")  # [dim, n_heads*v_head_dim]
-            # KV and positional caches — shard on model axis (batch dimension)
-            shard_specs[attn.kv_cache] = ("model", None, None)
-            shard_specs[attn.pe_cache] = ("model", None, None)
+
+            # These local caches are only initialized when MLACache is not used
+            if attn.kv_cache is not None:
+                shard_specs[attn.kv_cache] = ("model", None, None)
+            if attn.pe_cache is not None:
+                shard_specs[attn.pe_cache] = ("model", None, None)
 
             # ── Indexer ───────────────────────────────────────────────────────
             if attn.indexer is not None:
@@ -447,8 +439,6 @@ class ModelLoader(ForgeModel):
                     None,
                 )  # [n_idx_heads*idx_hd, q_lora_rank]
                 shard_specs[idx.wk.weight] = (None, "batch")  # [idx_hd, dim]
-                # shard_specs[idx.k_norm.weight] = (None,)
-                # shard_specs[idx.k_norm.bias] = (None,)
                 shard_specs[idx.weights_proj.weight] = (
                     None,
                     "batch",
