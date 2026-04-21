@@ -40,7 +40,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "WizardLM-13B-V1.0-Uncensored.i1-Q4_K_M.gguf"
 
-    sample_text = "What are the key differences between classical and quantum computing?"
+    sample_text = (
+        "What are the key differences between classical and quantum computing?"
+    )
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
