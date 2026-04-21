@@ -4,6 +4,7 @@
 """
 Whisper Thai Medium model loader implementation for speech recognition tasks.
 """
+
 import torch
 from transformers import (
     WhisperForConditionalGeneration,
@@ -29,6 +30,7 @@ class ModelVariant(StrEnum):
     """Available Whisper Thai Medium model variants."""
 
     MEDIUM = "Medium"
+    MONSOON_GIGASPEECH2 = "Monsoon_GigaSpeech2"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +39,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MEDIUM: ModelConfig(
             pretrained_model_name="biodatlab/whisper-th-medium",
+        ),
+        ModelVariant.MONSOON_GIGASPEECH2: ModelConfig(
+            pretrained_model_name="typhoon-ai/monsoon-whisper-medium-gigaspeech2",
         ),
     }
 

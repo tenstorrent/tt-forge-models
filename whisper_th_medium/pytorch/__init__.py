@@ -4,4 +4,5 @@
 """
 Whisper Thai Medium PyTorch model implementation for Tenstorrent projects.
 """
+
 from .loader import ModelLoader, ModelVariant
