@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-GerPT2 Large causal language modeling PyTorch implementation.
+GerPT2 causal language modeling PyTorch implementation.
 """
 from .loader import ModelLoader
