@@ -19,6 +19,8 @@ from typing import Any, Optional
 
 import torch
 from diffusers import ZImagePipeline
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -103,10 +105,16 @@ class ModelLoader(ForgeModel):
         )
 
         lora_file = _LORA_FILES[self._variant]
-        self._pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=lora_file,
-        )
+        lora_path = hf_hub_download(LORA_REPO, filename=lora_file)
+        state_dict = load_file(lora_path)
+        for key in list(state_dict.keys()):
+            for suffix in (".lora_down.weight", ".lora_A.weight"):
+                if key.endswith(suffix):
+                    alpha_key = key[: -len(suffix)] + ".alpha"
+                    if alpha_key not in state_dict:
+                        rank = state_dict[key].shape[0]
+                        state_dict[alpha_key] = torch.tensor(float(rank))
+        self._pipe.load_lora_weights(state_dict)
         self._pipe.fuse_lora()
 
         return self._pipe
