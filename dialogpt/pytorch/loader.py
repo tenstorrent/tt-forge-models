@@ -23,7 +23,7 @@ class ModelVariant(StrEnum):
     """Available DialoGPT model variants."""
 
     DIALOGPT_LARGE = "Large"
-    DUMBOT = "DumBot"
+    PERSONAGPT = "personaGPT"
 
 
 class ModelLoader(ForgeModel):
@@ -34,8 +34,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="microsoft/DialoGPT-large",
             max_length=256,
         ),
-        ModelVariant.DUMBOT: LLMModelConfig(
-            pretrained_model_name="deepparag/DumBot",
+        ModelVariant.PERSONAGPT: LLMModelConfig(
+            pretrained_model_name="af1tang/personaGPT",
             max_length=256,
         ),
     }
