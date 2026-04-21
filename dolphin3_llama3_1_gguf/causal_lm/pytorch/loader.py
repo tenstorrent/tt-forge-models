@@ -12,9 +12,13 @@ from typing import Optional
 
 import transformers.utils.import_utils as _tx_import_utils
 
-_tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
-    importlib.metadata.packages_distributions()
-)
+
+def _refresh_gguf_detection():
+    _tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+        importlib.metadata.packages_distributions()
+    )
+    _tx_import_utils.is_gguf_available.cache_clear()
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -84,6 +88,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -161,6 +166,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _refresh_gguf_detection()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
