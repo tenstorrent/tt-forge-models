@@ -36,6 +36,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_VL_7B_INSTRUCT_AWQ = "7B_INSTRUCT_Awq"
     QWEN_2_5_VL_72B_INSTRUCT = "72B_Instruct"
     UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT = "Unsloth_7B_Instruct"
+    HFL_QWEN_2_5_VL_7B_INSTRUCT_GPTQ_INT4 = "hfl_7B_Instruct_GPTQ_Int4"
 
 
 class ModelLoader(ForgeModel):
@@ -60,6 +61,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="unsloth/Qwen2.5-VL-7B-Instruct",
+        ),
+        ModelVariant.HFL_QWEN_2_5_VL_7B_INSTRUCT_GPTQ_INT4: LLMModelConfig(
+            pretrained_model_name="hfl/Qwen2.5-VL-7B-Instruct-GPTQ-Int4",
         ),
     }
 
@@ -118,7 +122,11 @@ class ModelLoader(ForgeModel):
             group=ModelGroup.RED
             if variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT
             else ModelGroup.VULCAN
-            if variant == ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT
+            if variant
+            in (
+                ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT,
+                ModelVariant.HFL_QWEN_2_5_VL_7B_INSTRUCT_GPTQ_INT4,
+            )
             else ModelGroup.GENERALITY,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
