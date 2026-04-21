@@ -36,10 +36,10 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available DeepSeek V3.2 model variants."""
 
-    DEEPSEEK_V3_2_EXP = "deepseek_v3_2_exp"
+    DEEPSEEK_V3_2_EXP_MODIFIED = "deepseek_v3_2_exp_modified"
 
 
-from .modified_model import LayerNorm, ModelArgs, Transformer
+from .src.modified_model import LayerNorm, ModelArgs, Transformer
 
 
 @dataclass
@@ -131,18 +131,18 @@ class ModelLoader(ForgeModel):
     """DeepSeek V3.2 model loader using the locally modified Transformer."""
 
     _VARIANTS = {
-        ModelVariant.DEEPSEEK_V3_2_EXP: LLMModelConfig(
+        ModelVariant.DEEPSEEK_V3_2_EXP_MODIFIED: LLMModelConfig(
             pretrained_model_name="deepseek-ai/DeepSeek-V3.2-Exp",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.DEEPSEEK_V3_2_EXP
+    DEFAULT_VARIANT = ModelVariant.DEEPSEEK_V3_2_EXP_MODIFIED
 
     def __init__(
         self,
         variant=None,
         num_layers: Optional[int] = None,
-        max_batch_size: int = 32,
+        max_batch_size: int = 128,
     ):
         """Initialize ModelLoader with specified variant.
 
@@ -152,7 +152,7 @@ class ModelLoader(ForgeModel):
                         If None, uses the ModelArgs default (27).
             max_batch_size: Maximum batch size for KV-cache allocation.
                             Must be >= the batch size used at inference time.
-                            Defaults to 32 to match the benchmark default.
+                            Defaults to 128 to match the galaxy benchmark batch size.
         """
         super().__init__(variant)
         self.num_layers = num_layers
@@ -225,7 +225,7 @@ class ModelLoader(ForgeModel):
         Returns:
             PretrainedConfig: Populated config stored on ``self.config``.
         """
-        config_path = Path(__file__).parent / "config.json"
+        config_path = Path(__file__).parent / "src" / "config.json"
         with open(config_path) as f:
             raw = json.load(f)
 
@@ -269,7 +269,7 @@ class ModelLoader(ForgeModel):
         # (DeepSeek-V2-scale) model; without seeding, e.g. dim=2048 instead of
         # 7168, n_routed_experts=64 instead of 256, etc.  Caller kwargs and the
         # num_layers override take precedence over these JSON-derived defaults.
-        config_path = Path(__file__).parent / "config.json"
+        config_path = Path(__file__).parent / "src" / "config.json"
         with open(config_path) as _f:
             _cfg = json.load(_f)
         # Maps config.json keys → ModelArgs field names.
@@ -367,25 +367,6 @@ class ModelLoader(ForgeModel):
             f"DeepSeek V3.2 is only supported on Galaxy (32 devices), got {num_devices}"
         )
 
-    def get_input_sharding(self):
-        """Return sharding spec for input_ids on the Galaxy (4x8) mesh.
-
-        DeepSeek's MoE layer uses all_to_all_dispatch which assumes that the
-        batch dimension of the hidden states is split across the model axis
-        (8 devices).  If input_ids are replicated the scatter indices inside
-        sdy.manual_computation mismatch the sharded KV-cache, causing the
-        all_to_all to deadlock on device.
-
-        Sharding ("model", None) puts input_ids batch dim on the model axis
-        (axis 1, size 8), giving batch/8 tokens per device — consistent with
-        the KV-cache sharding ("model", None, None) and the passing unit test
-        which uses shard_specs[args[0]] = ("_axis_1", None).
-
-        Returns:
-            Tuple ("model", None) for a [batch, seq] input_ids tensor.
-        """
-        return ("model", None)
-
     def load_shard_spec(self, model):
         """Build SPMD shard specifications for all model tensors.
 
@@ -406,7 +387,7 @@ class ModelLoader(ForgeModel):
         Returns:
             dict mapping parameter/buffer tensors to shard-spec tuples.
         """
-        from .modified_model import MLP
+        from .src.modified_model import MLP
 
         shard_specs = {}
         t = model.transformer
@@ -483,9 +464,6 @@ class ModelLoader(ForgeModel):
                 shard_specs[mlp.experts.gate_proj] = (("batch", "model"), None, None)
                 shard_specs[mlp.experts.up_proj] = (("batch", "model"), None, None)
                 shard_specs[mlp.experts.down_proj] = (("batch", "model"), None, None)
-                shard_specs[mlp.experts.gate_proj_bias] = (("batch", "model"), None)
-                shard_specs[mlp.experts.up_proj_bias] = (("batch", "model"), None)
-                shard_specs[mlp.experts.down_proj_bias] = (("batch", "model"), None)
 
                 shared = getattr(ffn, "shared_experts", None)
                 if shared is not None:
