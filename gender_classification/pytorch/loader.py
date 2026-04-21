@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
 
     DEFAULT = "Default"
     LEILAB = "Leilab"
+    CRANGANA = "Crangana"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +41,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LEILAB: ModelConfig(
             pretrained_model_name="Leilab/gender_class",
+        ),
+        ModelVariant.CRANGANA: ModelConfig(
+            pretrained_model_name="crangana/trained-gender",
         ),
     }
 
