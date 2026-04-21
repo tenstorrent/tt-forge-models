@@ -19,6 +19,24 @@ from ...config import (
 )
 from ...base import ForgeModel
 from diffusers import ScoreSdeVePipeline
+import diffusers.models.downsampling as _diffusers_downsampling
+import diffusers.models.upsampling as _diffusers_upsampling
+
+# diffusers hardcodes the fir_kernel as float32 and only moves it to device
+# (not dtype) before conv2d, causing a dtype mismatch with bfloat16 inputs.
+# Patch both downsampling and upsampling module references so the kernel is
+# cast to match the input dtype at call time.
+_orig_upfirdn2d_native = _diffusers_upsampling.upfirdn2d_native
+
+
+def _upfirdn2d_native_dtype_safe(tensor, kernel, up=1, down=1, pad=(0, 0)):
+    return _orig_upfirdn2d_native(
+        tensor, kernel.to(dtype=tensor.dtype), up=up, down=down, pad=pad
+    )
+
+
+_diffusers_downsampling.upfirdn2d_native = _upfirdn2d_native_dtype_safe
+_diffusers_upsampling.upfirdn2d_native = _upfirdn2d_native_dtype_safe
 
 
 class ModelVariant(StrEnum):
