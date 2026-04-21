@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
 
     GROOT_N1_5_3B = "Gr00t_N1.5_3B"
     GROOT_N1_6_3B = "Gr00t_N1.6_3B"
-    GROOT_N1_6_G1_PNP_APPLE_TO_PLATE = "Gr00t_N1.6_G1_PnPAppleToPlate"
+    GROOT_N1_6_BEHAVIOR1K = "Gr00t_N1.6_BEHAVIOR1k"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.GROOT_N1_6_3B: ModelConfig(
             pretrained_model_name="nvidia/GR00T-N1.6-3B",
         ),
-        ModelVariant.GROOT_N1_6_G1_PNP_APPLE_TO_PLATE: ModelConfig(
-            pretrained_model_name="nvidia/GR00T-N1.6-G1-PnPAppleToPlate",
+        ModelVariant.GROOT_N1_6_BEHAVIOR1K: ModelConfig(
+            pretrained_model_name="nvidia/GR00T-N1.6-BEHAVIOR1k",
         ),
     }
 
@@ -105,11 +105,12 @@ class ModelLoader(ForgeModel):
         """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
-        vulcan_variants = {
-            ModelVariant.GROOT_N1_6_3B,
-            ModelVariant.GROOT_N1_6_G1_PNP_APPLE_TO_PLATE,
-        }
-        group = ModelGroup.VULCAN if variant in vulcan_variants else ModelGroup.RED
+        group = (
+            ModelGroup.VULCAN
+            if variant
+            in (ModelVariant.GROOT_N1_6_3B, ModelVariant.GROOT_N1_6_BEHAVIOR1K)
+            else ModelGroup.RED
+        )
         return ModelInfo(
             model="ISAAC-GR00T",
             variant=variant,
