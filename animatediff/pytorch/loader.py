@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     """Available AnimateDiff model variants."""
 
     V1_5_2 = "v1.5.2"
+    V1_5_3 = "v1.5.3"
 
 
 class ModelLoader(ForgeModel):
@@ -46,6 +47,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.V1_5_2: ModelConfig(
             pretrained_model_name="guoyww/animatediff-motion-adapter-v1-5-2",
+        ),
+        ModelVariant.V1_5_3: ModelConfig(
+            pretrained_model_name="guoyww/animatediff-motion-adapter-v1-5-3",
         ),
     }
 
