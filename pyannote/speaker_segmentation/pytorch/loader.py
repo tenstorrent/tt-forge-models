@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
 
     SEGMENTATION = "Segmentation"
     SEGMENTATION_3_0 = "Segmentation_3_0"
-    SALMANSHAHID_SEGMENTATION = "Salmanshahid_Segmentation"
+    TEZUESH_SEGMENTATION = "Tezuesh_Segmentation"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.SEGMENTATION_3_0: ModelConfig(
             pretrained_model_name="pyannote/segmentation-3.0",
         ),
-        ModelVariant.SALMANSHAHID_SEGMENTATION: ModelConfig(
-            pretrained_model_name="salmanshahid/segmentation",
+        ModelVariant.TEZUESH_SEGMENTATION: ModelConfig(
+            pretrained_model_name="tezuesh/segmentation",
         ),
     }
 
