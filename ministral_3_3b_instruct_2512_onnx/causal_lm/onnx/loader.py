@@ -111,11 +111,12 @@ class ModelLoader(ForgeModel):
         text_config = config.text_config
 
         messages = [{"role": "user", "content": self.sample_text}]
-        prompt = self.processor.apply_chat_template(
-            messages, add_generation_prompt=True, tokenize=False
-        )
-        tokenized = self.processor.tokenizer(
-            prompt, return_tensors="np", add_special_tokens=False
+        tokenized = self.processor.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="np",
         )
 
         input_ids = tokenized["input_ids"].astype(np.int64)
