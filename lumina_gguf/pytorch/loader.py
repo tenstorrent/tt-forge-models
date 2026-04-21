@@ -10,9 +10,11 @@ diffusers' GGUF quantization support.
 Repository:
 - https://huggingface.co/calcuis/lumina-gguf
 """
+from typing import Optional
+
 import torch
 from diffusers import GGUFQuantizationConfig, Lumina2Transformer2DModel
-from typing import Optional
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -82,9 +84,10 @@ class ModelLoader(ForgeModel):
 
         repo_id = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
+        model_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
 
         self.transformer = Lumina2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{gguf_file}",
+            model_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
