@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-AraGPT2-Base model loader implementation for causal language modeling.
+AraGPT2 model loader implementation for causal language modeling.
 """
 import torch
 from transformers import GPT2Config, GPT2LMHeadModel, AutoTokenizer
@@ -21,17 +21,22 @@ from ...config import (
 
 
 class ModelVariant(StrEnum):
-    """Available AraGPT2-Base model variants."""
+    """Available AraGPT2 model variants."""
 
     ARAGPT2_BASE = "Default"
+    ARAGPT2_MEDIUM = "medium"
 
 
 class ModelLoader(ForgeModel):
-    """AraGPT2-Base loader for Arabic causal language modeling."""
+    """AraGPT2 loader for Arabic causal language modeling."""
 
     _VARIANTS = {
         ModelVariant.ARAGPT2_BASE: LLMModelConfig(
             pretrained_model_name="aubmindlab/aragpt2-base",
+            max_length=256,
+        ),
+        ModelVariant.ARAGPT2_MEDIUM: LLMModelConfig(
+            pretrained_model_name="aubmindlab/aragpt2-medium",
             max_length=256,
         ),
     }
@@ -50,7 +55,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="AraGPT2-Base",
+            model="AraGPT2",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
