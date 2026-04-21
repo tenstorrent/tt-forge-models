@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available GLM-5 model variants for causal language modeling."""
 
     GLM_5_NVFP4_MTP = "NVFP4_MTP"
-    GLM_5_MXFP4 = "MXFP4"
+    GLM_5_4BIT_MLX = "4bit_MLX"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="festr2/GLM-5-NVFP4-MTP",
             max_length=128,
         ),
-        ModelVariant.GLM_5_MXFP4: LLMModelConfig(
-            pretrained_model_name="amd/GLM-5-MXFP4",
+        ModelVariant.GLM_5_4BIT_MLX: LLMModelConfig(
+            pretrained_model_name="mlx-community/GLM-5-4bit",
             max_length=128,
         ),
     }
