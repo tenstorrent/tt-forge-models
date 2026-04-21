@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available BioNER token classification model variants."""
 
     MILOSKOSRAD_BIONER = "MilosKosRad-BioNER"
+    PRODICUSII_ZEROSHOTBIONER = "ProdicusII-ZeroShotBioNER"
 
 
 class ModelLoader(ForgeModel):
@@ -31,6 +32,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MILOSKOSRAD_BIONER: ModelConfig(
             pretrained_model_name="MilosKosRad/BioNER",
+        ),
+        ModelVariant.PRODICUSII_ZEROSHOTBIONER: ModelConfig(
+            pretrained_model_name="ProdicusII/ZeroShotBioNER",
         ),
     }
 
