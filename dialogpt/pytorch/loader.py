@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available DialoGPT model variants."""
 
     DIALOGPT_LARGE = "Large"
+    DIALOGPT_SMALL_TONY_STARK = "small-TonyStark"
 
 
 class ModelLoader(ForgeModel):
@@ -31,6 +32,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DIALOGPT_LARGE: LLMModelConfig(
             pretrained_model_name="microsoft/DialoGPT-large",
+            max_length=256,
+        ),
+        ModelVariant.DIALOGPT_SMALL_TONY_STARK: LLMModelConfig(
+            pretrained_model_name="AVeryRealHuman/DialoGPT-small-TonyStark",
             max_length=256,
         ),
     }
