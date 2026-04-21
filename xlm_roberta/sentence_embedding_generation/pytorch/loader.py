@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     MULTILINGUAL_E5_BASE = "intfloat/multilingual-e5-base"
     MULTILINGUAL_E5_LARGE_INSTRUCT = "intfloat/multilingual-e5-large-instruct"
     MULTILINGUAL_E5_SMALL_KO = "dragonkue/multilingual-e5-small-ko"
-    E5_LARGE_TRM_NL = "clips/e5-large-trm-nl"
+    EMBAAS_MULTILINGUAL_E5_LARGE = "embaas/sentence-transformers-multilingual-e5-large"
 
 
 class ModelLoader(ForgeModel):
@@ -53,8 +53,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="dragonkue/multilingual-e5-small-ko",
             max_length=512,
         ),
-        ModelVariant.E5_LARGE_TRM_NL: LLMModelConfig(
-            pretrained_model_name="clips/e5-large-trm-nl",
+        ModelVariant.EMBAAS_MULTILINGUAL_E5_LARGE: LLMModelConfig(
+            pretrained_model_name="embaas/sentence-transformers-multilingual-e5-large",
             max_length=512,
         ),
     }
