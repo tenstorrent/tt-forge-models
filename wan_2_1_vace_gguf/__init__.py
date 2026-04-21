@@ -2,5 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Wan 2.1 VACE 14B GGUF quantized models (QuantStack/Wan2.1_14B_VACE-GGUF)
+Wan 2.1 VACE 14B GGUF quantized models.
+
+Covers the QuantStack VACE GGUF family, including:
+- QuantStack/Wan2.1_14B_VACE-GGUF
+- QuantStack/Wan2.1_T2V_14B_FusionX_VACE-GGUF
 """
