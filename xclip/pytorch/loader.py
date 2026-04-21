@@ -100,12 +100,16 @@ class ModelLoader(ForgeModel):
 
         self.text_prompts = ["playing sports", "eating spaghetti", "go shopping"]
 
-        inputs = self.processor(
-            text=self.text_prompts,
-            videos=[video],
+        text_inputs = self.processor.tokenizer(
+            self.text_prompts,
             return_tensors="pt",
             padding=True,
         )
+        video_inputs = self.processor.video_processor(
+            images=[video],
+            return_tensors="pt",
+        )
+        inputs = {**text_inputs, **video_inputs}
 
         # Replicate tensors for batch size
         for key in inputs:
