@@ -12,7 +12,7 @@ Repository:
 - https://huggingface.co/vantagewithai/SCAIL-Preview-GGUF
 """
 import torch
-from diffusers import WanTransformer3DModel
+from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -26,7 +26,7 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_BASE_URL = "https://huggingface.co/vantagewithai/SCAIL-Preview-GGUF/blob/main"
+REPO_ID = "vantagewithai/SCAIL-Preview-GGUF"
 
 
 class ModelVariant(StrEnum):
@@ -75,19 +75,18 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
-
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        gguf_url = f"https://huggingface.co/{REPO_ID}/blob/main/{gguf_file}"
         self.transformer = WanTransformer3DModel.from_single_file(
             gguf_url,
-            **load_kwargs,
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
+            config="Wan-AI/Wan2.1-I2V-14B-720P-Diffusers",
+            subfolder="transformer",
+            in_channels=20,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
