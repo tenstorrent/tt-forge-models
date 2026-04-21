@@ -23,10 +23,9 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_sdmodels_gguf_pipe, sdmodels_preprocessing
+from .src.model_utils import load_sdmodels_gguf_transformer, sdmodels_generate_inputs
 
 REPO_ID = "MWSAH/sdmodels"
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
 
 
 class ModelVariant(StrEnum):
@@ -48,11 +47,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "hyperFluxDedistilled_hyper16Q4KM.gguf"
 
-    prompt = "An astronaut riding a green horse"
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -68,28 +65,18 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the HyperFlux Dedistilled transformer from GGUF checkpoint.
-
-        Returns:
-            torch.nn.Module: The FLUX transformer model instance.
-        """
-        if self.pipeline is None:
-            self.pipeline = load_sdmodels_gguf_pipe(REPO_ID, self.GGUF_FILE, BASE_MODEL)
+        if self._transformer is None:
+            self._transformer = load_sdmodels_gguf_transformer(
+                REPO_ID, self.GGUF_FILE, dtype=dtype_override
+            )
 
         if dtype_override is not None:
-            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
+            self._transformer = self._transformer.to(dtype_override)
 
-        return self.pipeline.transformer
+        return self._transformer
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the model.
-
-        Returns:
-            dict: Input tensors for the FLUX transformer model.
-        """
-        if self.pipeline is None:
+        if self._transformer is None:
             self.load_model(dtype_override=dtype_override)
 
-        dtype = dtype_override if dtype_override is not None else None
-
-        return sdmodels_preprocessing(self.pipeline, self.prompt, dtype=dtype)
+        return sdmodels_generate_inputs(self._transformer, dtype=dtype_override)
