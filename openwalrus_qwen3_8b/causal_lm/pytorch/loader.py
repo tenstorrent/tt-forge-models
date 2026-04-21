@@ -38,6 +38,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.OPENWALRUS_QWEN3_8B
 
+    _TOKENIZER_MODEL = "Qwen/Qwen3-8B"
+
     sample_text = "Give me a short introduction to large language model."
 
     def __init__(
@@ -65,7 +67,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._TOKENIZER_MODEL, **tokenizer_kwargs
         )
 
         return self.tokenizer
