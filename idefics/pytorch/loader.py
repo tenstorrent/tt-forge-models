@@ -26,21 +26,21 @@ from ...tools.utils import cast_input_to_type, get_file
 class ModelVariant(StrEnum):
     """Available IDEFICS model variants."""
 
-    INSTRUCT_80B = "80b_instruct"
+    BASE_9B = "9b"
 
 
 class ModelLoader(ForgeModel):
     """IDEFICS model loader for multimodal vision-text generation."""
 
     _VARIANTS = {
-        ModelVariant.INSTRUCT_80B: ModelConfig(
-            pretrained_model_name="HuggingFaceM4/idefics-80b-instruct",
+        ModelVariant.BASE_9B: ModelConfig(
+            pretrained_model_name="HuggingFaceM4/idefics-9b",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.INSTRUCT_80B
+    DEFAULT_VARIANT = ModelVariant.BASE_9B
 
-    sample_text = "What is in this image?"
+    sample_text = "In this picture we can see"
     sample_image_url = (
         "https://upload.wikimedia.org/wikipedia/commons/8/86/Id%C3%A9fix.JPG"
     )
@@ -99,16 +99,13 @@ class ModelLoader(ForgeModel):
 
         prompts = [
             [
-                f"User: {self.sample_text}",
                 image,
-                "<end_of_utterance>",
-                "\nAssistant:",
+                self.sample_text,
             ],
         ]
 
         inputs = self.processor(
             prompts,
-            add_end_of_utterance_token=False,
             return_tensors="pt",
         )
 
