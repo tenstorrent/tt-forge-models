@@ -7,8 +7,10 @@ Florence-2 model loader implementation for image-text-to-text generation.
 
 from typing import Optional
 
+import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoImageProcessor, AutoModelForCausalLM, AutoTokenizer
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
 from ....base import ForgeModel
 from ....config import (
@@ -61,11 +63,36 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name,
+        pretrained_name = self._variant_config.pretrained_model_name
+        tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_name, trust_remote_code=True
+        )
+        if not hasattr(tokenizer, "additional_special_tokens"):
+            tokenizer.additional_special_tokens = list(
+                getattr(tokenizer, "_extra_special_tokens", [])
+            )
+        image_processor = AutoImageProcessor.from_pretrained(
+            pretrained_name, trust_remote_code=True, use_fast=False
+        )
+        processor_class = get_class_from_dynamic_module(
+            "processing_florence2.Florence2Processor",
+            pretrained_name,
             trust_remote_code=True,
         )
+        self.processor = processor_class(
+            image_processor=image_processor, tokenizer=tokenizer
+        )
         return self.processor
+
+    @staticmethod
+    def _patch_florence2_config(pretrained_name):
+        lang_cfg = get_class_from_dynamic_module(
+            "configuration_florence2.Florence2LanguageConfig",
+            pretrained_name,
+            trust_remote_code=True,
+        )
+        if not hasattr(lang_cfg, "forced_bos_token_id"):
+            lang_cfg.forced_bos_token_id = None
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Florence-2 model instance."""
@@ -74,7 +101,9 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model_kwargs = {"trust_remote_code": True}
+        self._patch_florence2_config(pretrained_model_name)
+
+        model_kwargs = {"trust_remote_code": True, "attn_implementation": "eager"}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -104,5 +133,10 @@ class ModelLoader(ForgeModel):
             inputs["pixel_values"] = cast_input_to_type(
                 inputs["pixel_values"], dtype_override
             )
+
+        decoder_start_id = self.processor.tokenizer.convert_tokens_to_ids("</s>")
+        inputs["decoder_input_ids"] = torch.tensor(
+            [[decoder_start_id]], dtype=torch.long
+        )
 
         return inputs
