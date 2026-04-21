@@ -4,9 +4,8 @@
 """
 KaniTTS model loader implementation for text-to-speech tasks.
 """
+import torch
 from typing import Optional
-
-from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from ...base import ForgeModel
 from ...config import (
@@ -23,25 +22,22 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available KaniTTS model variants."""
 
-    KANI_TTS_370M = "370m"
+    KANI_TTS_2_PT = "2-pt"
 
 
 class ModelLoader(ForgeModel):
     """KaniTTS model loader implementation for text-to-speech tasks."""
 
     _VARIANTS = {
-        ModelVariant.KANI_TTS_370M: ModelConfig(
-            pretrained_model_name="nineninesix/kani-tts-370m",
+        ModelVariant.KANI_TTS_2_PT: ModelConfig(
+            pretrained_model_name="nineninesix/kani-tts-2-pt",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.KANI_TTS_370M
-
-    sample_text = "Hello, this is a test of text to speech."
+    DEFAULT_VARIANT = ModelVariant.KANI_TTS_2_PT
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -55,27 +51,21 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        if self.tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        from transformers import AutoModelForCausalLM
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            self._variant_config.pretrained_model_name,
+            torch_dtype=dtype_override or torch.float32,
+            trust_remote_code=True,
+            **kwargs,
         )
         model.eval()
         return model
 
     def load_inputs(self, dtype_override=None):
-        if self.tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self._variant_config.pretrained_model_name
-            )
-
-        inputs = self.tokenizer(self.sample_text, return_tensors="pt")
-        return inputs
+        input_ids = torch.randint(0, 1000, (1, 64))
+        attention_mask = torch.ones(1, 64, dtype=torch.long)
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+        }
