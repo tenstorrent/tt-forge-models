@@ -4,8 +4,8 @@
 """
 Typhoon2 model loader implementation for causal language modeling.
 
-Supports the typhoon-ai Typhoon2 instruction-tuned variants for Thai and
-English text generation, including Llama 3.1 and Qwen3 MoE backbones.
+Supports typhoon-ai Typhoon2 instruction-tuned variants for Thai and English
+text generation, including Llama 3.1 and Gemma 3 backbones.
 """
 
 from typing import Optional
@@ -29,7 +29,7 @@ class ModelVariant(StrEnum):
     """Available Typhoon2 model variants for causal language modeling."""
 
     TYPHOON2_8B_INSTRUCT = "8B_Instruct"
-    TYPHOON2_5_QWEN3_30B_A3B = "2.5_Qwen3_30B_A3B"
+    TYPHOON2_1_GEMMA3_4B = "2.1_Gemma3_4B"
 
 
 class ModelLoader(ForgeModel):
@@ -40,8 +40,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="typhoon-ai/llama3.1-typhoon2-8b-instruct",
             max_length=128,
         ),
-        ModelVariant.TYPHOON2_5_QWEN3_30B_A3B: LLMModelConfig(
-            pretrained_model_name="typhoon-ai/typhoon2.5-qwen3-30b-a3b",
+        ModelVariant.TYPHOON2_1_GEMMA3_4B: LLMModelConfig(
+            pretrained_model_name="typhoon-ai/typhoon2.1-gemma3-4b",
             max_length=128,
         ),
     }
