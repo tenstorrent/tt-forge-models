@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Next2-Air GGUF model variants."""
 
     NEXT2_AIR_Q4_K_M = "Q4_K_M"
+    NEXT2_AIR_BASE_Q4_K_M = "base_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
@@ -34,12 +35,16 @@ class ModelLoader(ForgeModel):
         ModelVariant.NEXT2_AIR_Q4_K_M: ModelConfig(
             pretrained_model_name="thelamapi/next2-air-i1-GGUF",
         ),
+        ModelVariant.NEXT2_AIR_BASE_Q4_K_M: ModelConfig(
+            pretrained_model_name="thelamapi/next2-air-GGUF",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.NEXT2_AIR_Q4_K_M
 
     _GGUF_FILES = {
         ModelVariant.NEXT2_AIR_Q4_K_M: "next2-air.i1-Q4_K_M.gguf",
+        ModelVariant.NEXT2_AIR_BASE_Q4_K_M: "next2-air.Q4_K_M.gguf",
     }
 
     _PROCESSOR_NAME = "thelamapi/next2-air"
