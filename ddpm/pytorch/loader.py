@@ -41,10 +41,9 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    # UNet2DModel constructor keys that map directly from the ddpm_dummy config.json.
     # The dummy repo ships old-style weights (diffusion_model.pt) that modern
     # diffusers cannot load via from_pretrained, so we construct the architecture
-    # from its config with random weights — adequate for compilation coverage.
+    # from its config.json with random weights — adequate for compilation coverage.
     _DUMMY_CONFIG_KEYS = (
         "sample_size",
         "in_channels",
