@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     LLAMA_4_MAVERICK_17B_128E_INSTRUCT_FP8 = (
         "RedHatAI/Llama-4-Maverick-17B-128E-Instruct-FP8"
     )
+    LLAMA_4_SCOUT_17B_16E_INSTRUCT_UNSLOTH = "unsloth/Llama-4-Scout-17B-16E-Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,11 @@ class ModelLoader(ForgeModel):
         ModelVariant.LLAMA_4_MAVERICK_17B_128E_INSTRUCT_FP8: ModelConfig(
             pretrained_model_name=str(
                 ModelVariant.LLAMA_4_MAVERICK_17B_128E_INSTRUCT_FP8
+            ),
+        ),
+        ModelVariant.LLAMA_4_SCOUT_17B_16E_INSTRUCT_UNSLOTH: ModelConfig(
+            pretrained_model_name=str(
+                ModelVariant.LLAMA_4_SCOUT_17B_16E_INSTRUCT_UNSLOTH
             ),
         ),
     }
