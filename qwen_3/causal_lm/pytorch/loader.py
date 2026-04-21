@@ -63,6 +63,7 @@ class ModelVariant(StrEnum):
     QWEN_3_32B_UNSLOTH_BNB_4BIT = "32B_Unsloth_bnb_4bit"
     QWEN_3_235B_A22B_THINKING_2507_FP8 = "235B_A22B_Thinking_2507_FP8"
     QWEN_3_32B_T_PRO_IT_2_0 = "32B_T_pro_it_2.0"
+    QWEN_3_8B_JOSIEFIED_ABLITERATED_V1 = "8B_Josiefied_abliterated_v1"
 
 
 class ModelLoader(ForgeModel):
@@ -202,6 +203,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="t-tech/T-pro-it-2.0",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_8B_JOSIEFIED_ABLITERATED_V1: LLMModelConfig(
+            pretrained_model_name="Goekdeniz-Guelmez/Josiefied-Qwen3-8B-abliterated-v1",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -266,6 +271,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_32B_UNSLOTH_BNB_4BIT,
             ModelVariant.QWEN_3_235B_A22B_THINKING_2507_FP8,
             ModelVariant.QWEN_3_32B_T_PRO_IT_2_0,
+            ModelVariant.QWEN_3_8B_JOSIEFIED_ABLITERATED_V1,
         ):
             group = ModelGroup.VULCAN
         else:
