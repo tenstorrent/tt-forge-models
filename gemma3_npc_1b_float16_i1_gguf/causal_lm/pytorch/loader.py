@@ -4,6 +4,7 @@
 """
 Gemma3NPC 1B float16 i1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 from typing import Optional
 
 import torch
@@ -155,6 +156,12 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        # Refresh the cached package-distribution mapping so that gguf
+        # (installed after transformers was first imported) is recognized.
+        import transformers.utils.import_utils as _tiu
+
+        _tiu.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
