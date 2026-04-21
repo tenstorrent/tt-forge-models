@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-NVIDIA Nemotron 3 Nano 4B BF16 ONNX model loader implementation for causal language modeling.
+Nemotron 3 Nano ONNX model loader implementation for causal language modeling.
 """
 
 from typing import Optional
@@ -24,13 +24,13 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available NVIDIA Nemotron 3 Nano 4B BF16 ONNX model variants for causal language modeling."""
+    """Available Nemotron 3 Nano ONNX model variants for causal language modeling."""
 
     NEMOTRON_3_NANO_4B_BF16_ONNX = "4B_BF16_ONNX"
 
 
 class ModelLoader(ForgeModel):
-    """NVIDIA Nemotron 3 Nano 4B BF16 ONNX model loader implementation for causal language modeling tasks."""
+    """Nemotron 3 Nano ONNX model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.NEMOTRON_3_NANO_4B_BF16_ONNX: ModelConfig(
@@ -49,7 +49,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="NVIDIA Nemotron 3 Nano 4B BF16 ONNX",
+            model="Nemotron 3 Nano ONNX",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -58,7 +58,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, **kwargs):
-        """Load and return the NVIDIA Nemotron 3 Nano 4B BF16 ONNX model.
+        """Load and return the Nemotron 3 Nano ONNX model.
 
         Returns:
             onnx.ModelProto: The ONNX model instance.
@@ -72,7 +72,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, **kwargs):
-        """Load and return sample inputs for the NVIDIA Nemotron 3 Nano 4B BF16 ONNX model.
+        """Load and return sample inputs for the Nemotron 3 Nano ONNX model.
 
         Returns:
             dict: Tokenized input tensors with input_ids and attention_mask.
