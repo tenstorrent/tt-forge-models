@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available CLIPSeg model variants for image segmentation."""
 
     RD64_REFINED = "Rd64_Refined"
+    RD64_REFINED_FP16 = "Rd64_Refined_Fp16"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.RD64_REFINED: ModelConfig(
             pretrained_model_name="CIDAS/clipseg-rd64-refined",
+        ),
+        ModelVariant.RD64_REFINED_FP16: ModelConfig(
+            pretrained_model_name="mcmonkey/clipseg-rd64-refined-fp16",
         ),
     }
 
