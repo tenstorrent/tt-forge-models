@@ -6,6 +6,7 @@ TiRex model loader implementation for time series forecasting.
 """
 
 import os
+import sys
 from dataclasses import dataclass
 from typing import Optional
 
@@ -79,7 +80,22 @@ class ModelLoader(ForgeModel):
         # CUDA-only xlstm kernels.
         os.environ.setdefault("TIREX_NO_CUDA", "1")
 
-        from tirex import load_model as _tirex_load_model
+        # The local tirex/ model directory shadows the installed tirex-ts package.
+        # Temporarily remove the repo root from sys.path so the external package is found.
+        _model_root = os.path.normpath(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+        )
+        _saved_path = sys.path[:]
+        _saved_tirex = {
+            k: sys.modules.pop(k)
+            for k in list(sys.modules)
+            if k == "tirex" or k.startswith("tirex.")
+        }
+        sys.path = [p for p in sys.path if p and os.path.normpath(p) != _model_root]
+        try:
+            from tirex import load_model as _tirex_load_model
+        finally:
+            sys.path = _saved_path
 
         cfg = self._variant_config
 
@@ -88,9 +104,6 @@ class ModelLoader(ForgeModel):
             device="cpu",
             backend="torch",
         )
-
-        if dtype_override is not None:
-            model = model.to(dtype_override)
 
         # TiRexZero subclasses nn.Module but does not define forward; bind
         # _forecast_quantiles so the model is directly callable with a
