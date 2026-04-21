@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Wav2Vec2 nonverbal vocalization classification model variants."""
 
     LARGE_NONVERBAL_VOCALIZATION = "Large_Nonverbal_Vocalization"
+    VOC2VEC = "Voc2Vec"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LARGE_NONVERBAL_VOCALIZATION: ModelConfig(
             pretrained_model_name="padmalcom/wav2vec2-large-nonverbalvocalization-classification",
+        ),
+        ModelVariant.VOC2VEC: ModelConfig(
+            pretrained_model_name="alkiskoudounas/voc2vec",
         ),
     }
 
