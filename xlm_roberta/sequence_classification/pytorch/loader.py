@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
 
     def _is_nli_variant(self):
         """Check if the current variant is an NLI model."""
-        return False
+        return self._variant == ModelVariant.XLM_ROBERTA_BASE_SNLI_MNLI_ANLI_XNLI
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load XLM-RoBERTa model for sequence classification from Hugging Face."""
