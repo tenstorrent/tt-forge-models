@@ -9,7 +9,7 @@ SeedVR2 is a one-step diffusion-based video restoration model using a NaDiT
 low-quality video frames and produces high-quality restored output.
 
 Available variants:
-- SEEDVR2_3B: Smaller 3B parameter model (seedvr2_ema_3b.pth)
+- SEEDVR2_3B: Standard 3B parameter model (seedvr2_ema_3b.pth)
 - SEEDVR2_7B: Standard 7B parameter model (seedvr2_ema_7b.pth)
 - SEEDVR2_7B_SHARP: Sharper 7B variant (seedvr2_ema_7b_sharp.pth)
 """
@@ -49,6 +49,13 @@ class ModelVariant(StrEnum):
     SEEDVR2_3B = "3B"
     SEEDVR2_7B = "7B"
     SEEDVR2_7B_SHARP = "7B_Sharp"
+
+
+_VARIANT_CHECKPOINTS = {
+    ModelVariant.SEEDVR2_3B: ("configs_3b/main.yaml", "seedvr2_ema_3b.pth"),
+    ModelVariant.SEEDVR2_7B: ("configs_7b/main.yaml", "seedvr2_ema_7b.pth"),
+    ModelVariant.SEEDVR2_7B_SHARP: ("configs_7b/main.yaml", "seedvr2_ema_7b_sharp.pth"),
+}
 
 
 class ModelLoader(ForgeModel):
@@ -124,14 +131,14 @@ class ModelLoader(ForgeModel):
 
         from utils.utils import instantiate_from_config
 
-        config_dir = self._CONFIG_DIRS[self._variant]
-        config = OmegaConf.load(f"{repo_path}/{config_dir}/main.yaml")
+        config_rel, ckpt_rel = _VARIANT_CHECKPOINTS[self._variant]
+        config = OmegaConf.load(f"{repo_path}/{config_rel}")
 
         # Instantiate the NaDiT model from config
         model = instantiate_from_config(config.model.dit)
 
         # Load pretrained weights
-        ckpt_path = f"{repo_path}/{self._CKPT_FILES[self._variant]}"
+        ckpt_path = f"{repo_path}/{ckpt_rel}"
 
         state_dict = torch.load(ckpt_path, map_location="cpu", weights_only=True)
         model.load_state_dict(state_dict)
