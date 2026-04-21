@@ -89,15 +89,12 @@ class ModelLoader(ForgeModel):
         conversation = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": self.sample_text},
-                ],
+                "content": self.sample_text,
             }
         ]
 
-        text_prompt = self.processor.apply_chat_template(
-            conversation, padding=True, add_generation_prompt=True
+        text_prompt = self.processor.tokenizer.apply_chat_template(
+            conversation, tokenize=False, add_generation_prompt=True
         )
 
         # Load sample image
