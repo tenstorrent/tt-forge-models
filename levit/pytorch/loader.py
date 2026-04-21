@@ -36,6 +36,7 @@ class LeViTConfig(ModelConfig):
 class ModelVariant(StrEnum):
     """Available LeViT model variants."""
 
+    LEVIT_128_FB_DIST_IN1K = "LeViT_128_FB_Dist_In1k"
     LEVIT_256_FB_DIST_IN1K = "LeViT_256_FB_Dist_In1k"
 
 
@@ -43,6 +44,10 @@ class ModelLoader(ForgeModel):
     """LeViT model loader implementation."""
 
     _VARIANTS = {
+        ModelVariant.LEVIT_128_FB_DIST_IN1K: LeViTConfig(
+            pretrained_model_name="hf_hub:timm/levit_128.fb_dist_in1k",
+            source=ModelSource.TIMM,
+        ),
         ModelVariant.LEVIT_256_FB_DIST_IN1K: LeViTConfig(
             pretrained_model_name="hf_hub:timm/levit_256.fb_dist_in1k",
             source=ModelSource.TIMM,
