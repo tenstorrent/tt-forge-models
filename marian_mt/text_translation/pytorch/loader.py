@@ -33,7 +33,7 @@ class ModelVariant(StrEnum):
     OPUS_MT_TR_EN = "Opus_Mt_Tr_En"
     OPUS_MT_TC_BIG_EN_BG = "Opus_Mt_Tc_Big_En_Bg"
     OPUS_MT_EN_GMQ = "Opus_Mt_En_Gmq"
-    STUDENT_MARIAN_EN_RO_6_1 = "Student_Marian_En_Ro_6_1"
+    OPUS_MT_PT_CA = "Opus_Mt_Pt_Ca"
 
 
 class ModelLoader(ForgeModel):
@@ -70,8 +70,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPUS_MT_EN_GMQ: LLMModelConfig(
             pretrained_model_name="Helsinki-NLP/opus-mt-en-gmq",
         ),
-        ModelVariant.STUDENT_MARIAN_EN_RO_6_1: LLMModelConfig(
-            pretrained_model_name="sshleifer/student_marian_en_ro_6_1",
+        ModelVariant.OPUS_MT_PT_CA: LLMModelConfig(
+            pretrained_model_name="Helsinki-NLP/opus-mt-pt-ca",
         ),
     }
 
@@ -81,7 +81,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPUS_MT_TR_EN: "Merhaba dünya, bugün hava çok güzel.",
         ModelVariant.OPUS_MT_TC_BIG_EN_BG: "The weather is beautiful today and the sun is shining brightly.",
         ModelVariant.OPUS_MT_EN_GMQ: ">>sv<< The weather is beautiful today and the sun is shining brightly.",
-        ModelVariant.STUDENT_MARIAN_EN_RO_6_1: "Hello, how are you today?",
+        ModelVariant.OPUS_MT_PT_CA: "O tempo está lindo hoje e o sol está a brilhar.",
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
