@@ -11,6 +11,39 @@ from transformers import (
 )
 from typing import Optional
 
+
+def _patch_transformers_qwen3vl_gguf():
+    """Monkey-patch transformers to add qwen3vl GGUF architecture support.
+
+    The RoboBrain2.5 / Qwen3-VL models use the 'qwen3vl' architecture
+    identifier in their GGUF metadata. Transformers 5.x supports Qwen3VL
+    but lacks GGUF loading support for the qwen3vl architecture. We bridge
+    the gap by registering the config mapping that mirrors qwen3's mapping.
+    Vision encoder weights in the GGUF file that have no corresponding
+    mapping will be silently skipped; for compile-only testing this is
+    acceptable since we verify architecture compilation, not output accuracy.
+    """
+    from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+    from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+
+    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_CONFIG_MAPPING["qwen3vl"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -61,6 +94,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _patch_transformers_qwen3vl_gguf()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
