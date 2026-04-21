@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available SDAR model variants for causal language modeling."""
 
     SDAR_1_7B_CHAT = "1.7B_Chat"
+    SDAR_1_7B_CHAT_B32 = "1.7B_Chat_b32"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SDAR_1_7B_CHAT: LLMModelConfig(
             pretrained_model_name="JetLM/SDAR-1.7B-Chat",
+            max_length=128,
+        ),
+        ModelVariant.SDAR_1_7B_CHAT_B32: LLMModelConfig(
+            pretrained_model_name="JetLM/SDAR-1.7B-Chat-b32",
             max_length=128,
         ),
     }
