@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Qwen model variants for causal language modeling."""
 
     TINY_RANDOM_QWEN = "tiny-random-qwen"
-    QWEN_1_8B = "1_8B"
+    QWEN_7B_CHAT_INT4 = "qwen-7b-chat-int4"
 
 
 class ModelLoader(ForgeModel):
@@ -36,9 +36,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="optimum-intel-internal-testing/tiny-random-qwen",
             max_length=128,
         ),
-        ModelVariant.QWEN_1_8B: LLMModelConfig(
-            pretrained_model_name="Qwen/Qwen-1_8B",
-            max_length=256,
+        ModelVariant.QWEN_7B_CHAT_INT4: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen-7B-Chat-Int4",
+            max_length=128,
         ),
     }
 
