@@ -4,9 +4,32 @@
 """
 Llama 3 70B Instruct Abliterated v3 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
+from packaging.version import Version
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+
+def _fix_gguf_availability():
+    """Fix is_gguf_available for gguf installed after transformers import.
+
+    gguf lacks __version__, so the stale PACKAGE_DISTRIBUTION_MAPPING fallback
+    returns 'N/A', causing packaging.version.InvalidVersion at runtime.
+    """
+
+    def _safe_is_gguf_available(min_version: str = "0.10.0") -> bool:
+        try:
+            return Version(importlib.metadata.version("gguf")) >= Version(min_version)
+        except Exception:
+            return False
+
+    _gguf_utils.is_gguf_available = _safe_is_gguf_available
+
+
+_fix_gguf_availability()
 
 from ....base import ForgeModel
 from ....config import (
