@@ -71,25 +71,20 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None, batch_size=1) -> Any:
         dtype = dtype_override or torch.bfloat16
 
-        # Config: in_channels=16, text_embed_dim=1472, patch_size=2
-        # prior_vq_quantizer_codebook_size=16384
         in_channels = 16
         text_embed_dim = 1472
-        patch_size = 2
-
         latent_h = 4
         latent_w = 4
-        img_seq_len = (latent_h // patch_size) * (latent_w // patch_size)
         txt_seq_len = 8
 
         hidden_states = torch.randn(
-            batch_size, img_seq_len, in_channels * patch_size * patch_size, dtype=dtype
+            batch_size, in_channels, latent_h, latent_w, dtype=dtype
         )
         encoder_hidden_states = torch.randn(
             batch_size, txt_seq_len, text_embed_dim, dtype=dtype
         )
         prior_token_id = torch.randint(0, 16384, (batch_size,))
-        prior_token_drop = torch.zeros(batch_size, dtype=dtype)
+        prior_token_drop = torch.zeros(batch_size, dtype=torch.bool)
         timestep = torch.randint(0, 1000, (batch_size,))
         target_size = torch.tensor([[512, 512]] * batch_size, dtype=dtype)
         crop_coords = torch.tensor([[0, 0]] * batch_size, dtype=dtype)
