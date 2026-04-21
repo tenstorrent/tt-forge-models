@@ -2,12 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-KORMo-VL model loader implementation for image-text-to-text document
-understanding and bilingual (Korean/English) vision-language tasks.
+KORMo-VL model loader implementation for image-text-to-text generation.
 """
+
 from typing import Optional
 
-import torch
 from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
@@ -27,22 +26,22 @@ from ....tools.utils import get_file
 class ModelVariant(StrEnum):
     """Available KORMo-VL model variants."""
 
-    KORMO_VL = "kormo_vl"
+    KORMO_VL = "KORMo-VL/KORMo-VL"
 
 
 class ModelLoader(ForgeModel):
-    """KORMo-VL model loader for image-text-to-text tasks."""
+    """KORMo-VL model loader for image-text-to-text generation."""
 
     _VARIANTS = {
         ModelVariant.KORMO_VL: ModelConfig(
-            pretrained_model_name="KORMo-VL/KORMo-VL",
+            pretrained_model_name=str(ModelVariant.KORMO_VL),
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.KORMO_VL
 
-    sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
-    sample_text = "이 이미지에 대해 설명해주세요."
+    sample_image_url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+    sample_text = "Describe this image."
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -50,8 +49,10 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="kormo_vl",
+            model="KORMo-VL",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.MM_IMAGE_TTT,
@@ -67,6 +68,7 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        """Load and return the KORMo-VL model instance."""
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.processor is None:
@@ -81,9 +83,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        """Load and return input tensors for KORMo-VL."""
         if self.processor is None:
             self._load_processor()
 
@@ -94,42 +98,23 @@ class ModelLoader(ForgeModel):
             {
                 "role": "user",
                 "content": [
-                    {"type": "image", "image": image},
+                    {"type": "image"},
                     {"type": "text", "text": self.sample_text},
                 ],
             }
         ]
 
-        inputs = self.processor.apply_chat_template(
-            messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
+        prompt = self.processor.apply_chat_template(
+            messages, add_generation_prompt=True
+        )
+
+        inputs = self.processor(
+            text=prompt,
+            images=[image],
             return_tensors="pt",
         )
 
-        if dtype_override is not None:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]) and inputs[key].is_floating_point():
-                    inputs[key] = inputs[key].to(dtype_override)
+        if dtype_override is not None and "pixel_values" in inputs:
+            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
-        if batch_size > 1:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]):
-                    inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
-        return dict(inputs)
-
-    def decode_output(self, outputs, input_length=None):
-        if self.processor is None:
-            self._load_processor()
-
-        if hasattr(outputs, "logits"):
-            predicted_ids = outputs.logits.argmax(-1)
-        else:
-            predicted_ids = outputs
-
-        if input_length is not None:
-            predicted_ids = predicted_ids[:, input_length:]
-
-        return self.processor.batch_decode(predicted_ids, skip_special_tokens=True)
+        return inputs
