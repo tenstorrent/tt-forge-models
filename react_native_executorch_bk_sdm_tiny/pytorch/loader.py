@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-React Native ExecuTorch BK-SDM-Tiny model loader implementation.
+React Native ExecuTorch BK-SDM-Tiny text-to-image model loader implementation.
 
 Note: The original model (software-mansion/react-native-executorch-bk-sdm-tiny) is in
 ExecuTorch .pte format intended for mobile inference. Since ExecuTorch format is not
@@ -34,7 +34,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """React Native ExecuTorch BK-SDM-Tiny model loader implementation."""
+    """React Native ExecuTorch BK-SDM-Tiny text-to-image model loader implementation."""
 
     _VARIANTS = {
         ModelVariant.BK_SDM_TINY: ModelConfig(
@@ -59,14 +59,33 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        """Load and return the BK-SDM-Tiny pipeline.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+
+        Returns:
+            StableDiffusionPipeline: The pre-trained BK-SDM-Tiny pipeline.
+        """
         dtype = dtype_override or torch.bfloat16
         pipe = StableDiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
+            self._variant_config.pretrained_model_name,
+            torch_dtype=dtype,
+            **kwargs,
         )
         return pipe
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        """Load and return sample text prompts for BK-SDM-Tiny.
+
+        Args:
+            dtype_override: This parameter is ignored for this model.
+            batch_size: Optional batch size for the prompts.
+
+        Returns:
+            list: A list of sample text prompts.
+        """
         prompt = [
-            "a photo of an astronaut riding a horse on mars",
+            "a tropical bird sitting on a branch",
         ] * batch_size
         return prompt
