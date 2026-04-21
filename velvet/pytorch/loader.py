@@ -5,7 +5,15 @@
 Velvet model loader implementation for causal language modeling.
 """
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import os
+
+import torch
+from transformers import (
+    AutoConfig,
+    AutoTokenizer,
+    MistralConfig,
+    MistralForCausalLM,
+)
 from typing import Optional
 from ...tools.utils import generate_no_cache, pad_inputs
 from ...base import ForgeModel
@@ -19,6 +27,25 @@ from ...config import (
     StrEnum,
 )
 
+_VELVET_2B_CONFIG = {
+    "vocab_size": 126976,
+    "max_position_embeddings": 32768,
+    "hidden_size": 2048,
+    "intermediate_size": 8192,
+    "num_hidden_layers": 28,
+    "num_attention_heads": 32,
+    "num_key_value_heads": 8,
+    "hidden_act": "silu",
+    "rms_norm_eps": 1e-05,
+    "head_dim": 64,
+    "sliding_window": None,
+    "tie_word_embeddings": False,
+    "bos_token_id": 1,
+    "eos_token_id": 2,
+    "rope_theta": 100000.0,
+    "attention_dropout": 0.0,
+}
+
 
 class ModelVariant(StrEnum):
     """Available Velvet model variants."""
@@ -29,41 +56,24 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Velvet model loader implementation for causal language modeling tasks."""
 
-    # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.VELVET_2B: LLMModelConfig(
             pretrained_model_name="Almawave/Velvet-2B",
-            max_length=2048,
+            max_length=128,
         ),
     }
 
-    # Default variant to use
     DEFAULT_VARIANT = ModelVariant.VELVET_2B
 
-    # Sample prompt text
     sample_text = "Explain quantum computing in simple terms."
 
     def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
         super().__init__(variant)
         self.tokenizer = None
         self.seq_len = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Implementation method for getting model info with validated variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-
-        Returns:
-            ModelInfo: Information about the model and variant.
-        """
         return ModelInfo(
             model="Velvet",
             variant=variant,
@@ -73,8 +83,19 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _get_config(self):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            return MistralConfig(**_VELVET_2B_CONFIG)
+        return AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+        )
+
     def _load_tokenizer(self, dtype_override=None):
-        """Load tokenizer for the current variant."""
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.tokenizer = None
+            return None
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -88,26 +109,37 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Velvet model instance."""
-
-        model_kwargs = {
-            "trust_remote_code": True,
-        }
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = AutoModelForCausalLM.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
-        )
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
+        config = self._get_config()
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            model = MistralForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {"trust_remote_code": True}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["config"] = config
+            model = MistralForCausalLM.from_pretrained(
+                self._variant_config.pretrained_model_name, **model_kwargs
+            )
+
+        model.eval()
         return model
 
-    def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the Velvet model."""
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        max_length = self._variant_config.max_length
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            vocab_size = self._get_config().vocab_size
+            input_ids = torch.randint(0, vocab_size, (batch_size, max_length))
+            attention_mask = torch.ones_like(input_ids)
+            return {"input_ids": input_ids, "attention_mask": attention_mask}
+
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
@@ -123,15 +155,6 @@ class ModelLoader(ForgeModel):
         return padded_inputs
 
     def decode_output(self, max_new_tokens, model, inputs, tokenizer):
-        """Generates text from the model.
-
-        Args:
-            max_new_tokens (int): The maximum number of new tokens to generate.
-            model (torch.nn.Module): The language model used for token generation.
-            inputs (torch.Tensor): Input tensor of shape (batch_size, seq_len), representing tokenized text.
-            tokenizer: The tokenizer used to decode token IDs into text.
-
-        """
         generated_text = generate_no_cache(
             max_new_tokens, model, inputs, self.seq_len, tokenizer
         )
