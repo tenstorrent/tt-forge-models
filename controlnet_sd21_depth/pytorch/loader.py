@@ -42,7 +42,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.CONTROLNET_SD21_DEPTH
 
     prompt = "A scenic mountain landscape with a lake, high quality"
-    base_model = "stabilityai/stable-diffusion-2-1"
+    base_model = "sd2-community/stable-diffusion-2-1"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
