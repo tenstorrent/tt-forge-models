@@ -109,17 +109,8 @@ class ModelLoader(ForgeModel):
         # Preprocess
         inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
 
-        input_ids = inputs["input_ids"]
-        attention_mask = inputs["attention_mask"]
-        pixel_values = inputs["pixel_values"]
-
         if dtype_override:
-            input_ids = cast_input_to_type(input_ids, dtype_override)
-            attention_mask = cast_input_to_type(attention_mask, dtype_override)
-            pixel_values = cast_input_to_type(pixel_values, dtype_override)
+            for key in inputs:
+                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
 
-        return {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "pixel_values": pixel_values,
-        }
+        return dict(inputs)
