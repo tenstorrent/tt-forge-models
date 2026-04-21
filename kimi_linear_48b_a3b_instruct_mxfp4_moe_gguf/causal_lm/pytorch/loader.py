@@ -4,9 +4,28 @@
 """
 Kimi Linear 48B A3B Instruct MXFP4 MOE GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.utils.import_utils as _import_utils
+
+_orig_is_gguf_available = _gguf_utils.is_gguf_available
+
+
+def _patched_is_gguf_available(min_version=_import_utils.GGUF_MIN_VERSION):
+    """Refresh package mapping so gguf installed mid-process is recognised."""
+    if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        _import_utils.PACKAGE_DISTRIBUTION_MAPPING.update(
+            importlib.metadata.packages_distributions()
+        )
+    return _orig_is_gguf_available(min_version)
+
+
+_gguf_utils.is_gguf_available = _patched_is_gguf_available
 
 from ....base import ForgeModel
 from ....config import (
