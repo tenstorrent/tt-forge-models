@@ -25,6 +25,9 @@ class ModelVariant(StrEnum):
     """Available FunctionGemma model variants."""
 
     FUNCTIONGEMMA_270M_IT = "270M_IT"
+    NAVER_FUNCTIONGEMMA_270M_IT_MOBILE_ACTIONS = (
+        "naver_functiongemma_270m_it_mobile_actions"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +36,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.FUNCTIONGEMMA_270M_IT: LLMModelConfig(
             pretrained_model_name="google/functiongemma-270m-it",
+            max_length=256,
+        ),
+        ModelVariant.NAVER_FUNCTIONGEMMA_270M_IT_MOBILE_ACTIONS: LLMModelConfig(
+            pretrained_model_name="naver-ellm/functiongemma-270m-it-mobile-actions",
             max_length=256,
         ),
     }
