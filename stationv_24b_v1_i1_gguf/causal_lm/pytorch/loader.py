@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available StationV 24B v1 GGUF model variants for causal language modeling."""
 
     STATIONV_24B_V1_I1_Q4_K_M = "Q4_K_M"
-    STATIONV_24B_V1_GGUF_Q4_K_M = "GGUF-Q4_K_M"
+    STATIONV_24B_V1_GGUF_Q4_K_M = "GGUF_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
