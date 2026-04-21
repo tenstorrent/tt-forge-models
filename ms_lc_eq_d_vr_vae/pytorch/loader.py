@@ -25,6 +25,7 @@ Available variants (FLUX-based, 16 latent channels):
 from typing import Any, Optional
 
 import torch
+import torch.nn as nn
 from diffusers import AutoencoderKL
 from huggingface_hub import hf_hub_download
 
@@ -38,6 +39,18 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+class _VaeDecoderWrapper(nn.Module):
+    """Wraps AutoencoderKL to expose only the decode path as forward."""
+
+    def __init__(self, vae: AutoencoderKL):
+        super().__init__()
+        self.vae = vae
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        return self.vae.decode(z).sample
+
 
 REPO_ID = "Anzhc/MS-LC-EQ-D-VR_VAE"
 
@@ -120,8 +133,20 @@ class ModelLoader(ForgeModel):
     def _latent_channels(self) -> int:
         return FLUX_LATENT_CHANNELS if self._is_flux() else SDXL_LATENT_CHANNELS
 
-    def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the AutoencoderKL VAE model for the selected variant."""
+    def load_model(
+        self,
+        *,
+        dtype_override: Optional[torch.dtype] = None,
+        vae_type: str = "decoder",
+        **kwargs,
+    ):
+        """Load and return the VAE model for the selected variant.
+
+        For vae_type="decoder" (default) returns a wrapper that calls
+        vae.decode(z) given a latent tensor.  For vae_type="encoder" returns
+        the full AutoencoderKL whose forward encodes an image to latent and
+        decodes it back.
+        """
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._vae is None:
             filename = _VARIANT_FILENAMES[self._variant]
@@ -145,14 +170,19 @@ class ModelLoader(ForgeModel):
             self._vae.eval()
         elif dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
+
+        if vae_type == "decoder":
+            return _VaeDecoderWrapper(self._vae)
         return self._vae
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare inputs for the VAE.
 
         Pass vae_type="decoder" (default) or vae_type="encoder".
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = dtype_override if dtype_override is not None else torch.float32
         vae_type = kwargs.get("vae_type", "decoder")
         latent_channels = self._latent_channels()
 
