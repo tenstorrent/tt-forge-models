@@ -4,6 +4,7 @@
 """
 DeBERTa-v2 model loader implementation for sequence classification (NSFW text detection).
 """
+
 from typing import Optional
 
 from ....config import (
@@ -22,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available DeBERTa-v2 model variants for sequence classification."""
 
     SCALETECH_NSFW_CLASSIFIER = "scaleTech_nsfw_classifier"
+    TEJASWINI007_BIAS_CLASSIFIER_V2 = "tejaswini007_bias_classifier_v2"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +32,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SCALETECH_NSFW_CLASSIFIER: ModelConfig(
             pretrained_model_name="scaleTech/myplaygirl-nsfw-classifier",
+        ),
+        ModelVariant.TEJASWINI007_BIAS_CLASSIFIER_V2: ModelConfig(
+            pretrained_model_name="tejaswini007/bias-classifier-v2",
         ),
     }
 
@@ -93,5 +98,8 @@ class ModelLoader(ForgeModel):
     def decode_output(self, co_out):
         logits = co_out[0]
         predicted_class_id = logits.argmax(-1).item()
-        labels = ["NSFW", "SFW"]
+        if self._variant == ModelVariant.TEJASWINI007_BIAS_CLASSIFIER_V2:
+            labels = ["NOT_BIASED", "BIASED"]
+        else:
+            labels = ["NSFW", "SFW"]
         print(f"Predicted: {labels[predicted_class_id]}")
