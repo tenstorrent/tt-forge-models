@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available Cambrian-S model variants."""
 
     CAMBRIAN_S_7B_S3 = "S_7B_S3"
+    CAMBRIAN_S_3B = "S_3B"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.CAMBRIAN_S_7B_S3: ModelConfig(
             pretrained_model_name="nyu-visionx/Cambrian-S-7B-S3",
+        ),
+        ModelVariant.CAMBRIAN_S_3B: ModelConfig(
+            pretrained_model_name="nyu-visionx/Cambrian-S-3B",
         ),
     }
 
