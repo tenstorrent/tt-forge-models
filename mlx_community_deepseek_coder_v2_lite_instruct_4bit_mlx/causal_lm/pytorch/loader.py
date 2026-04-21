@@ -5,8 +5,17 @@
 mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit-mlx model loader for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, DynamicCache
 from typing import Optional
+
+# transformers 5.x removed DynamicCache.get_usable_length; patch it back for
+# the custom modeling_deepseek.py downloaded via trust_remote_code.
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length: int, layer_idx: int = 0) -> int:
+        return self.get_seq_length(layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
 
 from ....base import ForgeModel
 from ....config import (
