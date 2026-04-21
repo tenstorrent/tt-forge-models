@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Waifu Diffusion model variants."""
 
     BASE = "Base"
+    WD_1_5_BETA3 = "WD_1_5_BETA3"
 
 
 class ModelLoader(ForgeModel):
@@ -33,7 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="hakurei/waifu-diffusion",
-        )
+        ),
+        ModelVariant.WD_1_5_BETA3: ModelConfig(
+            pretrained_model_name="waifu-diffusion/wd-1-5-beta3",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BASE
