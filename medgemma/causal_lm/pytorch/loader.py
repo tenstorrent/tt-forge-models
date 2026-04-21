@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available MedGemma model variants for causal LM."""
 
     MEDGEMMA_27B_TEXT_IT = "27B_Text_Instruct"
+    MEDGEMMA_4B_IT_CRIMSON = "4B_Instruct_Crimson"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MEDGEMMA_27B_TEXT_IT: LLMModelConfig(
             pretrained_model_name="google/medgemma-27b-text-it",
+            max_length=256,
+        ),
+        ModelVariant.MEDGEMMA_4B_IT_CRIMSON: LLMModelConfig(
+            pretrained_model_name="rajpurkarlab/medgemma-4b-it-crimson",
             max_length=256,
         ),
     }
