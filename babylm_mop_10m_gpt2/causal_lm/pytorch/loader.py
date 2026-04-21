@@ -161,9 +161,16 @@ class ModelLoader(ForgeModel):
             truncation=True,
         )
 
+        input_ids = tokenized_inputs.input_ids
+        attention_mask = tokenized_inputs.attention_mask
+
+        if input_ids.ndim == 1:
+            input_ids = input_ids.unsqueeze(0)
+            attention_mask = attention_mask.unsqueeze(0)
+
         inputs = {
-            "input_ids": tokenized_inputs.input_ids,
-            "attention_mask": tokenized_inputs.attention_mask,
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
         }
 
         # Replicate inputs for batch size
