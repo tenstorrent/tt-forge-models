@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Tiny Random GptOss model variants."""
 
     TINY_RANDOM_GPT_OSS = "Tiny_Random"
+    YUJIEPAN_GPT_OSS_TINY_RANDOM = "yujiepan/gpt-oss-tiny-random"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINY_RANDOM_GPT_OSS: LLMModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/tiny-GptOssForCausalLM",
+            max_length=128,
+        ),
+        ModelVariant.YUJIEPAN_GPT_OSS_TINY_RANDOM: LLMModelConfig(
+            pretrained_model_name="yujiepan/gpt-oss-tiny-random",
             max_length=128,
         ),
     }
