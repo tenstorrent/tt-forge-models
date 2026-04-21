@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available Task-20 Qwen2.5-3B-Instruct model variants."""
 
     TASK_20_QWEN2_5_3B_INSTRUCT = "Task_20_Qwen2.5_3B_Instruct"
-    TASK_20_QWEN2_5_3B_INSTRUCT_SOLGAZE = "Task_20_Qwen2.5_3B_Instruct_SolGaze"
+    TASK_20_QWEN2_5_3B_INSTRUCT_ROBERTOU2 = "Task_20_Qwen2.5_3B_Instruct_robertou2"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.TASK_20_QWEN2_5_3B_INSTRUCT: ModelConfig(
             pretrained_model_name="latiao1999/task-20-Qwen-Qwen2.5-3B-Instruct",
         ),
-        ModelVariant.TASK_20_QWEN2_5_3B_INSTRUCT_SOLGAZE: ModelConfig(
-            pretrained_model_name="SolGaze/task-20-Qwen-Qwen2.5-3B-Instruct",
+        ModelVariant.TASK_20_QWEN2_5_3B_INSTRUCT_ROBERTOU2: ModelConfig(
+            pretrained_model_name="robertou2/task-20-Qwen-Qwen2.5-3B-Instruct",
         ),
     }
 
