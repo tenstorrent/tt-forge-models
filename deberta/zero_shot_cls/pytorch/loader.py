@@ -22,7 +22,7 @@ class ModelVariant(StrEnum):
     """Available DeBERTa model variants for zero-shot classification."""
 
     DEBERTA_V3_BASE_ZEROSHOT_V2 = "V3_Base_Zeroshot_v2.0"
-    POLITICAL_DEBATE_LARGE_V1_0 = "Political_DEBATE_large_v1.0"
+    DEBERTA_V3_BASE_ZEROSHOT_V1 = "V3_Base_Zeroshot_v1"
 
 
 class ModelLoader(ForgeModel):
@@ -32,8 +32,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.DEBERTA_V3_BASE_ZEROSHOT_V2: ModelConfig(
             pretrained_model_name="MoritzLaurer/deberta-v3-base-zeroshot-v2.0",
         ),
-        ModelVariant.POLITICAL_DEBATE_LARGE_V1_0: ModelConfig(
-            pretrained_model_name="mlburnham/Political_DEBATE_large_v1.0",
+        ModelVariant.DEBERTA_V3_BASE_ZEROSHOT_V1: ModelConfig(
+            pretrained_model_name="MoritzLaurer/deberta-v3-base-zeroshot-v1",
         ),
     }
 
