@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available ARCEE model variants for causal language modeling."""
 
     ARCEE_Spark = "arcee_Spark"
+    Trinity_Large_Preview = "Trinity_Large_Preview"
     Trinity_Large_Preview_FP8 = "Trinity_Large_Preview_FP8"
     Trinity_Large_Preview_W4A16 = "Trinity_Large_Preview_W4A16"
     Trinity_Mini = "Trinity_Mini"
@@ -36,6 +37,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.ARCEE_Spark: LLMModelConfig(
             pretrained_model_name="arcee-ai/Arcee-Spark",
+            max_length=128,
+        ),
+        ModelVariant.Trinity_Large_Preview: LLMModelConfig(
+            pretrained_model_name="arcee-ai/Trinity-Large-Preview",
             max_length=128,
         ),
         ModelVariant.Trinity_Large_Preview_FP8: LLMModelConfig(
@@ -81,6 +86,7 @@ class ModelLoader(ForgeModel):
         """
         group = ModelGroup.RED
         if variant in (
+            ModelVariant.Trinity_Large_Preview,
             ModelVariant.Trinity_Large_Preview_FP8,
             ModelVariant.Trinity_Large_Preview_W4A16,
         ):
@@ -111,6 +117,7 @@ class ModelLoader(ForgeModel):
 
         # Load the tokenizer
         if self._variant in (
+            ModelVariant.Trinity_Large_Preview,
             ModelVariant.Trinity_Large_Preview_FP8,
             ModelVariant.Trinity_Large_Preview_W4A16,
         ):
@@ -145,6 +152,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self._variant in (
+            ModelVariant.Trinity_Large_Preview,
             ModelVariant.Trinity_Large_Preview_FP8,
             ModelVariant.Trinity_Large_Preview_W4A16,
         ):
@@ -238,6 +246,7 @@ class ModelLoader(ForgeModel):
         """
         config_kwargs = {}
         if self._variant in (
+            ModelVariant.Trinity_Large_Preview,
             ModelVariant.Trinity_Large_Preview_FP8,
             ModelVariant.Trinity_Large_Preview_W4A16,
         ):
