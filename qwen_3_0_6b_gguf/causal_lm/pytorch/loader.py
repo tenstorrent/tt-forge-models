@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3 0.6B GGUF model variants for causal language modeling."""
 
     QWEN_3_0_6B_Q4_K_M_GGUF = "0.6B_Q4_K_M_GGUF"
+    LM_KIT_QWEN_3_0_6B_INSTRUCT_Q4_K_M_GGUF = "lm_kit_0.6B_instruct_Q4_K_M_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -34,12 +35,17 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Romarchive/Qwen3-0.6B-GGUF",
             max_length=128,
         ),
+        ModelVariant.LM_KIT_QWEN_3_0_6B_INSTRUCT_Q4_K_M_GGUF: LLMModelConfig(
+            pretrained_model_name="lm-kit/qwen-3-0.6b-instruct-gguf",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_0_6B_Q4_K_M_GGUF
 
     _GGUF_FILES = {
         ModelVariant.QWEN_3_0_6B_Q4_K_M_GGUF: "Qwen3 0.6B Q4_K_M (2026)[Romarchive].gguf",
+        ModelVariant.LM_KIT_QWEN_3_0_6B_INSTRUCT_Q4_K_M_GGUF: "Qwen3-0.6B-Q4_K_M.gguf",
     }
 
     sample_text = "Give me a short introduction to large language models."
