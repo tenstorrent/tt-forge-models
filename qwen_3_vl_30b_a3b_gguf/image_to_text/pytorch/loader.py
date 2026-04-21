@@ -7,6 +7,7 @@ Qwen 3 VL 30B A3B GGUF model loader implementation for image to text.
 
 from transformers import (
     Qwen3VLMoeForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
 )
 from typing import Optional
@@ -73,17 +74,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # Base model repo (safetensors) used for config and processor.
+    # The qwen3vlmoe GGUF architecture is not yet supported by transformers'
+    # GGUF loader, so we supply the config explicitly to bypass that code path.
+    BASE_MODEL = "Qwen/Qwen3-VL-30B-A3B-Instruct"
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
+        # Load config from the base model repo to bypass the unsupported
+        # qwen3vlmoe GGUF architecture check in transformers' GGUF loader.
+        config = AutoConfig.from_pretrained(self.BASE_MODEL)
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self._gguf_file
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-30B-A3B-Instruct")
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
         model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
