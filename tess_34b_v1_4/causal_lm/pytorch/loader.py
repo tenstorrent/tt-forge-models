@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Tess-34B-v1.4 model variants for causal language modeling."""
 
     TESS_34B_V1_4 = "Tess_34B_v1_4"
+    PALLAS_0_5 = "Pallas_0_5"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TESS_34B_V1_4: LLMModelConfig(
             pretrained_model_name="migtissera/Tess-34B-v1.4",
+            max_length=128,
+        ),
+        ModelVariant.PALLAS_0_5: LLMModelConfig(
+            pretrained_model_name="Mihaiii/Pallas-0.5",
             max_length=128,
         ),
     }
