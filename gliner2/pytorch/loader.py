@@ -26,6 +26,7 @@ from ...base import ForgeModel
 
 class ModelVariant(StrEnum):
     GLINER2_MULTI_V1 = "Multi_v1"
+    GUARD_UNIENCODER = "Guard_Uniencoder"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GLINER2_MULTI_V1: ModelConfig(
             pretrained_model_name="fastino/gliner2-multi-v1"
+        ),
+        ModelVariant.GUARD_UNIENCODER: ModelConfig(
+            pretrained_model_name="hivetrace/gliner-guard-uniencoder"
         ),
     }
 
