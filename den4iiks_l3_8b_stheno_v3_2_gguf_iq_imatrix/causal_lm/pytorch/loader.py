@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="L3-8B-Stheno-v3.2-GGUF-IQ-Imatrix",
+            model="L3 8B Stheno v3.2 GGUF IQ Imatrix",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
