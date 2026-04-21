@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available VideoChatFlash-Qwen model variants."""
 
     TINY = "tiny"
+    QWEN2_5_2B_RES448 = "QWEN2_5_2B_RES448"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINY: ModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/tiny-videochat-flash-qwen",
+        ),
+        ModelVariant.QWEN2_5_2B_RES448: ModelConfig(
+            pretrained_model_name="OpenGVLab/VideoChat-Flash-Qwen2_5-2B_res448",
         ),
     }
 
