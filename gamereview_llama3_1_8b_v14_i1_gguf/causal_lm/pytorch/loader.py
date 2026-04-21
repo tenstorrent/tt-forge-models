@@ -4,10 +4,9 @@
 """
 GameReview Llama 3.1 8B v14 i1 GGUF model loader implementation for causal language modeling.
 """
-from typing import Optional
-
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
@@ -24,24 +23,26 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available GameReview Llama 3.1 8B v14 i1 GGUF model variants for causal language modeling."""
 
-    GAMEREVIEW_LLAMA3_1_8B_V14_I1_GGUF = "GAMEREVIEW_LLAMA3_1_8B_V14_I1_GGUF"
+    GAMEREVIEW_LLAMA3_1_8B_V14_I1_Q4_K_M_GGUF = (
+        "GameReview-llama3.1-8b-v14-i1-Q4_K_M-GGUF"
+    )
 
 
 class ModelLoader(ForgeModel):
     """GameReview Llama 3.1 8B v14 i1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.GAMEREVIEW_LLAMA3_1_8B_V14_I1_GGUF: LLMModelConfig(
+        ModelVariant.GAMEREVIEW_LLAMA3_1_8B_V14_I1_Q4_K_M_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/GameReview-llama3.1-8b-v14-i1-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.GAMEREVIEW_LLAMA3_1_8B_V14_I1_GGUF
+    DEFAULT_VARIANT = ModelVariant.GAMEREVIEW_LLAMA3_1_8B_V14_I1_Q4_K_M_GGUF
 
     GGUF_FILE = "GameReview-llama3.1-8b-v14.i1-Q4_K_M.gguf"
 
-    sample_text = "Give me a short introduction to large language model."
+    sample_text = "What is your favorite city?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -151,7 +152,6 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
