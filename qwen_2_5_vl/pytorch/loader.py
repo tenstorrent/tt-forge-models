@@ -156,10 +156,6 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    # Variants with NVFP4 quantized weights require ignore_mismatched_sizes
-    # because the packed FP4 weight shapes differ from the model definition.
-    _NVFP4_VARIANTS = {ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_NVFP4}
-
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Qwen 2.5 VL model instance for this instance's variant.
 
@@ -191,9 +187,6 @@ class ModelLoader(ForgeModel):
             "asi992h/Qwen2.5-VL-7B-Instruct-FP4",
         ]:
             model_kwargs["device_map"] = "cpu"
-
-        if self._variant in self._NVFP4_VARIANTS:
-            model_kwargs["ignore_mismatched_sizes"] = True
 
         # Check if this is a bnb-4bit variant and configure accordingly
         if pretrained_model_name == "unsloth/Qwen2.5-VL-72B-Instruct-bnb-4bit":
