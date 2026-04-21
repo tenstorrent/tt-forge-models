@@ -4,8 +4,11 @@
 """
 Bird Species Classifier model loader implementation for image classification.
 
-Uses chriamue/bird-species-classifier, an EfficientNet-B2 model fine-tuned
-to classify 525 bird species.
+Supported variants:
+- DEFAULT: chriamue/bird-species-classifier, an EfficientNet-B2 model fine-tuned
+  to classify 525 bird species.
+- SIGLIP2_526: prithivMLmods/Bird-Species-Classifier-526, a SigLIP2
+  (google/siglip2-base-patch16-224) model fine-tuned to classify 526 bird species.
 """
 import torch
 from transformers import (
@@ -31,6 +34,7 @@ class ModelVariant(StrEnum):
     """Available Bird Species Classifier model variants."""
 
     DEFAULT = "Default"
+    SIGLIP2_526 = "Siglip2_526"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +43,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEFAULT: ModelConfig(
             pretrained_model_name="chriamue/bird-species-classifier",
+        ),
+        ModelVariant.SIGLIP2_526: ModelConfig(
+            pretrained_model_name="prithivMLmods/Bird-Species-Classifier-526",
         ),
     }
 
