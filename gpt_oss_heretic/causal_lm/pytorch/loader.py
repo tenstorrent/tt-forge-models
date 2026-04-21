@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available GPT-OSS-Heretic model variants for causal language modeling."""
 
     GPT_OSS_20B_HERETIC = "20B_Heretic"
+    GPT_OSS_20B_HERETIC_SCANNER_V1_1 = "20B_Heretic_Scanner_v1_1"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GPT_OSS_20B_HERETIC: LLMModelConfig(
             pretrained_model_name="p-e-w/gpt-oss-20b-heretic",
+            max_length=256,
+        ),
+        ModelVariant.GPT_OSS_20B_HERETIC_SCANNER_V1_1: LLMModelConfig(
+            pretrained_model_name="arnomatic/gpt-oss-20b-heretic-scannerV1-1",
             max_length=256,
         ),
     }
