@@ -4,6 +4,7 @@
 """
 Bloom model loader implementation for causal language modeling.
 """
+
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
@@ -23,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Bloom model variants."""
 
     TINY_RANDOM = "tiny-random"
+    BLOOM_560M_FINETUNED_FRAUD = "560m-finetuned-fraud"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +34,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.TINY_RANDOM: LLMModelConfig(
             pretrained_model_name="peft-internal-testing/tiny-random-BloomForCausalLM",
             max_length=32,
+        ),
+        ModelVariant.BLOOM_560M_FINETUNED_FRAUD: LLMModelConfig(
+            pretrained_model_name="jslin09/bloom-560m-finetuned-fraud",
+            max_length=128,
         ),
     }
 
