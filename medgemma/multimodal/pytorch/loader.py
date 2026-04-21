@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     """Available MedGemma multimodal model variants."""
 
     MEDGEMMA_4B_PT = "google/medgemma-4b-pt"
-    UNSLOTH_MEDGEMMA_4B_IT = "unsloth/medgemma-4b-it"
+    UNSLOTH_MEDGEMMA_4B_IT_BNB_4BIT = "unsloth/medgemma-4b-it-unsloth-bnb-4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -40,8 +40,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.MEDGEMMA_4B_PT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.MEDGEMMA_4B_PT),
         ),
-        ModelVariant.UNSLOTH_MEDGEMMA_4B_IT: LLMModelConfig(
-            pretrained_model_name=str(ModelVariant.UNSLOTH_MEDGEMMA_4B_IT),
+        ModelVariant.UNSLOTH_MEDGEMMA_4B_IT_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.UNSLOTH_MEDGEMMA_4B_IT_BNB_4BIT),
         ),
     }
 
@@ -93,6 +93,8 @@ class ModelLoader(ForgeModel):
             self._load_processor(dtype_override)
 
         model_kwargs = {}
+        if self._variant == ModelVariant.UNSLOTH_MEDGEMMA_4B_IT_BNB_4BIT:
+            model_kwargs["device_map"] = "cpu"
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
