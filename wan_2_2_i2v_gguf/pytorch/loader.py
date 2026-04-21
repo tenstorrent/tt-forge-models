@@ -106,19 +106,58 @@ class ModelLoader(ForgeModel):
             GGUFQuantizationConfig,
             WanTransformer3DModel,
         )
-        from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
-        self._transformer = WanTransformer3DModel.from_single_file(
-            gguf_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        from contextlib import contextmanager
+        from unittest.mock import patch
+
+        def _materialize_meta_tensors(model):
+            for name, param in list(model.named_parameters()):
+                if param.device.type == "meta":
+                    parts = name.split(".")
+                    parent = model
+                    for p in parts[:-1]:
+                        parent = getattr(parent, p)
+                    materialized = torch.zeros(
+                        param.shape, dtype=compute_dtype, device="cpu"
+                    )
+                    setattr(
+                        parent,
+                        parts[-1],
+                        torch.nn.Parameter(
+                            materialized, requires_grad=param.requires_grad
+                        ),
+                    )
+            for name, buf in list(model.named_buffers()):
+                if buf.device.type == "meta":
+                    parts = name.split(".")
+                    parent = model
+                    for p in parts[:-1]:
+                        parent = getattr(parent, p)
+                    setattr(
+                        parent,
+                        parts[-1],
+                        torch.zeros(buf.shape, dtype=buf.dtype, device="cpu"),
+                    )
+
+        import diffusers.loaders.single_file_model as _sfm
+
+        _original_dispatch = _sfm.dispatch_model
+
+        def _safe_dispatch(model, **kwargs):
+            _materialize_meta_tensors(model)
+            return _original_dispatch(model, **kwargs)
+
+        with patch.object(_sfm, "dispatch_model", _safe_dispatch):
+            self._transformer = WanTransformer3DModel.from_single_file(
+                f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         return self._transformer
 
