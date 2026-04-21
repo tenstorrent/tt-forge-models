@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available DistilBERT model variants for embedding generation."""
 
     DISTILBERT_BASE_UNCASED = "distilbert-base-uncased"
+    MINI_GTE = "mini-gte"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DISTILBERT_BASE_UNCASED: ModelConfig(
             pretrained_model_name="OrcaDB/distilbert-base-uncased",
+        ),
+        ModelVariant.MINI_GTE: ModelConfig(
+            pretrained_model_name="prdev/mini-gte",
         ),
     }
 
