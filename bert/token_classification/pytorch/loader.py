@@ -96,8 +96,6 @@ class ModelLoader(ForgeModel):
             )
         elif self._variant == ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE:
             self.sample_text = "在一般情况下句子的结尾要用句号来表示停顿"
-        elif self._variant == ModelVariant.RUPUNCT_SMALL:
-            self.sample_text = "ваш русский текст без пунктуации"
         else:
             self.sample_text = "HuggingFace is a company based in Paris and New York"
         self.max_length = self._variant_config.max_length
