@@ -6,6 +6,10 @@ Kandinsky 2.1 UNet model loader implementation.
 
 Extracts the UNet2DConditionModel decoder from the Kandinsky 2.1 pipeline
 for direct inference testing with synthetic tensor inputs.
+
+Available variants:
+- V2_1: kandinsky-community/kandinsky-2-1 text-to-image UNet (in_channels=4)
+- V2_1_INPAINT: kandinsky-community/kandinsky-2-1-inpaint UNet (in_channels=9)
 """
 
 import torch
@@ -28,6 +32,7 @@ class ModelVariant(StrEnum):
     """Available Kandinsky 2.1 model variants."""
 
     V2_1 = "2.1"
+    V2_1_INPAINT = "2.1-inpaint"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +41,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.V2_1: ModelConfig(
             pretrained_model_name="kandinsky-community/kandinsky-2-1",
+        ),
+        ModelVariant.V2_1_INPAINT: ModelConfig(
+            pretrained_model_name="kandinsky-community/kandinsky-2-1-inpaint",
         ),
     }
 
@@ -79,7 +87,9 @@ class ModelLoader(ForgeModel):
         """Load and return synthetic tensor inputs for the Kandinsky 2.1 UNet.
 
         The UNet expects:
-        - sample: noised latent (batch, in_channels=4, height=64, width=64)
+        - sample: noised latent (batch, in_channels, height=64, width=64)
+          in_channels is 4 for text-to-image and 9 for inpainting
+          (4 latent + 4 masked-image latent + 1 mask).
         - timestep: diffusion timestep
         - encoder_hidden_states: text encoding (batch, seq_len=77, encoder_hid_dim=1024)
         - added_cond_kwargs: text_embeds and image_embeds (batch, cross_attn_dim=768)
@@ -92,8 +102,9 @@ class ModelLoader(ForgeModel):
             dict: Dictionary of input tensors for the UNet forward pass.
         """
         dtype = dtype_override or torch.float32
+        in_channels = 9 if self._variant == ModelVariant.V2_1_INPAINT else 4
         return {
-            "sample": torch.randn(batch_size, 4, 64, 64, dtype=dtype),
+            "sample": torch.randn(batch_size, in_channels, 64, 64, dtype=dtype),
             "timestep": torch.tensor([0]),
             "encoder_hidden_states": torch.randn(batch_size, 77, 1024, dtype=dtype),
             "added_cond_kwargs": {
