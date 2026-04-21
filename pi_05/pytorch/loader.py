@@ -21,7 +21,7 @@ class ModelVariant(StrEnum):
     """Available Pi-0.5 model variants."""
 
     LIBERO_BASE = "lerobot_pi05_libero_base"
-    SUNSHK_LIBERO_PYTORCH = "sunshk_pi05_libero_pytorch"
+    FLOW_V2_FEB24 = "rayhanfahmed_pi05_flow_v2_feb24"
 
 
 class ModelLoader(ForgeModel):
@@ -32,8 +32,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.LIBERO_BASE: ModelConfig(
             pretrained_model_name="lerobot/pi05_libero_base",
         ),
-        ModelVariant.SUNSHK_LIBERO_PYTORCH: ModelConfig(
-            pretrained_model_name="sunshk/pi05_libero_pytorch",
+        ModelVariant.FLOW_V2_FEB24: ModelConfig(
+            pretrained_model_name="rayhanfahmed/pi05-flow-v2-feb24",
         ),
     }
 
