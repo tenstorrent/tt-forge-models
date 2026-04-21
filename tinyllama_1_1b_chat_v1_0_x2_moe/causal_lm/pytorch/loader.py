@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-TinyLlama-1.1B-Chat-v1.0-x2-MoE model loader implementation for causal language modeling.
+TinyLlama 1.1B Chat v1.0 x2 MoE model loader implementation for causal language modeling.
 """
 
 from typing import Optional
@@ -23,13 +23,13 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available TinyLlama-1.1B-Chat-v1.0-x2-MoE model variants."""
+    """Available TinyLlama 1.1B Chat v1.0 x2 MoE model variants."""
 
     TINYLLAMA_1_1B_CHAT_V1_0_X2_MOE = "TinyLlama-1.1B-Chat-v1.0-x2-MoE"
 
 
 class ModelLoader(ForgeModel):
-    """TinyLlama-1.1B-Chat-v1.0-x2-MoE model loader implementation for causal language modeling tasks."""
+    """TinyLlama 1.1B Chat v1.0 x2 MoE model loader for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.TINYLLAMA_1_1B_CHAT_V1_0_X2_MOE: ModelConfig(
