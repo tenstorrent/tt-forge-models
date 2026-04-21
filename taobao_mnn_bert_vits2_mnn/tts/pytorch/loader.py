@@ -59,7 +59,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import VitsModel
+        from transformers import AutoModel
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -68,7 +68,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = VitsModel.from_pretrained(
+        model = AutoModel.from_pretrained(
             pretrained_model_name,
             trust_remote_code=True,
             **model_kwargs,
