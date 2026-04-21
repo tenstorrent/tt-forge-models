@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
 
     MOSHIKO_BF16 = "Moshiko BF16"
     MOSHIKO_Q8 = "Moshiko Q8"
-    MOSHIKO_CANDLE_BF16 = "Moshiko Candle BF16"
+    MOSHIKO_MLX_Q8 = "Moshiko MLX Q8"
 
 
 class ModelLoader(ForgeModel):
@@ -40,8 +40,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.MOSHIKO_Q8: ModelConfig(
             pretrained_model_name="kyutai/moshiko-pytorch-q8",
         ),
-        ModelVariant.MOSHIKO_CANDLE_BF16: ModelConfig(
-            pretrained_model_name="kyutai/moshiko-candle-bf16",
+        ModelVariant.MOSHIKO_MLX_Q8: ModelConfig(
+            pretrained_model_name="kyutai/moshiko-mlx-q8",
         ),
     }
 
