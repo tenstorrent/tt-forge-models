@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3.5 model variants for image-text-to-text."""
 
     QWEN_3_5_9B_8BIT = "9b_8bit"
-    QWEN_3_5_35B_A3B_BASE_UNSLOTH = "35B_A3B_Base_Unsloth"
+    QWEN_3_5_0_8B_6BIT = "0_8b_6bit"
 
 
 class ModelLoader(ForgeModel):
@@ -37,8 +37,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_3_5_9B_8BIT: ModelConfig(
             pretrained_model_name="mlx-community/Qwen3.5-9B-8bit",
         ),
-        ModelVariant.QWEN_3_5_35B_A3B_BASE_UNSLOTH: ModelConfig(
-            pretrained_model_name="unsloth/Qwen3.5-35B-A3B-Base",
+        ModelVariant.QWEN_3_5_0_8B_6BIT: ModelConfig(
+            pretrained_model_name="mlx-community/Qwen3.5-0.8B-6bit",
         ),
     }
 
