@@ -6,7 +6,16 @@ rediska0123 Qwen2.5-Math-PRM LoRA correctness (10 epochs) model loader
 implementation for process-reward token classification.
 """
 from transformers import AutoConfig, AutoModel, AutoTokenizer
+from transformers import DynamicCache
 from typing import Optional
+
+# modeling_qwen2_rm.py uses get_usable_length which was removed in transformers 5.x
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length, layer_idx=0):
+        return self.get_seq_length(layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
 
 from ....base import ForgeModel
 from ....config import (
