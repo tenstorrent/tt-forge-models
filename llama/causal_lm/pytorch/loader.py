@@ -138,17 +138,8 @@ class ModelVariant(StrEnum):
     # RLHFlow variants
     RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA = "RLHFlow_3.1_8B_PRM_Deepseek_Data"
 
-    # Upstage variants
-    UPSTAGE_LLAMA_30B_INSTRUCT = "Upstage_30B_Instruct"
-
-    # NbAiLab variants
-    NB_NOTRAM_LLAMA_3_2_3B_INSTRUCT = "Nb_Notram_3.2_3B_Instruct"
-
-    # Tap-M variants
-    TAP_M_LUNA_AI_LLAMA2_UNCENSORED_FP16 = "Tap_M_Luna_AI_Llama2_Uncensored_FP16"
-
-    # garage-bAInd variants
-    PLATYPUS2_70B = "Platypus2_70B"
+    # AllenAI Tulu variants
+    LLAMA_3_1_TULU_3_8B = "3.1_Tulu_3_8B"
 
 
 class ModelLoader(ForgeModel):
@@ -339,24 +330,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RLHFlow/Llama3.1-8B-PRM-Deepseek-Data",
             max_length=128,
         ),
-        # Upstage variants
-        ModelVariant.UPSTAGE_LLAMA_30B_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="upstage/llama-30b-instruct",
-            max_length=128,
-        ),
-        # NbAiLab variants
-        ModelVariant.NB_NOTRAM_LLAMA_3_2_3B_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="NbAiLab/nb-notram-llama-3.2-3b-instruct",
-            max_length=128,
-        ),
-        # Tap-M variants
-        ModelVariant.TAP_M_LUNA_AI_LLAMA2_UNCENSORED_FP16: LLMModelConfig(
-            pretrained_model_name="Tap-M/Luna-AI-Llama2-Uncensored-FP16",
-            max_length=128,
-        ),
-        # garage-bAInd variants
-        ModelVariant.PLATYPUS2_70B: LLMModelConfig(
-            pretrained_model_name="garage-bAInd/Platypus2-70B",
+        # AllenAI Tulu variants
+        ModelVariant.LLAMA_3_1_TULU_3_8B: LLMModelConfig(
+            pretrained_model_name="allenai/Llama-3.1-Tulu-3-8B",
             max_length=128,
         ),
     }
@@ -441,7 +417,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.AMD_QUARK_TINY_LLAMA,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA,
-            ModelVariant.TINYLLAMA_1_1B_INTERMEDIATE_STEP_240K_503B,
+            ModelVariant.LLAMA_3_1_TULU_3_8B,
         ]:
             group = ModelGroup.VULCAN
         else:
