@@ -38,7 +38,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.NEMOTRON_3_SUPER_120B_A12B_GGUF
 
-    GGUF_FILE = "NVIDIA-Nemotron-3-Super-120B-A12B-UD-Q4_K_M-00001-of-00003.gguf"
+    GGUF_FILE = (
+        "UD-Q4_K_M/NVIDIA-Nemotron-3-Super-120B-A12B-UD-Q4_K_M-00001-of-00003.gguf"
+    )
 
     sample_text = "Give me a short introduction to large language models."
 
