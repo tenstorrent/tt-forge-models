@@ -35,7 +35,7 @@ class ModelVariant(StrEnum):
     """Available React Native ExecuTorch Whisper model variants."""
 
     WHISPER_SMALL = "Small"
-    WHISPER_TINY = "Tiny"
+    WHISPER_TINY_EN = "Tiny_En"
 
 
 class ModelLoader(ForgeModel):
@@ -45,8 +45,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.WHISPER_SMALL: ModelConfig(
             pretrained_model_name="openai/whisper-small",
         ),
-        ModelVariant.WHISPER_TINY: ModelConfig(
-            pretrained_model_name="openai/whisper-tiny",
+        ModelVariant.WHISPER_TINY_EN: ModelConfig(
+            pretrained_model_name="openai/whisper-tiny.en",
         ),
     }
 
