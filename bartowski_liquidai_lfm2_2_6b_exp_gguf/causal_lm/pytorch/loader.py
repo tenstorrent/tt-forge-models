@@ -6,7 +6,13 @@ Bartowski LiquidAI LFM2-2.6B-Exp GGUF model loader implementation for causal lan
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from typing import Optional
+
+# transformers does not include 'lfm2' in GGUF_TO_FAST_CONVERTERS; the GGUF
+# file's tokenizer.ggml.model is 'gpt2' (BPE), so reuse that converter.
+if "lfm2" not in GGUF_TO_FAST_CONVERTERS:
+    GGUF_TO_FAST_CONVERTERS["lfm2"] = GGUF_TO_FAST_CONVERTERS["gpt2"]
 
 from ....base import ForgeModel
 from ....config import (
@@ -72,6 +78,12 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+
+        # The GPT-2 GGUF converter adds <s>/<\/s> as extra tokens beyond the
+        # 65536-entry vocabulary. Remap to the actual in-vocabulary tokens:
+        # BOS = <|startoftext|> (ID 1), EOS/pad = <|im_end|> (ID 7).
+        self.tokenizer.bos_token = "<|startoftext|>"
+        self.tokenizer.eos_token = "<|im_end|>"
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
