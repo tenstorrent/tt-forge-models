@@ -1,22 +1,21 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
 RWKV-4 Pile model loader implementation for causal language modeling.
-
-1.5B-parameter RWKV-4 model pretrained on the EleutherAI Pile dataset.
 """
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
+
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -24,23 +23,25 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available RWKV-4 Pile model variants for causal language modeling."""
 
-    RWKV_4_1B5_PILE = "1B5_PILE"
+    RWKV_4_430M_PILE = "430m"
 
 
 class ModelLoader(ForgeModel):
     """RWKV-4 Pile model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.RWKV_4_1B5_PILE: LLMModelConfig(
-            pretrained_model_name="RWKV/rwkv-4-1b5-pile",
+        ModelVariant.RWKV_4_430M_PILE: LLMModelConfig(
+            pretrained_model_name="RWKV/rwkv-4-430m-pile",
             max_length=256,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.RWKV_4_1B5_PILE
+    DEFAULT_VARIANT = ModelVariant.RWKV_4_430M_PILE
 
     sample_text = (
-        "\nIn a shocking finding, scientist discovered a herd of dragons living in"
+        "\nIn a shocking finding, scientist discovered a herd of dragons living in a "
+        "remote, previously unexplored valley, in Tibet. Even more surprising to the "
+        "researchers was the fact that the dragons spoke perfect Chinese."
     )
 
     def __init__(
@@ -92,7 +93,6 @@ class ModelLoader(ForgeModel):
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
             **tokenizer_kwargs,
         )
 
@@ -122,14 +122,12 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
 
         model.eval()
