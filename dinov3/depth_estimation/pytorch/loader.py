@@ -5,6 +5,8 @@
 DINOv3 ViT CHMv2 DPT-head model loader implementation for canopy height
 depth estimation (PyTorch).
 """
+import os
+
 import torch
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 from datasets import load_dataset
@@ -59,13 +61,25 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        token = os.environ.get("HF_TOKEN")
+        processor_kwargs = {}
+        if token:
+            processor_kwargs["token"] = token
+        self.processor = AutoImageProcessor.from_pretrained(
+            pretrained_model_name, **processor_kwargs
+        )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        """Load the model. Requires a HuggingFace token with access to the
+        gated repo. Set the HF_TOKEN environment variable or pass token as a
+        kwarg."""
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
+        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
+        if token:
+            model_kwargs["token"] = token
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
