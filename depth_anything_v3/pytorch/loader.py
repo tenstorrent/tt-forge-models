@@ -23,16 +23,18 @@ from ...base import ForgeModel
 
 
 class DepthAnything3Wrapper(nn.Module):
-    """Wrapper around Depth Anything V3 that takes a preprocessed image tensor
-    and returns depth prediction."""
+    """Wrapper around the inner DA3 network (DepthAnything3Net) that takes a
+    preprocessed image tensor and returns depth prediction."""
 
     def __init__(self, model):
         super().__init__()
         self.model = model
 
     def forward(self, pixel_values):
-        prediction = self.model.infer(pixel_values)
-        return prediction["depth"]
+        # Input is (B, 3, H, W), model expects (B, N, 3, H, W)
+        x = pixel_values.unsqueeze(1).float()
+        output = self.model(x)
+        return output.depth
 
 
 class ModelVariant(StrEnum):
@@ -70,18 +72,31 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from depth_anything_3.api import DepthAnything3
+        import sys
+
+        # The local "evo/" model directory shadows the pip "evo" package
+        # required by depth_anything_3. Temporarily fix the import resolution.
+        stale_evo = sys.modules.pop("evo", None)
+        repo_root = str(__import__("pathlib").Path(__file__).resolve().parents[2])
+        path_modified = False
+        if repo_root in sys.path:
+            sys.path.remove(repo_root)
+            path_modified = True
+        try:
+            from depth_anything_3.api import DepthAnything3
+        finally:
+            if path_modified:
+                sys.path.insert(0, repo_root)
+            if stale_evo is not None:
+                sys.modules["evo"] = stale_evo
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model = DepthAnything3.from_pretrained(pretrained_model_name)
-        model.eval()
+        api_model = DepthAnything3.from_pretrained(pretrained_model_name)
+        api_model.eval()
 
-        wrapper = DepthAnything3Wrapper(model)
+        wrapper = DepthAnything3Wrapper(api_model.model)
         wrapper.eval()
-
-        if dtype_override is not None:
-            wrapper = wrapper.to(dtype_override)
 
         return wrapper
 
