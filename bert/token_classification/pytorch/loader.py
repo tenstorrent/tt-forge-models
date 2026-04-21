@@ -34,7 +34,7 @@ class ModelVariant(StrEnum):
         "CAMeL-Lab/bert-base-arabic-camelbert-msa-ner"
     )
     P208P2002_ZH_WIKI_PUNCTUATION_RESTORE = "p208p2002/zh-wiki-punctuation-restore"
-    GAGAN3012_BERT_TINY_FINETUNED_NER = "gagan3012/bert-tiny-finetuned-ner"
+    NOVAKAT_NERKOR_CARS_ONPP_HUBERT = "novakat/nerkor-cars-onpp-hubert"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="p208p2002/zh-wiki-punctuation-restore",
             max_length=128,
         ),
-        ModelVariant.GAGAN3012_BERT_TINY_FINETUNED_NER: LLMModelConfig(
-            pretrained_model_name="gagan3012/bert-tiny-finetuned-ner",
+        ModelVariant.NOVAKAT_NERKOR_CARS_ONPP_HUBERT: LLMModelConfig(
+            pretrained_model_name="novakat/nerkor-cars-onpp-hubert",
             max_length=128,
         ),
     }
@@ -96,10 +96,8 @@ class ModelLoader(ForgeModel):
             )
         elif self._variant == ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE:
             self.sample_text = "在一般情况下句子的结尾要用句号来表示停顿"
-        elif self._variant == ModelVariant.KANSALLISARKISTO_FINBERT_NER:
-            self.sample_text = (
-                "Helsingistä tuli Suomen suuriruhtinaskunnan pääkaupunki vuonna 1812."
-            )
+        elif self._variant == ModelVariant.NOVAKAT_NERKOR_CARS_ONPP_HUBERT:
+            self.sample_text = "Soros György alapítványt hozott létre New Yorkban."
         else:
             self.sample_text = "HuggingFace is a company based in Paris and New York"
         self.max_length = self._variant_config.max_length
@@ -125,7 +123,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HATMIMOHA_ARABIC_NER,
             ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER,
             ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE,
-            ModelVariant.GAGAN3012_BERT_TINY_FINETUNED_NER,
+            ModelVariant.NOVAKAT_NERKOR_CARS_ONPP_HUBERT,
         ):
             group = ModelGroup.VULCAN
 
