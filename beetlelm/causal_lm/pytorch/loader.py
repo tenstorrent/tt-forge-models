@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     BEETLELM_DEU_L1_ENG_L2_BALANCED = "beetlelm_deu_L1_eng_L2_balanced"
     BEETLELM_DEU_MONO = "beetlelm_deu_mono"
+    BEETLELM_ENG_NLD_SIMULTANEOUS = "beetlelm_eng_nld_simultaneous"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.BEETLELM_DEU_MONO: LLMModelConfig(
             pretrained_model_name="BeetleLM/beetlelm_deu_mono",
+            max_length=128,
+        ),
+        ModelVariant.BEETLELM_ENG_NLD_SIMULTANEOUS: LLMModelConfig(
+            pretrained_model_name="BeetleLM/beetlelm_eng-nld_simultaneous",
             max_length=128,
         ),
     }
