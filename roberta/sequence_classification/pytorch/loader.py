@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
 
     EMOTION_ENGLISH_LARGE = "Emotion_English_Large"
     BASE_EMPATHY = "Base_Empathy"
-    BASE_ROTTEN_TOMATOES = "Base_Rotten_Tomatoes"
+    BASE_FORMALITY_RANKER = "Base_Formality_Ranker"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bdotloh/roberta-base-empathy",
             max_length=128,
         ),
-        ModelVariant.BASE_ROTTEN_TOMATOES: LLMModelConfig(
-            pretrained_model_name="textattack/roberta-base-rotten-tomatoes",
+        ModelVariant.BASE_FORMALITY_RANKER: LLMModelConfig(
+            pretrained_model_name="s-nlp/roberta-base-formality-ranker",
             max_length=128,
         ),
     }
@@ -50,7 +50,7 @@ class ModelLoader(ForgeModel):
     _SAMPLE_TEXTS = {
         ModelVariant.EMOTION_ENGLISH_LARGE: "I am so happy today, everything is going great!",
         ModelVariant.BASE_EMPATHY: "It breaks my heart to see so many people suffering after the earthquake.",
-        ModelVariant.BASE_ROTTEN_TOMATOES: "the movie was great!",
+        ModelVariant.BASE_FORMALITY_RANKER: "I would like to kindly request your attendance at tomorrow's meeting.",
     }
 
     def __init__(self, variant=None):
