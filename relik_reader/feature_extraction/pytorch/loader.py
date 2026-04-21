@@ -121,6 +121,8 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
+        import torch
+
         if self.tokenizer is None:
             self.load_model(dtype_override=dtype_override)
 
@@ -132,5 +134,16 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
             return_token_type_ids=True,
         )
+
+        # Build a prediction_mask: 1 = masked (special/padding tokens), 0 = predictable.
+        # The model requires this to locate valid entity-span positions.
+        prediction_mask = torch.zeros_like(inputs["input_ids"], dtype=torch.float)
+        prediction_mask[:, 0] = 1  # CLS token
+        prediction_mask[inputs["attention_mask"] == 0] = 1  # padding tokens
+        for i in range(prediction_mask.shape[0]):
+            seq_len = int(inputs["attention_mask"][i].sum().item())
+            if seq_len > 1:
+                prediction_mask[i, seq_len - 1] = 1  # SEP token
+        inputs["prediction_mask"] = prediction_mask
 
         return inputs
