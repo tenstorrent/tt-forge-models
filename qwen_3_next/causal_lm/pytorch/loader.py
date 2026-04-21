@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3 Next model variants for causal language modeling."""
 
     QWEN_3_NEXT_80B_A3B_INSTRUCT = "80B_A3B_Instruct"
-    QWEN_3_NEXT_80B_A3B_INSTRUCT_FP8_DYNAMIC = "80B_A3B_Instruct_FP8_Dynamic"
+    QWEN_3_NEXT_80B_A3B_INSTRUCT_NVFP4_NM_TESTING = "80B_A3B_Instruct_NVFP4_nm_testing"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-Next-80B-A3B-Instruct",
             max_length=128,
         ),
-        ModelVariant.QWEN_3_NEXT_80B_A3B_INSTRUCT_FP8_DYNAMIC: LLMModelConfig(
-            pretrained_model_name="TheClusterDev/Qwen3-Next-80B-A3B-Instruct-FP8-Dynamic",
+        ModelVariant.QWEN_3_NEXT_80B_A3B_INSTRUCT_NVFP4_NM_TESTING: LLMModelConfig(
+            pretrained_model_name="nm-testing/Qwen3-Next-80B-A3B-Instruct-NVFP4",
             max_length=128,
         ),
     }
@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
 
     # Variants with NVFP4 quantized weights require ignore_mismatched_sizes
     # because the packed FP4 weight shapes differ from the model definition.
-    _NVFP4_VARIANTS = {ModelVariant.QWEN_3_NEXT_80B_A3B_INSTRUCT_NVFP4}
+    _NVFP4_VARIANTS = {ModelVariant.QWEN_3_NEXT_80B_A3B_INSTRUCT_NVFP4_NM_TESTING}
 
     # Shared configuration parameters
     sample_text = "Give me a short introduction to large language model."
