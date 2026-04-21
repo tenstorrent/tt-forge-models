@@ -5,6 +5,9 @@
 FLUX ControlNet Inpainting Beta model loader implementation
 """
 
+import os
+import types
+
 import torch
 from typing import Optional
 
@@ -67,14 +70,75 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded pipeline instance
         """
-        self.pipe = load_flux_controlnet_inpainting_beta_pipe(
-            self._variant_config.pretrained_model_name, self.base_model
-        )
-
-        if dtype_override is not None:
-            self.pipe = self.pipe.to(dtype_override)
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.pipe = self._build_random_weights_pipeline(dtype_override)
+        else:
+            self.pipe = load_flux_controlnet_inpainting_beta_pipe(
+                self._variant_config.pretrained_model_name, self.base_model
+            )
+            if dtype_override is not None:
+                self.pipe = self.pipe.to(dtype_override)
 
         return self.pipe
+
+    def _build_random_weights_pipeline(self, dtype_override=None):
+        """Build a pipeline stub with random weights for compile-only mode.
+
+        black-forest-labs/FLUX.1-dev is a gated repo; in TT_RANDOM_WEIGHTS mode
+        we construct the transformer directly from its publicly-known config so
+        that compilation can proceed without needing actual pretrained weights.
+        """
+        from diffusers import FluxTransformer2DModel
+
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        # FLUX.1-dev transformer architecture (guidance_embeds distinguishes dev from schnell)
+        transformer = FluxTransformer2DModel(
+            patch_size=1,
+            in_channels=64,
+            num_layers=19,
+            num_single_layers=38,
+            attention_head_dim=128,
+            num_attention_heads=24,
+            joint_attention_dim=4096,
+            pooled_projection_dim=768,
+            guidance_embeds=True,
+            axes_dims_rope=[16, 56, 56],
+        ).to(dtype)
+
+        class _FakeTokenizer:
+            def __call__(
+                self, text, padding=None, max_length=77, truncation=None, **kwargs
+            ):
+                ns = types.SimpleNamespace()
+                ns.input_ids = torch.zeros(1, max_length, dtype=torch.long)
+                return ns
+
+        class _FakeCLIPEncoder:
+            def __call__(self, input_ids, output_hidden_states=False, **kwargs):
+                ns = types.SimpleNamespace()
+                ns.pooler_output = torch.zeros(input_ids.shape[0], 768, dtype=dtype)
+                return ns
+
+        class _FakeT5Encoder:
+            def __call__(self, input_ids, output_hidden_states=False, **kwargs):
+                return (
+                    torch.zeros(
+                        input_ids.shape[0], input_ids.shape[1], 4096, dtype=dtype
+                    ),
+                )
+
+        pipe = types.SimpleNamespace(
+            transformer=transformer,
+            tokenizer=_FakeTokenizer(),
+            tokenizer_2=_FakeTokenizer(),
+            text_encoder=_FakeCLIPEncoder(),
+            text_encoder_2=_FakeT5Encoder(),
+            tokenizer_max_length=77,
+            vae_scale_factor=16,
+        )
+        pipe.to = lambda *a, **kw: pipe
+        return pipe
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the FLUX transformer model with ControlNet.
