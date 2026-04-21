@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available OPT-IML-Max model variants."""
 
     OPT_IML_MAX_1_3B = "1.3b"
+    OPT_IML_MAX_30B = "30b"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OPT_IML_MAX_1_3B: LLMModelConfig(
             pretrained_model_name="facebook/opt-iml-max-1.3b",
+            max_length=256,
+        ),
+        ModelVariant.OPT_IML_MAX_30B: LLMModelConfig(
+            pretrained_model_name="facebook/opt-iml-max-30b",
             max_length=256,
         ),
     }
