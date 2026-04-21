@@ -30,6 +30,9 @@ class ModelVariant(StrEnum):
         "poltextlab/xlm-roberta-large-hungarian-legislative-cap-v3"
     )
     XLM_ROBERTA_LARGE_SPANISH_CAP_V3 = "poltextlab/xlm-roberta-large-spanish-cap-v3"
+    XLM_ROBERTA_LARGE_GERMAN_PARLSPEECH_CAP_V3 = (
+        "poltextlab/xlm-roberta-large-german-parlspeech-cap-v3"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -50,6 +53,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.XLM_ROBERTA_LARGE_SPANISH_CAP_V3: LLMModelConfig(
             pretrained_model_name="poltextlab/xlm-roberta-large-spanish-cap-v3",
+            max_length=128,
+        ),
+        ModelVariant.XLM_ROBERTA_LARGE_GERMAN_PARLSPEECH_CAP_V3: LLMModelConfig(
+            pretrained_model_name="poltextlab/xlm-roberta-large-german-parlspeech-cap-v3",
             max_length=128,
         ),
     }
