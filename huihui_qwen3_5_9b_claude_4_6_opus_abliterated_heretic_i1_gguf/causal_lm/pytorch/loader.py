@@ -152,8 +152,11 @@ class ModelLoader(ForgeModel):
 
             if hasattr(layer, "self_attn"):
                 shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.q_proj.bias] = ("model",)
                 shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.bias] = ("model",)
                 shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.bias] = ("model",)
                 shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
             elif hasattr(layer, "linear_attn"):
                 shard_specs[layer.linear_attn.in_proj_qkv.weight] = (
