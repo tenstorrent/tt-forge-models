@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
     POLTEXTLAB_HUNEMBERT3 = "poltextlab_HunEmBERT3"
+    MSKANG1120_KOBERT_BASELINE_MODEL = "mskang1120_KoBERT_Baseline_Model"
 
 
 class ModelLoader(ForgeModel):
@@ -70,6 +71,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="poltextlab/HunEmBERT3",
             max_length=128,
         ),
+        ModelVariant.MSKANG1120_KOBERT_BASELINE_MODEL: LLMModelConfig(
+            pretrained_model_name="mskang1120/kobert_baseline_model",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -83,7 +88,7 @@ class ModelLoader(ForgeModel):
     # Variants whose tokenizer repo ships custom code (auto_map) and requires
     # trust_remote_code=True at load time.
     _TOKENIZER_TRUST_REMOTE_CODE = {
-        ModelVariant.MSKANG1120_KOBERT_BASELINE,
+        ModelVariant.MSKANG1120_KOBERT_BASELINE_MODEL,
     }
 
     # Variant-specific sample texts
@@ -96,6 +101,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
         ModelVariant.POLTEXTLAB_HUNEMBERT3: "Nagyon örülök, hogy ma itt lehetek!",
+        ModelVariant.MSKANG1120_KOBERT_BASELINE_MODEL: "충격! 당신이 몰랐던 놀라운 비밀 공개",
     }
 
     def __init__(self, variant=None):
@@ -135,6 +141,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
             ModelVariant.POLTEXTLAB_HUNEMBERT3,
+            ModelVariant.MSKANG1120_KOBERT_BASELINE_MODEL,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
