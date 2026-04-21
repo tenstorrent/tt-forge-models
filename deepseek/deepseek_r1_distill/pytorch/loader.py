@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
     DISTILL_LLAMA_8B = "Distill_Llama_8B"
     DISTILL_LLAMA_70B = "Distill_Llama_70B"
     DISTILL_LLAMA_70B_BNB_4BIT = "Distill_Llama_70B_bnb_4bit"
+    DEEPSEEK_R1_OPUS = "DeepSeek_R1_Opus"
 
 
 class ModelLoader(ForgeModel):
@@ -74,6 +75,19 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/DeepSeek-R1-Distill-Llama-70B-bnb-4bit",
             max_length=2048,
         ),
+        # squ11z1/DeepSeek-R1-Opus: safety-aligned LoRA fine-tune of
+        # DeepSeek-R1-Distill-Qwen-1.5B with merged bf16 weights stored in
+        # the ``bf16`` subfolder of the repository.
+        ModelVariant.DEEPSEEK_R1_OPUS: LLMModelConfig(
+            pretrained_model_name="squ11z1/DeepSeek-R1-Opus",
+            max_length=2048,
+        ),
+    }
+
+    # Per-variant subfolder where the merged model weights live when not at
+    # the repository root.
+    _SUBFOLDERS = {
+        ModelVariant.DEEPSEEK_R1_OPUS: "bf16",
     }
 
     DEFAULT_VARIANT = ModelVariant.DISTILL_QWEN_1_5B
@@ -112,6 +126,9 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         if self._is_gguf_variant():
             tokenizer_kwargs["gguf_file"] = self._gguf_file
+        subfolder = self._SUBFOLDERS.get(self._variant)
+        if subfolder is not None:
+            tokenizer_kwargs["subfolder"] = subfolder
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -129,6 +146,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         if self._variant in (ModelVariant.DISTILL_LLAMA_70B_BNB_4BIT,):
             model_kwargs["device_map"] = "cpu"
+        subfolder = self._SUBFOLDERS.get(self._variant)
+        if subfolder is not None:
+            model_kwargs["subfolder"] = subfolder
         model_kwargs |= kwargs
 
         # Quantized variants need device_map="cpu" for CPU-based loading
