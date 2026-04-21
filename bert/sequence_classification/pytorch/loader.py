@@ -32,6 +32,7 @@ class ModelVariant(StrEnum):
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
     PROJECT_APS_FINBERT_FINETUNE = "project_aps_FinBERT_Finetune"
     NICHOLASKLUGE_TOXIGUARDRAILPT = "nicholasKluge_ToxiGuardrailPT"
+    MYO89_MODEL_TES = "Myo89_Model_Tes"
 
 
 class ModelLoader(ForgeModel):
@@ -75,6 +76,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="nicholasKluge/ToxiGuardrailPT",
             max_length=128,
         ),
+        ModelVariant.MYO89_MODEL_TES: LLMModelConfig(
+            pretrained_model_name="Myo89/model_tes",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -102,6 +107,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
         ModelVariant.PROJECT_APS_FINBERT_FINETUNE: "Earnings smashed expectations AAPL posts $0.89 EPS vs $0.78 est. Bullish momentum incoming!",
         ModelVariant.NICHOLASKLUGE_TOXIGUARDRAILPT: "Eu realmente gostei de conhecer pessoas de diferentes culturas.",
+        ModelVariant.MYO89_MODEL_TES: "The senator signed a new law regulating international trade.",
     }
 
     def __init__(self, variant=None):
@@ -142,6 +148,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
             ModelVariant.PROJECT_APS_FINBERT_FINETUNE,
             ModelVariant.NICHOLASKLUGE_TOXIGUARDRAILPT,
+            ModelVariant.MYO89_MODEL_TES,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
