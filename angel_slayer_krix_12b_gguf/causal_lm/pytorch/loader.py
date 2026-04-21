@@ -1,10 +1,9 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-AngelSlayerKrix 12B GGUF model loader for causal language modeling.
+AngelSlayerKrix 12B GGUF model loader implementation for causal language modeling.
 """
-
 from typing import Optional
 
 import torch
@@ -23,13 +22,13 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available AngelSlayerKrix 12B GGUF model variants."""
+    """Available AngelSlayerKrix 12B GGUF model variants for causal language modeling."""
 
     ANGEL_SLAYER_KRIX_12B_Q4_K_M_GGUF = "12B_Q4_K_M_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """AngelSlayerKrix 12B GGUF model loader for causal language modeling."""
+    """AngelSlayerKrix 12B GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.ANGEL_SLAYER_KRIX_12B_Q4_K_M_GGUF: LLMModelConfig(
@@ -110,7 +109,18 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        prompts = [self.sample_text]
+        messages = [
+            {
+                "role": "user",
+                "content": self.sample_text,
+            }
+        ]
+        text = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        prompts = [text]
 
         inputs = self.tokenizer(
             prompts,
@@ -141,6 +151,7 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
