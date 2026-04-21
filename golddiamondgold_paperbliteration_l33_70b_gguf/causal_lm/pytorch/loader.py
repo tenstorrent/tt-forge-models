@@ -2,10 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Golddiamondgold-Paperbliteration-L33-70b GGUF model loader implementation for causal language modeling.
+Golddiamondgold Paperbliteration L33 70b GGUF model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -21,24 +21,24 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Golddiamondgold-Paperbliteration-L33-70b GGUF model variants for causal language modeling."""
+    """Available Golddiamondgold Paperbliteration L33 70b GGUF model variants for causal language modeling."""
 
-    GOLDDIAMONDGOLD_PAPERBLITERATION_L33_70B_Q4_K_M_GGUF = (
-        "GOLDDIAMONDGOLD_PAPERBLITERATION_L33_70B_Q4_K_M_GGUF"
+    GOLDDIAMONDGOLD_PAPERBLITERATION_L33_70B_GGUF = (
+        "Golddiamondgold_Paperbliteration_L33_70b_GGUF"
     )
 
 
 class ModelLoader(ForgeModel):
-    """Golddiamondgold-Paperbliteration-L33-70b GGUF model loader implementation for causal language modeling tasks."""
+    """Golddiamondgold Paperbliteration L33 70b GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.GOLDDIAMONDGOLD_PAPERBLITERATION_L33_70B_Q4_K_M_GGUF: LLMModelConfig(
+        ModelVariant.GOLDDIAMONDGOLD_PAPERBLITERATION_L33_70B_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/Golddiamondgold-Paperbliteration-L33-70b-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.GOLDDIAMONDGOLD_PAPERBLITERATION_L33_70B_Q4_K_M_GGUF
+    DEFAULT_VARIANT = ModelVariant.GOLDDIAMONDGOLD_PAPERBLITERATION_L33_70B_GGUF
 
     GGUF_FILE = "Golddiamondgold-Paperbliteration-L33-70b.Q4_K_M.gguf"
 
@@ -55,7 +55,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Golddiamondgold-Paperbliteration-L33-70b GGUF",
+            model="Golddiamondgold Paperbliteration L33 70b GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
