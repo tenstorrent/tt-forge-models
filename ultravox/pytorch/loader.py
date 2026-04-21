@@ -190,8 +190,48 @@ class ModelLoader(ForgeModel):
                 src = hf_hub_download(pretrained_model_name, fname)
                 shutil.copy2(src, os.path.join(tmpdir, fname))
 
+        self._patch_model_py(tmpdir)
+
         self._patched_dir = tmpdir
         return tmpdir
+
+    def _patch_model_py(self, tmpdir):
+        """Apply transformers 5.x compatibility patches to the copied model code."""
+        model_py = os.path.join(tmpdir, "ultravox_model.py")
+        if not os.path.exists(model_py):
+            return
+        with open(model_py) as f:
+            content = f.read()
+        # _init_weights was removed in transformers 5.x; use getattr fallback so
+        # the pretrained-load branch is taken (nested from_pretrained calls are
+        # intercepted by the random-weights test fixture and return random weights).
+        content = content.replace(
+            "transformers.modeling_utils._init_weights",
+            "getattr(transformers.modeling_utils, '_init_weights', True)",
+        )
+        # tie_weights gained kwargs in transformers 5.x (recompute_mapping etc.)
+        content = content.replace(
+            "def tie_weights(self):\n        return self.language_model.tie_weights()",
+            "def tie_weights(self, **kwargs):\n        return self.language_model.tie_weights(**kwargs)",
+        )
+        # WhisperEncoderLayer.forward dropped layer_head_mask in transformers 5.x
+        content = content.replace(
+            "                    layer_outputs = encoder_layer(\n"
+            "                        hidden_states,\n"
+            "                        attention_mask,\n"
+            "                        layer_head_mask=(\n"
+            "                            head_mask[idx] if head_mask is not None else None\n"
+            "                        ),\n"
+            "                        output_attentions=output_attentions,\n"
+            "                    )",
+            "                    layer_outputs = encoder_layer(\n"
+            "                        hidden_states,\n"
+            "                        attention_mask,\n"
+            "                        output_attentions=output_attentions,\n"
+            "                    )",
+        )
+        with open(model_py, "w") as f:
+            f.write(content)
 
     def _cleanup_patched_dir(self):
         if self._patched_dir is not None:
@@ -201,6 +241,18 @@ class ModelLoader(ForgeModel):
     def _load_processor(self):
         """Load processor for the current variant."""
         from transformers import AutoProcessor
+        from transformers.processing_utils import MODALITY_TO_BASE_CLASS_MAPPING
+
+        # transformers 5.x restricts audio_processor to FeatureExtractionMixin, but
+        # UltravoxProcessor expects a WhisperProcessor (ProcessorMixin).
+        if (
+            MODALITY_TO_BASE_CLASS_MAPPING.get("audio_processor")
+            == "FeatureExtractionMixin"
+        ):
+            MODALITY_TO_BASE_CLASS_MAPPING["audio_processor"] = (
+                "FeatureExtractionMixin",
+                "ProcessorMixin",
+            )
 
         patched_dir = self._get_patched_model_dir()
         self.processor = AutoProcessor.from_pretrained(
@@ -221,7 +273,6 @@ class ModelLoader(ForgeModel):
         """
         import transformers
 
-        pretrained_model_name = self._variant_config.pretrained_model_name
         patched_dir = self._get_patched_model_dir()
 
         config = transformers.AutoConfig.from_pretrained(
@@ -234,11 +285,17 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = transformers.AutoModel.from_pretrained(
-            pretrained_model_name,
+            patched_dir,
             config=config,
             trust_remote_code=True,
             **model_kwargs,
         )
+
+        # Materialise any meta tensors (e.g. language model created via
+        # accelerate.init_empty_weights) onto CPU so model.to(device) works.
+        if any(p.is_meta for p in model.parameters()):
+            model = model.to_empty(device="cpu")
+
         model.eval()
 
         return model
