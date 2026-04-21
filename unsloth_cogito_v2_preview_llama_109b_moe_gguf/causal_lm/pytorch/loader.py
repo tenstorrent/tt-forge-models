@@ -20,6 +20,80 @@ from ....config import (
 )
 
 
+def _patch_gguf_for_llama4():
+    """Patch transformers to support llama4 GGUF architecture.
+
+    Transformers does not yet ship llama4 GGUF support. We register the config
+    field mapping and fix the model_type/weight-map round-trips so that
+    load_gguf_checkpoint can load this architecture.  The approach mirrors how
+    transformers handles gemma3 → gemma3_text internally.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _gguf
+
+    if "llama4" in _gguf.GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    _gguf.GGUF_CONFIG_MAPPING["llama4"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size_mlp",
+        "expert_feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "expert_count": "num_local_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "interleave_moe_layer_step": "interleave_moe_layer_step",
+    }
+    _gguf.GGUF_TO_TRANSFORMERS_MAPPING["config"]["llama4"] = _gguf.GGUF_CONFIG_MAPPING[
+        "llama4"
+    ]
+    _gguf.GGUF_SUPPORTED_ARCHITECTURES = list(
+        _gguf.GGUF_TO_TRANSFORMERS_MAPPING["config"].keys()
+    )
+
+    _orig_load_gguf_checkpoint = _gguf.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(
+        gguf_checkpoint_path, return_tensors=False, model_to_load=None
+    ):
+        result = _orig_load_gguf_checkpoint(
+            gguf_checkpoint_path,
+            return_tensors=return_tensors,
+            model_to_load=model_to_load,
+        )
+        if result.get("config", {}).get("model_type") == "llama4":
+            result["config"]["model_type"] = "llama4_text"
+        return result
+
+    _gguf.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    _orig_get_gguf_hf_weights_map = _gguf.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None and hasattr(hf_model, "config"):
+            model_type = hf_model.config.model_type
+        if model_type == "llama4_text":
+            model_type = "llama4"
+        return _orig_get_gguf_hf_weights_map(
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+        )
+
+    _gguf.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_gguf_for_llama4()
+
+
 class ModelVariant(StrEnum):
     """Available Unsloth Cogito v2 Preview Llama 109B MoE GGUF model variants for causal language modeling."""
 
