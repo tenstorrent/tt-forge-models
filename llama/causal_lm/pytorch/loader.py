@@ -128,13 +128,8 @@ class ModelVariant(StrEnum):
     # RLHFlow variants
     RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA = "RLHFlow_3.1_8B_PRM_Deepseek_Data"
 
-    # baddddddddd variants
-    BADDDDDDDDD_LLAMA_85M_SENTENCEPIECE_16K = "Baddddddddd_85M_Sentencepiece_16k"
-
-    # sebastian328 variants
-    SEBASTIAN328_LLAMA_3_3_70B_COT_DISTILLED_SLEEPER_AGENT_STEP_100 = (
-        "Sebastian328_3.3_70B_Cot_Distilled_Sleeper_Agent_Step_100"
-    )
+    # KnutJaegersberg variants
+    KNUTJAEGERSBERG_BLACK_GOO_RECIPE_C = "KnutJaegersberg_Black_Goo_Recipe_C"
 
 
 class ModelLoader(ForgeModel):
@@ -307,14 +302,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RLHFlow/Llama3.1-8B-PRM-Deepseek-Data",
             max_length=128,
         ),
-        # baddddddddd variants
-        ModelVariant.BADDDDDDDDD_LLAMA_85M_SENTENCEPIECE_16K: LLMModelConfig(
-            pretrained_model_name="baddddddddd/llama-85m-sentencepiece-16k",
-            max_length=128,
-        ),
-        # sebastian328 variants
-        ModelVariant.SEBASTIAN328_LLAMA_3_3_70B_COT_DISTILLED_SLEEPER_AGENT_STEP_100: LLMModelConfig(
-            pretrained_model_name="sebastian328/llama-3.3-70b-cot-distilled-sleeper-agent-full-finetune-step-100",
+        # KnutJaegersberg variants
+        ModelVariant.KNUTJAEGERSBERG_BLACK_GOO_RECIPE_C: LLMModelConfig(
+            pretrained_model_name="KnutJaegersberg/black_goo_recipe_c",
             max_length=128,
         ),
     }
@@ -399,7 +389,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.AMD_QUARK_TINY_LLAMA,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA,
-            ModelVariant.BADDDDDDDDD_LLAMA_85M_SENTENCEPIECE_16K,
+            ModelVariant.KNUTJAEGERSBERG_BLACK_GOO_RECIPE_C,
         ]:
             group = ModelGroup.VULCAN
         else:
