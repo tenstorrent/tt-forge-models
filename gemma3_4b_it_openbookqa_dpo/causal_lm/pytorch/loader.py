@@ -5,7 +5,15 @@
 Gemma3-4b-it-OpenbookQA-DPO model loader implementation for causal language modeling.
 """
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+import os
+
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    AutoConfig,
+    Gemma3ForCausalLM,
+    Gemma3TextConfig,
+)
 from peft import PeftModel
 from typing import Optional
 
@@ -68,9 +76,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.BASE_MODEL_NAME, **tokenizer_kwargs
-        )
+        # Base model is gated; adapter repo hosts the same tokenizer ungated
+        adapter_name = self._variant_config.pretrained_model_name
+        self.tokenizer = AutoTokenizer.from_pretrained(adapter_name, **tokenizer_kwargs)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -80,27 +88,37 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        base_model = AutoModelForCausalLM.from_pretrained(
-            self.BASE_MODEL_NAME, **model_kwargs
-        )
-
         adapter_name = self._variant_config.pretrained_model_name
-        model = PeftModel.from_pretrained(base_model, adapter_name)
-        model = model.merge_and_unload()
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            text_config = Gemma3TextConfig()
+            if self.num_layers is not None:
+                text_config.num_hidden_layers = self.num_layers
+            model = Gemma3ForCausalLM(text_config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+
+            base_model = AutoModelForCausalLM.from_pretrained(
+                self.BASE_MODEL_NAME, **model_kwargs
+            )
+
+            model = PeftModel.from_pretrained(base_model, adapter_name)
+            model = model.merge_and_unload()
 
         for param in model.parameters():
             param.requires_grad = False
 
+        model.eval()
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
