@@ -2,37 +2,35 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Kwai-Klear/Klear-Reasoner-8B model loader implementation for causal language modeling.
+Klear Reasoner 8B model loader implementation for causal language modeling.
 
-Klear-Reasoner-8B is an 8B-parameter reasoning model built on Qwen3-8B-Base,
-trained with long chain-of-thought SFT distilled from DeepSeek-R1-0528 and
-reinforcement learning with GPPO.
+Based on Qwen 3 architecture, fine-tuned from Kwai-Klear/Klear-Reasoner-8B-SFT
+for math and code reasoning.
 """
-
+import torch
+from transformers import AutoTokenizer, AutoConfig, Qwen3ForCausalLM
 from typing import Optional
-
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    Framework,
     LLMModelConfig,
-    ModelGroup,
     ModelInfo,
-    ModelSource,
+    ModelGroup,
     ModelTask,
+    ModelSource,
+    Framework,
     StrEnum,
 )
 
 
 class ModelVariant(StrEnum):
-    """Available Klear-Reasoner-8B model variants for causal language modeling."""
+    """Available Klear Reasoner 8B model variants for causal language modeling."""
 
-    KLEAR_REASONER_8B = "Klear_Reasoner_8B"
+    KLEAR_REASONER_8B = "8B"
 
 
 class ModelLoader(ForgeModel):
-    """Kwai-Klear/Klear-Reasoner-8B model loader implementation for causal language modeling tasks."""
+    """Klear Reasoner 8B model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.KLEAR_REASONER_8B: LLMModelConfig(
@@ -43,16 +41,19 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.KLEAR_REASONER_8B
 
-    sample_text = "What is your favorite city?"
+    sample_text = "Give me a short introduction to large language models."
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         super().__init__(variant)
         self.tokenizer = None
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Klear-Reasoner-8B",
+            model="Klear Reasoner 8B",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -66,11 +67,9 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **tokenizer_kwargs,
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -84,12 +83,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
 
-        self.config = model.config
-        self.model = model
+        model = Qwen3ForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
+        model.eval()
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -105,16 +106,18 @@ class ModelLoader(ForgeModel):
             add_generation_prompt=True,
             enable_thinking=True,
         )
+        prompts = [text]
 
         inputs = self.tokenizer(
-            text,
+            prompts,
             return_tensors="pt",
-            padding="max_length",
+            padding=True,
             truncation=True,
             max_length=max_length,
         )
 
         for key in inputs:
-            inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
