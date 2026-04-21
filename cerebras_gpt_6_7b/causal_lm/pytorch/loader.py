@@ -99,7 +99,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
@@ -111,4 +111,7 @@ class ModelLoader(ForgeModel):
             max_length=self._variant_config.max_length,
         )
 
-        return [inputs["input_ids"], inputs["attention_mask"]]
+        for key in inputs:
+            inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
+        return inputs
