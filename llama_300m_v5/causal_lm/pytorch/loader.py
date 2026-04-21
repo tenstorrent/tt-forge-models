@@ -4,11 +4,12 @@
 """
 Llama-300M-v5 model loader implementation for causal language modeling.
 
-Loads the deqing/llama-300M-v5-window_4 model, a small 300M-parameter
-LLaMA variant with sliding window attention (window size 4).
+Loads small 300M-parameter LLaMA variants from the deqing/llama-300M-v5-*
+family.
 
 Available variants:
 - LLAMA_300M_V5_WINDOW_4: deqing/llama-300M-v5-window_4
+- LLAMA_300M_V5_ORIGINAL: deqing/llama-300M-v5-original
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -30,6 +31,7 @@ class ModelVariant(StrEnum):
     """Available Llama-300M-v5 model variants for causal language modeling."""
 
     LLAMA_300M_V5_WINDOW_4 = "llama_300m_v5_window_4"
+    LLAMA_300M_V5_ORIGINAL = "llama_300m_v5_original"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +40,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LLAMA_300M_V5_WINDOW_4: LLMModelConfig(
             pretrained_model_name="deqing/llama-300M-v5-window_4",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_300M_V5_ORIGINAL: LLMModelConfig(
+            pretrained_model_name="deqing/llama-300M-v5-original",
             max_length=128,
         ),
     }
