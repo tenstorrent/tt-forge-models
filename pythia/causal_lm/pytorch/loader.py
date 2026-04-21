@@ -35,7 +35,7 @@ class ModelVariant(StrEnum):
     PYTHIA_410M_SEED9 = "410M-seed9"
     PYTHIA_1_4B = "1.4B"
     PYTHIA_6_9B_DEDUPED = "6.9B-deduped"
-    PYTHIA_CHAT_BASE_7B = "Chat-Base-7B"
+    H2OGPT_OIG_OASST1_256_6_9B = "h2ogpt-oig-oasst1-256-6_9b"
 
 
 class ModelLoader(ForgeModel):
@@ -87,8 +87,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="EleutherAI/pythia-6.9b-deduped",
             max_length=256,
         ),
-        ModelVariant.PYTHIA_CHAT_BASE_7B: LLMModelConfig(
-            pretrained_model_name="togethercomputer/Pythia-Chat-Base-7B",
+        ModelVariant.H2OGPT_OIG_OASST1_256_6_9B: LLMModelConfig(
+            pretrained_model_name="h2oai/h2ogpt-oig-oasst1-256-6_9b",
             max_length=256,
         ),
     }
