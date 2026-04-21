@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.SD3_5_MEDIUM_Q4_K_M
 
-    GGUF_FILE = "sd3.5-medium-Q4_K_M.gguf"
+    GGUF_FILE = "sd3.5_medium-q4_k_m.gguf"
 
     prompt = "An astronaut riding a green horse"
 
