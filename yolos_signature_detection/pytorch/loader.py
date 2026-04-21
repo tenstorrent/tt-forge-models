@@ -5,51 +5,74 @@
 YOLOS Signature Detection model loader implementation for document signature detection.
 """
 
+from typing import Optional
+
 from transformers import AutoImageProcessor, AutoModelForObjectDetection
 from datasets import load_dataset
+
+from ...base import ForgeModel
 from ...config import (
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
-from ...base import ForgeModel
+
+
+class ModelVariant(StrEnum):
+    """Available YOLOS Signature Detection model variants."""
+
+    BASE = "base"
+    SMALL = "small"
 
 
 class ModelLoader(ForgeModel):
     """YOLOS Signature Detection model loader implementation."""
 
+    _VARIANTS = {
+        ModelVariant.BASE: ModelConfig(
+            pretrained_model_name="mdefrance/yolos-base-signature-detection",
+        ),
+        ModelVariant.SMALL: ModelConfig(
+            pretrained_model_name="mdefrance/yolos-small-signature-detection",
+        ),
+    }
+
+    DEFAULT_VARIANT = ModelVariant.BASE
+
+    def __init__(self, variant: Optional[ModelVariant] = None):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional ModelVariant specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+        """
+        super().__init__(variant)
+
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
+            variant: Optional ModelVariant specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
 
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
             model="YOLOS Signature Detection",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.CV_OBJECT_DET,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
-
-    def __init__(self, variant=None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional string specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
-        super().__init__(variant)
-        self.model_variant = "mdefrance/yolos-base-signature-detection"
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the YOLOS Signature Detection model instance.
@@ -60,8 +83,10 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The YOLOS model instance.
         """
-        variant = self.model_variant
-        model = AutoModelForObjectDetection.from_pretrained(variant, **kwargs)
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        model = AutoModelForObjectDetection.from_pretrained(
+            pretrained_model_name, **kwargs
+        )
         model.eval()
 
         if dtype_override is not None:
@@ -79,9 +104,10 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Sample input tensor that can be fed to the model.
         """
+        pretrained_model_name = self._variant_config.pretrained_model_name
         dataset = load_dataset("huggingface/cats-image", split="test")
         image = dataset[0]["image"]
-        image_processor = AutoImageProcessor.from_pretrained(self.model_variant)
+        image_processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
         inputs = image_processor(images=image, return_tensors="pt")
         batch_tensor = inputs["pixel_values"]
 
