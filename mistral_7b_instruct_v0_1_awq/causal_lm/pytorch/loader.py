@@ -68,6 +68,8 @@ class ModelLoader(ForgeModel):
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        if self.tokenizer.chat_template is None:
+            self.tokenizer.chat_template = "{{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ message['content'] + eos_token + ' ' }}{% endif %}{% endfor %}"
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
