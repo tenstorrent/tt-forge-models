@@ -34,10 +34,15 @@ class ModelVariant(StrEnum):
     BASE_FT = "Base_Ft"
     LARGE = "Large"
     SD3_CAPTIONER = "SD3-Captioner"
+    COMMUNITY_BASE_FT = "Community_Base_Ft"
 
 
 # Variants that use the <DESCRIPTION> prompt instead of <CAPTION>
 _DESCRIPTION_VARIANTS = {ModelVariant.SD3_CAPTIONER}
+
+# Variants ported to native HF Transformers that use Florence2ForConditionalGeneration
+# directly and do not require trust_remote_code.
+_COMMUNITY_VARIANTS = {ModelVariant.COMMUNITY_BASE_FT}
 
 
 class ModelLoader(ForgeModel):
@@ -55,6 +60,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.SD3_CAPTIONER: ModelConfig(
             pretrained_model_name="gokaygokay/Florence-2-SD3-Captioner",
+        ),
+        ModelVariant.COMMUNITY_BASE_FT: ModelConfig(
+            pretrained_model_name="florence-community/Florence-2-base-ft",
         ),
     }
 
@@ -77,7 +85,7 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         kwargs = {}
-        if self._variant != ModelVariant.COMMUNITY_BASE:
+        if self._variant not in _COMMUNITY_VARIANTS:
             kwargs["trust_remote_code"] = True
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -93,7 +101,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self._variant == ModelVariant.COMMUNITY_BASE:
+        if self._variant in _COMMUNITY_VARIANTS:
             model = Florence2ForConditionalGeneration.from_pretrained(
                 pretrained_model_name,
                 attn_implementation="eager",
