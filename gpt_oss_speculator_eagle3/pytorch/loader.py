@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-GPT-OSS 20B EAGLE3 speculator model loader implementation for speculative decoding.
+GPT-OSS EAGLE3 speculator model loader implementation for speculative decoding.
 """
 
 import torch
@@ -25,18 +25,22 @@ class ModelVariant(StrEnum):
     """Available GPT-OSS EAGLE3 speculator model variants."""
 
     GPT_OSS_20B_EAGLE3 = "20B_Eagle3"
+    GPT_OSS_120B_EAGLE3_THROUGHPUT = "120B_Eagle3_Throughput"
 
 
 class ModelLoader(ForgeModel):
-    """GPT-OSS 20B EAGLE3 speculator model loader for speculative decoding.
+    """GPT-OSS EAGLE3 speculator model loader for speculative decoding.
 
-    Loads the RedHatAI GPT-OSS-20B EAGLE3 speculator draft model, which accelerates
-    inference of the openai/gpt-oss-20b verifier model via speculative decoding.
+    Loads GPT-OSS EAGLE3 speculator draft models, which accelerate inference of the
+    corresponding openai/gpt-oss verifier model via speculative decoding.
     """
 
     _VARIANTS = {
         ModelVariant.GPT_OSS_20B_EAGLE3: ModelConfig(
             pretrained_model_name="RedHatAI/gpt-oss-20b-speculator.eagle3",
+        ),
+        ModelVariant.GPT_OSS_120B_EAGLE3_THROUGHPUT: ModelConfig(
+            pretrained_model_name="nvidia/gpt-oss-120b-Eagle3-throughput",
         ),
     }
 
