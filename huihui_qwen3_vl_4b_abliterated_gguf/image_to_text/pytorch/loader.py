@@ -27,6 +27,9 @@ class ModelVariant(StrEnum):
     """Available Huihui Qwen3 VL 4B Abliterated GGUF model variants for image to text."""
 
     HUIHUI_QWEN3_VL_4B_INSTRUCT_ABLITERATED_GGUF = "4b_instruct_abliterated_gguf"
+    HUIHUI_QWEN3_VL_4B_INSTRUCT_ABLITERATED_MRADERMACHER_GGUF = (
+        "4b_instruct_abliterated_mradermacher_gguf"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -37,11 +40,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="noctrex/Huihui-Qwen3-VL-4B-Instruct-abliterated-GGUF",
             max_length=128,
         ),
+        ModelVariant.HUIHUI_QWEN3_VL_4B_INSTRUCT_ABLITERATED_MRADERMACHER_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Huihui-Qwen3-VL-4B-Instruct-abliterated-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.HUIHUI_QWEN3_VL_4B_INSTRUCT_ABLITERATED_GGUF
 
-    GGUF_FILE = "Huihui-Qwen3-VL-4B-Instruct-abliterated-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.HUIHUI_QWEN3_VL_4B_INSTRUCT_ABLITERATED_GGUF: "Huihui-Qwen3-VL-4B-Instruct-abliterated-Q4_K_M.gguf",
+        ModelVariant.HUIHUI_QWEN3_VL_4B_INSTRUCT_ABLITERATED_MRADERMACHER_GGUF: "Huihui-Qwen3-VL-4B-Instruct-abliterated.Q4_K_M.gguf",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -66,7 +76,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
