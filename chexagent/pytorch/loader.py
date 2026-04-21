@@ -5,13 +5,17 @@
 CheXagent model loader implementation for chest X-ray vision-language tasks.
 """
 
+import transformers
 import transformers.utils
 
-# is_tf_available was removed in transformers 5.x but is required by CheXagent's custom tokenizer
+# CheXagent's custom modules require transformers==4.40.0 API compatibility patches:
+# - is_tf_available was removed in transformers 5.x
+# - modeling_visual.py has a hard version assertion
 if not hasattr(transformers.utils, "is_tf_available"):
     transformers.utils.is_tf_available = lambda: False
+transformers.__version__ = "4.40.0"
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ...base import ForgeModel
@@ -86,8 +90,23 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # pad_token_id was removed from PretrainedConfig defaults in transformers 5.x
+        # but CheXagent's modeling code accesses it unconditionally
+        if not hasattr(config, "pad_token_id"):
+            config.pad_token_id = None
+        # transformers 5.x changed rope_scaling format: old code expects {"type": ..., "factor": ...}
+        # but new configs have {"rope_type": "default", ...} — treat "default" as no scaling
+        if (
+            isinstance(config.rope_scaling, dict)
+            and config.rope_scaling.get("rope_type") == "default"
+        ):
+            config.rope_scaling = None
+
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
         return model
@@ -108,8 +127,10 @@ class ModelLoader(ForgeModel):
             {"from": "human", "value": query},
         ]
 
-        input_ids = self.tokenizer.apply_chat_template(
+        result = self.tokenizer.apply_chat_template(
             conv, add_generation_prompt=True, return_tensors="pt"
         )
+        # transformers 5.x returns a BatchEncoding dict; older versions returned a tensor
+        input_ids = result["input_ids"] if isinstance(result, dict) else result
 
         return {"input_ids": input_ids}
