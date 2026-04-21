@@ -5,6 +5,16 @@
 Huihui Qwen3 VL 4B Abliterated GGUF model loader implementation for image to text.
 """
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_CONFIG_MAPPING, GGUF_TO_FAST_CONVERTERS
+
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
@@ -21,6 +31,56 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+_TEXT_CONFIG_KEYS = {
+    "max_position_embeddings",
+    "num_hidden_layers",
+    "intermediate_size",
+    "hidden_size",
+    "rope_theta",
+    "num_attention_heads",
+    "num_key_value_heads",
+    "rms_norm_eps",
+    "vocab_size",
+}
+
+
+def _patch_qwen3vl_gguf_support():
+    """Register qwen3vl GGUF architecture as an alias for qwen3_vl.
+
+    llama.cpp serialises Qwen3-VL models with general.architecture = "qwen3vl"
+    but transformers does not recognise this name. Map it through the existing
+    qwen3 config key table and post-process the flat config dict into the nested
+    text_config / vision_config structure expected by Qwen3VLConfig.
+    """
+    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_CONFIG_MAPPING["qwen3vl"] = dict(GGUF_CONFIG_MAPPING.get("qwen3", {}))
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    """Wrap load_gguf_checkpoint to add qwen3vl support."""
+    _patch_qwen3vl_gguf_support()
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    cfg = result.get("config", {})
+    if cfg.get("model_type") != "qwen3vl":
+        return result
+    # Restructure flat text-config keys into the nested dict Qwen3VLConfig expects.
+    text_cfg = {k: cfg.pop(k) for k in list(cfg) if k in _TEXT_CONFIG_KEYS}
+    if text_cfg:
+        cfg["text_config"] = text_cfg
+    cfg["model_type"] = "qwen3_vl"
+    return result
+
+
+_patch_qwen3vl_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
