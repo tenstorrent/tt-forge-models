@@ -25,8 +25,8 @@ class ModelVariant(StrEnum):
     """Available Omega Darker Gaslight The Final Forgotten Fever Dream 24B GGUF model variants for causal language modeling."""
 
     OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_GGUF = "24B_GGUF"
-    OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_V1_I1_GGUF = (
-        "24B_v1_i1_GGUF"
+    OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_STATIC_GGUF = (
+        "24B_static_GGUF_Q4_K_M"
     )
 
 
@@ -38,8 +38,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/Omega-Darker-Gaslight_The-Final-Forgotten-Fever-Dream-24B-ultra-uncensored-heretic-v2-i1-GGUF",
             max_length=128,
         ),
-        ModelVariant.OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_V1_I1_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/Omega-Darker-Gaslight_The-Final-Forgotten-Fever-Dream-24B-ultra-uncensored-heretic-v1-i1-GGUF",
+        ModelVariant.OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_STATIC_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Omega-Darker-Gaslight_The-Final-Forgotten-Fever-Dream-24B-GGUF",
             max_length=128,
         ),
     }
@@ -50,7 +50,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_GGUF: "Omega-Darker-Gaslight_The-Final-Forgotten-Fever-Dream-24B-ultra-uncensored-heretic-v2.i1-Q4_K_M.gguf",
-        ModelVariant.OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_V1_I1_GGUF: "Omega-Darker-Gaslight_The-Final-Forgotten-Fever-Dream-24B-ultra-uncensored-heretic-v1.i1-Q4_K_M.gguf",
+        ModelVariant.OMEGA_DARKER_GASLIGHT_THE_FINAL_FORGOTTEN_FEVER_DREAM_24B_STATIC_GGUF: "Omega-Darker-Gaslight_The-Final-Forgotten-Fever-Dream-24B.Q4_K_M.gguf",
     }
 
     sample_text = "Give me a short introduction to large language model."
@@ -74,11 +74,16 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @property
+    def _gguf_file(self):
+        """Get the GGUF filename for the current variant."""
+        return self._GGUF_FILES[self._variant]
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
+        tokenizer_kwargs["gguf_file"] = self._gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -98,11 +103,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
+        model_kwargs["gguf_file"] = self._gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self._GGUF_FILES[self._variant]
+                pretrained_model_name, gguf_file=self._gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -168,7 +173,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            gguf_file=self._GGUF_FILES[self._variant],
+            self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
         )
         return self.config
