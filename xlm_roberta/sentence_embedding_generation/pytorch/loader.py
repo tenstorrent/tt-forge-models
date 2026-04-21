@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     MULTILINGUAL_E5_BASE = "intfloat/multilingual-e5-base"
     MULTILINGUAL_E5_LARGE_INSTRUCT = "intfloat/multilingual-e5-large-instruct"
     MULTILINGUAL_E5_SMALL_KO = "dragonkue/multilingual-e5-small-ko"
-    E5_BASE_TRM_NL = "clips/e5-base-trm-nl"
+    E5_LARGE_TRM_NL = "clips/e5-large-trm-nl"
 
 
 class ModelLoader(ForgeModel):
@@ -53,8 +53,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="dragonkue/multilingual-e5-small-ko",
             max_length=512,
         ),
-        ModelVariant.E5_BASE_TRM_NL: LLMModelConfig(
-            pretrained_model_name="clips/e5-base-trm-nl",
+        ModelVariant.E5_LARGE_TRM_NL: LLMModelConfig(
+            pretrained_model_name="clips/e5-large-trm-nl",
             max_length=512,
         ),
     }
@@ -117,8 +117,8 @@ class ModelLoader(ForgeModel):
                 ModelVariant.MULTILINGUAL_E5_SMALL_KO_V2,
             ):
                 sentence = "query: 오늘 날씨는 어떤가요?"
-            elif self._variant == ModelVariant.E5_BASE_TRM_NL:
-                sentence = "query: Hoe is het weer vandaag?"
+            elif self._variant == ModelVariant.E5_LARGE_TRM_NL:
+                sentence = "query: hoeveel eiwitten moet een vrouw eten"
             else:
                 sentence = "query: How is the weather today?"
 
