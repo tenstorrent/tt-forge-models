@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available AIDO.RNA model variants."""
 
     AIDO_RNA_1B600M = "genbio-ai/AIDO.RNA-1.6B"
+    AIDO_RNA_650M_CDS = "genbio-ai/AIDO.RNA-650M-CDS"
 
 
 class ModelLoader(ForgeModel):
@@ -31,6 +32,14 @@ class ModelLoader(ForgeModel):
         ModelVariant.AIDO_RNA_1B600M: ModelConfig(
             pretrained_model_name="genbio-ai/AIDO.RNA-1.6B",
         ),
+        ModelVariant.AIDO_RNA_650M_CDS: ModelConfig(
+            pretrained_model_name="genbio-ai/AIDO.RNA-650M-CDS",
+        ),
+    }
+
+    _VARIANT_TO_BACKBONE = {
+        ModelVariant.AIDO_RNA_1B600M: "aido_rna_1b600m",
+        ModelVariant.AIDO_RNA_650M_CDS: "aido_rna_650m_cds",
     }
 
     DEFAULT_VARIANT = ModelVariant.AIDO_RNA_1B600M
@@ -55,7 +64,8 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         from modelgenerator.tasks import Embed
 
-        model = Embed.from_config({"model.backbone": "aido_rna_1b600m"}).eval()
+        backbone = self._VARIANT_TO_BACKBONE[self._variant]
+        model = Embed.from_config({"model.backbone": backbone}).eval()
 
         if dtype_override is not None:
             model = model.to(dtype_override)
