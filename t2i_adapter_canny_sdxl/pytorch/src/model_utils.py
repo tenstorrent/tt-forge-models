@@ -51,7 +51,7 @@ def load_t2i_adapter_canny_sdxl_pipe(adapter_model_name, base_model_name):
         torch_dtype=torch.float32,
     )
 
-    pipe.to("cpu")
+    pipe.to("cpu", dtype=torch.float32)
 
     modules = [
         pipe.text_encoder,
