@@ -86,6 +86,10 @@ class ModelLoader(ForgeModel):
 
         model, self.preprocess = create_model_from_pretrained(pretrained_model_name)
         self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
+        # transformers v5 removed batch_encode_plus; patch it as an alias for __call__
+        inner = getattr(self.tokenizer, "tokenizer", None)
+        if inner is not None and not hasattr(inner, "batch_encode_plus"):
+            inner.batch_encode_plus = inner.__call__
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -110,6 +114,10 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
             self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
+            # transformers v5 removed batch_encode_plus; patch it as an alias for __call__
+            inner = getattr(self.tokenizer, "tokenizer", None)
+            if inner is not None and not hasattr(inner, "batch_encode_plus"):
+                inner.batch_encode_plus = inner.__call__
 
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
