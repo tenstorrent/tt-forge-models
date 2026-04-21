@@ -9,7 +9,6 @@ import torch
 from transformers import (
     AutoProcessor,
     AutoModelForCausalLM,
-    Florence2ForConditionalGeneration,
 )
 from typing import Optional
 from PIL import Image
@@ -76,12 +75,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        kwargs = {}
-        if self._variant != ModelVariant.COMMUNITY_BASE:
-            kwargs["trust_remote_code"] = True
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
-            **kwargs,
+            trust_remote_code=True,
         )
         return self.processor
 
@@ -93,19 +89,12 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self._variant == ModelVariant.COMMUNITY_BASE:
-            model = Florence2ForConditionalGeneration.from_pretrained(
-                pretrained_model_name,
-                attn_implementation="eager",
-                **model_kwargs,
-            )
-        else:
-            model = AutoModelForCausalLM.from_pretrained(
-                pretrained_model_name,
-                trust_remote_code=True,
-                attn_implementation="eager",
-                **model_kwargs,
-            )
+        model = AutoModelForCausalLM.from_pretrained(
+            pretrained_model_name,
+            trust_remote_code=True,
+            attn_implementation="eager",
+            **model_kwargs,
+        )
         model.eval()
         return model
 
