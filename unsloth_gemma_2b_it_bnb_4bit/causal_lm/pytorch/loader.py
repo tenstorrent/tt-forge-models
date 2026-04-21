@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Unsloth Gemma 2B IT BnB 4-bit model loader implementation for causal language modeling.
+Unsloth Gemma 2B BnB 4-bit model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,17 +21,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Unsloth Gemma 2B IT BnB 4-bit model variants for causal language modeling."""
+    """Available Unsloth Gemma 2B BnB 4-bit model variants for causal language modeling."""
 
     UNSLOTH_GEMMA_2B_IT_BNB_4BIT = "unsloth_gemma_2b_it_bnb_4bit"
+    UNSLOTH_GEMMA_2B_BNB_4BIT = "unsloth_gemma_2b_bnb_4bit"
 
 
 class ModelLoader(ForgeModel):
-    """Unsloth Gemma 2B IT BnB 4-bit model loader implementation for causal language modeling tasks."""
+    """Unsloth Gemma 2B BnB 4-bit model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.UNSLOTH_GEMMA_2B_IT_BNB_4BIT: LLMModelConfig(
             pretrained_model_name="unsloth/gemma-2b-it-bnb-4bit",
+            max_length=128,
+        ),
+        ModelVariant.UNSLOTH_GEMMA_2B_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/gemma-2b-bnb-4bit",
             max_length=128,
         ),
     }
@@ -53,7 +58,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Unsloth Gemma 2B IT BnB 4-bit",
+            model="Unsloth Gemma 2B BnB 4-bit",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -107,17 +112,22 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        input_prompt = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        input_text = self.tokenizer.apply_chat_template(
-            input_prompt,
-            add_generation_prompt=True,
-            tokenize=False,
-        )
+        # The base (non-instruction-tuned) variant has no chat template,
+        # so feed the raw sample text directly to the tokenizer.
+        if self._variant == ModelVariant.UNSLOTH_GEMMA_2B_BNB_4BIT:
+            input_text = self.sample_text
+        else:
+            input_prompt = [
+                {
+                    "role": "user",
+                    "content": self.sample_text,
+                }
+            ]
+            input_text = self.tokenizer.apply_chat_template(
+                input_prompt,
+                add_generation_prompt=True,
+                tokenize=False,
+            )
 
         inputs = self.tokenizer(
             [input_text],
