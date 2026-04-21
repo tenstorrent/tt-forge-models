@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available HyenaDNA model variants for causal language modeling."""
 
     HYENADNA_TINY_1K = "tiny-1k-seqlen"
+    HYENADNA_LARGE_1M = "large-1m-seqlen"
 
 
 class ModelLoader(ForgeModel):
@@ -31,6 +32,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.HYENADNA_TINY_1K: LLMModelConfig(
             pretrained_model_name="LongSafari/hyenadna-tiny-1k-seqlen-hf",
+            max_length=256,
+        ),
+        ModelVariant.HYENADNA_LARGE_1M: LLMModelConfig(
+            pretrained_model_name="LongSafari/hyenadna-large-1m-seqlen-hf",
             max_length=256,
         ),
     }
