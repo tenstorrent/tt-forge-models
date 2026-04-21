@@ -20,6 +20,79 @@ from ....config import (
 )
 
 
+def _patch_transformers_ernie4_5_moe_gguf():
+    """Monkey-patch transformers to add ernie4_5-moe GGUF architecture support.
+
+    Transformers has Ernie4_5_MoeForCausalLM but lacks GGUF loading support for
+    the ernie4_5-moe architecture identifier used in GGUF metadata. We bridge the
+    gap by registering the arch in GGUF_SUPPORTED_ARCHITECTURES, adding the config
+    and tokenizer mappings, and patching load_gguf_checkpoint to remap model_type
+    from "ernie4_5-moe" (dash) to "ernie4_5_moe" (underscore), mirroring the
+    chatglm→glm4 pattern used upstream.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "ernie4_5-moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("ernie4_5-moe")
+
+    # Config field mapping: GGUF uses "ernie4_5-moe" as the metadata prefix.
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["ernie4_5-moe"] = {
+        "context_length": "max_position_embeddings",
+        "embedding_length": "hidden_size",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "rope.freq_base": None,
+        "rope.dimension_count": None,
+        "vocab_size": "vocab_size",
+        "expert_count": "moe_num_experts",
+        "expert_used_count": "moe_k",
+        "expert_shared_count": "moe_num_shared_experts",
+        "expert_feed_forward_length": "moe_intermediate_size",
+    }
+
+    try:
+        from transformers.integrations.ggml import (
+            GGUF_TO_FAST_CONVERTERS,
+            GGUFQwen2Converter,
+        )
+
+        if "ernie4_5-moe" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["ernie4_5-moe"] = GGUFQwen2Converter
+    except (ImportError, AttributeError):
+        pass
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "ernie4_5-moe":
+            config["model_type"] = "ernie4_5_moe"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_ernie4_5_moe_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Liontix ERNIE-4.5-21B-A3B-Thinking Gemini 2.5 Pro Distill GGUF model variants for causal language modeling."""
 
