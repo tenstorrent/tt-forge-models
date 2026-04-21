@@ -56,11 +56,52 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        self._patch_florence2_remote_code(self._variant_config.pretrained_model_name)
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
+            use_fast=False,
         )
         return self.processor
+
+    @staticmethod
+    def _patch_florence2_remote_code(pretrained_model_name):
+        """Patch Florence2 remote code for transformers 5.x compatibility."""
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        lang_cls = get_class_from_dynamic_module(
+            "configuration_florence2.Florence2LanguageConfig",
+            pretrained_model_name,
+        )
+        if lang_cls is not None and not getattr(lang_cls.__init__, "_patched", False):
+            original_init = lang_cls.__init__
+
+            def patched_config_init(self, *args, **kwargs):
+                object.__setattr__(self, "forced_bos_token_id", None)
+                original_init(self, *args, **kwargs)
+
+            patched_config_init._patched = True
+            lang_cls.__init__ = patched_config_init
+
+        proc_cls = get_class_from_dynamic_module(
+            "processing_florence2.Florence2Processor",
+            pretrained_model_name,
+        )
+        if proc_cls is not None and not getattr(proc_cls.__init__, "_patched", False):
+            original_proc_init = proc_cls.__init__
+
+            def patched_proc_init(self_inner, *args, **kwargs):
+                for arg in args:
+                    if hasattr(arg, "SPECIAL_TOKENS_ATTRIBUTES") and not hasattr(
+                        arg, "additional_special_tokens"
+                    ):
+                        arg.additional_special_tokens = list(
+                            getattr(arg, "_extra_special_tokens", [])
+                        )
+                original_proc_init(self_inner, *args, **kwargs)
+
+            patched_proc_init._patched = True
+            proc_cls.__init__ = patched_proc_init
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -69,6 +110,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        self._patch_florence2_remote_code(pretrained_model_name)
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name,
