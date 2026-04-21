@@ -4,6 +4,8 @@
 
 """Utility functions for Wan Fun Control model loading."""
 
+from typing import Optional
+
 import torch
 
 
@@ -39,7 +41,7 @@ WAN_1_3B_CONFIG_REPO = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
 def load_transformer(
     pretrained_model_name: str,
     dtype: torch.dtype,
-    subfolder: str = None,
+    subfolder: Optional[str] = None,
 ):
     """
     Load WanTransformer3DModel from the 14B control checkpoint.
