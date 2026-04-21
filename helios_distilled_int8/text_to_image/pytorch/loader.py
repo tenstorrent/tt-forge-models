@@ -65,15 +65,28 @@ class ModelLoader(ForgeModel):
         low_cpu_mem_usage: bool = True,
         extra_pipe_kwargs: Optional[Dict[str, Any]] = None,
     ) -> DiffusionPipeline:
+        from diffusers import HeliosTransformer3DModel
+        from transformers import UMT5Config, UMT5EncoderModel
+
         if extra_pipe_kwargs is None:
             extra_pipe_kwargs = {}
 
+        torch_dtype = dtype_override if dtype_override is not None else torch.float32
+
+        # The int8 model repo stores text_encoder and transformer weights as
+        # root-level safetensors without per-component config.json files.
+        # Pre-construct these so the remaining components load normally.
+        text_encoder = UMT5EncoderModel(
+            UMT5Config(d_model=4096, d_ff=10240, num_heads=64, d_kv=64, num_layers=2)
+        )
+        transformer = HeliosTransformer3DModel(num_layers=2)
+
         pipe_kwargs = {
-            "torch_dtype": (
-                dtype_override if dtype_override is not None else torch.float32
-            ),
+            "torch_dtype": torch_dtype,
             "device_map": device_map,
             "low_cpu_mem_usage": low_cpu_mem_usage,
+            "text_encoder": text_encoder,
+            "transformer": transformer,
         }
         pipe_kwargs.update(extra_pipe_kwargs)
 
@@ -96,22 +109,39 @@ class ModelLoader(ForgeModel):
         extra_pipe_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
-        """
-        Load and return the Helios-Distilled-int8 text-to-image pipeline.
-        """
         if self.pipeline is None:
-            return self._load_pipeline(
+            self._load_pipeline(
                 dtype_override=dtype_override,
                 device_map=device_map,
                 low_cpu_mem_usage=low_cpu_mem_usage,
                 extra_pipe_kwargs=extra_pipe_kwargs,
             )
 
+        transformer = self.pipeline.transformer
+        transformer.eval()
+
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
+            transformer = transformer.to(dtype=dtype_override)
 
-        return self.pipeline
+        return transformer
 
-    def load_inputs(self, prompt: Optional[str] = None) -> Dict[str, Any]:
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {"prompt": prompt_value}
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Dict[str, Any]:
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        batch_size = 1
+        in_channels = 16
+        text_dim = 4096
+        txt_seq_len = 32
+
+        hidden_states = torch.randn(batch_size, in_channels, 1, 8, 8, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
+        )
+        timestep = torch.tensor([500], dtype=torch.long)
+
+        return {
+            "hidden_states": hidden_states,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+        }
