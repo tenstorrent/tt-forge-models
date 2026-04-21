@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available StableLM-2 model variants for causal language modeling."""
 
     STABLELM_2_1_6B = "stablelm_2_1_6b"
+    STABLELM_2_1_6B_CHAT = "stablelm_2_1_6b_chat"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.STABLELM_2_1_6B: LLMModelConfig(
             pretrained_model_name="stabilityai/stablelm-2-1_6b",
+            max_length=256,
+        ),
+        ModelVariant.STABLELM_2_1_6B_CHAT: LLMModelConfig(
+            pretrained_model_name="stabilityai/stablelm-2-1_6b-chat",
             max_length=256,
         ),
     }
