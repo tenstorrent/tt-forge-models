@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available AfriqueQwen model variants for causal language modeling."""
 
     AFRIQUE_QWEN_8B = "8B"
+    AFRIQUE_QWEN_14B = "14B"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.AFRIQUE_QWEN_8B: LLMModelConfig(
             pretrained_model_name="McGill-NLP/AfriqueQwen-8B",
+            max_length=128,
+        ),
+        ModelVariant.AFRIQUE_QWEN_14B: LLMModelConfig(
+            pretrained_model_name="McGill-NLP/AfriqueQwen-14B",
             max_length=128,
         ),
     }
