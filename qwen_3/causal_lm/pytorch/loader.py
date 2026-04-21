@@ -49,6 +49,7 @@ class ModelVariant(StrEnum):
     QWEN_3_32B_GPTQ_INT4 = "32B_GPTQ_Int4"
     QWEN_3_8B_AWQ = "8B_Awq"
     QWEN_3_8B_NVFP4 = "8B_NVFP4"
+    QWEN_3_8B_NVFP4_REDHATAI = "8B_NVFP4_RedHatAI"
     QWEN_3_30B_A3B = "30B_A3b"
     QWEN_3_30B_A3B_FP8 = "30B_A3B_FP8"
     QWEN_3_30B_A3B_INSTRUCT_2507 = "30B_A3B_Instruct_2507"
@@ -118,6 +119,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_8B_NVFP4: LLMModelConfig(
             pretrained_model_name="nvidia/Qwen3-8B-NVFP4",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_8B_NVFP4_REDHATAI: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Qwen3-8B-NVFP4",
             max_length=128,
         ),
         ModelVariant.QWEN_3_14B: LLMModelConfig(
@@ -223,6 +228,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_4B_INSTRUCT_2507,
             ModelVariant.QWEN_3_4B_THINKING_2507,
             ModelVariant.QWEN_3_8B_AWQ,
+            ModelVariant.QWEN_3_8B_NVFP4_REDHATAI,
             ModelVariant.QWEN_3_8B_MLX_4BIT,
             ModelVariant.QWEN_3_4B_MLX_8BIT,
             ModelVariant.QWEN_3_8B_BASE,
