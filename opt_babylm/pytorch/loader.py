@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available OPT-BabyLM model variants."""
 
     OPT_BABYLM_1_3B_64EPS_SEED964 = "1.3B-64eps-seed964"
+    OPT_BABYLM_350M_64EPS_SEED964 = "350m-64eps-seed964"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OPT_BABYLM_1_3B_64EPS_SEED964: LLMModelConfig(
             pretrained_model_name="znhoughton/opt-babylm-1.3b-64eps-seed964",
+            max_length=256,
+        ),
+        ModelVariant.OPT_BABYLM_350M_64EPS_SEED964: LLMModelConfig(
+            pretrained_model_name="znhoughton/opt-babylm-350m-64eps-seed964",
             max_length=256,
         ),
     }
