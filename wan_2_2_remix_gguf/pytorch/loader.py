@@ -19,6 +19,7 @@ Available variants:
 - WAN22_REMIX_I2V_HIGH_V3_Q4_K_M: I2V high-noise expert v3.0, Q4_K_M
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -102,28 +103,34 @@ class ModelLoader(ForgeModel):
         """
         from diffusers import (
             AutoencoderKLWan,
-            GGUFQuantizationConfig,
             WanTransformer3DModel,
         )
-        from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        gguf_file = _GGUF_FILES[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
-
-        gguf_path = hf_hub_download(
-            repo_id=GGUF_REPO,
-            filename=gguf_file,
-        )
-        transformer = WanTransformer3DModel.from_single_file(
-            gguf_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
-
         is_i2v = _IS_I2V[self._variant]
         base_pipeline = I2V_BASE_PIPELINE if is_i2v else T2V_BASE_PIPELINE
+
+        if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+            config = WanTransformer3DModel.load_config(
+                base_pipeline, subfolder="transformer"
+            )
+            transformer = WanTransformer3DModel.from_config(config).to(compute_dtype)
+        else:
+            from diffusers import GGUFQuantizationConfig
+            from huggingface_hub import hf_hub_download
+
+            gguf_file = _GGUF_FILES[self._variant]
+            quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+            gguf_path = hf_hub_download(
+                repo_id=GGUF_REPO,
+                filename=gguf_file,
+            )
+            transformer = WanTransformer3DModel.from_single_file(
+                gguf_path,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         vae = AutoencoderKLWan.from_pretrained(
             base_pipeline,
