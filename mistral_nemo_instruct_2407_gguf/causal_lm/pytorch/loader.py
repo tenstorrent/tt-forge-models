@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Mistral Nemo Instruct 2407 GGUF model variants for causal language modeling."""
 
     MISTRAL_NEMO_INSTRUCT_2407_GGUF = "Nemo_Instruct_2407_GGUF"
-    UNSLOTH_MISTRAL_NEMO_INSTRUCT_2407_GGUF = "unsloth_Nemo_Instruct_2407_GGUF"
+    MISTRAL_NEMO_INSTRUCT_2407_GGUF_SECONDSTATE = "Nemo_Instruct_2407_GGUF_SecondState"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bartowski/Mistral-Nemo-Instruct-2407-GGUF",
             max_length=128,
         ),
-        ModelVariant.UNSLOTH_MISTRAL_NEMO_INSTRUCT_2407_GGUF: LLMModelConfig(
-            pretrained_model_name="unsloth/Mistral-Nemo-Instruct-2407-GGUF",
+        ModelVariant.MISTRAL_NEMO_INSTRUCT_2407_GGUF_SECONDSTATE: LLMModelConfig(
+            pretrained_model_name="second-state/Mistral-Nemo-Instruct-2407-GGUF",
             max_length=128,
         ),
     }
