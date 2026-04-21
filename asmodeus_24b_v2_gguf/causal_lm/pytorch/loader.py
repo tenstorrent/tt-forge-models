@@ -50,6 +50,10 @@ class ModelLoader(ForgeModel):
 
     sample_text = "Write a short creative story about a traveler who discovers a hidden library in the mountains."
 
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
+
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
@@ -73,7 +77,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -93,11 +97,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self._GGUF_FILES[self._variant]
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -163,7 +167,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            gguf_file=self._GGUF_FILES[self._variant],
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
