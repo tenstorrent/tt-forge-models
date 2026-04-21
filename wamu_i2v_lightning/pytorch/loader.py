@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     """Available WAMU I2V Lightning model variants."""
 
     BASE = "Base"
+    MERGE_VISUAL_EFFECTS = "Merge_VisualEffects"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="TestOrganizationPleaseIgnore/WAMU_v2_WAN2.2_I2V_LIGHTNING",
+        ),
+        ModelVariant.MERGE_VISUAL_EFFECTS: ModelConfig(
+            pretrained_model_name="TestOrganizationPleaseIgnore/WAMU-Merge-VisualEffects_WAN2.2_I2V_LIGHTNING",
         ),
     }
     DEFAULT_VARIANT = ModelVariant.BASE
