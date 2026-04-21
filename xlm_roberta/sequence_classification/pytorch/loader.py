@@ -29,7 +29,7 @@ class ModelVariant(StrEnum):
     XLM_ROBERTA_LARGE_HUNGARIAN_LEGISLATIVE_CAP_V3 = (
         "poltextlab/xlm-roberta-large-hungarian-legislative-cap-v3"
     )
-    XLMR_LARGE_TOXICITY_CLASSIFIER_V2 = "textdetox/xlmr-large-toxicity-classifier-v2"
+    XLM_ROBERTA_LARGE_CZECH_CAP_V3 = "poltextlab/xlm-roberta-large-czech-cap-v3"
 
 
 class ModelLoader(ForgeModel):
@@ -48,8 +48,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="poltextlab/xlm-roberta-large-hungarian-legislative-cap-v3",
             max_length=128,
         ),
-        ModelVariant.XLMR_LARGE_TOXICITY_CLASSIFIER_V2: LLMModelConfig(
-            pretrained_model_name="textdetox/xlmr-large-toxicity-classifier-v2",
+        ModelVariant.XLM_ROBERTA_LARGE_CZECH_CAP_V3: LLMModelConfig(
+            pretrained_model_name="poltextlab/xlm-roberta-large-czech-cap-v3",
             max_length=128,
         ),
     }
