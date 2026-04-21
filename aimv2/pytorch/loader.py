@@ -7,7 +7,7 @@ AIMv2 model loader implementation
 
 from typing import Optional
 from dataclasses import dataclass
-import timm
+import torch
 
 from ...config import (
     ModelConfig,
@@ -26,6 +26,10 @@ from ...tools.utils import (
 from datasets import load_dataset
 
 
+# Revision pin recommended in the apple/aimv2-large-patch14-224-lit model card.
+_LIT_REVISION = "c2cd59a786c4c06f39d199c50d08cc2eab9f8605"
+
+
 @dataclass
 class AIMv2Config(ModelConfig):
     """Configuration specific to AIMv2 models"""
@@ -37,6 +41,7 @@ class ModelVariant(StrEnum):
     """Available AIMv2 model variants."""
 
     LARGE_PATCH14_224_APPLE_PT_DIST = "Large_Patch14_224_Apple_PT_Dist"
+    LARGE_PATCH14_224_LIT = "Large_Patch14_224_LIT"
 
 
 class ModelLoader(ForgeModel):
@@ -47,6 +52,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="hf_hub:timm/aimv2_large_patch14_224.apple_pt_dist",
             source=ModelSource.TIMM,
         ),
+        ModelVariant.LARGE_PATCH14_224_LIT: AIMv2Config(
+            pretrained_model_name="apple/aimv2-large-patch14-224-lit",
+            source=ModelSource.HUGGING_FACE,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.LARGE_PATCH14_224_APPLE_PT_DIST
@@ -56,6 +65,8 @@ class ModelLoader(ForgeModel):
         self.model = None
         self._preprocessor = None
         self._postprocessor = None
+        self.processor = None
+        self.text_prompts = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -64,17 +75,43 @@ class ModelLoader(ForgeModel):
 
         source = cls._VARIANTS[variant].source
 
+        if source == ModelSource.HUGGING_FACE:
+            task = ModelTask.CV_ZS_IMAGE_CLS
+        else:
+            task = ModelTask.CV_IMAGE_CLS
+
         return ModelInfo(
             model="AIMv2",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.CV_IMAGE_CLS,
+            task=task,
             source=source,
             framework=Framework.TORCH,
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
         model_name = self._variant_config.pretrained_model_name
+        source = self._variant_config.source
+
+        if source == ModelSource.HUGGING_FACE:
+            from transformers import AutoModel
+
+            model_kwargs = {
+                "trust_remote_code": True,
+                "revision": _LIT_REVISION,
+                "return_dict": False,
+            }
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs.update(kwargs)
+
+            model = AutoModel.from_pretrained(model_name, **model_kwargs)
+            model.eval()
+
+            self.model = model
+            return model
+
+        import timm
 
         model = timm.create_model(model_name, pretrained=True)
         model.eval()
@@ -93,13 +130,47 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1, image=None):
+        source = self._variant_config.source
+
         if image is None:
             dataset = load_dataset("huggingface/cats-image", split="test")
             image = dataset[0]["image"]
 
+        if source == ModelSource.HUGGING_FACE:
+            from transformers import AutoProcessor
+
+            if self.processor is None:
+                self.processor = AutoProcessor.from_pretrained(
+                    self._variant_config.pretrained_model_name,
+                    revision=_LIT_REVISION,
+                )
+
+            self.text_prompts = [
+                "Picture of a dog.",
+                "Picture of a cat.",
+                "Picture of a horse.",
+            ]
+
+            inputs = self.processor(
+                images=image,
+                text=self.text_prompts,
+                add_special_tokens=True,
+                truncation=True,
+                padding=True,
+                return_tensors="pt",
+            )
+
+            for key in inputs:
+                if torch.is_tensor(inputs[key]):
+                    inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
+            if dtype_override is not None:
+                inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+
+            return inputs
+
         if self._preprocessor is None:
             model_name = self._variant_config.pretrained_model_name
-            source = self._variant_config.source
 
             self._preprocessor = VisionPreprocessor(
                 model_source=source,
@@ -121,9 +192,18 @@ class ModelLoader(ForgeModel):
         )
 
     def output_postprocess(self, output):
+        source = self._variant_config.source
+
+        if source == ModelSource.HUGGING_FACE:
+            logits_per_image = output[0] if isinstance(output, tuple) else output
+            probs = logits_per_image.softmax(dim=-1)
+            prompts = self.text_prompts or []
+            for i, text in enumerate(prompts):
+                print(f"Probability of '{text}':", probs[0, i].item())
+            return probs
+
         if self._postprocessor is None:
             model_name = self._variant_config.pretrained_model_name
-            source = self._variant_config.source
 
             self._postprocessor = VisionPostprocessor(
                 model_source=source,
