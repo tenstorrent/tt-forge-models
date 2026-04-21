@@ -31,12 +31,14 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.PHI_3_5_MINI_INSTRUCT_Q4F16_0_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/Phi-3.5-mini-instruct-q4f16_0-MLC",
+            pretrained_model_name="LoneStriker/Phi-3.5-mini-instruct-GGUF",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.PHI_3_5_MINI_INSTRUCT_Q4F16_0_MLC
+
+    GGUF_FILE = "Phi-3.5-mini-instruct-Q4_K_M.gguf"
 
     sample_text = "What is your favorite city?"
 
@@ -63,6 +65,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -81,10 +84,13 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -131,6 +137,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
         return self.config
