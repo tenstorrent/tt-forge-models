@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available GPT-2 causal LM model variants."""
 
     TINY_RANDOM = "tiny-random"
+    AISQUARED_DLITE_V1_355M = "aisquared-dlite-v1-355m"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINY_RANDOM: LLMModelConfig(
             pretrained_model_name="peft-internal-testing/tiny-random-GPT2LMHeadModel",
+            max_length=256,
+        ),
+        ModelVariant.AISQUARED_DLITE_V1_355M: LLMModelConfig(
+            pretrained_model_name="aisquared/dlite-v1-355m",
             max_length=256,
         ),
     }
