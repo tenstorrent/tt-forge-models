@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {"trust_remote_code": True, "return_dict": False}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
