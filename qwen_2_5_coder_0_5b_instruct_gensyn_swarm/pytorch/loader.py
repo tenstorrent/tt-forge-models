@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 2.5 Coder 0.5B Instruct Gensyn Swarm model variants."""
 
     SQUINTING_DORMANT_PARROT = "squinting_dormant_parrot"
-    SCREECHING_ENDANGERED_CHINCHILLA = "screeching_endangered_chinchilla"
+    SMALL_MUTE_GIRAFFE = "small_mute_giraffe"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="tommymir4444/Qwen2.5-Coder-0.5B-Instruct-Gensyn-Swarm-squinting_dormant_parrot",
             max_length=128,
         ),
-        ModelVariant.SCREECHING_ENDANGERED_CHINCHILLA: LLMModelConfig(
-            pretrained_model_name="carestudd/Qwen2.5-Coder-0.5B-Instruct-Gensyn-Swarm-screeching_endangered_chinchilla",
+        ModelVariant.SMALL_MUTE_GIRAFFE: LLMModelConfig(
+            pretrained_model_name="enzan9/Qwen2.5-Coder-0.5B-Instruct-Gensyn-Swarm-small_mute_giraffe",
             max_length=128,
         ),
     }
