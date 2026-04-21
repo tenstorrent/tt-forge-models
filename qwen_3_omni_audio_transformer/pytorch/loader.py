@@ -30,7 +30,8 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Qwen3-Omni AudioTransformer model variants."""
 
-    DEFAULT = "default"
+    INSTRUCT = "Instruct"
+    CAPTIONER = "Captioner"
 
 
 class Qwen3OmniAudioEncoderWrapper(torch.nn.Module):
@@ -48,12 +49,15 @@ class ModelLoader(ForgeModel):
     """Qwen3-Omni AudioTransformer model loader for audio feature extraction."""
 
     _VARIANTS = {
-        ModelVariant.DEFAULT: ModelConfig(
+        ModelVariant.INSTRUCT: ModelConfig(
             pretrained_model_name="Atotti/Qwen3-Omni-AudioTransformer",
+        ),
+        ModelVariant.CAPTIONER: ModelConfig(
+            pretrained_model_name="Atotti/Qwen3-Omni-Captioner-AudioTransformer",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.DEFAULT
+    DEFAULT_VARIANT = ModelVariant.INSTRUCT
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
