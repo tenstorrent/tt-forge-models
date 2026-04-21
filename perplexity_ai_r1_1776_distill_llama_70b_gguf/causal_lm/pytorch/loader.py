@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Perplexity AI R1-1776 Distill Llama 70B GGUF model variants for causal language modeling."""
 
     PERPLEXITY_AI_R1_1776_DISTILL_LLAMA_70B_GGUF = (
-        "perplexity-ai_r1-1776-distill-llama-70b-GGUF"
+        "perplexity_ai_r1_1776_distill_llama_70b_GGUF"
     )
 
 
