@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     ALL_MINILM_L6_V2 = "all-MiniLM-L6-v2"
     OPTIMUM_INTEL_ALL_MINILM_L6_V2 = "optimum-intel-all-MiniLM-L6-v2"
+    UNSLOTH_ALL_MINILM_L6_V2 = "unsloth-all-MiniLM-L6-v2"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.OPTIMUM_INTEL_ALL_MINILM_L6_V2: ModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/all-MiniLM-L6-v2",
+        ),
+        ModelVariant.UNSLOTH_ALL_MINILM_L6_V2: ModelConfig(
+            pretrained_model_name="unsloth/all-MiniLM-L6-v2",
         ),
     }
 
