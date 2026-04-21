@@ -70,9 +70,6 @@ class ModelLoader(ForgeModel):
                 REPO_ID, self.GGUF_FILE, dtype=dtype_override
             )
 
-        if dtype_override is not None:
-            self._transformer = self._transformer.to(dtype_override)
-
         return self._transformer
 
     def load_inputs(self, dtype_override=None):
