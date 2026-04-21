@@ -89,6 +89,14 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        # gguf is installed dynamically by RequirementsManager after transformers is already
+        # imported, so transformers' PACKAGE_DISTRIBUTION_MAPPING cache is stale. Refresh it
+        # so is_gguf_available() can find the installed gguf metadata.
+        import importlib.metadata
+        import transformers.utils.import_utils as _tuu
+
+        _tuu.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
