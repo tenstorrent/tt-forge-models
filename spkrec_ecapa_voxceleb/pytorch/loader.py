@@ -25,13 +25,20 @@ class ModelVariant(StrEnum):
     """Available SpeechBrain ECAPA-TDNN model variants."""
 
     ECAPA_VOXCELEB = "ECAPA_VoxCeleb"
+    GRIKO_GENDER_CLS_SVM_ECAPA_VOXCELEB = "griko_gender_cls_svm_ecapa_voxceleb"
 
 
 class ModelLoader(ForgeModel):
     """SpeechBrain ECAPA-TDNN speaker recognition model loader."""
 
+    # The griko variant wraps an SVM gender classifier on top of the
+    # speechbrain/spkrec-ecapa-voxceleb ECAPA-TDNN backbone; only the PyTorch
+    # backbone is exercised here.
     _VARIANTS = {
         ModelVariant.ECAPA_VOXCELEB: ModelConfig(
+            pretrained_model_name="speechbrain/spkrec-ecapa-voxceleb",
+        ),
+        ModelVariant.GRIKO_GENDER_CLS_SVM_ECAPA_VOXCELEB: ModelConfig(
             pretrained_model_name="speechbrain/spkrec-ecapa-voxceleb",
         ),
     }
