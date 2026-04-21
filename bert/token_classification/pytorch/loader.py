@@ -34,7 +34,7 @@ class ModelVariant(StrEnum):
         "CAMeL-Lab/bert-base-arabic-camelbert-msa-ner"
     )
     P208P2002_ZH_WIKI_PUNCTUATION_RESTORE = "p208p2002/zh-wiki-punctuation-restore"
-    RUPUNCT_SMALL = "RUPunct/RUPunct_small"
+    SSHLEIFER_TINY_DISTILBERT_BASE_CASED = "sshleifer/tiny-distilbert-base-cased"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="p208p2002/zh-wiki-punctuation-restore",
             max_length=128,
         ),
-        ModelVariant.RUPUNCT_SMALL: LLMModelConfig(
-            pretrained_model_name="RUPunct/RUPunct_small",
+        ModelVariant.SSHLEIFER_TINY_DISTILBERT_BASE_CASED: LLMModelConfig(
+            pretrained_model_name="sshleifer/tiny-distilbert-base-cased",
             max_length=128,
         ),
     }
@@ -123,7 +123,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HATMIMOHA_ARABIC_NER,
             ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER,
             ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE,
-            ModelVariant.RUPUNCT_SMALL,
+            ModelVariant.SSHLEIFER_TINY_DISTILBERT_BASE_CASED,
         ):
             group = ModelGroup.VULCAN
 
