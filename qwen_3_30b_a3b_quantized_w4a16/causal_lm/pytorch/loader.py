@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Qwen3-30B-A3B quantized W4A16 model variants for causal language modeling."""
 
     QWEN_3_30B_A3B_QUANTIZED_W4A16 = "30B_A3B_Quantized_W4A16"
+    QWEN_3_30B_A3B_INSTRUCT_2507_AWQ_W4A16 = "30B_A3B_Instruct_2507_AWQ_W4A16"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_30B_A3B_QUANTIZED_W4A16: LLMModelConfig(
             pretrained_model_name="RedHatAI/Qwen3-30B-A3B-quantized.w4a16",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507_AWQ_W4A16: LLMModelConfig(
+            pretrained_model_name="Sophia-AI/Qwen3-30B-A3B-Instruct-2507-AWQ-W4A16",
             max_length=128,
         ),
     }
