@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Together Llama 2 7B 32K Instruct model loader implementation for causal language modeling.
+Llama-2-7B-32K-Instruct model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,13 +21,13 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Llama 2 7B 32K Instruct model variants for causal language modeling."""
+    """Available Llama-2-7B-32K-Instruct model variants for causal language modeling."""
 
-    LLAMA_2_7B_32K_INSTRUCT = "7B_32K_Instruct"
+    LLAMA_2_7B_32K_INSTRUCT = "Llama-2-7B-32K-Instruct"
 
 
 class ModelLoader(ForgeModel):
-    """Together Llama 2 7B 32K Instruct model loader implementation for causal language modeling tasks."""
+    """Llama-2-7B-32K-Instruct model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.LLAMA_2_7B_32K_INSTRUCT: LLMModelConfig(
@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LLAMA_2_7B_32K_INSTRUCT
 
-    sample_text = "[INST]\nWrite a poem about cats\n[/INST]\n\n"
+    sample_text = "[INST]\nWrite a short poem about cats\n[/INST]\n\n"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -51,7 +51,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Llama 2 7B 32K Instruct",
+            model="Llama-2-7B-32K-Instruct",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
