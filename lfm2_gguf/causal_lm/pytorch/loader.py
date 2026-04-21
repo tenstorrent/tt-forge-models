@@ -10,6 +10,60 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+
+
+def _patch_lfm2moe_support():
+    """Register lfm2moe architecture as an alias for lfm2.
+
+    LFM2-24B-A2B uses the MoE variant of the LFM2 architecture but the GGUF
+    file declares architecture as 'lfm2moe' which transformers does not
+    recognise.  The underlying model maps to transformers' lfm2_moe model type.
+    """
+    if "lfm2moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("lfm2moe")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "lfm2" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            mapping = dict(_gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["lfm2"])
+            if section == "config":
+                mapping["expert_count"] = "num_experts"
+                mapping["expert_used_count"] = "num_experts_per_tok"
+                mapping["expert_feed_forward_length"] = "moe_intermediate_size"
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["lfm2moe"] = mapping
+    if hasattr(_gguf_utils, "TENSOR_PROCESSORS"):
+        if "lfm2" in _gguf_utils.TENSOR_PROCESSORS:
+            _gguf_utils.TENSOR_PROCESSORS["lfm2moe"] = _gguf_utils.TENSOR_PROCESSORS[
+                "lfm2"
+            ]
+    if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
+        if "lfm2" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
+                "lfm2moe"
+            ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["lfm2"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    _patch_lfm2moe_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "lfm2moe":
+        result["config"]["model_type"] = "lfm2_moe"
+    return result
+
+
+_patch_lfm2moe_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
