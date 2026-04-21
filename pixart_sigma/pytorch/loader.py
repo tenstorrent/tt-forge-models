@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available PixArt-Sigma model variants."""
 
     XL_2_1024_MS = "XL-2-1024-MS"
+    SDXLVAE_T5_DIFFUSERS = "sdxlvae-T5-diffusers"
 
 
 class ModelLoader(ForgeModel):
@@ -33,7 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.XL_2_1024_MS: ModelConfig(
             pretrained_model_name="PixArt-alpha/PixArt-Sigma-XL-2-1024-MS",
-        )
+        ),
+        ModelVariant.SDXLVAE_T5_DIFFUSERS: ModelConfig(
+            pretrained_model_name="PixArt-alpha/pixart_sigma_sdxlvae_T5_diffusers",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.XL_2_1024_MS
