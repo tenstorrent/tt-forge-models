@@ -4,6 +4,7 @@
 """
 Mistral Small 3.2 24B Instruct 2506 GGUF model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -24,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Mistral Small 3.2 24B Instruct 2506 GGUF model variants for causal language modeling."""
 
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506_Q4_K_M = "Q4_K_M"
+    EADDARIO_Q4_K_M = "eaddario-Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506_Q4_K_M: LLMModelConfig(
             pretrained_model_name="lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.EADDARIO_Q4_K_M: LLMModelConfig(
+            pretrained_model_name="eaddario/Mistral-Small-3.2-24B-Instruct-2506-GGUF",
             max_length=128,
         ),
     }
