@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Poe-8B-GLM5 GGUF model variants for causal language modeling."""
 
     POE_8B_GLM5_GGUF = "8B_GLM5_GGUF"
+    DRIPGHAD1223_POE_8B_GLM5_GGUF = "dripghad1223_8B_GLM5_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -34,13 +35,24 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/Poe-8B-GLM5-Opus4.6-Sonnet4.5-Kimi-Grok-Gemini-3-pro-preview-HERETIC-i1-GGUF",
             max_length=128,
         ),
+        ModelVariant.DRIPGHAD1223_POE_8B_GLM5_GGUF: LLMModelConfig(
+            pretrained_model_name="DripGhad1223/Poe-8B-GLM5-Opus4.6-Sonnet4.5-Kimi-Grok-Gemini-3-pro-preview-HERETIC-i1-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.POE_8B_GLM5_GGUF
 
-    GGUF_FILE = "Poe-8B-GLM5-Opus4.6-Sonnet4.5-Kimi-Grok-Gemini-3-pro-preview-HERETIC.i1-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.POE_8B_GLM5_GGUF: "Poe-8B-GLM5-Opus4.6-Sonnet4.5-Kimi-Grok-Gemini-3-pro-preview-HERETIC.i1-Q4_K_M.gguf",
+        ModelVariant.DRIPGHAD1223_POE_8B_GLM5_GGUF: "Poe-8B-GLM5-Opus4.6-Sonnet4.5-Kimi-Grok-Gemini-3-pro-preview-HERETIC.i1-Q4_K_M.gguf",
+    }
 
     sample_text = "Give me a short introduction to large language models."
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -65,7 +77,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +97,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -137,6 +149,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
