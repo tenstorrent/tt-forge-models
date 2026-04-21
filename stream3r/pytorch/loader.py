@@ -107,14 +107,14 @@ class ModelLoader(ForgeModel):
 
         STream3R expects a tensor of shape [S, 3, H, W] or [B, S, 3, H, W]
         with pixel values normalized to the [0, 1] range. Spatial dimensions
-        must be divisible by the patch size (14), and the reference resolution
-        is 518x384.
+        must be divisible by the patch size (14); the reference resolution is
+        close to 518x384 so we use the nearest multiples (518 = 37*14, 378 = 27*14).
 
         Returns:
             dict: Dict with 'images' and 'mode' keys for model(**inputs) unpacking.
         """
         dtype = dtype_override or torch.float32
-        num_frames, height, width = 4, 384, 518
+        num_frames, height, width = 4, 378, 518
 
         torch.manual_seed(42)
 
