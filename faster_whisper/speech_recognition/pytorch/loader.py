@@ -31,7 +31,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Faster Whisper speech recognition model variants."""
 
-    LARGE_V1 = "Large_v1"
+    LARGE_V3_TURBO = "Large_v3_Turbo"
+    DISTIL_SMALL_EN = "Distil_small_en"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +41,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LARGE_V1: ModelConfig(
             pretrained_model_name="openai/whisper-large",
+        ),
+        ModelVariant.DISTIL_SMALL_EN: ModelConfig(
+            pretrained_model_name="distil-whisper/distil-small.en",
         ),
     }
 
