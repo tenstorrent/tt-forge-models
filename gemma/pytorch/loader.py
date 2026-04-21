@@ -49,6 +49,9 @@ class ModelVariant(StrEnum):
     # Gemma 7B fine-tunes (Moxoff Volare - Italian RAG SFT/LoRA)
     VOLARE = "VOLARE"
 
+    # Gemma 2 2B fine-tunes (Sartify PAWA - Swahili continued pretraining + SFT/DPO)
+    PAWA_GEMMA_SWAHILI_2B = "PAWA_GEMMA_SWAHILI_2B"
+
 
 class ModelLoader(ForgeModel):
     """Gemma model loader implementation for causal language modeling tasks."""
@@ -104,6 +107,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="MoxoffSrL/Volare",
             max_length=256,
         ),
+        ModelVariant.PAWA_GEMMA_SWAHILI_2B: LLMModelConfig(
+            pretrained_model_name="sartifyllc/Pawa-Gemma-Swahili-2B",
+            max_length=256,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_1_1_2B_IT
@@ -136,6 +143,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_2B_IT,
             ModelVariant.GEMMA_7B,
             ModelVariant.VOLARE,
+            ModelVariant.PAWA_GEMMA_SWAHILI_2B,
         ):
             group = ModelGroup.VULCAN
         elif any(x in variant.value for x in ["IT", "7B", "9B", "27B"]):
