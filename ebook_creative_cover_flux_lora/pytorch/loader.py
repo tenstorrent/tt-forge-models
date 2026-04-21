@@ -4,8 +4,9 @@
 """
 prithivMLmods/EBook-Creative-Cover-Flux-LoRA model loader implementation.
 
-Loads the FLUX.1-dev base pipeline and applies the EBook-Creative-Cover LoRA
-from prithivMLmods/EBook-Creative-Cover-Flux-LoRA for creative eBook cover
+Loads the FLUX.1-dev transformer directly (without the gated pipeline) and
+applies the EBook-Creative-Cover LoRA from
+prithivMLmods/EBook-Creative-Cover-Flux-LoRA for creative eBook cover
 text-to-image generation.
 
 Repository: https://huggingface.co/prithivMLmods/EBook-Creative-Cover-Flux-LoRA
@@ -14,7 +15,13 @@ Repository: https://huggingface.co/prithivMLmods/EBook-Creative-Cover-Flux-LoRA
 from typing import Optional
 
 import torch
-from diffusers import FluxPipeline
+from diffusers import FluxTransformer2DModel
+from diffusers.loaders.lora_conversion_utils import (
+    _convert_kohya_flux_lora_to_diffusers,
+)
+from huggingface_hub import hf_hub_download
+from peft import LoraConfig, set_peft_model_state_dict
+from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -27,9 +34,20 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
 LORA_REPO = "prithivMLmods/EBook-Creative-Cover-Flux-LoRA"
 LORA_FILENAME = "EBook-Cover.safetensors"
+
+FLUX_DEV_CONFIG = {
+    "patch_size": 1,
+    "in_channels": 64,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "attention_head_dim": 128,
+    "num_attention_heads": 24,
+    "joint_attention_dim": 4096,
+    "pooled_projection_dim": 768,
+    "guidance_embeds": True,
+}
 
 
 class ModelVariant(StrEnum):
@@ -43,7 +61,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.EBOOK_COVER: ModelConfig(
-            pretrained_model_name=BASE_MODEL,
+            pretrained_model_name=LORA_REPO,
         ),
     }
 
@@ -51,7 +69,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipe = None
+        self.transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -67,146 +85,111 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype_override=None):
-        """Load FLUX.1-dev pipeline and apply EBook-Creative-Cover LoRA."""
-        pipe_kwargs = {"use_safetensors": True}
-        if dtype_override is not None:
-            pipe_kwargs["torch_dtype"] = dtype_override
+    def _load_transformer_with_lora(self, dtype=None):
+        """Load FLUX.1-dev transformer and apply EBook-Creative-Cover LoRA."""
+        transformer = FluxTransformer2DModel(**FLUX_DEV_CONFIG)
 
-        self.pipe = FluxPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, **pipe_kwargs
+        lora_path = hf_hub_download(
+            repo_id=LORA_REPO,
+            filename=LORA_FILENAME,
         )
+        raw_state_dict = load_file(lora_path)
+        converted = _convert_kohya_flux_lora_to_diffusers(raw_state_dict)
 
-        # Apply EBook-Creative-Cover LoRA
-        self.pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=LORA_FILENAME,
+        lora_weights = {}
+        target_modules = set()
+        rank = None
+        for k, v in converted.items():
+            key = (
+                k.replace("transformer.", "", 1) if k.startswith("transformer.") else k
+            )
+            if ".lora_A." in key or ".lora_B." in key:
+                lora_weights[key] = v
+            if ".lora_A." in key:
+                module = key.split(".lora_A.")[0]
+                target_modules.add(module)
+                if rank is None:
+                    rank = v.shape[0]
+
+        lora_config = LoraConfig(
+            r=rank,
+            lora_alpha=rank,
+            target_modules=list(target_modules),
         )
+        transformer.add_adapter(lora_config, adapter_name="default")
+        set_peft_model_state_dict(transformer, lora_weights, adapter_name="default")
 
-        self.pipe.enable_attention_slicing()
-        self.pipe.enable_vae_tiling()
+        if dtype is not None:
+            transformer = transformer.to(dtype)
 
-        return self.pipe
+        transformer.eval()
+        self.transformer = transformer
+        return self.transformer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the FLUX transformer with EBook-Creative-Cover LoRA applied.
-
-        Returns:
-            torch.nn.Module: The FLUX transformer model instance.
-        """
-        if self.pipe is None:
-            self._load_pipeline(dtype_override=dtype_override)
+        """Load and return the FLUX transformer with EBook-Creative-Cover LoRA applied."""
+        if self.transformer is None:
+            self._load_transformer_with_lora(dtype=dtype_override)
 
         if dtype_override is not None:
-            self.pipe.transformer = self.pipe.transformer.to(dtype_override)
+            self.transformer = self.transformer.to(dtype_override)
 
-        return self.pipe.transformer
+        return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the FLUX model.
+        """Load and return sample inputs for the FLUX model."""
+        if self.transformer is None:
+            self._load_transformer_with_lora(dtype=dtype_override)
 
-        Returns:
-            dict: Input tensors for the transformer model.
-        """
-        if self.pipe is None:
-            self._load_pipeline(dtype_override=dtype_override)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        config = self.transformer.config
 
-        max_sequence_length = 256
-        prompt = (
-            "EBook Cover, An eye-level view of an ancient ruins, with the words "
-            '"ECHOES OF THE PAST" written in gold in the center of the image'
-        )
         height = 128
         width = 128
-        num_images_per_prompt = 1
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        num_channels_latents = self.pipe.transformer.config.in_channels // 4
+        vae_scale_factor = 8
+        num_channels_latents = config.in_channels // 4
 
-        # Text encoding for CLIP
-        text_inputs_clip = self.pipe.tokenizer(
-            prompt,
-            padding="max_length",
-            max_length=self.pipe.tokenizer_max_length,
-            truncation=True,
-            return_tensors="pt",
+        height_latent = 2 * (height // (vae_scale_factor * 2))
+        width_latent = 2 * (width // (vae_scale_factor * 2))
+        h_packed = height_latent // 2
+        w_packed = width_latent // 2
+
+        latents = torch.randn(
+            batch_size, num_channels_latents * 4, h_packed, w_packed, dtype=dtype
         )
-        text_input_ids_clip = text_inputs_clip.input_ids
-        pooled_prompt_embeds = self.pipe.text_encoder(
-            text_input_ids_clip, output_hidden_states=False
-        ).pooler_output
-        pooled_prompt_embeds = pooled_prompt_embeds.to(dtype=dtype)
-        pooled_prompt_embeds = pooled_prompt_embeds.repeat(
-            batch_size, num_images_per_prompt
-        )
-        pooled_prompt_embeds = pooled_prompt_embeds.view(
-            batch_size * num_images_per_prompt, -1
+        latents = latents.reshape(batch_size, num_channels_latents * 4, -1).permute(
+            0, 2, 1
         )
 
-        # Text encoding for T5
-        text_inputs_t5 = self.pipe.tokenizer_2(
-            prompt,
-            padding="max_length",
-            max_length=max_sequence_length,
-            truncation=True,
-            return_length=False,
-            return_overflowing_tokens=False,
-            return_tensors="pt",
-        )
-        text_input_ids_t5 = text_inputs_t5.input_ids
-        prompt_embeds = self.pipe.text_encoder_2(
-            text_input_ids_t5, output_hidden_states=False
-        )[0]
-        prompt_embeds = prompt_embeds.to(dtype=dtype)
-        _, seq_len_t5, _ = prompt_embeds.shape
-        prompt_embeds = prompt_embeds.repeat(batch_size, num_images_per_prompt, 1)
-        prompt_embeds = prompt_embeds.view(
-            batch_size * num_images_per_prompt, seq_len_t5, -1
-        )
-
-        # Create text IDs
-        text_ids = torch.zeros(prompt_embeds.shape[1], 3).to(dtype=dtype)
-
-        # Create latents
-        height_latent = 2 * (int(height) // (self.pipe.vae_scale_factor * 2))
-        width_latent = 2 * (int(width) // (self.pipe.vae_scale_factor * 2))
-
-        shape = (
-            batch_size * num_images_per_prompt,
-            num_channels_latents,
-            height_latent,
-            width_latent,
-        )
-
-        latents = torch.randn(shape, dtype=dtype)
-        latents = latents.view(
-            batch_size * num_images_per_prompt,
-            num_channels_latents,
-            height_latent // 2,
-            2,
-            width_latent // 2,
-            2,
-        )
-        latents = latents.permute(0, 2, 4, 1, 3, 5)
-        latents = latents.reshape(
-            batch_size * num_images_per_prompt,
-            (height_latent // 2) * (width_latent // 2),
-            num_channels_latents * 4,
-        )
-
-        # Prepare latent image IDs
-        latent_image_ids = torch.zeros(height_latent // 2, width_latent // 2, 3)
+        latent_image_ids = torch.zeros(h_packed, w_packed, 3)
         latent_image_ids[..., 1] = (
-            latent_image_ids[..., 1] + torch.arange(height_latent // 2)[:, None]
+            latent_image_ids[..., 1] + torch.arange(h_packed)[:, None]
         )
         latent_image_ids[..., 2] = (
-            latent_image_ids[..., 2] + torch.arange(width_latent // 2)[None, :]
+            latent_image_ids[..., 2] + torch.arange(w_packed)[None, :]
         )
         latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
 
+        max_sequence_length = 256
+        joint_attention_dim = config.joint_attention_dim
+        prompt_embeds = torch.randn(
+            batch_size, max_sequence_length, joint_attention_dim, dtype=dtype
+        )
+
+        pooled_prompt_embeds = torch.randn(
+            batch_size, config.pooled_projection_dim, dtype=dtype
+        )
+
+        text_ids = torch.zeros(max_sequence_length, 3).to(dtype=dtype)
+
+        guidance = torch.tensor([3.5] * batch_size, dtype=dtype)
+
+        timestep = torch.tensor([1.0], dtype=dtype).expand(batch_size)
+
         inputs = {
             "hidden_states": latents,
-            "timestep": torch.tensor([1.0], dtype=dtype),
-            "guidance": None,
+            "timestep": timestep,
+            "guidance": guidance,
             "pooled_projections": pooled_prompt_embeds,
             "encoder_hidden_states": prompt_embeds,
             "txt_ids": text_ids,
