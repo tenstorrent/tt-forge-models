@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LAVIDA_LLADA_V1_0_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="jacklishufan/lavida-llada-v1.0-instruct",
+            pretrained_model_name="KonstantinosKK/lavida-llada-v1.0-instruct-hf-transformers",
             max_length=128,
         ),
     }
