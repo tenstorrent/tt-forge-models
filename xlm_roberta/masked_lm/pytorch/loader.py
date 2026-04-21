@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
 
     TF_XLM_ROBERTA_BASE = "Tf_Xlm_Roberta_Base"
     TWITTER_XLM_ROBERTA_BASE = "Twitter_Xlm_Roberta_Base"
-    SCANDIBERT = "vesteinn/ScandiBERT"
+    NOMIC_XLM_2048 = "Nomic_Xlm_2048"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.TWITTER_XLM_ROBERTA_BASE: ModelConfig(
             pretrained_model_name="cardiffnlp/twitter-xlm-roberta-base",
         ),
-        ModelVariant.SCANDIBERT: ModelConfig(
-            pretrained_model_name="vesteinn/ScandiBERT",
+        ModelVariant.NOMIC_XLM_2048: ModelConfig(
+            pretrained_model_name="nomic-ai/nomic-xlm-2048",
         ),
     }
 
@@ -76,6 +76,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if self._variant == ModelVariant.TF_XLM_ROBERTA_BASE:
             model_kwargs["from_tf"] = True
+        if self._variant == ModelVariant.NOMIC_XLM_2048:
+            model_kwargs["trust_remote_code"] = True
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -90,7 +92,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        test_input = "The capital of France is <mask>."
+        test_input = f"The capital of France is {self.tokenizer.mask_token}."
 
         inputs = self.tokenizer(test_input, return_tensors="pt")
 
