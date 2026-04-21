@@ -66,7 +66,11 @@ class MapAnythingWrapper(torch.nn.Module):
         self.model = model
 
     def forward(self, pixel_values):
-        views = [{"img": img.permute(1, 2, 0) * 255.0} for img in pixel_values]
+        norm_type = self.model.encoder.data_norm_type
+        views = [
+            {"img": img.permute(1, 2, 0) * 255.0, "data_norm_type": [norm_type]}
+            for img in pixel_values
+        ]
         predictions = self.model.infer(views)
         return predictions[0]["pts3d"]
 
