@@ -36,7 +36,9 @@ class ModelVariant(StrEnum):
     PRAJJWAL1_BERT_SMALL = "prajjwal1/bert-small"
     EPWALSH_BERT_XSMALL_DUMMY = "epwalsh/bert-xsmall-dummy"
     MICROSOFT_XTREMEDISTIL_L6_H256_UNCASED = "microsoft/xtremedistil-l6-h256-uncased"
-    TOOLBENCH_IR_BERT_BASED_UNCASED = "ToolBench/ToolBench_IR_bert_based_uncased"
+    LAZERLAMBDA_BERT_TINY_MODBERTSCORE_TEST = (
+        "LazerLambda/BERT-Tiny-L-2-H-128-A-2-ModBERTScore-TEST"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -76,8 +78,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="microsoft/xtremedistil-l6-h256-uncased",
             max_length=128,
         ),
-        ModelVariant.TOOLBENCH_IR_BERT_BASED_UNCASED: LLMModelConfig(
-            pretrained_model_name="ToolBench/ToolBench_IR_bert_based_uncased",
+        ModelVariant.LAZERLAMBDA_BERT_TINY_MODBERTSCORE_TEST: LLMModelConfig(
+            pretrained_model_name="LazerLambda/BERT-Tiny-L-2-H-128-A-2-ModBERTScore-TEST",
             max_length=128,
         ),
     }
@@ -123,7 +125,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.PRAJJWAL1_BERT_SMALL: ModelGroup.VULCAN,
             ModelVariant.EPWALSH_BERT_XSMALL_DUMMY: ModelGroup.VULCAN,
             ModelVariant.MICROSOFT_XTREMEDISTIL_L6_H256_UNCASED: ModelGroup.VULCAN,
-            ModelVariant.TOOLBENCH_IR_BERT_BASED_UNCASED: ModelGroup.VULCAN,
+            ModelVariant.LAZERLAMBDA_BERT_TINY_MODBERTSCORE_TEST: ModelGroup.VULCAN,
         }
 
         return ModelInfo(
