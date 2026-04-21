@@ -28,7 +28,7 @@ class ModelVariant(StrEnum):
     """Available TerraMind model variants."""
 
     LARGE = "large"
-    TINY = "tiny"
+    SMALL = "small"
 
 
 class ModelLoader(ForgeModel):
@@ -38,8 +38,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.LARGE: ModelConfig(
             pretrained_model_name="ibm-esa-geospatial/TerraMind-1.0-large",
         ),
-        ModelVariant.TINY: ModelConfig(
-            pretrained_model_name="ibm-esa-geospatial/TerraMind-1.0-tiny",
+        ModelVariant.SMALL: ModelConfig(
+            pretrained_model_name="ibm-esa-geospatial/TerraMind-1.0-small",
         ),
     }
 
