@@ -6,7 +6,7 @@ CodeT5 model loader implementation
 """
 
 import torch
-from transformers import AutoTokenizer, T5ForConditionalGeneration
+from transformers import AddedToken, AutoTokenizer, T5ForConditionalGeneration
 from typing import Optional
 
 from ...base import ForgeModel
@@ -85,8 +85,21 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        extra_ids = [
+            AddedToken(
+                f"<extra_id_{i}>",
+                lstrip=True,
+                rstrip=False,
+                single_word=False,
+                normalized=True,
+                special=True,
+            )
+            for i in range(99, -1, -1)
+        ]
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name,
+            additional_special_tokens=extra_ids,
+            **tokenizer_kwargs,
         )
 
         return self.tokenizer
