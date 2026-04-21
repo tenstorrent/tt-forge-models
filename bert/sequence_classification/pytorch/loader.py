@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    PEEYUSH01_PHISHING_URL_BERT_TINY_V1 = "peeyush01_Phishing_Url_Bert_Tiny_V1"
+    PRAJJWAL1_BERT_MEDIUM_MNLI = "prajjwal1_Bert_Medium_MNLI"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.PEEYUSH01_PHISHING_URL_BERT_TINY_V1: LLMModelConfig(
-            pretrained_model_name="peeyush01/phishing-url-bert-tiny-v1",
+        ModelVariant.PRAJJWAL1_BERT_MEDIUM_MNLI: LLMModelConfig(
+            pretrained_model_name="prajjwal1/bert-medium-mnli",
             max_length=128,
         ),
     }
@@ -95,7 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.PEEYUSH01_PHISHING_URL_BERT_TINY_V1: "http://secure-login-paypa1.com/verify-account",
+        ModelVariant.PRAJJWAL1_BERT_MEDIUM_MNLI: "A man is walking in the park.",
     }
 
     def __init__(self, variant=None):
@@ -134,7 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.PEEYUSH01_PHISHING_URL_BERT_TINY_V1,
+            ModelVariant.PRAJJWAL1_BERT_MEDIUM_MNLI,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
