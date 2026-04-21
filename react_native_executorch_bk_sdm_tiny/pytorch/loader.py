@@ -10,10 +10,7 @@ compatible with PyTorch, this loader uses the upstream base model
 (vivym/bk-sdm-tiny-vpred) via StableDiffusionPipeline.
 """
 
-import torch
 from typing import Optional
-
-from diffusers import StableDiffusionPipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -25,6 +22,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from .src.model_utils import load_pipe, stable_diffusion_preprocessing
 
 
 class ModelVariant(StrEnum):
@@ -44,8 +42,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.BK_SDM_TINY
 
+    prompt = "a tropical bird sitting on a branch"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -59,33 +60,33 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the BK-SDM-Tiny pipeline.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
+        """Load the BK-SDM-Tiny UNet from the pipeline.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained BK-SDM-Tiny pipeline.
+            torch.nn.Module: The UNet used for denoising.
         """
-        dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
-        )
-        return pipe
+        self.pipeline = load_pipe(self._variant_config.pretrained_model_name)
+
+        if dtype_override is not None:
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
+
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for BK-SDM-Tiny.
-
-        Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+        """Prepare UNet tensor inputs for a single forward pass.
 
         Returns:
-            list: A list of sample text prompts.
+            tuple: (latents, timestep, encoder_hidden_states)
         """
-        prompt = [
-            "a tropical bird sitting on a branch",
-        ] * batch_size
-        return prompt
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        latents, timestep, encoder_hidden_states = stable_diffusion_preprocessing(
+            self.pipeline, self.prompt
+        )
+
+        if dtype_override is not None:
+            latents = latents.to(dtype_override)
+            encoder_hidden_states = encoder_hidden_states.to(dtype_override)
+
+        return latents, timestep, encoder_hidden_states
