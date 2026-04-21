@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
@@ -23,24 +23,24 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Granite 3.1 8B Instruct GGUF model variants for causal language modeling."""
 
-    GRANITE_3_1_8B_INSTRUCT_GGUF = "3.1_8B_Instruct_GGUF"
+    GRANITE_3_1_8B_INSTRUCT_Q4_K_M_GGUF = "Granite_3_1_8B_Instruct_Q4_K_M_GGUF"
 
 
 class ModelLoader(ForgeModel):
     """Granite 3.1 8B Instruct GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.GRANITE_3_1_8B_INSTRUCT_GGUF: LLMModelConfig(
-            pretrained_model_name="lmstudio-community/granite-3.1-8b-instruct-GGUF",
+        ModelVariant.GRANITE_3_1_8B_INSTRUCT_Q4_K_M_GGUF: LLMModelConfig(
+            pretrained_model_name="bartowski/granite-3.1-8b-instruct-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.GRANITE_3_1_8B_INSTRUCT_GGUF
+    DEFAULT_VARIANT = ModelVariant.GRANITE_3_1_8B_INSTRUCT_Q4_K_M_GGUF
 
     GGUF_FILE = "granite-3.1-8b-instruct-Q4_K_M.gguf"
 
-    sample_text = "What is your favorite city?"
+    sample_text = "What is the capital of France?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -108,21 +108,8 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        prompts = [text]
-
         inputs = self.tokenizer(
-            prompts,
+            [self.sample_text],
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -134,23 +121,6 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
-
-    def get_mesh_config(self, num_devices: int):
-        mesh_shape = (1, num_devices)
-        return mesh_shape, ("batch", "model")
-
-    def load_shard_spec(self, model):
-        shard_specs = {}
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
