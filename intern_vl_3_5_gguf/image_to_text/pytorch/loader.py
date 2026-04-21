@@ -23,6 +23,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available InternVL3.5 GGUF model variants for image to text."""
 
+    INTERN_VL3_5_2B_Q4_K_M = "2b_q4_k_m"
+    INTERN_VL3_5_2B_Q8_0 = "2b_q8_0"
     INTERN_VL3_5_14B_Q4_K_M = "14b_q4_k_m"
     INTERN_VL3_5_14B_Q8_0 = "14b_q8_0"
 
@@ -31,6 +33,14 @@ class ModelLoader(ForgeModel):
     """InternVL3.5 GGUF model loader implementation for image to text tasks."""
 
     _VARIANTS = {
+        ModelVariant.INTERN_VL3_5_2B_Q4_K_M: LLMModelConfig(
+            pretrained_model_name="bartowski/OpenGVLab_InternVL3_5-2B-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.INTERN_VL3_5_2B_Q8_0: LLMModelConfig(
+            pretrained_model_name="bartowski/OpenGVLab_InternVL3_5-2B-GGUF",
+            max_length=128,
+        ),
         ModelVariant.INTERN_VL3_5_14B_Q4_K_M: LLMModelConfig(
             pretrained_model_name="bartowski/OpenGVLab_InternVL3_5-14B-GGUF",
             max_length=128,
@@ -42,8 +52,17 @@ class ModelLoader(ForgeModel):
     }
 
     _GGUF_FILES = {
+        ModelVariant.INTERN_VL3_5_2B_Q4_K_M: "OpenGVLab_InternVL3_5-2B-Q4_K_M.gguf",
+        ModelVariant.INTERN_VL3_5_2B_Q8_0: "OpenGVLab_InternVL3_5-2B-Q8_0.gguf",
         ModelVariant.INTERN_VL3_5_14B_Q4_K_M: "OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf",
         ModelVariant.INTERN_VL3_5_14B_Q8_0: "OpenGVLab_InternVL3_5-14B-Q8_0.gguf",
+    }
+
+    _PROCESSOR_NAMES = {
+        ModelVariant.INTERN_VL3_5_2B_Q4_K_M: "OpenGVLab/InternVL3_5-2B-HF",
+        ModelVariant.INTERN_VL3_5_2B_Q8_0: "OpenGVLab/InternVL3_5-2B-HF",
+        ModelVariant.INTERN_VL3_5_14B_Q4_K_M: "OpenGVLab/InternVL3_5-14B-HF",
+        ModelVariant.INTERN_VL3_5_14B_Q8_0: "OpenGVLab/InternVL3_5-14B-HF",
     }
 
     DEFAULT_VARIANT = ModelVariant.INTERN_VL3_5_14B_Q4_K_M
@@ -79,7 +98,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(
-            "OpenGVLab/InternVL3_5-14B-HF",
+            self._PROCESSOR_NAMES[self._variant],
             trust_remote_code=True,
         )
 
