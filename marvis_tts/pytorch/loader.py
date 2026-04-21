@@ -74,17 +74,8 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
 
-        conversation = [
-            {
-                "role": "0",
-                "content": [{"type": "text", "text": "Hello, this is a test."}],
-            }
-        ]
-
-        inputs = self.processor.apply_chat_template(
-            conversation,
-            tokenize=True,
-            return_dict=True,
-        )
+        # Tokenize text directly with speaker token prefix (CSM format)
+        text = "[0]Hello, this is a test."
+        inputs = self.processor(text, return_tensors="pt")
 
         return dict(inputs)
