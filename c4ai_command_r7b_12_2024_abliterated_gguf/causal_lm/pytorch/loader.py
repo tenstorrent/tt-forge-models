@@ -11,6 +11,48 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_transformers_cohere2_gguf():
+    """Monkey-patch transformers to add cohere2 GGUF architecture support.
+
+    Transformers 5.x has Cohere2ForCausalLM but lacks GGUF loading support
+    for the cohere2 architecture. We bridge the gap by registering the config
+    mapping and tokenizer converter.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFGPTConverter,
+    )
+
+    if "cohere2" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("cohere2")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["cohere2"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_epsilon": "layer_norm_eps",
+        "attention.key_length": "head_dim",
+        "attention.sliding_window": "sliding_window",
+        "vocab_size": "vocab_size",
+    }
+
+    GGUF_TO_FAST_CONVERTERS["cohere2"] = GGUFGPTConverter
+
+
+_patch_transformers_cohere2_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
