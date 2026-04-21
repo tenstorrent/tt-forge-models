@@ -28,20 +28,25 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available MiniMax-M2.5-REAP NVFP4 model variants for causal language modeling."""
 
-    MINIMAX_M2_5_REAP_NVFP4 = "M2.5_REAP_NVFP4"
+    REAP_139B_A10B_NVFP4 = "REAP_139B_A10B_NVFP4"
+    REAP_172B_A10B_NVFP4_GB10 = "REAP_172B_A10B_NVFP4_GB10"
 
 
 class ModelLoader(ForgeModel):
     """MiniMax-M2.5-REAP NVFP4 model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.MINIMAX_M2_5_REAP_NVFP4: LLMModelConfig(
+        ModelVariant.REAP_139B_A10B_NVFP4: LLMModelConfig(
             pretrained_model_name="lukealonso/MiniMax-M2.5-REAP-139B-A10B-NVFP4",
+            max_length=128,
+        ),
+        ModelVariant.REAP_172B_A10B_NVFP4_GB10: LLMModelConfig(
+            pretrained_model_name="saricles/MiniMax-M2.5-REAP-172B-A10B-NVFP4-GB10",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.MINIMAX_M2_5_REAP_NVFP4
+    DEFAULT_VARIANT = ModelVariant.REAP_139B_A10B_NVFP4
 
     sample_text = "Give me a short introduction to large language model."
 
