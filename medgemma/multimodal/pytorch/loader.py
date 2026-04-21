@@ -5,6 +5,7 @@
 MedGemma model loader implementation for multimodal modeling.
 """
 
+import os
 from typing import Optional
 
 from transformers import (
@@ -64,14 +65,24 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self, dtype_override=None):
+    def _get_token(self, **kwargs):
+        """Get HuggingFace authentication token from kwargs or environment."""
+        return kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
+
+    def _load_processor(self, dtype_override=None, **kwargs):
         """Load processor for the current variant."""
-        kwargs = {}
+        proc_kwargs = {}
         if dtype_override is not None:
-            kwargs["torch_dtype"] = dtype_override
+            proc_kwargs["torch_dtype"] = dtype_override
+
+        token = self._get_token(**kwargs)
+        if token:
+            proc_kwargs["token"] = token
 
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name, **kwargs)
+        self.processor = AutoProcessor.from_pretrained(
+            pretrained_model_name, **proc_kwargs
+        )
 
         return self.processor
 
@@ -85,12 +96,17 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The MedGemma model instance for multimodal modeling.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        token = self._get_token(**kwargs)
+
         if self.processor is None:
-            self._load_processor(dtype_override)
+            self._load_processor(dtype_override, token=token)
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if token:
+            model_kwargs["token"] = token
         model_kwargs |= kwargs
 
         model = Gemma3ForConditionalGeneration.from_pretrained(
