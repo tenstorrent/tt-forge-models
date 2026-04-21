@@ -29,7 +29,9 @@ class ModelVariant(StrEnum):
     XLM_ROBERTA_LARGE_HUNGARIAN_LEGISLATIVE_CAP_V3 = (
         "poltextlab/xlm-roberta-large-hungarian-legislative-cap-v3"
     )
-    ILLFRAMES_CLIMATE_V4 = "poltextlab/illframes-climate-v4"
+    XLM_ROBERTA_LARGE_LEGISLATIVE_CAP_V3 = (
+        "poltextlab/xlm-roberta-large-legislative-cap-v3"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -48,8 +50,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="poltextlab/xlm-roberta-large-hungarian-legislative-cap-v3",
             max_length=128,
         ),
-        ModelVariant.ILLFRAMES_CLIMATE_V4: LLMModelConfig(
-            pretrained_model_name="poltextlab/illframes-climate-v4",
+        ModelVariant.XLM_ROBERTA_LARGE_LEGISLATIVE_CAP_V3: LLMModelConfig(
+            pretrained_model_name="poltextlab/xlm-roberta-large-legislative-cap-v3",
             max_length=128,
         ),
     }
