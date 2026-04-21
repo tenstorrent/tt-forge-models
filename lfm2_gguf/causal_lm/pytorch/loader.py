@@ -53,11 +53,58 @@ def _patch_lfm2moe_support():
         GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = GGUF_TO_FAST_CONVERTERS["llama"]
 
 
+LFM2_MOE_LAYER_TYPES = [
+    "conv",
+    "conv",
+    "full_attention",
+    "conv",
+    "conv",
+    "conv",
+    "full_attention",
+    "conv",
+    "conv",
+    "conv",
+    "full_attention",
+    "conv",
+    "conv",
+    "conv",
+    "full_attention",
+    "conv",
+    "conv",
+    "conv",
+    "full_attention",
+    "conv",
+    "conv",
+    "conv",
+    "full_attention",
+    "conv",
+    "conv",
+    "conv",
+    "full_attention",
+    "conv",
+    "conv",
+    "conv",
+    "full_attention",
+    "conv",
+    "conv",
+    "conv",
+    "full_attention",
+    "conv",
+    "conv",
+    "conv",
+    "full_attention",
+    "conv",
+]
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     _patch_lfm2moe_support()
     result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     if result.get("config", {}).get("model_type") == "lfm2moe":
         result["config"]["model_type"] = "lfm2_moe"
+    if result.get("config", {}).get("model_type") in ("lfm2_moe", "lfm2moe"):
+        if not result["config"].get("layer_types"):
+            result["config"]["layer_types"] = LFM2_MOE_LAYER_TYPES
     return result
 
 
