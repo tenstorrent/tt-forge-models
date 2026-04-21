@@ -81,7 +81,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"use_cache": False}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -89,6 +89,7 @@ class ModelLoader(ForgeModel):
         model = EncoderDecoderModel.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        model.config.use_cache = False
         model.eval()
         self._cached_model = model
         return model
