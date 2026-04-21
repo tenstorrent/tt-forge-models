@@ -48,7 +48,7 @@ class ModelLoader(ForgeModel):
 
     # Variants with FP4 quantized weights require ignore_mismatched_sizes
     # because the packed FP4 weight shapes differ from the model definition.
-    _NVFP4_VARIANTS = {ModelVariant.GLM_5_NVFP4_MTP, ModelVariant.GLM_5_MXFP4}
+    _NVFP4_VARIANTS = {ModelVariant.GLM_5_NVFP4_MTP}
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
