@@ -16,8 +16,16 @@ from transformers import (
     AutoConfig,
     AutoModel,
     AutoModelForCausalLM,
+    DynamicCache,
 )
 from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+# The remote modeling_emu3.py calls DynamicCache.get_usable_length() which was
+# removed in transformers 5.x; patch in a compatible shim.
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_len=None, layer_idx=0: self.get_seq_length(layer_idx)
+    )
 
 from ....tools.utils import get_file, cast_input_to_type
 from ....base import ForgeModel
