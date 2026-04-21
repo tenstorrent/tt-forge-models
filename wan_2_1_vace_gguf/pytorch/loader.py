@@ -36,7 +36,8 @@ from ...config import (
 )
 
 _TRANSFORMER_IN_CHANNELS = 16
-_LATENT_DEPTH = 2
+_VACE_IN_CHANNELS = 96
+_LATENT_FRAMES = 1
 _LATENT_HEIGHT = 4
 _LATENT_WIDTH = 4
 _TEXT_HIDDEN_DIM = 4096
@@ -158,10 +159,22 @@ class ModelLoader(ForgeModel):
         """Prepare synthetic inputs for the WanVACETransformer3DModel forward pass."""
         dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = 1
-        seq_len = _LATENT_DEPTH * _LATENT_HEIGHT * _LATENT_WIDTH
 
         hidden_states = torch.randn(
-            batch_size, seq_len, _TRANSFORMER_IN_CHANNELS, dtype=dtype
+            batch_size,
+            _TRANSFORMER_IN_CHANNELS,
+            _LATENT_FRAMES,
+            _LATENT_HEIGHT,
+            _LATENT_WIDTH,
+            dtype=dtype,
+        )
+        control_hidden_states = torch.randn(
+            batch_size,
+            _VACE_IN_CHANNELS,
+            _LATENT_FRAMES,
+            _LATENT_HEIGHT,
+            _LATENT_WIDTH,
+            dtype=dtype,
         )
         encoder_hidden_states = torch.randn(
             batch_size, _TEXT_SEQ_LEN, _TEXT_HIDDEN_DIM, dtype=dtype
@@ -171,6 +184,7 @@ class ModelLoader(ForgeModel):
         return {
             "hidden_states": hidden_states,
             "encoder_hidden_states": encoder_hidden_states,
+            "control_hidden_states": control_hidden_states,
             "timestep": timestep,
             "return_dict": False,
         }
