@@ -86,6 +86,10 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _is_nli_variant(self):
+        """Check if the current variant is an NLI model."""
+        return False
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load XLM-RoBERTa model for sequence classification from Hugging Face."""
 
