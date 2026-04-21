@@ -43,6 +43,7 @@ class ModelVariant(StrEnum):
     GEMMA_3_12B_IT_FP8_DYNAMIC = "unsloth/gemma-3-12b-it-FP8-Dynamic"
     GEMMA_3_27B_IT = "google/gemma-3-27b-it"
     GEMMA_3_27B_IT_QAT_W4A16 = "leon-se/gemma-3-27b-it-qat-W4A16-G128"
+    GEMMA_3_27B_IT_QAT_AUTOAWQ = "gaunernst/gemma-3-27b-it-qat-autoawq"
 
 
 class ModelLoader(ForgeModel):
@@ -79,6 +80,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.GEMMA_3_27B_IT_QAT_W4A16: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_27B_IT_QAT_W4A16),
         ),
+        ModelVariant.GEMMA_3_27B_IT_QAT_AUTOAWQ: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.GEMMA_3_27B_IT_QAT_AUTOAWQ),
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_4B_IT
@@ -98,6 +102,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_3_4B_IT_QAT_4BIT,
             ModelVariant.GEMMA_3_12B_IT_FP8_DYNAMIC,
             ModelVariant.GEMMA_3_27B_IT_QAT_W4A16,
+            ModelVariant.GEMMA_3_27B_IT_QAT_AUTOAWQ,
         ):
             group = ModelGroup.VULCAN
         elif any(x in variant.value for x in ["12b", "27b"]):
@@ -158,7 +163,10 @@ class ModelLoader(ForgeModel):
         if is_mlx:
             model_kwargs["ignore_mismatched_sizes"] = True
 
-        if self._variant == ModelVariant.GEMMA_3_27B_IT_QAT_W4A16:
+        if self._variant in (
+            ModelVariant.GEMMA_3_27B_IT_QAT_W4A16,
+            ModelVariant.GEMMA_3_27B_IT_QAT_AUTOAWQ,
+        ):
             model_kwargs["device_map"] = "cpu"
 
         model = Gemma3ForConditionalGeneration.from_pretrained(
@@ -280,6 +288,7 @@ class ModelLoader(ForgeModel):
         if self._variant not in (
             ModelVariant.GEMMA_3_27B_IT,
             ModelVariant.GEMMA_3_27B_IT_QAT_W4A16,
+            ModelVariant.GEMMA_3_27B_IT_QAT_AUTOAWQ,
         ):
             return None
 
