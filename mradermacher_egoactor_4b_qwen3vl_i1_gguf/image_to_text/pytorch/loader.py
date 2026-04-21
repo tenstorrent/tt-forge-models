@@ -70,7 +70,9 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the upstream unquantized model
-        self.processor = AutoProcessor.from_pretrained("BAAI-Agents/EgoActor-4b-Qwen3VL")
+        self.processor = AutoProcessor.from_pretrained(
+            "BAAI-Agents/EgoActor-4b-Qwen3VL"
+        )
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
