@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available DeBERTa model variants for token classification."""
 
     HUGOGIDDINS_TICKER_MULTI_FINE_TUNE_V4 = "HugoGiddins/ticker_multi_fine_tune_v4"
+    GECKOS_DEBERTA_BASE_FINE_TUNED_NER = "geckos/deberta-base-fine-tuned-ner"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.HUGOGIDDINS_TICKER_MULTI_FINE_TUNE_V4: LLMModelConfig(
             pretrained_model_name="HugoGiddins/ticker_multi_fine_tune_v4",
+            max_length=128,
+        ),
+        ModelVariant.GECKOS_DEBERTA_BASE_FINE_TUNED_NER: LLMModelConfig(
+            pretrained_model_name="geckos/deberta-base-fine-tuned-ner",
             max_length=128,
         ),
     }
