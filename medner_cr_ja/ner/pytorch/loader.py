@@ -57,8 +57,10 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    BASE_MODEL = "cl-tohoku/bert-base-japanese-whole-word-masking"
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.BASE_MODEL)
 
         model_kwargs = {}
         if dtype_override is not None:
