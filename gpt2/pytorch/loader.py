@@ -36,6 +36,7 @@ class ModelVariant(StrEnum):
     GPT2_SEQUENCE_CLASSIFICATION = "Sequence_Classification"
     GPT2_MNLI = "MNLI"
     TINY_RANDOM = "tiny-random"
+    TINY_RANDOM_GEN_CONFIG = "tiny-random-gen-config"
 
 
 class ModelLoader(ForgeModel):
@@ -70,6 +71,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="peft-internal-testing/tiny-random-gpt2",
             max_length=256,
         ),
+        ModelVariant.TINY_RANDOM_GEN_CONFIG: LLMModelConfig(
+            pretrained_model_name="joaogante/tiny-random-gpt2-with-generation-config",
+            max_length=256,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GPT2_BASE
@@ -100,9 +105,9 @@ class ModelLoader(ForgeModel):
             ModelGroup.VULCAN
             if variant
             in (
-                ModelVariant.GPT2_BS3V2_XSUM,
                 ModelVariant.GPT2_LARGE,
                 ModelVariant.TINY_RANDOM,
+                ModelVariant.TINY_RANDOM_GEN_CONFIG,
             )
             else ModelGroup.GENERALITY
         )
@@ -138,6 +143,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GPT2_BS3V2_XSUM,
             ModelVariant.GPT2_LARGE,
             ModelVariant.TINY_RANDOM,
+            ModelVariant.TINY_RANDOM_GEN_CONFIG,
         ):
             config = GPT2Config.from_pretrained(model_name)
             config_dict = config.to_dict()
@@ -171,6 +177,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GPT2_BS3V2_XSUM,
             ModelVariant.GPT2_LARGE,
             ModelVariant.TINY_RANDOM,
+            ModelVariant.TINY_RANDOM_GEN_CONFIG,
         ):
             # Use random input for text generation
             vocab_size = GPT2Config.from_pretrained(
