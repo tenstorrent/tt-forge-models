@@ -104,6 +104,9 @@ class ModelLoader(ForgeModel):
 
         model.eval()
 
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
         self.model = model
 
         if self._preprocessor is not None:
