@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    VANSH180_FINBERT_INDIA_V1 = "Vansh180_FinBERT_India_V1"
+    PEEYUSH01_PHISHING_URL_BERT_TINY_V1 = "peeyush01_Phishing_Url_Bert_Tiny_V1"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.VANSH180_FINBERT_INDIA_V1: LLMModelConfig(
-            pretrained_model_name="Vansh180/FinBERT-India-v1",
+        ModelVariant.PEEYUSH01_PHISHING_URL_BERT_TINY_V1: LLMModelConfig(
+            pretrained_model_name="peeyush01/phishing-url-bert-tiny-v1",
             max_length=128,
         ),
     }
@@ -95,7 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.VANSH180_FINBERT_INDIA_V1: "Sensex surges 500 points as IT and banking stocks rally.",
+        ModelVariant.PEEYUSH01_PHISHING_URL_BERT_TINY_V1: "http://secure-login-paypa1.com/verify-account",
     }
 
     def __init__(self, variant=None):
@@ -134,7 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.VANSH180_FINBERT_INDIA_V1,
+            ModelVariant.PEEYUSH01_PHISHING_URL_BERT_TINY_V1,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
