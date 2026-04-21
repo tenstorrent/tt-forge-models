@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     CODEGEN_350M_MULTI = "350M_Multi"
     CODEGEN_350M_NL = "350M_Nl"
     CODEGEN_2B_MONO = "2B_Mono"
+    TINY_RANDOM_HF_TINY_MODEL_PRIVATE = "tiny-random-hf-tiny-model-private"
 
 
 class ModelLoader(ForgeModel):
@@ -47,6 +48,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.CODEGEN_2B_MONO: LLMModelConfig(
             pretrained_model_name="Salesforce/codegen-2B-mono",
+            max_length=256,
+        ),
+        ModelVariant.TINY_RANDOM_HF_TINY_MODEL_PRIVATE: LLMModelConfig(
+            pretrained_model_name="hf-tiny-model-private/tiny-random-CodeGenForCausalLM",
             max_length=256,
         ),
     }
@@ -82,7 +87,10 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         group = ModelGroup.GENERALITY
-        if variant_name == ModelVariant.CODEGEN_2B_MONO:
+        if variant_name in (
+            ModelVariant.CODEGEN_2B_MONO,
+            ModelVariant.TINY_RANDOM_HF_TINY_MODEL_PRIVATE,
+        ):
             group = ModelGroup.VULCAN
         return ModelInfo(
             model="CodeGen",
