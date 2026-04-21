@@ -24,14 +24,19 @@ def _patch_gguf_for_llama4():
     """Patch transformers to support llama4 GGUF architecture.
 
     Transformers does not yet ship llama4 GGUF support. We register the config
-    field mapping and fix the model_type/weight-map round-trips so that
-    load_gguf_checkpoint can load this architecture.  The approach mirrors how
-    transformers handles gemma3 → gemma3_text internally.
+    field mapping, tokenizer converter, and fix the model_type/weight-map
+    round-trips so that load_gguf_checkpoint can load this architecture.
+    The approach mirrors how transformers handles gemma3 → gemma3_text.
     """
     import transformers.modeling_gguf_pytorch_utils as _gguf
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
     if "llama4" in _gguf.GGUF_SUPPORTED_ARCHITECTURES:
         return
+
+    # llama4 uses the same BPE tokenizer format as llama
+    if "llama4" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["llama4"] = GGUF_TO_FAST_CONVERTERS["llama"]
 
     _gguf.GGUF_CONFIG_MAPPING["llama4"] = {
         "context_length": "max_position_embeddings",
