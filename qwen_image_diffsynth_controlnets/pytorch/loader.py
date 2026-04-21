@@ -15,6 +15,7 @@ Available variants:
 - INPAINT: Inpainting ControlNet (has extra condition channels)
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -94,19 +95,20 @@ class ModelLoader(ForgeModel):
         self, dtype: torch.dtype = torch.float32
     ) -> QwenImageControlNetModel:
         variant_key = self._get_variant_key()
-
-        model_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename=_CONTROLNET_FILES[variant_key],
-        )
-
         extra_condition_channels = 4 if variant_key == "inpaint" else 0
+
         self._controlnet = QwenImageControlNetModel(
             extra_condition_channels=extra_condition_channels,
         )
 
-        state_dict = load_file(model_path)
-        self._controlnet.load_state_dict(state_dict)
+        if not os.environ.get("TT_RANDOM_WEIGHTS"):
+            model_path = hf_hub_download(
+                repo_id=REPO_ID,
+                filename=_CONTROLNET_FILES[variant_key],
+            )
+            state_dict = load_file(model_path)
+            self._controlnet.load_state_dict(state_dict, strict=False)
+
         self._controlnet = self._controlnet.to(dtype=dtype)
         self._controlnet.eval()
         return self._controlnet
@@ -119,9 +121,14 @@ class ModelLoader(ForgeModel):
             self._controlnet = self._controlnet.to(dtype=dtype_override)
         return self._controlnet
 
-    def load_inputs(self, **kwargs) -> Any:
-        dtype = kwargs.get("dtype_override", torch.float32)
-        batch_size = kwargs.get("batch_size", 1)
+    def load_inputs(
+        self,
+        *,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+        **kwargs,
+    ) -> Any:
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         in_channels = 64
         text_dim = 3584
