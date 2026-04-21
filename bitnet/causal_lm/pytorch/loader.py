@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available BitNet model variants for causal language modeling."""
 
     BITNET_B1_58_2B_4T = "b1_58_2B_4T"
+    QWEN2_5_CODER_14B_BITNET_1_58B = "qwen2_5_coder_14B_bitnet_1_58B"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BITNET_B1_58_2B_4T: LLMModelConfig(
             pretrained_model_name="microsoft/bitnet-b1.58-2B-4T",
+            max_length=256,
+        ),
+        ModelVariant.QWEN2_5_CODER_14B_BITNET_1_58B: LLMModelConfig(
+            pretrained_model_name="tzervas/qwen2.5-coder-14b-bitnet-1.58b",
             max_length=256,
         ),
     }
