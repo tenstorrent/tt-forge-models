@@ -26,15 +26,13 @@ class ModelVariant(StrEnum):
     """Available Qwen 2.5 VL GGUF model variants for vision-language tasks."""
 
     QWEN_2_5_VL_7B_INSTRUCT_GGUF = "7B_Instruct_GGUF"
-    QWEN_2_5_VL_32B_INSTRUCT_GGUF = "32B_Instruct_GGUF"
-    QWEN_2_5_VL_72B_INSTRUCT_GGUF = "72B_Instruct_GGUF"
+    QWEN_2_5_VL_7B_NSFW_CAPTION_V4_GGUF = "7B_NSFW_Caption_V4_GGUF"
 
 
 # Map variants to their GGUF filenames
 _GGUF_FILES = {
     ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_GGUF: "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
-    ModelVariant.QWEN_2_5_VL_32B_INSTRUCT_GGUF: "Qwen2.5-VL-32B-Instruct-Q4_K_M.gguf",
-    ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_GGUF: "Qwen2.5-VL-72B-Instruct-Q4_K_M.gguf",
+    ModelVariant.QWEN_2_5_VL_7B_NSFW_CAPTION_V4_GGUF: "Qwen2.5-VL-7B-NSFW-Caption-V4.Q4_K_M.gguf",
 }
 
 
@@ -45,11 +43,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_GGUF: LLMModelConfig(
             pretrained_model_name="lmstudio-community/Qwen2.5-VL-7B-Instruct-GGUF",
         ),
-        ModelVariant.QWEN_2_5_VL_32B_INSTRUCT_GGUF: LLMModelConfig(
-            pretrained_model_name="lmstudio-community/Qwen2.5-VL-32B-Instruct-GGUF",
-        ),
-        ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_GGUF: LLMModelConfig(
-            pretrained_model_name="lmstudio-community/Qwen2.5-VL-72B-Instruct-GGUF",
+        ModelVariant.QWEN_2_5_VL_7B_NSFW_CAPTION_V4_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Qwen2.5-VL-7B-NSFW-Caption-V4-GGUF",
         ),
     }
 
