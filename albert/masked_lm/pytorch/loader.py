@@ -4,6 +4,7 @@
 """
 ALBERT model loader implementation for masked language modeling.
 """
+
 import torch
 from transformers import AlbertForMaskedLM, AlbertTokenizer, BertTokenizerFast
 from typing import Optional
@@ -32,7 +33,7 @@ class ModelVariant(StrEnum):
     XLARGE_V2 = "Xlarge_v2"
     XXLARGE_V2 = "Xxlarge_v2"
     KOR_BASE = "Kor_Base"
-    CHINESE_BASE = "Chinese_Base"
+    LINKBERT_MINI = "dejanseo/LinkBERT-mini"
 
 
 class ModelLoader(ForgeModel):
@@ -76,8 +77,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="kykim/albert-kor-base",
             max_length=128,
         ),
-        ModelVariant.CHINESE_BASE: LLMModelConfig(
-            pretrained_model_name="voidful/albert_chinese_base",
+        ModelVariant.LINKBERT_MINI: LLMModelConfig(
+            pretrained_model_name="dejanseo/LinkBERT-mini",
             max_length=128,
         ),
     }
@@ -120,7 +121,7 @@ class ModelLoader(ForgeModel):
         """
         group = (
             ModelGroup.VULCAN
-            if variant in (ModelVariant.KOR_BASE, ModelVariant.CHINESE_BASE)
+            if variant in (ModelVariant.KOR_BASE, ModelVariant.LINKBERT_MINI)
             else ModelGroup.GENERALITY
         )
         return ModelInfo(
