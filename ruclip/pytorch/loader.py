@@ -10,6 +10,7 @@ import torch
 from datasets import load_dataset
 from typing import Optional
 
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -62,7 +63,7 @@ class ModelLoader(ForgeModel):
         return snapshot_download(repo_id=self._variant_config.pretrained_model_name)
 
     def _load_processor(self):
-        from ruclip.processor import RuCLIPProcessor
+        from .src.ruclip_processor import RuCLIPProcessor
 
         self.processor = RuCLIPProcessor.from_pretrained(self._download_repo())
         return self.processor
@@ -76,7 +77,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The RuCLIP model instance for image-text similarity.
         """
-        from ruclip.model import CLIP
+        from .src.ruclip_model import CLIP
 
         model = CLIP.from_pretrained(self._download_repo())
         model.eval()
