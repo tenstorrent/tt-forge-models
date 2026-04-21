@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available DeepSeek-V3 model variants."""
 
     TINY_RANDOM = "Tiny_Random"
+    BZANTIUM_TINY = "Bzantium_Tiny"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINY_RANDOM: LLMModelConfig(
             pretrained_model_name="yujiepan/deepseek-v3-tiny-random",
+            max_length=2048,
+        ),
+        ModelVariant.BZANTIUM_TINY: LLMModelConfig(
+            pretrained_model_name="bzantium/tiny-deepseek-v3",
             max_length=2048,
         ),
     }
