@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Vire Protocol 70B i1 GGUF model loader implementation for causal language modeling.
+vire-protocol 70b i1 GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,13 +21,13 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Vire Protocol 70B i1 GGUF model variants for causal language modeling."""
+    """Available vire-protocol 70b i1 GGUF model variants for causal language modeling."""
 
-    VIRE_PROTOCOL_70B_I1_Q4_K_M_GGUF = "70B_I1_Q4_K_M_GGUF"
+    VIRE_PROTOCOL_70B_I1_Q4_K_M_GGUF = "vire-protocol-70b-i1-Q4_K_M-GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """Vire Protocol 70B i1 GGUF model loader implementation for causal language modeling tasks."""
+    """vire-protocol 70b i1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.VIRE_PROTOCOL_70B_I1_Q4_K_M_GGUF: LLMModelConfig(
@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Vire Protocol 70B i1 GGUF",
+            model="vire-protocol 70b i1 GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -150,7 +150,6 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
