@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available StarCoder2-15B model variants."""
 
     STARCODER2_15B = "15B"
+    STARCODER2_15B_INSTRUCT_V0_1 = "15B_Instruct_v0.1"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.STARCODER2_15B: LLMModelConfig(
             pretrained_model_name="bigcode/starcoder2-15b",
+            max_length=256,
+        ),
+        ModelVariant.STARCODER2_15B_INSTRUCT_V0_1: LLMModelConfig(
+            pretrained_model_name="bigcode/starcoder2-15b-instruct-v0.1",
             max_length=256,
         ),
     }
@@ -119,7 +124,16 @@ class ModelLoader(ForgeModel):
                 dtype_override=dtype_override
             )  # This will initialize the tokenizer
 
-        text = "def hello_world():"
+        if self._variant == ModelVariant.STARCODER2_15B_INSTRUCT_V0_1:
+            messages = [
+                {
+                    "role": "user",
+                    "content": "Write a Python function that returns the nth Fibonacci number.",
+                }
+            ]
+            text = self.tokenizer.apply_chat_template(messages, tokenize=False)
+        else:
+            text = "def hello_world():"
         inputs = self.tokenizer(text, return_tensors="pt")
 
         # Replicate tensors for batch size
