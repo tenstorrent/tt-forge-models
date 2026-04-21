@@ -6,7 +6,7 @@ Helper functions for loading GGUF-quantized Stable Diffusion 3.5 models.
 """
 
 import torch
-from diffusers import DiffusionPipeline, GGUFQuantizationConfig
+from diffusers import StableDiffusion3Pipeline, GGUFQuantizationConfig
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
@@ -52,7 +52,7 @@ def load_gguf_pipe(repo_id: str, gguf_filename: str):
 
     quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
 
-    pipe = DiffusionPipeline.from_single_file(
+    pipe = StableDiffusion3Pipeline.from_single_file(
         model_path,
         quantization_config=quantization_config,
         torch_dtype=torch.float32,
