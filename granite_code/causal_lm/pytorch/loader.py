@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Granite Code model variants."""
 
     GRANITE_3B_CODE_BASE_2K = "Granite_3B_Code_Base_2K"
+    GRANITE_8B_CODE_BASE_4K = "Granite_8B_Code_Base_4K"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GRANITE_3B_CODE_BASE_2K: LLMModelConfig(
             pretrained_model_name="ibm-granite/granite-3b-code-base-2k",
+            max_length=256,
+        ),
+        ModelVariant.GRANITE_8B_CODE_BASE_4K: LLMModelConfig(
+            pretrained_model_name="ibm-granite/granite-8b-code-base-4k",
             max_length=256,
         ),
     }
