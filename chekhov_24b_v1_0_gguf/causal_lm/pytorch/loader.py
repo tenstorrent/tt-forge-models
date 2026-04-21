@@ -39,7 +39,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.CHEKHOV_24B_V1_0_GGUF
 
     _GGUF_FILES = {
-        ModelVariant.CHEKHOV_24B_V1_0_GGUF: "Chekhov-24B-v1.0-Q4_K_M.gguf",
+        ModelVariant.CHEKHOV_24B_V1_0_GGUF: "Chekhov-24B-v1.0.Q4_K_M.gguf",
     }
 
     sample_text = "What is your favorite city?"
