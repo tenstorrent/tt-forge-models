@@ -2,10 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-mradermacher Moonlight L3 15B v2.5 64k i1 GGUF model loader implementation
-for causal language modeling.
+Moonlight-L3-15B-v2.5-64k i1 GGUF model loader implementation for causal language modeling.
 """
-
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -23,23 +21,24 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available model variants for causal language modeling."""
+    """Available Moonlight-L3-15B-v2.5-64k i1 GGUF model variants for causal language modeling."""
 
-    MOONLIGHT_L3_15B_V2_5_64K_I1_GGUF = "L3_15B_V2_5_64K_I1_GGUF"
+    MOONLIGHT_L3_15B_V2_5_64K_I1_Q4_K_M_GGUF = (
+        "MOONLIGHT_L3_15B_V2_5_64K_I1_Q4_K_M_GGUF"
+    )
 
 
 class ModelLoader(ForgeModel):
-    """mradermacher Moonlight L3 15B v2.5 64k i1 GGUF model loader implementation
-    for causal language modeling tasks."""
+    """Moonlight-L3-15B-v2.5-64k i1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.MOONLIGHT_L3_15B_V2_5_64K_I1_GGUF: LLMModelConfig(
+        ModelVariant.MOONLIGHT_L3_15B_V2_5_64K_I1_Q4_K_M_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/Moonlight-L3-15B-v2.5-64k-i1-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.MOONLIGHT_L3_15B_V2_5_64K_I1_GGUF
+    DEFAULT_VARIANT = ModelVariant.MOONLIGHT_L3_15B_V2_5_64K_I1_Q4_K_M_GGUF
 
     GGUF_FILE = "Moonlight-L3-15B-v2.5-64k.i1-Q4_K_M.gguf"
 
@@ -56,7 +55,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Moonlight L3 15B v2.5 64k i1 GGUF",
+            model="Moonlight-L3-15B-v2.5-64k i1 GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
