@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Ateeqq News Title Generator model loader implementation.
+Ateeqq/news-title-generator model loader implementation.
 """
 
 import torch
@@ -21,13 +21,13 @@ from ...config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Ateeqq News Title Generator model variants."""
+    """Available Ateeqq/news-title-generator model variants."""
 
     DEFAULT = "Default"
 
 
 class ModelLoader(ForgeModel):
-    """Ateeqq News Title Generator model loader implementation."""
+    """Ateeqq/news-title-generator model loader implementation."""
 
     _VARIANTS = {
         ModelVariant.DEFAULT: LLMModelConfig(
@@ -41,8 +41,8 @@ class ModelLoader(ForgeModel):
     sample_text = (
         "Microsoft is opening a new office in London dedicated to artificial "
         "intelligence (AI) research and development. The new office will focus "
-        "on advancing AI capabilities and collaborating with local universities "
-        "and industry partners."
+        "on advancing AI technologies and fostering collaboration with leading "
+        "academic institutions and industry partners in the United Kingdom."
     )
 
     def __init__(self, variant: Optional[ModelVariant] = None):
