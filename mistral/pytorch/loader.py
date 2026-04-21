@@ -51,6 +51,7 @@ class ModelVariant(StrEnum):
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
     DEVSTRAL_SMALL_2_24B_INSTRUCT_2512 = "Devstral_Small_2_24B_Instruct_2512"
     MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
+    MISTRAL_7B_INSTRUCT_V02_MLX_4BIT = "7B_INSTRUCT_v02_mlx_4bit"
     DEVSTRAL_SMALL_2505_UNSLOTH_BNB_4BIT = "Devstral_Small_2505_unsloth_bnb_4bit"
     MISTRAL_FT_OPTIMIZED_1227 = "ft_optimized_1227"
     MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED = "Small_Instruct_2409_abliterated"
@@ -148,6 +149,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_7B_V03_BNB_4BIT: ModelConfig(
             pretrained_model_name="unsloth/mistral-7b-v0.3-bnb-4bit",
         ),
+        ModelVariant.MISTRAL_7B_INSTRUCT_V02_MLX_4BIT: ModelConfig(
+            pretrained_model_name="mlx-community/Mistral-7B-Instruct-v0.2-4-bit",
+        ),
         ModelVariant.DEVSTRAL_SMALL_2505_UNSLOTH_BNB_4BIT: ModelConfig(
             pretrained_model_name="unsloth/Devstral-Small-2505-unsloth-bnb-4bit",
         ),
@@ -197,6 +201,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_INSTRUCT_V02,
             ModelVariant.MISTRAL_SMALL_22B_INSTRUCT_2409,
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
+            ModelVariant.MISTRAL_7B_INSTRUCT_V02_MLX_4BIT,
             ModelVariant.DEVSTRAL_SMALL_2505_UNSLOTH_BNB_4BIT,
             ModelVariant.MISTRAL_FT_OPTIMIZED_1227,
             ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED,
