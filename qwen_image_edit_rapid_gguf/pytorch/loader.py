@@ -13,7 +13,7 @@ Available variants:
 """
 
 import torch
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor, AutoConfig
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ...base import ForgeModel
@@ -107,7 +107,7 @@ class ModelLoader(ForgeModel):
         """Load and return the GGUF-quantized Qwen2VL model.
 
         Returns:
-            Qwen2VLForConditionalGeneration instance.
+            Qwen2_5_VLForConditionalGeneration instance.
         """
         if self.processor is None:
             self._load_processor()
@@ -127,7 +127,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs["config"] = config
 
-        model = Qwen2VLForConditionalGeneration.from_pretrained(
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         ).eval()
 
