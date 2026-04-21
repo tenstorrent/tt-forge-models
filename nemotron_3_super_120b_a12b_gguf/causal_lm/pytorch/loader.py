@@ -3,9 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 NVIDIA Nemotron 3 Super 120B A12B GGUF model loader implementation for causal language modeling.
+
+The nemotron_h_moe GGUF architecture is not yet supported by the transformers
+GGUF loader, so this module loads the model config from the upstream BF16
+checkpoint and instantiates the model from that config with a reduced layer
+count for compile-only testing.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, AutoConfig, NemotronHForCausalLM
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +23,9 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+BF16_MODEL_NAME = "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16"
 
 
 class ModelVariant(StrEnum):
@@ -37,10 +45,6 @@ class ModelLoader(ForgeModel):
     }
 
     DEFAULT_VARIANT = ModelVariant.NEMOTRON_3_SUPER_120B_A12B_GGUF
-
-    GGUF_FILE = (
-        "UD-Q4_K_M/NVIDIA-Nemotron-3-Super-120B-A12B-UD-Q4_K_M-00001-of-00003.gguf"
-    )
 
     sample_text = "Give me a short introduction to large language models."
 
@@ -64,43 +68,32 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(BF16_MODEL_NAME)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        config = AutoConfig.from_pretrained(BF16_MODEL_NAME)
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            config.layers_block_type = config.layers_block_type[: self.num_layers]
+        else:
+            config.layers_block_type = ["mamba", "moe", "attention", "moe"]
+        config.num_nextn_predict_layers = 0
+        config.n_routed_experts = 8
+        config.num_experts_per_tok = 2
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = NemotronHForCausalLM(config).to(
+            dtype=dtype_override if dtype_override is not None else torch.bfloat16
+        )
+        model.eval()
 
-        self.config = model.config
+        self.config = config
         self.model = model
         return model
 
@@ -142,7 +135,7 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        if self.config is not None:
+            return self.config
+        self.config = AutoConfig.from_pretrained(BF16_MODEL_NAME)
         return self.config
