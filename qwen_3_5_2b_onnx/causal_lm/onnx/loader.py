@@ -57,14 +57,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.ONNX,
         )
 
+    # The decoder_model_merged.onnx proto references external weight shards that
+    # onnx.load expects to find alongside the graph file.
+    _EXTERNAL_DATA_FILES = (
+        "onnx/decoder_model_merged.onnx_data",
+        "onnx/decoder_model_merged.onnx_data_1",
+        "onnx/decoder_model_merged.onnx_data_2",
+        "onnx/decoder_model_merged.onnx_data_3",
+    )
+
     def load_model(self, **kwargs):
         """Load and return the Qwen 3.5 2B ONNX model.
 
         Returns:
             onnx.ModelProto: The ONNX model instance.
         """
+        repo_id = self._variant_config.pretrained_model_name
+        for data_file in self._EXTERNAL_DATA_FILES:
+            hf_hub_download(repo_id=repo_id, filename=data_file)
         local_path = hf_hub_download(
-            repo_id=self._variant_config.pretrained_model_name,
+            repo_id=repo_id,
             filename="onnx/decoder_model_merged.onnx",
         )
         model = onnx.load(local_path)
