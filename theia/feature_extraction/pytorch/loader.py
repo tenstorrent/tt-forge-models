@@ -122,4 +122,9 @@ class ModelLoader(ForgeModel):
         x = processed["pixel_values"]
         x = x.repeat_interleave(batch_size, dim=0)
 
-        return {"x": x}
+        return {
+            "x": x,
+            "do_resize": False,
+            "do_rescale": False,
+            "do_normalize": False,
+        }
