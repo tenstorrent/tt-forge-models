@@ -188,30 +188,30 @@ def realvisxl_v4_inpainting_preprocessing(
         text_encoder_projection_dim = int(pooled_prompt_embeds.shape[-1])
     else:
         text_encoder_projection_dim = pipe.text_encoder_2.config.projection_dim
-    add_time_ids = pipe._get_add_time_ids(
+    neg_original_size = negative_original_size or original_size
+    neg_target_size = negative_target_size or target_size
+    add_time_ids, add_neg_time_ids = pipe._get_add_time_ids(
         original_size,
         crops_coords_top_left,
         target_size,
+        aesthetic_score=6.0,
+        negative_aesthetic_score=2.5,
+        negative_original_size=neg_original_size,
+        negative_crops_coords_top_left=negative_crops_coords_top_left,
+        negative_target_size=neg_target_size,
         dtype=prompt_embeds.dtype,
         text_encoder_projection_dim=text_encoder_projection_dim,
     )
-    if negative_original_size is not None and negative_target_size is not None:
-        negative_add_time_ids = pipe._get_add_time_ids(
-            negative_original_size,
-            negative_crops_coords_top_left,
-            negative_target_size,
-            dtype=prompt_embeds.dtype,
-            text_encoder_projection_dim=text_encoder_projection_dim,
-        )
-    else:
-        negative_add_time_ids = add_time_ids
 
     if do_classifier_free_guidance:
         prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
         add_text_embeds = torch.cat(
             [negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0
         )
-        add_time_ids = torch.cat([negative_add_time_ids, add_time_ids], dim=0)
+        add_neg_time_ids = add_neg_time_ids.repeat(
+            batch_size * num_images_per_prompt, 1
+        )
+        add_time_ids = torch.cat([add_neg_time_ids, add_time_ids], dim=0)
 
     prompt_embeds = prompt_embeds.to(device)
     add_text_embeds = add_text_embeds.to(device)
