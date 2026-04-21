@@ -32,7 +32,7 @@ class ModelVariant(StrEnum):
     V0_4 = "v0_4"
     V0_5_LLAMA_3_2_1B = "v0_5_Llama_3_2_1B"
     V0_5_LLAMA_3_1_8B = "v0_5_Llama_3_1_8B"
-    V0_7_GLM_4_6 = "v0_7_glm_4_6"
+    V0_6_QWEN_3_32B = "v0_6_Qwen_3_32B"
 
 
 class ModelLoader(ForgeModel):
@@ -51,8 +51,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.V0_5_LLAMA_3_1_8B: ModelConfig(
             pretrained_model_name="fixie-ai/ultravox-v0_5-llama-3_1-8b",
         ),
-        ModelVariant.V0_7_GLM_4_6: ModelConfig(
-            pretrained_model_name="fixie-ai/ultravox-v0_7-glm-4_6",
+        ModelVariant.V0_6_QWEN_3_32B: ModelConfig(
+            pretrained_model_name="fixie-ai/ultravox-v0_6-qwen-3-32b",
         ),
     }
 
@@ -127,35 +127,19 @@ class ModelLoader(ForgeModel):
                     "rms_norm_eps": 1e-5,
                     "rope_theta": 500000.0,
                 },
-                ModelVariant.V0_7_GLM_4_6: {
-                    "model_type": "glm4_moe",
+                ModelVariant.V0_6_QWEN_3_32B: {
+                    "model_type": "qwen3",
                     "hidden_size": 5120,
-                    "intermediate_size": 12288,
-                    "num_attention_heads": 96,
-                    "num_hidden_layers": 92,
+                    "intermediate_size": 25600,
+                    "num_attention_heads": 64,
+                    "num_hidden_layers": 64,
                     "num_key_value_heads": 8,
-                    "vocab_size": 151552,
-                    "max_position_embeddings": 202752,
-                    "rms_norm_eps": 1e-5,
-                    "rope_theta": 1000000.0,
                     "head_dim": 128,
-                    "attention_bias": True,
-                    "partial_rotary_factor": 0.5,
-                    "hidden_act": "silu",
-                    "moe_intermediate_size": 1536,
-                    "n_routed_experts": 160,
-                    "n_shared_experts": 1,
-                    "num_experts_per_tok": 8,
-                    "first_k_dense_replace": 3,
-                    "routed_scaling_factor": 2.5,
-                    "norm_topk_prob": True,
-                    "use_qk_norm": True,
+                    "vocab_size": 151936,
+                    "max_position_embeddings": 40960,
+                    "rms_norm_eps": 1e-6,
+                    "rope_theta": 1000000.0,
                     "tie_word_embeddings": False,
-                    "num_nextn_predict_layers": 1,
-                    "n_group": 1,
-                    "topk_group": 1,
-                    "pad_token_id": 151329,
-                    "eos_token_id": [151329, 151336, 151338],
                 },
             }
             config_dict["text_config"] = text_configs[self._variant]
