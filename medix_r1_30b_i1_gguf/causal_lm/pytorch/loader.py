@@ -4,6 +4,7 @@
 """
 MediX-R1-30B i1 GGUF model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -18,6 +19,67 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_transformers_qwen3vlmoe_gguf():
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen3vlmoe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vlmoe")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vlmoe"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.key_length": "head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_feed_forward_length": "moe_intermediate_size",
+    }
+
+    if "qwen3moe" in TENSOR_PROCESSORS:
+        TENSOR_PROCESSORS["qwen3vlmoe"] = TENSOR_PROCESSORS["qwen3moe"]
+
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3vlmoe"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "qwen3vlmoe":
+            config["model_type"] = "qwen3_moe"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_qwen3vlmoe_gguf()
 
 
 class ModelVariant(StrEnum):
