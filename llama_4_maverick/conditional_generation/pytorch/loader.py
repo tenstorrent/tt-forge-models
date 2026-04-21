@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available Llama 4 Maverick model variants."""
 
     LLAMA_4_MAVERICK_17B_128E_INSTRUCT = "17B_128E_Instruct"
+    LLAMA_4_MAVERICK_17B_128E = "17B_128E"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LLAMA_4_MAVERICK_17B_128E_INSTRUCT: ModelConfig(
             pretrained_model_name="meta-llama/Llama-4-Maverick-17B-128E-Instruct",
+        ),
+        ModelVariant.LLAMA_4_MAVERICK_17B_128E: ModelConfig(
+            pretrained_model_name="meta-llama/Llama-4-Maverick-17B-128E",
         ),
     }
 
