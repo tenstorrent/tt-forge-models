@@ -24,9 +24,7 @@ class ModelVariant(StrEnum):
     """Available Magistral Small 2509 GGUF model variants for causal language modeling."""
 
     MAGISTRAL_SMALL_2509_GGUF = "Magistral_Small_2509_GGUF"
-    MRADERMACHER_MAGISTRAL_SMALL_2509_HERETIC_V1_2_GGUF = (
-        "mradermacher_Magistral_Small_2509_Heretic_v1.2_GGUF"
-    )
+    MISTRALAI_MAGISTRAL_SMALL_2509_GGUF = "mistralai_Magistral_Small_2509_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -37,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/Magistral-Small-2509-GGUF",
             max_length=128,
         ),
-        ModelVariant.MRADERMACHER_MAGISTRAL_SMALL_2509_HERETIC_V1_2_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/Magistral-Small-2509-Heretic-v1.2-GGUF",
+        ModelVariant.MISTRALAI_MAGISTRAL_SMALL_2509_GGUF: LLMModelConfig(
+            pretrained_model_name="mistralai/Magistral-Small-2509-GGUF",
             max_length=128,
         ),
     }
@@ -47,7 +45,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.MAGISTRAL_SMALL_2509_GGUF: "Magistral-Small-2509-Q4_K_M.gguf",
-        ModelVariant.MRADERMACHER_MAGISTRAL_SMALL_2509_HERETIC_V1_2_GGUF: "Magistral-Small-2509-Heretic-v1.2.Q4_K_M.gguf",
+        ModelVariant.MISTRALAI_MAGISTRAL_SMALL_2509_GGUF: "Magistral-Small-2509-Q4_K_M.gguf",
     }
 
     sample_text = "Give me a short introduction to large language models."
