@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Wav2Vec2-BERT PyTorch speech recognition model variants."""
 
     SIL_AI_SENGA_MAT1_16_FULL_9 = "sil-ai/senga_mat1_16-full-9"
+    HF_AUDIO_WAV2VEC2_BERT_CV16_EN = "hf-audio/wav2vec2-bert-CV16-en"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SIL_AI_SENGA_MAT1_16_FULL_9: ModelConfig(
             pretrained_model_name="sil-ai/senga_mat1_16-full-9",
+        ),
+        ModelVariant.HF_AUDIO_WAV2VEC2_BERT_CV16_EN: ModelConfig(
+            pretrained_model_name="hf-audio/wav2vec2-bert-CV16-en",
         ),
     }
 
