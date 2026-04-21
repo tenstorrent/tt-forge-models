@@ -6,8 +6,22 @@ Stella-PL-Retrieval model loader implementation for sentence embedding generatio
 """
 
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
+from transformers.modeling_utils import ModuleUtilsMixin
 from typing import Optional
+
+_orig_get_extended_attention_mask = ModuleUtilsMixin.get_extended_attention_mask
+
+
+def _patched_get_extended_attention_mask(
+    self, attention_mask, input_shape, device=None, dtype=None
+):
+    return _orig_get_extended_attention_mask(
+        self, attention_mask, input_shape, dtype=dtype
+    )
+
+
+ModuleUtilsMixin.get_extended_attention_mask = _patched_get_extended_attention_mask
 
 from ....base import ForgeModel
 from ....config import (
@@ -65,12 +79,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
 
         return self.tokenizer
@@ -78,9 +88,15 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        config.use_memory_efficient_attention = False
+        config.unpad_inputs = False
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
