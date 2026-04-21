@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Hermes-3-Llama model variants."""
 
     HERMES_3_LLAMA_3_2_3B = "Hermes_3_Llama_3.2_3B"
+    HERMES_3_LLAMA_3_1_8B_BNB_4BIT = "Hermes_3_Llama_3.1_8B_bnb_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.HERMES_3_LLAMA_3_2_3B: LLMModelConfig(
             pretrained_model_name="NousResearch/Hermes-3-Llama-3.2-3B",
+            max_length=128,
+        ),
+        ModelVariant.HERMES_3_LLAMA_3_1_8B_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/Hermes-3-Llama-3.1-8B-bnb-4bit",
             max_length=128,
         ),
     }
@@ -80,6 +85,11 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # BNB 4-bit quantized model needs CPU device map
+        if self._variant == ModelVariant.HERMES_3_LLAMA_3_1_8B_BNB_4BIT:
+            model_kwargs["device_map"] = "cpu"
+
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
