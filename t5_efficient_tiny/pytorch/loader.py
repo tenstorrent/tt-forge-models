@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available T5 Efficient Tiny model variants."""
 
     T5_EFFICIENT_TINY = "T5_Efficient_Tiny"
+    T5_EFFICIENT_BASE = "T5_Efficient_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.T5_EFFICIENT_TINY: LLMModelConfig(
             pretrained_model_name="google/t5-efficient-tiny",
+            max_length=512,
+        ),
+        ModelVariant.T5_EFFICIENT_BASE: LLMModelConfig(
+            pretrained_model_name="google/t5-efficient-base",
             max_length=512,
         ),
     }
