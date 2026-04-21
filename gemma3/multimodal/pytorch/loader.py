@@ -104,7 +104,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         if variant in (
             ModelVariant.GEMMA_3_4B_IT_QAT_4BIT,
-            ModelVariant.GEMMA_3_12B_IT_AWQ_INT4,
+            ModelVariant.GEMMA_3_4B_IT_GPTQ_4BIT_128G,
             ModelVariant.GEMMA_3_27B_IT_QAT_W4A16,
             ModelVariant.GEMMA_3_27B_IT_QAT_COMPRESSED_TENSORS,
         ):
