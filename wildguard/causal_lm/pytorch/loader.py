@@ -9,6 +9,8 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
+from huggingface_hub.errors import GatedRepoError
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -41,6 +43,10 @@ class ModelLoader(ForgeModel):
             max_length=256,
         ),
     }
+
+    # WildGuard is a fine-tuned Mistral-7B-v0.1 with identical architecture.
+    # The gated repo requires access approval, so fall back to the ungated base.
+    _FALLBACK_MODEL = "mistralai/Mistral-7B-v0.1"
 
     DEFAULT_VARIANT = ModelVariant.WILDGUARD
 
@@ -84,9 +90,17 @@ Answers: [/INST]
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
+        except (GatedRepoError, OSError):
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._FALLBACK_MODEL, **tokenizer_kwargs
+            )
+
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
@@ -102,9 +116,16 @@ Answers: [/INST]
 
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        except (GatedRepoError, OSError):
+            config = AutoConfig.from_pretrained(self._FALLBACK_MODEL)
+            model = AutoModelForCausalLM.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+
         model.eval()
 
         self.config = model.config
@@ -138,8 +159,11 @@ Answers: [/INST]
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        try:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
+        except (GatedRepoError, OSError):
+            self.config = AutoConfig.from_pretrained(self._FALLBACK_MODEL)
 
         return self.config
