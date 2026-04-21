@@ -23,7 +23,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -107,17 +106,22 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized Wan 2.1 VACE transformer and build the pipeline.
+        """Load the GGUF-quantized Wan 2.1 VACE transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer,
-        then constructs the full WanVACEPipeline with the base model's VAE in
-        float32 for numerical stability.
+        Uses diffusers GGUFQuantizationConfig to load the quantized transformer
+        and returns it directly as a torch.nn.Module for compilation testing.
         """
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+
         from diffusers import (
-            AutoencoderKLWan,
             GGUFQuantizationConfig,
-            WanTransformer3DModel,
-            WanVACEPipeline,
+            WanVACETransformer3DModel,
         )
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
@@ -126,43 +130,42 @@ class ModelLoader(ForgeModel):
         gguf_repo = _GGUF_REPOS[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        transformer = WanTransformer3DModel.from_single_file(
+        self.pipeline = WanVACETransformer3DModel.from_single_file(
             f"https://huggingface.co/{gguf_repo}/{gguf_file}",
             quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
-
-        vae = AutoencoderKLWan.from_pretrained(
-            BASE_PIPELINE,
-            subfolder="vae",
-            torch_dtype=torch.float32,
-        )
-
-        self.pipeline = WanVACEPipeline.from_pretrained(
-            BASE_PIPELINE,
-            transformer=transformer,
-            vae=vae,
             torch_dtype=compute_dtype,
         )
 
         return self.pipeline
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for VACE reference-to-video generation."""
-        if prompt is None:
-            prompt = (
-                "A character walking gracefully across a sunlit garden, "
-                "smooth animation, detailed motion, cinematic lighting"
-            )
+        """Prepare tensor inputs for the WanVACETransformer3DModel forward pass."""
+        if self.pipeline is None:
+            self.load_model()
 
-        ref_image = Image.new("RGB", (832, 480), color=(128, 128, 200))
+        dtype = torch.bfloat16
+        config = self.pipeline.config
+
+        num_frames = 2
+        height = 4
+        width = 4
+        text_seq_len = 8
 
         return {
-            "prompt": prompt,
-            "reference_images": [ref_image],
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                num_frames,
+                height,
+                width,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                text_seq_len,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }
