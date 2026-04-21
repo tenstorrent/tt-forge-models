@@ -34,7 +34,7 @@ class ModelVariant(StrEnum):
     QWEN_1_5_1_8B_CHAT_GPTQ_4BIT = "1_8B_Chat_GPTQ_4bit"
     QWEN_1_5_7B = "7B"
     QWEN_1_5_14B = "14B"
-    QWEN_1_5_110B_CHAT = "110B_Chat"
+    QWEN_1_5_32B_CHAT_GPTQ_INT4 = "32B_Chat_GPTQ_Int4"
 
 
 class ModelLoader(ForgeModel):
@@ -62,8 +62,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen1.5-14B",
             max_length=128,
         ),
-        ModelVariant.QWEN_1_5_110B_CHAT: LLMModelConfig(
-            pretrained_model_name="Qwen/Qwen1.5-110B-Chat",
+        ModelVariant.QWEN_1_5_32B_CHAT_GPTQ_INT4: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen1.5-32B-Chat-GPTQ-Int4",
             max_length=512,
         ),
     }
@@ -107,7 +107,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_1_5_1_8B_CHAT_GPTQ_4BIT: ModelGroup.VULCAN,
             ModelVariant.QWEN_1_5_7B: ModelGroup.VULCAN,
             ModelVariant.QWEN_1_5_14B: ModelGroup.VULCAN,
-            ModelVariant.QWEN_1_5_110B_CHAT: ModelGroup.VULCAN,
+            ModelVariant.QWEN_1_5_32B_CHAT_GPTQ_INT4: ModelGroup.VULCAN,
         }
 
         return ModelInfo(
@@ -167,15 +167,15 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        # GPTQ variants need device_map="cpu" for CPU-based loading
-        if self._variant == ModelVariant.QWEN_1_5_1_8B_CHAT_GPTQ_4BIT:
+        gptq_variants = {
+            ModelVariant.QWEN_1_5_1_8B_CHAT_GPTQ_4BIT,
+            ModelVariant.QWEN_1_5_32B_CHAT_GPTQ_INT4,
+        }
+        is_gptq = self._variant in gptq_variants
+        if is_gptq:
             model_kwargs["device_map"] = "cpu"
 
         model_kwargs |= kwargs
-
-        is_gptq = self._variant == ModelVariant.QWEN_1_5_1_8B_CHAT_GPTQ_4BIT
-        if is_gptq:
-            model_kwargs["device_map"] = "cpu"
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
