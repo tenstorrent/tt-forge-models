@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available VideoMAE model variants."""
 
     BASE = "Base"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="MCG-NJU/videomae-base",
+        ),
+        ModelVariant.LARGE: ModelConfig(
+            pretrained_model_name="MCG-NJU/videomae-large",
         ),
     }
 
