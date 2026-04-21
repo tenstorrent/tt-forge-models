@@ -63,14 +63,6 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the T2I-Adapter Canny SD1.5v2 pipeline.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            StableDiffusionAdapterPipeline: The pipeline instance.
-        """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.pipeline = load_t2i_adapter_canny_sd15v2_pipe(
@@ -80,7 +72,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the T2I-Adapter Canny SD1.5v2 model.
