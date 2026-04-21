@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available PaliGemma2 model variants."""
 
     PALIGEMMA2_3B_FT_DOCCI_448 = "3b_ft_docci_448"
+    PALIGEMMA2_10B_FT_DOCCI_448 = "10b_ft_docci_448"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.PALIGEMMA2_3B_FT_DOCCI_448: ModelConfig(
             pretrained_model_name="google/paligemma2-3b-ft-docci-448",
+        ),
+        ModelVariant.PALIGEMMA2_10B_FT_DOCCI_448: ModelConfig(
+            pretrained_model_name="google/paligemma2-10b-ft-docci-448",
         ),
     }
 
