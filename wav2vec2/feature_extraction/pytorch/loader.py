@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     BASE_VI = "Base_VI"
     FR_7K_LARGE = "FR_7K_Large"
     BASE_AUDIOSET = "Base_AudioSet"
+    TINY_NO_TOKENIZER = "Tiny_No_Tokenizer"
 
 
 class ModelLoader(ForgeModel):
@@ -45,6 +46,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.BASE_AUDIOSET: ModelConfig(
             pretrained_model_name="ALM/wav2vec2-base-audioset",
+        ),
+        ModelVariant.TINY_NO_TOKENIZER: ModelConfig(
+            pretrained_model_name="patrickvonplaten/tiny-wav2vec2-no-tokenizer",
         ),
     }
 
