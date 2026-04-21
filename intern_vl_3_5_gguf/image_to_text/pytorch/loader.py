@@ -99,9 +99,24 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, gguf_file=gguf_file
         )
         base_config = AutoConfig.from_pretrained(self._BASE_MODEL)
+        base_dict = base_config.to_dict()
+        extra_keys = {
+            k: v
+            for k, v in base_dict.items()
+            if k
+            not in (
+                "text_config",
+                "vision_config",
+                "transformers_version",
+                "architectures",
+                "model_type",
+                "_name_or_path",
+            )
+        }
         return InternVLConfig(
             text_config=text_config.to_dict(),
             vision_config=base_config.vision_config.to_dict(),
+            **extra_keys,
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
