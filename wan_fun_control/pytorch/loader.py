@@ -4,14 +4,15 @@
 """
 Wan Fun Control model loader for tt_forge_models.
 
-Wan2.1-Fun-*-Control are controllable video generation models from alibaba-pai
-that support control conditions such as Canny, Depth, Pose, and MLSD. Both
-variants use a WanTransformer3DModel backbone with extra input channels for
-control/mask conditioning.
+Wan-Fun Control is a family of controllable video generation models from
+alibaba-pai that support control conditions such as Canny, Depth, Pose, and
+MLSD. Wan2.1-Fun-14B-Control uses a single WanTransformer3DModel with 36
+input channels; Wan2.2-Fun-A14B-Control uses dual experts (high/low noise)
+stored in subfolders, each with 52 input channels.
 
 Repositories:
 - https://huggingface.co/alibaba-pai/Wan2.1-Fun-14B-Control
-- https://huggingface.co/alibaba-pai/Wan2.1-Fun-1.3B-Control
+- https://huggingface.co/alibaba-pai/Wan2.2-Fun-A14B-Control
 """
 
 from typing import Any, Optional
@@ -29,6 +30,8 @@ from ...config import (
     StrEnum,
 )
 from .src.utils import (
+    WAN21_TRANSFORMER_IN_CHANNELS,
+    WAN22_TRANSFORMER_IN_CHANNELS,
     load_transformer,
     load_transformer_1_3b,
     load_transformer_inputs,
@@ -40,26 +43,38 @@ class ModelVariant(StrEnum):
     """Available Wan Fun Control variants."""
 
     WAN21_FUN_14B_CONTROL = "2.1_Fun_14B_Control"
-    WAN21_FUN_1_3B_CONTROL = "2.1_Fun_1.3B_Control"
+    WAN22_FUN_A14B_CONTROL = "2.2_Fun_A14B_Control"
+
+
+# Per-variant loading metadata: the weights subfolder within the HF repo and
+# the expected number of transformer input channels.
+_VARIANT_LOAD_CONFIG = {
+    ModelVariant.WAN21_FUN_14B_CONTROL: {
+        "subfolder": None,
+        "in_channels": WAN21_TRANSFORMER_IN_CHANNELS,
+    },
+    ModelVariant.WAN22_FUN_A14B_CONTROL: {
+        "subfolder": "high_noise_model",
+        "in_channels": WAN22_TRANSFORMER_IN_CHANNELS,
+    },
+}
 
 
 class ModelLoader(ForgeModel):
     """
-    Loader for the alibaba-pai Wan 2.1 Fun Control video generation models.
+    Loader for the alibaba-pai Wan-Fun Control video generation family.
 
-    The 14B variant stores a diffusers-compatible config at the repo root and
-    is loaded directly via ``WanTransformer3DModel.from_pretrained``. The 1.3B
-    variant ships a minimal ``WanModel`` config, so we load its safetensors
-    through ``from_single_file`` using the standard Wan 2.1 T2V 1.3B config as
-    a reference.
+    Wan2.1-Fun-14B-Control stores the transformer at the repo root; the
+    Wan2.2-Fun-A14B-Control checkpoint uses a dual-expert layout and the
+    high-noise expert is loaded by default.
     """
 
     _VARIANTS = {
         ModelVariant.WAN21_FUN_14B_CONTROL: ModelConfig(
             pretrained_model_name="alibaba-pai/Wan2.1-Fun-14B-Control",
         ),
-        ModelVariant.WAN21_FUN_1_3B_CONTROL: ModelConfig(
-            pretrained_model_name="alibaba-pai/Wan2.1-Fun-1.3B-Control",
+        ModelVariant.WAN22_FUN_A14B_CONTROL: ModelConfig(
+            pretrained_model_name="alibaba-pai/Wan2.2-Fun-A14B-Control",
         ),
     }
 
@@ -87,16 +102,17 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        pretrained_model_name = self._variant_config.pretrained_model_name
-        if self._variant == ModelVariant.WAN21_FUN_1_3B_CONTROL:
-            return load_transformer_1_3b(pretrained_model_name, dtype)
-        return load_transformer(pretrained_model_name, dtype)
+        subfolder = _VARIANT_LOAD_CONFIG[self._variant]["subfolder"]
+        return load_transformer(
+            self._variant_config.pretrained_model_name,
+            dtype,
+            subfolder=subfolder,
+        )
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        if self._variant == ModelVariant.WAN21_FUN_1_3B_CONTROL:
-            return load_transformer_inputs_1_3b(dtype)
-        return load_transformer_inputs(dtype)
+        in_channels = _VARIANT_LOAD_CONFIG[self._variant]["in_channels"]
+        return load_transformer_inputs(dtype, in_channels=in_channels)
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:
         if isinstance(output, tuple):
