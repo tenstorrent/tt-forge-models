@@ -32,7 +32,7 @@ class ModelVariant(StrEnum):
     QWEN_3_EMBEDDING_4B_W4A16_G128 = "Embedding_4B_W4A16_G128"
     QWEN_3_EMBEDDING_8B = "Embedding_8B"
     QWEN_3_EMBEDDING_4B_4BIT_DWQ = "Embedding_4B_4bit_DWQ"
-    OCTEN_EMBEDDING_4B = "Octen_Embedding_4B"
+    YUAN_EMBEDDING_2_0_EN = "Yuan_Embedding_2_0_en"
 
 
 class ModelLoader(ForgeModel):
@@ -55,8 +55,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_3_EMBEDDING_4B_4BIT_DWQ: ModelConfig(
             pretrained_model_name="mlx-community/Qwen3-Embedding-4B-4bit-DWQ",
         ),
-        ModelVariant.OCTEN_EMBEDDING_4B: ModelConfig(
-            pretrained_model_name="Octen/Octen-Embedding-4B",
+        ModelVariant.YUAN_EMBEDDING_2_0_EN: ModelConfig(
+            pretrained_model_name="IEITYuan/Yuan-embedding-2.0-en",
         ),
     }
 
@@ -105,7 +105,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
         elif variant in (
             ModelVariant.QWEN_3_EMBEDDING_4B_W4A16_G128,
-            ModelVariant.OCTEN_EMBEDDING_4B,
+            ModelVariant.YUAN_EMBEDDING_2_0_EN,
         ):
             group = ModelGroup.VULCAN
         else:
@@ -251,7 +251,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_EMBEDDING_0_6B,
             ModelVariant.QWEN_3_EMBEDDING_4B,
             ModelVariant.QWEN_3_EMBEDDING_4B_W4A16_G128,
-            ModelVariant.OCTEN_EMBEDDING_4B,
+            ModelVariant.YUAN_EMBEDDING_2_0_EN,
         ]:
             return None
 
