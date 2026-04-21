@@ -116,7 +116,7 @@ class ModelVariant(StrEnum):
     """Available InternVL-Chat-V1-5 model variants."""
 
     INTERN_VL_CHAT_V1_5 = "V1_5"
-    MEDDR_0401 = "MedDr_0401"
+    CHEMVLM_8B = "ChemVLM_8B"
 
 
 class ModelLoader(ForgeModel):
@@ -126,8 +126,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.INTERN_VL_CHAT_V1_5: ModelConfig(
             pretrained_model_name="OpenGVLab/InternVL-Chat-V1-5",
         ),
-        ModelVariant.MEDDR_0401: ModelConfig(
-            pretrained_model_name="Sunanhe/MedDr_0401",
+        ModelVariant.CHEMVLM_8B: ModelConfig(
+            pretrained_model_name="AI4Chem/ChemVLM-8B",
         ),
     }
 
