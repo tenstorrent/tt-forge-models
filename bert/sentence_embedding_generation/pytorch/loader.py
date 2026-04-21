@@ -4,6 +4,7 @@
 """
 BERT model loader implementation for sentence embedding generation.
 """
+
 import torch
 from transformers import AutoTokenizer, BertModel, AutoConfig
 from typing import Optional
@@ -35,7 +36,7 @@ class ModelVariant(StrEnum):
     PRAJJWAL1_BERT_SMALL = "prajjwal1/bert-small"
     EPWALSH_BERT_XSMALL_DUMMY = "epwalsh/bert-xsmall-dummy"
     MICROSOFT_XTREMEDISTIL_L6_H256_UNCASED = "microsoft/xtremedistil-l6-h256-uncased"
-    NREIMERS_MINILM_L6_H384_UNCASED = "nreimers/MiniLM-L6-H384-uncased"
+    TOOLBENCH_IR_BERT_BASED_UNCASED = "ToolBench/ToolBench_IR_bert_based_uncased"
 
 
 class ModelLoader(ForgeModel):
@@ -75,8 +76,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="microsoft/xtremedistil-l6-h256-uncased",
             max_length=128,
         ),
-        ModelVariant.NREIMERS_MINILM_L6_H384_UNCASED: LLMModelConfig(
-            pretrained_model_name="nreimers/MiniLM-L6-H384-uncased",
+        ModelVariant.TOOLBENCH_IR_BERT_BASED_UNCASED: LLMModelConfig(
+            pretrained_model_name="ToolBench/ToolBench_IR_bert_based_uncased",
             max_length=128,
         ),
     }
@@ -122,7 +123,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.PRAJJWAL1_BERT_SMALL: ModelGroup.VULCAN,
             ModelVariant.EPWALSH_BERT_XSMALL_DUMMY: ModelGroup.VULCAN,
             ModelVariant.MICROSOFT_XTREMEDISTIL_L6_H256_UNCASED: ModelGroup.VULCAN,
-            ModelVariant.NREIMERS_MINILM_L6_H384_UNCASED: ModelGroup.VULCAN,
+            ModelVariant.TOOLBENCH_IR_BERT_BASED_UNCASED: ModelGroup.VULCAN,
         }
 
         return ModelInfo(
