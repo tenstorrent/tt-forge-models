@@ -95,47 +95,68 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_pipeline(
+        self,
+        dtype: torch.dtype = torch.float32,
+        **kwargs,
+    ) -> None:
+        self.pipeline = DiffusionPipeline.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            torch_dtype=dtype,
+            **kwargs,
+        )
+        lora_file = _LORA_FILES[self._variant]
+        self.pipeline.load_lora_weights(LORA_REPO, weight_name=lora_file)
+
     def load_model(
         self,
         *,
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Qwen-Image pipeline with 360 diffusion LoRA weights applied.
+        """Load the Qwen-Image pipeline with 360 diffusion LoRA weights and return the transformer.
 
         Returns:
-            DiffusionPipeline with LoRA weights loaded.
+            QwenImageTransformer2DModel with LoRA weights fused.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
+        if self.pipeline is None:
+            self._load_pipeline(dtype, **kwargs)
+        return self.pipeline.transformer
 
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
-        )
-
-        lora_file = _LORA_FILES[self._variant]
-        self.pipeline.load_lora_weights(
-            LORA_REPO,
-            weight_name=lora_file,
-        )
-
-        return self.pipeline
-
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for 360-degree panorama image generation.
+    def load_inputs(self, **kwargs) -> Any:
+        """Prepare synthetic inputs for the QwenImageTransformer2DModel forward pass.
 
         Returns:
-            dict with prompt and generation parameters.
+            dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        if prompt is None:
-            prompt = (
-                "equirectangular 360 panorama of a mountain landscape at sunset, "
-                "photography, 4K"
-            )
+        dtype = kwargs.get("dtype_override", torch.float32)
+        batch_size = kwargs.get("batch_size", 1)
+
+        if self.pipeline is None:
+            self._load_pipeline(dtype)
+
+        transformer = self.pipeline.transformer
+        img_dim = transformer.config.in_channels
+        text_dim = transformer.config.joint_attention_dim
+        txt_seq_len = 32
+
+        # img_seq_len must equal frame * height * width for positional encoding
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
+        )
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_shapes = [(frame, height, width)] * batch_size
 
         return {
-            "prompt": prompt,
-            "width": 2048,
-            "height": 1024,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
         }
