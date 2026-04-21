@@ -32,6 +32,7 @@ class ModelVariant(StrEnum):
     GEMMA_3_27B_IT = "27B_Instruct"
     GEMMA_3_4B_IT_BNB_4BIT = "4B_Instruct_bnb_4bit"
     GEMMA_3_1B_IT_AWQ_INT4 = "1B_Instruct_awq_int4"
+    GEMMA_3_27B_IT_SLM_FP8 = "27B_Instruct_SLM_fp8"
 
 
 class ModelLoader(ForgeModel):
@@ -70,6 +71,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="gaunernst/gemma-3-1b-it-int4-awq",
             max_length=256,
         ),
+        ModelVariant.GEMMA_3_27B_IT_SLM_FP8: LLMModelConfig(
+            pretrained_model_name="Mank-Technology/SLM-gemma3-27b-it-fp8",
+            max_length=256,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_270M_IT
@@ -93,6 +98,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_3_27B_IT,
             ModelVariant.GEMMA_3_4B_IT_BNB_4BIT,
             ModelVariant.GEMMA_3_1B_IT_AWQ_INT4,
+            ModelVariant.GEMMA_3_27B_IT_SLM_FP8,
         ):
             group = ModelGroup.VULCAN
         else:
@@ -230,6 +236,7 @@ class ModelLoader(ForgeModel):
         if self._variant not in (
             ModelVariant.GEMMA_3_12B_IT_ABLITERATED,
             ModelVariant.GEMMA_3_27B_IT,
+            ModelVariant.GEMMA_3_27B_IT_SLM_FP8,
         ):
             return None
 
