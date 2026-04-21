@@ -1,0 +1,6 @@
+anndata
+bionty==1.3.2
+lamindb==1.10.1
+lamin_utils==0.15.0
+lamin_cli==1.6.1
+modelgenerator==0.1.3
