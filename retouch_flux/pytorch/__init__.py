@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-TDN-M/RetouchFLux PyTorch model implementation for Tenstorrent projects.
+RetouchFLux LoRA PyTorch model implementation for Tenstorrent projects.
 """
 from .loader import ModelLoader, ModelVariant

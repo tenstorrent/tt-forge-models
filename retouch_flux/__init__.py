@@ -2,5 +2,5 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-TDN-M/RetouchFLux FLUX.1-dev LoRA text-to-image model (TDN-M/RetouchFLux)
+RetouchFLux LoRA model (TDN-M/RetouchFLux)
 """
