@@ -6,7 +6,7 @@ GBERT model loader implementation for zero-shot NLI sequence classification.
 """
 from typing import Optional
 
-from ....config import (
+from third_party.tt_forge_models.config import (
     ModelConfig,
     ModelInfo,
     ModelGroup,
@@ -15,7 +15,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....base import ForgeModel
+from third_party.tt_forge_models.base import ForgeModel
 
 
 class ModelVariant(StrEnum):
@@ -29,7 +29,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GBERT_LARGE_ZEROSHOT_NLI: ModelConfig(
-            pretrained_model_name="svalabs/gbert-large-zeroshot-nli",
+            pretrained_model_name="Sahajtomar/German_Zeroshot",
         ),
     }
 
