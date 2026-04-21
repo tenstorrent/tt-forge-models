@@ -24,6 +24,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available mContriever model variants for embedding generation."""
 
+    MCONTRIEVER = "mContriever"
     MCONTRIEVER_MSMARCO = "mContriever_MSMARCO"
 
 
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
+        ModelVariant.MCONTRIEVER: ModelConfig(
+            pretrained_model_name="facebook/mcontriever",
+        ),
         ModelVariant.MCONTRIEVER_MSMARCO: ModelConfig(
             pretrained_model_name="facebook/mcontriever-msmarco",
         ),
