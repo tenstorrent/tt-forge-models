@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Sarashina 2.2 model variants for causal language modeling."""
 
     SARASHINA2_2_3B_INSTRUCT_V0_1 = "sarashina2.2_3b_instruct_v0.1"
+    SARASHINA2_2_0_5B = "sarashina2.2_0.5b"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SARASHINA2_2_3B_INSTRUCT_V0_1: LLMModelConfig(
             pretrained_model_name="sbintuitions/sarashina2.2-3b-instruct-v0.1",
+            max_length=128,
+        ),
+        ModelVariant.SARASHINA2_2_0_5B: LLMModelConfig(
+            pretrained_model_name="sbintuitions/sarashina2.2-0.5b",
             max_length=128,
         ),
     }
@@ -103,10 +108,13 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [{"role": "user", "content": self.sample_text}]
-        text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
+        if self.tokenizer.chat_template is not None:
+            messages = [{"role": "user", "content": self.sample_text}]
+            text = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        else:
+            text = self.sample_text
 
         inputs = self.tokenizer(
             [text],
