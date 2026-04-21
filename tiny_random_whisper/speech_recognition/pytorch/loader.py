@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     """Available Tiny Random Whisper model variants for speech recognition."""
 
     TINY_RANDOM_WHISPER = "tiny_random_whisper"
+    XENOVA_TINY_RANDOM_WHISPER = "tiny-random-WhisperForConditionalGeneration"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINY_RANDOM_WHISPER: ModelConfig(
             pretrained_model_name="optimum-internal-testing/tiny-random-whisper",
+        ),
+        ModelVariant.XENOVA_TINY_RANDOM_WHISPER: ModelConfig(
+            pretrained_model_name="Xenova/tiny-random-WhisperForConditionalGeneration",
         ),
     }
 
