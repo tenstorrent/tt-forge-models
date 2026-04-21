@@ -26,8 +26,8 @@ class ModelVariant(StrEnum):
     """Available Llama2.c Stories model variants."""
 
     STORIES_15M = "Stories_15M"
-    STORIES_42M_GSM8K_SPARSE_ONLY_UNCOMPRESSED = (
-        "Stories_42M_GSM8K_Sparse_Only_Uncompressed"
+    STORIES_42M_GSM8K_QUANTIZED_ONLY_UNCOMPRESSED = (
+        "Stories_42M_gsm8k_Quantized_Only_Uncompressed"
     )
 
 
@@ -38,8 +38,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.STORIES_15M: ModelConfig(
             pretrained_model_name="nm-testing/llama2.c-stories15M",
         ),
-        ModelVariant.STORIES_42M_GSM8K_SPARSE_ONLY_UNCOMPRESSED: ModelConfig(
-            pretrained_model_name="nm-testing/llama2.c-stories42M-gsm8k-sparse-only-uncompressed",
+        ModelVariant.STORIES_42M_GSM8K_QUANTIZED_ONLY_UNCOMPRESSED: ModelConfig(
+            pretrained_model_name="nm-testing/llama2.c-stories42M-gsm8k-quantized-only-uncompressed",
         ),
     }
 
