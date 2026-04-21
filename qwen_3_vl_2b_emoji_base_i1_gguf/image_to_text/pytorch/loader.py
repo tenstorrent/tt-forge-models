@@ -7,8 +7,9 @@ image to text.
 """
 
 from transformers import (
-    Qwen3VLForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
+    Qwen3VLForConditionalGeneration,
 )
 from typing import Optional
 
@@ -131,6 +132,12 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        # Load config from the base (non-GGUF) model so the vision/text
+        # dimensions are consistent. GGUF metadata only covers the text model
+        # and Qwen3VLConfig defaults do not match the 2B variant.
+        model_kwargs.setdefault(
+            "config", AutoConfig.from_pretrained("adwel94/Qwen3-VL-2B-Emoji-Base")
+        )
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
