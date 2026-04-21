@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Gemma 3 BNB 4-bit model variants."""
 
     GEMMA_3_1B_IT_UNSLOTH_BNB_4BIT = "1B_Instruct_Unsloth_BNB_4bit"
+    GEMMA_3_270M_UNSLOTH_BNB_4BIT = "270M_Unsloth_BNB_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GEMMA_3_1B_IT_UNSLOTH_BNB_4BIT: LLMModelConfig(
             pretrained_model_name="unsloth/gemma-3-1b-it-unsloth-bnb-4bit",
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_3_270M_UNSLOTH_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/gemma-3-270m-unsloth-bnb-4bit",
             max_length=256,
         ),
     }
