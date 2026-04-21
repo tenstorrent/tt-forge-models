@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     FINETUNED_AUDIOSET_16_16_0442 = "Finetuned_Audioset_16_16_0.442"
     DISTIL_AUDIOSET = "Distil_Audioset"
+    FINETUNED_SPEECH_COMMANDS_V2 = "Finetuned_Speech_Commands_v2"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DISTIL_AUDIOSET: ModelConfig(
             pretrained_model_name="bookbot/distil-ast-audioset",
+        ),
+        ModelVariant.FINETUNED_SPEECH_COMMANDS_V2: ModelConfig(
+            pretrained_model_name="MIT/ast-finetuned-speech-commands-v2",
         ),
     }
 
