@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available MT5 model variants."""
 
     TINY_RANDOM = "Tiny_Random"
+    MT0_SMALL = "bigscience/mt0-small"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TINY_RANDOM: LLMModelConfig(
             pretrained_model_name="optimum-intel-internal-testing/mt5-tiny-random",
+            max_length=512,
+        ),
+        ModelVariant.MT0_SMALL: LLMModelConfig(
+            pretrained_model_name="bigscience/mt0-small",
             max_length=512,
         ),
     }
