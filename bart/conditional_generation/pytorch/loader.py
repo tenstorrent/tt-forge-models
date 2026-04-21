@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available BART Conditional Generation model variants."""
 
     TINY_RANDOM = "Tiny_Random"
-    ELI5 = "ELI5"
+    COMET_AI2 = "Comet_AI2"
 
 
 class ModelLoader(ForgeModel):
@@ -37,8 +37,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="sshleifer/bart-tiny-random",
             max_length=256,
         ),
-        ModelVariant.ELI5: LLMModelConfig(
-            pretrained_model_name="yjernite/bart_eli5",
+        ModelVariant.COMET_AI2: LLMModelConfig(
+            pretrained_model_name="mismayil/comet-bart-ai2",
             max_length=256,
         ),
     }
