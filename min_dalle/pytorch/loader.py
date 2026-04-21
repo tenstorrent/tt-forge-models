@@ -67,12 +67,15 @@ class ModelLoader(ForgeModel):
     def _init_pipeline(self, dtype: torch.dtype):
         from min_dalle import MinDalle
 
+        # is_reusable=False so we can initialize only the encoder below,
+        # avoiding the (mega) decoder / VQ-GAN detokenizer downloads we
+        # don't exercise in this encoder-only test.
         self._min_dalle = MinDalle(
             models_root=tempfile.mkdtemp(prefix="min_dalle_"),
             dtype=dtype,
             device="cpu",
             is_mega=self._variant == ModelVariant.MEGA,
-            is_reusable=True,
+            is_reusable=False,
             is_verbose=False,
         )
         return self._min_dalle
@@ -84,8 +87,8 @@ class ModelLoader(ForgeModel):
         if self._min_dalle is None:
             self._init_pipeline(dtype)
 
-        encoder = self._min_dalle.encoder.eval()
-        return encoder
+        self._min_dalle.init_encoder()
+        return self._min_dalle.encoder.eval()
 
     def load_inputs(self, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Prepare tokenized text inputs for the DalleBartEncoder."""
