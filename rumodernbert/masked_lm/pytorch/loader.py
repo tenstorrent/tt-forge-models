@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available RuModernBERT model variants for masked language modeling."""
 
     BASE = "Base"
+    SMALL = "Small"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +31,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: LLMModelConfig(
             pretrained_model_name="deepvk/RuModernBERT-base",
+            max_length=128,
+        ),
+        ModelVariant.SMALL: LLMModelConfig(
+            pretrained_model_name="deepvk/RuModernBERT-small",
             max_length=128,
         ),
     }
