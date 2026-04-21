@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Speech2Text model variants for speech translation."""
 
     SMALL_MUSTC_EN_FR_ST = "Small_Mustc_En_Fr_St"
-    MEDIUM_MUSTC_MULTILINGUAL_ST = "Medium_Mustc_Multilingual_St"
+    SMALL_MUSTC_EN_IT_ST = "Small_Mustc_En_It_St"
 
 
 class ModelLoader(ForgeModel):
@@ -34,8 +34,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.SMALL_MUSTC_EN_FR_ST: ModelConfig(
             pretrained_model_name="facebook/s2t-small-mustc-en-fr-st",
         ),
-        ModelVariant.MEDIUM_MUSTC_MULTILINGUAL_ST: ModelConfig(
-            pretrained_model_name="facebook/s2t-medium-mustc-multilingual-st",
+        ModelVariant.SMALL_MUSTC_EN_IT_ST: ModelConfig(
+            pretrained_model_name="facebook/s2t-small-mustc-en-it-st",
         ),
     }
 
