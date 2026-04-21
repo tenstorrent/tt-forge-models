@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Qwen 3.5 9B GPTQ INT8 model loader implementation for causal language modeling.
+Qwen 3.5 GPTQ INT8 model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,17 +21,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen 3.5 9B GPTQ INT8 model variants for causal language modeling."""
+    """Available Qwen 3.5 GPTQ INT8 model variants for causal language modeling."""
 
     QWEN_3_5_9B_GPTQ_INT8 = "9B_GPTQ_INT8"
+    QWEN_3_5_27B_INSTRUCT_ABLITERATED_GPTQ_INT8 = "27B_Instruct_abliterated_GPTQ_Int8"
 
 
 class ModelLoader(ForgeModel):
-    """Qwen 3.5 9B GPTQ INT8 model loader implementation for causal language modeling tasks."""
+    """Qwen 3.5 GPTQ INT8 model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.QWEN_3_5_9B_GPTQ_INT8: LLMModelConfig(
             pretrained_model_name="mssfj/Qwen3.5-9B-GPTQ-INT8",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_27B_INSTRUCT_ABLITERATED_GPTQ_INT8: LLMModelConfig(
+            pretrained_model_name="SamCrowdwave/Qwen3.5-27B-Instruct-abliterated-GPTQ-Int8",
             max_length=128,
         ),
     }
