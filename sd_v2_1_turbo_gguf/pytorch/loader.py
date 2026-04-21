@@ -93,34 +93,41 @@ class ModelLoader(ForgeModel):
     ):
         """Load the GGUF-quantized UNet and build the SD-Turbo pipeline.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized UNet,
-        then constructs the StableDiffusionPipeline with the base model's
-        other components.
+        Diffusers' GGUF quantizer does not properly handle full SD checkpoint
+        GGUF files (which use CompVis key naming and store raw quantized byte
+        data). We work around this by manually dequantizing with the gguf
+        library, then converting from CompVis to diffusers format.
         """
-        from diffusers import (
-            GGUFQuantizationConfig,
-            StableDiffusionPipeline,
-            UNet2DConditionModel,
-        )
+        import gguf as gguf_lib
+        from diffusers import StableDiffusionPipeline
+        from diffusers.loaders.single_file_utils import convert_ldm_unet_checkpoint
         from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
         model_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        unet = UNet2DConditionModel.from_single_file(
-            model_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
-
+        # Load the base pipeline to obtain all non-UNet components and the UNet config.
         self.pipeline = StableDiffusionPipeline.from_pretrained(
             BASE_PIPELINE,
-            unet=unet,
             torch_dtype=compute_dtype,
         )
+
+        # Dequantize all tensors from the full-checkpoint GGUF using the gguf
+        # library, which handles Q4_0/Q4_1/Q8_0 etc. and returns correct shapes.
+        reader = gguf_lib.GGUFReader(model_path)
+        checkpoint = {}
+        for tensor in reader.tensors:
+            data = gguf_lib.dequantize(tensor.data, tensor.tensor_type)
+            checkpoint[tensor.name] = torch.from_numpy(data.copy()).float()
+
+        # Convert the extracted CompVis UNet weights (model.diffusion_model.*)
+        # to diffusers parameter names.
+        unet_config = dict(self.pipeline.unet.config)
+        converted_unet = convert_ldm_unet_checkpoint(checkpoint, unet_config)
+        self.pipeline.unet.load_state_dict(converted_unet, strict=False)
+        self.pipeline.unet = self.pipeline.unet.to(compute_dtype)
 
         return self.pipeline
 
