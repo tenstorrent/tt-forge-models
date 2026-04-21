@@ -10,7 +10,7 @@ causal LM.
 """
 import torch
 from transformers import (
-    Qwen2VLForConditionalGeneration,
+    Qwen2_5_VLForConditionalGeneration,
     Qwen2ForCausalLM,
     AutoTokenizer,
     AutoConfig,
@@ -39,7 +39,8 @@ class ModelLoader(ForgeModel):
     """mradermacher R1-Reward i1 GGUF model loader implementation for causal language modeling tasks.
 
     Note: Uses the base model (safetensors) instead of GGUF because the
-    qwen2vl GGUF architecture is not yet supported by transformers.
+    qwen2vl GGUF architecture is not yet supported by transformers. The base
+    model uses Qwen2_5_VL architecture despite the GGUF reporting qwen2vl.
     """
 
     _VARIANTS = {
@@ -97,8 +98,8 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # Load the full conditional generation model, then extract the causal LM
-        # because the base repo uses Qwen2VLForConditionalGeneration (multimodal).
-        full_model = Qwen2VLForConditionalGeneration.from_pretrained(
+        # because the base repo uses Qwen2_5_VLForConditionalGeneration (multimodal).
+        full_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         text_config = full_model.config.text_config
