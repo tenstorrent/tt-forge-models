@@ -5,7 +5,7 @@
 GBERT model loader implementation for masked language modeling.
 """
 
-from transformers import BertForMaskedLM, BertTokenizer, AutoConfig
+from transformers import BertForMaskedLM, BertTokenizer, BertConfig
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -89,7 +89,8 @@ class ModelLoader(ForgeModel):
         self.tokenizer = BertTokenizer.from_pretrained(self.model_name)
 
         # Load pre-trained model from HuggingFace
-        model_kwargs = {}
+        config = BertConfig.from_pretrained(self.model_name)
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -140,7 +141,7 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the GBERT model.
         """
-        self.config = AutoConfig.from_pretrained(
+        self.config = BertConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
 
