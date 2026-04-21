@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available HuBERT audio classification model variants."""
 
     BASE_SUPERB_ER = "Base_Superb_ER"
-    BASE_960H_ITW_DEEPFAKE = "Base_960H_ITW_Deepfake"
+    LARGE_LL60K_RAVDESS_V5 = "Large_Ll60k_Ravdess_V5"
 
 
 class ModelLoader(ForgeModel):
@@ -34,8 +34,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.BASE_SUPERB_ER: ModelConfig(
             pretrained_model_name="superb/hubert-base-superb-er",
         ),
-        ModelVariant.BASE_960H_ITW_DEEPFAKE: ModelConfig(
-            pretrained_model_name="abhishtagatya/hubert-base-960h-itw-deepfake",
+        ModelVariant.LARGE_LL60K_RAVDESS_V5: ModelConfig(
+            pretrained_model_name="Wiam/hubert-large-ll60k-finetuned-ravdess-v5",
         ),
     }
 
