@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available ControlNet Depth SDXL model variants."""
 
     CONTROLNET_DEPTH_SDXL_1_0 = "Depth_SDXL_1.0"
+    CONTROLNET_DEPTH_SDXL_1_0_16BIT_ZOE = "Depth_SDXL_1.0_16bit_Zoe"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.CONTROLNET_DEPTH_SDXL_1_0: ModelConfig(
             pretrained_model_name="xinsir/controlnet-depth-sdxl-1.0",
+        ),
+        ModelVariant.CONTROLNET_DEPTH_SDXL_1_0_16BIT_ZOE: ModelConfig(
+            pretrained_model_name="SargeZT/controlnet-sd-xl-1.0-depth-16bit-zoe",
         ),
     }
 
