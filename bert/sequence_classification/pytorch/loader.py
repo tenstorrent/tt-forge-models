@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    RASOULTILBURG_SSC_BERT = "rasoultilburg_SSC_BERT"
+    MSKANG1120_KOBERT_BASELINE = "mskang1120_KoBERT_Baseline"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.RASOULTILBURG_SSC_BERT: LLMModelConfig(
-            pretrained_model_name="rasoultilburg/ssc_bert",
+        ModelVariant.MSKANG1120_KOBERT_BASELINE: LLMModelConfig(
+            pretrained_model_name="mskang1120/kobert_baseline",
             max_length=128,
         ),
     }
@@ -80,6 +80,12 @@ class ModelLoader(ForgeModel):
         ModelVariant.TOMH_TOXIGEN_HATEBERT: "bert-base-uncased",
     }
 
+    # Variants whose tokenizer repo ships custom code (auto_map) and requires
+    # trust_remote_code=True at load time.
+    _TOKENIZER_TRUST_REMOTE_CODE = {
+        ModelVariant.MSKANG1120_KOBERT_BASELINE,
+    }
+
     # Variant-specific sample texts
     _SAMPLE_TEXTS = {
         ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SST_2: "the movie was great!",
@@ -89,7 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.RASOULTILBURG_SSC_BERT: "Because of heavy rainfall, the river overflowed and flooded the nearby farms.",
+        ModelVariant.MSKANG1120_KOBERT_BASELINE: "충격! 당신이 몰랐던 놀라운 비밀 공개",
     }
 
     def __init__(self, variant=None):
@@ -128,7 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.RASOULTILBURG_SSC_BERT,
+            ModelVariant.MSKANG1120_KOBERT_BASELINE,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
@@ -153,7 +159,12 @@ class ModelLoader(ForgeModel):
 
         # Initialize tokenizer (use override if model repo has mismatched tokenizer)
         tokenizer_name = self._TOKENIZER_OVERRIDES.get(self._variant, self.model_name)
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        tokenizer_kwargs = {}
+        if self._variant in self._TOKENIZER_TRUST_REMOTE_CODE:
+            tokenizer_kwargs["trust_remote_code"] = True
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            tokenizer_name, **tokenizer_kwargs
+        )
 
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
