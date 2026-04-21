@@ -51,7 +51,7 @@ class ModelVariant(StrEnum):
     QWEN_3_8B_FP8_STATIC_ATTN_LLMC = "8B_FP8_Static_Attn_LLMC"
     QWEN_3_14B = "14B"
     QWEN_3_14B_BASE = "14B_Base"
-    QWEN_3_14B_GPTQ_INT4 = "14B_GPTQ_Int4"
+    QWEN_3_14B_FP8_DYNAMIC = "14B_FP8_Dynamic"
     QWEN_3_32B = "32B"
     QWEN_3_32B_FP8 = "32B_FP8"
     QWEN_3_32B_NVFP4A16 = "32B_NVFP4A16"
@@ -159,8 +159,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-14B-Base",
             max_length=128,
         ),
-        ModelVariant.QWEN_3_14B_GPTQ_INT4: LLMModelConfig(
-            pretrained_model_name="JunHowie/Qwen3-14B-GPTQ-Int4",
+        ModelVariant.QWEN_3_14B_FP8_DYNAMIC: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Qwen3-14B-FP8-dynamic",
             max_length=128,
         ),
         ModelVariant.QWEN_3_14B_INSTRUCT_OPENPIPE: LLMModelConfig(
@@ -273,7 +273,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_8B_BASE,
             ModelVariant.QWEN_3_8B_FP8,
             ModelVariant.QWEN_3_14B_BASE,
-            ModelVariant.QWEN_3_14B_GPTQ_INT4,
+            ModelVariant.QWEN_3_14B_FP8_DYNAMIC,
             ModelVariant.QWEN_3_14B_INSTRUCT_OPENPIPE,
             ModelVariant.QWEN_3_30B_A3B_FP8,
             ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507,
