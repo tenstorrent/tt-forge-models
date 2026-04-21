@@ -33,7 +33,7 @@ class ModelVariant(StrEnum):
     GEMMA_3_27B_IT = "27B_Instruct"
     GEMMA_3_4B_IT_BNB_4BIT = "4B_Instruct_bnb_4bit"
     GEMMA_3_1B_IT_AWQ_INT4 = "1B_Instruct_awq_int4"
-    TURKISH_GEMMA_4B_T1_SCOUT = "Turkish_Gemma_4B_T1_Scout"
+    GEMMA_3_1B_IT_NMT_21 = "1B_Instruct_NMT_21"
 
 
 class ModelLoader(ForgeModel):
@@ -76,8 +76,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="gaunernst/gemma-3-1b-it-int4-awq",
             max_length=256,
         ),
-        ModelVariant.TURKISH_GEMMA_4B_T1_SCOUT: LLMModelConfig(
-            pretrained_model_name="ytu-ce-cosmos/Turkish-Gemma-4b-T1-Scout",
+        ModelVariant.GEMMA_3_1B_IT_NMT_21: LLMModelConfig(
+            pretrained_model_name="odats/nmt_21",
             max_length=256,
         ),
     }
@@ -103,7 +103,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_3_27B_IT,
             ModelVariant.GEMMA_3_4B_IT_BNB_4BIT,
             ModelVariant.GEMMA_3_1B_IT_AWQ_INT4,
-            ModelVariant.GEMMA_3_1B_PT_UNSLOTH,
+            ModelVariant.GEMMA_3_1B_IT_NMT_21,
         ):
             group = ModelGroup.VULCAN
         else:
