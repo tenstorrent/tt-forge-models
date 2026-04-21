@@ -28,7 +28,7 @@ class ModelVariant(StrEnum):
     OPT_350M = "350M"
     OPT_1_3B = "1.3b"
     OPT_6_7B = "6.7b"
-    PYGMALION_350M = "pygmalion-350m"
+    OPT_19M_CHATSALAD = "opt-19m-chatsalad"
     TINY_RANDOM = "tiny-random"
     TINY_RANDOM_EXTENDED_VOCAB = "tiny-random-extended-vocab"
     TINY_RANDOM_HF_TINY_MODEL_PRIVATE = "tiny-random-hf-tiny-model-private"
@@ -59,8 +59,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="facebook/opt-6.7b",
             max_length=256,
         ),
-        ModelVariant.PYGMALION_350M: LLMModelConfig(
-            pretrained_model_name="PygmalionAI/pygmalion-350m",
+        ModelVariant.OPT_19M_CHATSALAD: LLMModelConfig(
+            pretrained_model_name="concedo/OPT-19M-ChatSalad",
             max_length=256,
         ),
         ModelVariant.TINY_RANDOM: LLMModelConfig(
@@ -112,9 +112,9 @@ class ModelLoader(ForgeModel):
             ModelGroup.VULCAN
             if variant
             in (
+                ModelVariant.OPT_19M_CHATSALAD,
                 ModelVariant.TINY_RANDOM,
                 ModelVariant.TINY_RANDOM_EXTENDED_VOCAB,
-                ModelVariant.TINY_RANDOM_HF_TINY_MODEL_PRIVATE,
             )
             else ModelGroup.GENERALITY
         )
