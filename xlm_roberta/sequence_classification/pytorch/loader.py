@@ -23,8 +23,8 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa sequence classification model variants."""
 
     TWITTER_XLM_ROBERTA_BASE_SENTIMENT = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
-    TWITTER_XLM_ROBERTA_BASE_SENTIMENT_FINETUNNED = (
-        "citizenlab/twitter-xlm-roberta-base-sentiment-finetunned"
+    XLM_ROBERTA_LARGE_ENGLISH_CAP_MINOR_PLATFORMS = (
+        "poltextlab/xlm-roberta-large-english-cap-minor-platforms"
     )
     XLM_ROBERTA_LARGE_HUNGARIAN_BUDGET_CAP_V3 = (
         "poltextlab/xlm-roberta-large-hungarian-budget-cap-v3"
@@ -43,8 +43,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="cardiffnlp/twitter-xlm-roberta-base-sentiment",
             max_length=128,
         ),
-        ModelVariant.TWITTER_XLM_ROBERTA_BASE_SENTIMENT_FINETUNNED: LLMModelConfig(
-            pretrained_model_name="citizenlab/twitter-xlm-roberta-base-sentiment-finetunned",
+        ModelVariant.XLM_ROBERTA_LARGE_ENGLISH_CAP_MINOR_PLATFORMS: LLMModelConfig(
+            pretrained_model_name="poltextlab/xlm-roberta-large-english-cap-minor-platforms",
             max_length=128,
         ),
         ModelVariant.XLM_ROBERTA_LARGE_HUNGARIAN_BUDGET_CAP_V3: LLMModelConfig(
