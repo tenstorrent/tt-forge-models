@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available Airoboros model variants."""
 
     AIROBOROS_70B_3_3 = "70B_3.3"
-    AIROBOROS_C34B_2_1 = "c34b-2.1"
+    AIROBOROS_13B_HF = "13B_HF"
 
 
 class ModelLoader(ForgeModel):
@@ -37,8 +37,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="jondurbin/airoboros-70b-3.3",
             max_length=128,
         ),
-        ModelVariant.AIROBOROS_C34B_2_1: LLMModelConfig(
-            pretrained_model_name="jondurbin/airoboros-c34b-2.1",
+        ModelVariant.AIROBOROS_13B_HF: LLMModelConfig(
+            pretrained_model_name="TheBloke/airoboros-13B-HF",
             max_length=128,
         ),
     }
