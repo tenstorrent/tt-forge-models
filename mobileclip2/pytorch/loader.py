@@ -28,7 +28,7 @@ class ModelVariant(StrEnum):
 
 # Mapping from variant to OpenCLIP tokenizer name
 _TOKENIZER_NAME = {
-    ModelVariant.S2: "MobileCLIP2-S2",
+    ModelVariant.S2: "MobileCLIP-S2",
 }
 
 
