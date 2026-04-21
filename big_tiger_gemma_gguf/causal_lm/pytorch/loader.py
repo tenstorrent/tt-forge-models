@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Big Tiger Gemma 27B v3 GGUF model loader implementation for causal language modeling.
+Big Tiger Gemma 27B GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -24,21 +24,29 @@ class ModelVariant(StrEnum):
     """Available Big Tiger Gemma GGUF model variants for causal language modeling."""
 
     BIG_TIGER_GEMMA_27B_V3_GGUF = "27B_V3_GGUF"
+    BIG_TIGER_GEMMA_27B_V1_GGUF = "27B_V1_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """Big Tiger Gemma 27B v3 GGUF model loader implementation for causal language modeling tasks."""
+    """Big Tiger Gemma 27B GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.BIG_TIGER_GEMMA_27B_V3_GGUF: LLMModelConfig(
             pretrained_model_name="bartowski/TheDrummer_Big-Tiger-Gemma-27B-v3-GGUF",
             max_length=128,
         ),
+        ModelVariant.BIG_TIGER_GEMMA_27B_V1_GGUF: LLMModelConfig(
+            pretrained_model_name="TheDrummer/Big-Tiger-Gemma-27B-v1-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BIG_TIGER_GEMMA_27B_V3_GGUF
 
-    GGUF_FILE = "Big-Tiger-Gemma-27B-v3-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.BIG_TIGER_GEMMA_27B_V3_GGUF: "Big-Tiger-Gemma-27B-v3-Q4_K_M.gguf",
+        ModelVariant.BIG_TIGER_GEMMA_27B_V1_GGUF: "Big-Tiger-Gemma-27B-v1-Q4_K_M.gguf",
+    }
 
     sample_text = "What is your favorite city?"
 
@@ -49,6 +57,10 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -65,7 +77,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +97,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -154,6 +166,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
