@@ -23,7 +23,7 @@ class ModelVariant(StrEnum):
     """Available HunYuan V1 Dense model variants."""
 
     TINY_RANDOM = "tiny-random"
-    HUNYUAN_1_8B_PRETRAIN = "Hunyuan-1.8B-Pretrain"
+    HUNYUAN_0_5B_PRETRAIN = "0.5B-Pretrain"
 
 
 class ModelLoader(ForgeModel):
@@ -34,8 +34,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="optimum-intel-internal-testing/tiny-random-hunyuan-v1-dense",
             max_length=128,
         ),
-        ModelVariant.HUNYUAN_1_8B_PRETRAIN: LLMModelConfig(
-            pretrained_model_name="tencent/Hunyuan-1.8B-Pretrain",
+        ModelVariant.HUNYUAN_0_5B_PRETRAIN: LLMModelConfig(
+            pretrained_model_name="tencent/Hunyuan-0.5B-Pretrain",
             max_length=128,
         ),
     }
