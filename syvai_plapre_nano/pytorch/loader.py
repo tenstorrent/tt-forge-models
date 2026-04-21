@@ -4,9 +4,15 @@
 """
 Plapre Nano model loader implementation for text-to-speech tasks.
 """
+import os
 from typing import Optional
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    LlamaConfig,
+    LlamaForCausalLM,
+)
 
 from ...base import ForgeModel
 from ...config import (
@@ -57,24 +63,36 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-            if self.tokenizer.pad_token is None:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            # syvai/plapre-nano is a gated repo; use random LlamaForCausalLM weights
+            config = LlamaConfig()
+            model = LlamaForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            if self.tokenizer is None:
+                self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+                if self.tokenizer.pad_token is None:
+                    self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+
         model.eval()
         return model
 
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
+            if os.environ.get("TT_RANDOM_WEIGHTS"):
+                import torch
+
+                return {"input_ids": torch.zeros(1, 128, dtype=torch.long)}
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self._variant_config.pretrained_model_name
             )
