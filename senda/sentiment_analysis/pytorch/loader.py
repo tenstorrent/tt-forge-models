@@ -2,10 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-SENDA model loader implementation for Danish sentiment analysis.
+Senda model loader implementation for sentiment analysis.
 """
 
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoTokenizer, BertForSequenceClassification
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -19,24 +19,24 @@ from third_party.tt_forge_models.base import ForgeModel
 
 
 class ModelVariant(StrEnum):
-    """Available SENDA model variants."""
+    """Available Senda model variants for sentiment analysis."""
 
-    SENDA = "larskjeldgaard_senda"
+    LARSKJELDGAARD_SENDA = "Larskjeldgaard_Senda"
 
 
 class ModelLoader(ForgeModel):
-    """SENDA model loader implementation for Danish sentiment analysis."""
+    """Senda model loader implementation for sentiment analysis."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.SENDA: LLMModelConfig(
+        ModelVariant.LARSKJELDGAARD_SENDA: LLMModelConfig(
             pretrained_model_name="larskjeldgaard/senda",
             max_length=128,
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.SENDA
+    DEFAULT_VARIANT = ModelVariant.LARSKJELDGAARD_SENDA
 
     # Sample Danish text for sentiment analysis
     sample_text = "Sikke en dejlig dag det er i dag"
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="SENDA",
+            model="Senda",
             variant=variant_name,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_TEXT_CLS,
@@ -76,13 +76,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load SENDA model from Hugging Face.
+        """Load Senda model for sentiment analysis from Hugging Face.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            torch.nn.Module: The SENDA model instance.
+            torch.nn.Module: The Senda model instance.
         """
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForSequenceClassification.from_pretrained(
+        model = BertForSequenceClassification.from_pretrained(
             self.model_name, **model_kwargs
         )
         self.model = model
@@ -99,7 +99,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Prepare sample input for SENDA Danish sentiment analysis.
+        """Prepare sample input for Senda sentiment analysis.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
@@ -120,17 +120,11 @@ class ModelLoader(ForgeModel):
 
         return inputs
 
-    def decode_output(self, co_out, framework_model=None):
+    def decode_output(self, co_out):
         """Decode the model output for sentiment analysis.
 
         Args:
             co_out: Model output
-            framework_model: Optional model to use for label lookup
         """
-        predicted_class_id = co_out[0].argmax(-1).item()
-        model = framework_model if framework_model is not None else self.model
-        if model and hasattr(model, "config") and hasattr(model.config, "id2label"):
-            predicted_sentiment = model.config.id2label[predicted_class_id]
-            print(f"Predicted Sentiment: {predicted_sentiment}")
-        else:
-            print(f"Predicted class ID: {predicted_class_id}")
+        predicted_value = co_out[0].argmax(-1).item()
+        print(f"Predicted Sentiment: {self.model.config.id2label[predicted_value]}")
