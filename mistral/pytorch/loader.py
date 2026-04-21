@@ -53,7 +53,7 @@ class ModelVariant(StrEnum):
     MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
     MISTRAL_FT_OPTIMIZED_1227 = "ft_optimized_1227"
     MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED = "Small_Instruct_2409_abliterated"
-    FEATHERLESS_CHAT_MISTRAL_7B_V01 = "featherless_chat_7B_v01"
+    MISTRAL_NEMO_BASE_2407_4BIT = "Nemo_BASE_2407_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -153,8 +153,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED: ModelConfig(
             pretrained_model_name="byroneverson/Mistral-Small-Instruct-2409-abliterated",
         ),
-        ModelVariant.FEATHERLESS_CHAT_MISTRAL_7B_V01: ModelConfig(
-            pretrained_model_name="Featherless-Chat-Models/Mistral-7B-v0.1",
+        ModelVariant.MISTRAL_NEMO_BASE_2407_4BIT: ModelConfig(
+            pretrained_model_name="PowCal/Mistral-Nemo-Base-2407-4bit",
         ),
     }
 
@@ -195,7 +195,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
             ModelVariant.MISTRAL_FT_OPTIMIZED_1227,
             ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED,
-            ModelVariant.FEATHERLESS_CHAT_MISTRAL_7B_V01,
+            ModelVariant.MISTRAL_NEMO_BASE_2407_4BIT,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
@@ -285,6 +285,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
             ModelVariant.MINISTRAL_3_14B_REASONING_AWQ_4BIT,
             ModelVariant.OPEN_HERMES_2_5_MISTRAL_7B_AWQ,
+            ModelVariant.MISTRAL_NEMO_BASE_2407_4BIT,
         ):
             model_kwargs["device_map"] = "cpu"
 
