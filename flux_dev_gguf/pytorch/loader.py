@@ -25,6 +25,24 @@ class ModelVariant(StrEnum):
     """Available FLUX.1-dev GGUF model variants."""
 
     DEV_Q4_K_S = "Dev_Q4_K_S"
+    UNSLOTH_BF16 = "unsloth_BF16"
+    UNSLOTH_F16 = "unsloth_F16"
+    UNSLOTH_Q2_K = "unsloth_Q2_K"
+    UNSLOTH_Q3_K_M = "unsloth_Q3_K_M"
+    UNSLOTH_Q3_K_S = "unsloth_Q3_K_S"
+    UNSLOTH_Q4_0 = "unsloth_Q4_0"
+    UNSLOTH_Q4_1 = "unsloth_Q4_1"
+    UNSLOTH_Q4_K_M = "unsloth_Q4_K_M"
+    UNSLOTH_Q4_K_S = "unsloth_Q4_K_S"
+    UNSLOTH_Q5_0 = "unsloth_Q5_0"
+    UNSLOTH_Q5_1 = "unsloth_Q5_1"
+    UNSLOTH_Q5_K_M = "unsloth_Q5_K_M"
+    UNSLOTH_Q5_K_S = "unsloth_Q5_K_S"
+    UNSLOTH_Q6_K = "unsloth_Q6_K"
+    UNSLOTH_Q8_0 = "unsloth_Q8_0"
+
+
+_UNSLOTH_REPO = "unsloth/FLUX.1-dev-GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +52,43 @@ class ModelLoader(ForgeModel):
         ModelVariant.DEV_Q4_K_S: ModelConfig(
             pretrained_model_name="lllyasviel/FLUX.1-dev-gguf",
         ),
+        ModelVariant.UNSLOTH_BF16: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_F16: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_Q2_K: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_Q3_K_M: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_Q3_K_S: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_Q4_0: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_Q4_1: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_Q4_K_M: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_Q4_K_S: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_Q5_0: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_Q5_1: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_Q5_K_M: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_Q5_K_S: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_Q6_K: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
+        ModelVariant.UNSLOTH_Q8_0: ModelConfig(pretrained_model_name=_UNSLOTH_REPO),
     }
 
     DEFAULT_VARIANT = ModelVariant.DEV_Q4_K_S
 
-    GGUF_FILE = "flux1-dev-Q4_K_S.gguf"
+    _GGUF_FILES = {
+        ModelVariant.DEV_Q4_K_S: "flux1-dev-Q4_K_S.gguf",
+        ModelVariant.UNSLOTH_BF16: "flux1-dev-BF16.gguf",
+        ModelVariant.UNSLOTH_F16: "flux1-dev-F16.gguf",
+        ModelVariant.UNSLOTH_Q2_K: "flux1-dev-Q2_K.gguf",
+        ModelVariant.UNSLOTH_Q3_K_M: "flux1-dev-Q3_K_M.gguf",
+        ModelVariant.UNSLOTH_Q3_K_S: "flux1-dev-Q3_K_S.gguf",
+        ModelVariant.UNSLOTH_Q4_0: "flux1-dev-Q4_0.gguf",
+        ModelVariant.UNSLOTH_Q4_1: "flux1-dev-Q4_1.gguf",
+        ModelVariant.UNSLOTH_Q4_K_M: "flux1-dev-Q4_K_M.gguf",
+        ModelVariant.UNSLOTH_Q4_K_S: "flux1-dev-Q4_K_S.gguf",
+        ModelVariant.UNSLOTH_Q5_0: "flux1-dev-Q5_0.gguf",
+        ModelVariant.UNSLOTH_Q5_1: "flux1-dev-Q5_1.gguf",
+        ModelVariant.UNSLOTH_Q5_K_M: "flux1-dev-Q5_K_M.gguf",
+        ModelVariant.UNSLOTH_Q5_K_S: "flux1-dev-Q5_K_S.gguf",
+        ModelVariant.UNSLOTH_Q6_K: "flux1-dev-Q6_K.gguf",
+        ModelVariant.UNSLOTH_Q8_0: "flux1-dev-Q8_0.gguf",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -64,8 +114,9 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         repo_id = self._variant_config.pretrained_model_name
+        gguf_file = self._GGUF_FILES[self._variant]
         self.transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{self.GGUF_FILE}",
+            f"https://huggingface.co/{repo_id}/resolve/main/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
