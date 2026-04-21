@@ -122,12 +122,4 @@ class ModelLoader(ForgeModel):
         x = processed["pixel_values"]
         x = x.repeat_interleave(batch_size, dim=0)
 
-        if dtype_override is not None:
-            x = x.to(dtype_override)
-
-        return {
-            "x": x,
-            "do_resize": False,
-            "do_rescale": False,
-            "do_normalize": False,
-        }
+        return {"x": x}
