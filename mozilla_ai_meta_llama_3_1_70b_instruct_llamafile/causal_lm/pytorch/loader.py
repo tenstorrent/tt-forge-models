@@ -4,19 +4,101 @@
 """
 Mozilla-AI Meta-Llama-3.1-70B-Instruct-llamafile model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import contextlib
+import struct
+import zipfile
 from typing import Optional
+
+import numpy as np
+import torch
+import transformers.modeling_gguf_pytorch_utils
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
+)
+
+
+def _get_llamafile_gguf_offset(path):
+    """Returns the byte offset of the stored GGUF within a llamafile ZIP, or None."""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            for info in zf.infolist():
+                if info.filename.endswith(".gguf") and info.compress_type == 0:
+                    with open(path, "rb") as f:
+                        f.seek(info.header_offset + 26)
+                        fname_len, extra_len = struct.unpack("<HH", f.read(4))
+                    return info.header_offset + 30 + fname_len + extra_len
+    except Exception:
+        pass
+    return None
+
+
+@contextlib.contextmanager
+def _llamafile_memmap_patch(path):
+    """Patches np.memmap so GGUFReader can read the GGUF embedded in a llamafile."""
+    data_offset = _get_llamafile_gguf_offset(path)
+    if data_offset is None:
+        yield
+        return
+
+    _orig_memmap = np.memmap
+    target = str(path)
+
+    class _OffsetMemmap(np.memmap):
+        def __new__(
+            cls, filename, dtype="uint8", mode="r+", offset=0, shape=None, order="C"
+        ):
+            if str(filename) == target:
+                return _orig_memmap.__new__(
+                    cls,
+                    filename,
+                    dtype=dtype,
+                    mode=mode,
+                    offset=data_offset + offset,
+                    shape=shape,
+                    order=order,
+                )
+            return _orig_memmap.__new__(
+                cls,
+                filename,
+                dtype=dtype,
+                mode=mode,
+                offset=offset,
+                shape=shape,
+                order=order,
+            )
+
+    np.memmap = _OffsetMemmap
+    try:
+        yield
+    finally:
+        np.memmap = _orig_memmap
+
+
+_orig_load_gguf_checkpoint = (
+    transformers.modeling_gguf_pytorch_utils.load_gguf_checkpoint
+)
+
+
+def _patched_load_gguf_checkpoint(
+    gguf_checkpoint_path, return_tensors=False, model_to_load=None
+):
+    with _llamafile_memmap_patch(gguf_checkpoint_path):
+        return _orig_load_gguf_checkpoint(
+            gguf_checkpoint_path, return_tensors=return_tensors
+        )
+
+
+transformers.modeling_gguf_pytorch_utils.load_gguf_checkpoint = (
+    _patched_load_gguf_checkpoint
 )
 
 
