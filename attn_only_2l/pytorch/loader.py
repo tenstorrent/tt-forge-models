@@ -1,11 +1,11 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
 Attention-Only 2-Layer Transformer model loader implementation.
 
-This is a small attention-only transformer from Neel Nanda's
-mechanistic interpretability research, loaded via the TransformerLens library.
+This is a small attention-only transformer from Neel Nanda's mechanistic
+interpretability research, loaded via the TransformerLens library.
 """
 
 from transformer_lens import HookedTransformer
