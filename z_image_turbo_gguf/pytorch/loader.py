@@ -5,7 +5,9 @@
 Z-Image-Turbo GGUF model loader implementation.
 
 Loads quantized GGUF variants of the Z-Image-Turbo text-to-image
-DiT transformer from unsloth/Z-Image-Turbo-GGUF.
+DiT transformer and plugs them into the Tongyi-MAI/Z-Image-Turbo
+pipeline. Supports the base Z-Image-Turbo GGUFs from unsloth and the
+community fine-tune collection from BigDannyPt.
 """
 
 from typing import Any, Optional
@@ -25,7 +27,8 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_REPO_ID = "unsloth/Z-Image-Turbo-GGUF"
+UNSLOTH_REPO_ID = "unsloth/Z-Image-Turbo-GGUF"
+BIGDANNYPT_REPO_ID = "BigDannyPt/Z-Image-Turbo-GGUF-Collection"
 PIPELINE_REPO_ID = "Tongyi-MAI/Z-Image-Turbo"
 
 
@@ -33,20 +36,51 @@ class ModelVariant(StrEnum):
     """Available Z-Image-Turbo GGUF model variants."""
 
     Z_IMAGE_TURBO_GGUF_Q4_K_M = "Q4_K_M"
+    BIGDANNYPT_DARK_BEAST_Q4_K_M = "BigDannyPt-DarkBeast-DBZiT9-DIMRClaw-Q4_K_M"
+    BIGDANNYPT_EVENT_HORIZON_Q4_K_M = "BigDannyPt-EventHorizon-v1.0-Q4_K_M"
+    BIGDANNYPT_SMOOTHMIX_ULTIMATE_Q4_K_M = "BigDannyPt-SmoothmixUltimate-v10-Q4_K_M"
+    BIGDANNYPT_TURBO_ANIME_Q4_K_M = "BigDannyPt-TurboAnime-v10-Q4_K_M"
+    BIGDANNYPT_TURBO_NSFW_Q4_K_M = "BigDannyPt-TurboNSFW-v6.1-Q4_K_M"
+
+
+_VARIANT_REPOS = {
+    ModelVariant.Z_IMAGE_TURBO_GGUF_Q4_K_M: UNSLOTH_REPO_ID,
+    ModelVariant.BIGDANNYPT_DARK_BEAST_Q4_K_M: BIGDANNYPT_REPO_ID,
+    ModelVariant.BIGDANNYPT_EVENT_HORIZON_Q4_K_M: BIGDANNYPT_REPO_ID,
+    ModelVariant.BIGDANNYPT_SMOOTHMIX_ULTIMATE_Q4_K_M: BIGDANNYPT_REPO_ID,
+    ModelVariant.BIGDANNYPT_TURBO_ANIME_Q4_K_M: BIGDANNYPT_REPO_ID,
+    ModelVariant.BIGDANNYPT_TURBO_NSFW_Q4_K_M: BIGDANNYPT_REPO_ID,
+}
 
 
 class ModelLoader(ForgeModel):
     """Z-Image-Turbo GGUF model loader."""
 
     _VARIANTS = {
-        ModelVariant.Z_IMAGE_TURBO_GGUF_Q4_K_M: ModelConfig(
-            pretrained_model_name=GGUF_REPO_ID,
-        ),
+        variant: ModelConfig(pretrained_model_name=repo_id)
+        for variant, repo_id in _VARIANT_REPOS.items()
     }
     DEFAULT_VARIANT = ModelVariant.Z_IMAGE_TURBO_GGUF_Q4_K_M
 
     GGUF_FILES = {
         ModelVariant.Z_IMAGE_TURBO_GGUF_Q4_K_M: "z-image-turbo-Q4_K_M.gguf",
+        ModelVariant.BIGDANNYPT_DARK_BEAST_Q4_K_M: (
+            "DarkBeast/DBZiT9-DIMRClaw/"
+            "darkBeastMar2126Latest_dbzit9DIMRclaw-Q4_K_M.gguf"
+        ),
+        ModelVariant.BIGDANNYPT_EVENT_HORIZON_Q4_K_M: (
+            "EventHorizon/v1.0/eventHorizon_zitV10-Q4_K_M.gguf"
+        ),
+        ModelVariant.BIGDANNYPT_SMOOTHMIX_ULTIMATE_Q4_K_M: (
+            "SmoothmixUltimate/smoothmixUltimate_zimageTurboV10-Q4_K_M.gguf"
+        ),
+        ModelVariant.BIGDANNYPT_TURBO_ANIME_Q4_K_M: (
+            "Z-Image-Turbo Anime/zImageTurboAnime_v10-Q4_K_M.gguf"
+        ),
+        ModelVariant.BIGDANNYPT_TURBO_NSFW_Q4_K_M: (
+            "Z-ImageTurboNSFWPhotorealistic/v6.1_BF16_diffusion/"
+            "zImageTurboNSFW_61BF16Diffusion-Q4_K_M.gguf"
+        ),
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
@@ -69,7 +103,8 @@ class ModelLoader(ForgeModel):
     def _load_transformer(self, dtype: torch.dtype = torch.bfloat16):
         """Load the GGUF-quantized transformer."""
         gguf_file = self.GGUF_FILES[self._variant]
-        gguf_path = hf_hub_download(repo_id=GGUF_REPO_ID, filename=gguf_file)
+        repo_id = _VARIANT_REPOS[self._variant]
+        gguf_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
         transformer = ZImageTransformer2DModel.from_single_file(
             gguf_path,
             quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
