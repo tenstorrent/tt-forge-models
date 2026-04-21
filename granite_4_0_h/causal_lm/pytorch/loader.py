@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     """Available Granite 4.0 Hybrid model variants."""
 
     GRANITE_4_0_H_SMALL = "4.0_H_Small"
-    GRANITE_4_0_H_TINY_BASE = "4.0_H_Tiny_Base"
+    GRANITE_4_0_H_SMALL_BASE = "4.0_H_Small_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -37,8 +37,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="ibm-granite/granite-4.0-h-small",
             max_length=128,
         ),
-        ModelVariant.GRANITE_4_0_H_TINY_BASE: LLMModelConfig(
-            pretrained_model_name="ibm-granite/granite-4.0-h-tiny-base",
+        ModelVariant.GRANITE_4_0_H_SMALL_BASE: LLMModelConfig(
+            pretrained_model_name="ibm-granite/granite-4.0-h-small-base",
             max_length=128,
         ),
     }
