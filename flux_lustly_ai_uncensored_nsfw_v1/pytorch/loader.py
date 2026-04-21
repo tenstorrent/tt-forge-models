@@ -28,7 +28,7 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+BASE_MODEL = "camenduru/FLUX.1-dev-ungated"
 LORA_REPO = "lustlyai/Flux_Lustly.ai_Uncensored_nsfw_v1"
 LORA_WEIGHT_NAME = "flux_lustly-ai_v1.safetensors"
 
