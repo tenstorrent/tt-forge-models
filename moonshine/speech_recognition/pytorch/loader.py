@@ -107,6 +107,15 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        # Moonshine is Seq2Seq; decoder requires initial input_ids seeded with BOS token
+        from transformers import AutoConfig
+
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        decoder_start_token_id = config.decoder_start_token_id
+        inputs["decoder_input_ids"] = torch.tensor(
+            [[decoder_start_token_id]], dtype=torch.long
+        )
+
         if dtype_override is not None:
             inputs = {
                 k: v.to(dtype_override) if torch.is_floating_point(v) else v
