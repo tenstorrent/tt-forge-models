@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
     PROJECT_APS_FINBERT_FINETUNE = "project_aps_FinBERT_Finetune"
+    NICHOLASKLUGE_TOXIGUARDRAILPT = "nicholasKluge_ToxiGuardrailPT"
 
 
 class ModelLoader(ForgeModel):
@@ -70,6 +71,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="project-aps/finbert-finetune",
             max_length=128,
         ),
+        ModelVariant.NICHOLASKLUGE_TOXIGUARDRAILPT: LLMModelConfig(
+            pretrained_model_name="nicholasKluge/ToxiGuardrailPT",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -96,6 +101,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
         ModelVariant.PROJECT_APS_FINBERT_FINETUNE: "Earnings smashed expectations AAPL posts $0.89 EPS vs $0.78 est. Bullish momentum incoming!",
+        ModelVariant.NICHOLASKLUGE_TOXIGUARDRAILPT: "Eu realmente gostei de conhecer pessoas de diferentes culturas.",
     }
 
     def __init__(self, variant=None):
@@ -135,6 +141,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
             ModelVariant.PROJECT_APS_FINBERT_FINETUNE,
+            ModelVariant.NICHOLASKLUGE_TOXIGUARDRAILPT,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
