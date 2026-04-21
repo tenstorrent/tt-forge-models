@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GEMMA_2_2B_IT_Q4F16_0_MLC: LLMModelConfig(
-            pretrained_model_name="google/gemma-2-2b-it",
+            pretrained_model_name="unsloth/gemma-2-2b-it",
             max_length=128,
         ),
     }
