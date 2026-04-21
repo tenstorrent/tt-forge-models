@@ -22,19 +22,19 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available KaniTTS model variants."""
 
-    KANI_TTS_2_PT = "2-pt"
+    KANI_TTS_2_EN = "2-en"
 
 
 class ModelLoader(ForgeModel):
     """KaniTTS model loader implementation for text-to-speech tasks."""
 
     _VARIANTS = {
-        ModelVariant.KANI_TTS_2_PT: ModelConfig(
-            pretrained_model_name="nineninesix/kani-tts-2-pt",
+        ModelVariant.KANI_TTS_2_EN: ModelConfig(
+            pretrained_model_name="nineninesix/kani-tts-2-en",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.KANI_TTS_2_PT
+    DEFAULT_VARIANT = ModelVariant.KANI_TTS_2_EN
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
