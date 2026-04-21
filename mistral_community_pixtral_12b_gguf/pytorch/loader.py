@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Mistral Community Pixtral 12B GGUF model variants."""
 
     PIXTRAL_12B_Q4_K_M = "12B_Q4_K_M"
+    LMSTUDIO_COMMUNITY_PIXTRAL_12B_Q4_K_M = "lmstudio_community_12B_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
@@ -35,15 +36,25 @@ class ModelLoader(ForgeModel):
         ModelVariant.PIXTRAL_12B_Q4_K_M: ModelConfig(
             pretrained_model_name="bartowski/mistral-community_pixtral-12b-GGUF",
         ),
+        ModelVariant.LMSTUDIO_COMMUNITY_PIXTRAL_12B_Q4_K_M: ModelConfig(
+            pretrained_model_name="lmstudio-community/pixtral-12b-GGUF",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.PIXTRAL_12B_Q4_K_M
 
-    GGUF_FILE = "mistral-community_pixtral-12b-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.PIXTRAL_12B_Q4_K_M: "mistral-community_pixtral-12b-Q4_K_M.gguf",
+        ModelVariant.LMSTUDIO_COMMUNITY_PIXTRAL_12B_Q4_K_M: "pixtral-12b-Q4_K_M.gguf",
+    }
 
     PROCESSOR_MODEL = "mistral-community/pixtral-12b"
 
     sample_text = "Describe this image."
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -76,7 +87,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
