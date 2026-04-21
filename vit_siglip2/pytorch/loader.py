@@ -24,11 +24,13 @@ from datasets import load_dataset
 class ModelVariant(StrEnum):
     """Available ViT-SigLIP2 model variants."""
 
+    VIT_B_16 = "ViT_B_16"
     VIT_B_16_384 = "ViT_B_16_384"
 
 
 # Mapping from variant to OpenCLIP tokenizer name
 _TOKENIZER_NAME = {
+    ModelVariant.VIT_B_16: "ViT-B-16-SigLIP2",
     ModelVariant.VIT_B_16_384: "ViT-B-16-SigLIP2-384",
 }
 
@@ -37,6 +39,9 @@ class ModelLoader(ForgeModel):
     """ViT-SigLIP2 model loader using OpenCLIP for image-text similarity tasks."""
 
     _VARIANTS = {
+        ModelVariant.VIT_B_16: ModelConfig(
+            pretrained_model_name="hf-hub:timm/ViT-B-16-SigLIP2",
+        ),
         ModelVariant.VIT_B_16_384: ModelConfig(
             pretrained_model_name="hf-hub:timm/ViT-B-16-SigLIP2-384",
         ),
