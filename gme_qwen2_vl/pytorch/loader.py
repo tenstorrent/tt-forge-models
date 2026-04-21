@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available GME Qwen2-VL model variants."""
 
     GME_QWEN2_VL_2B_INSTRUCT = "2B_Instruct"
+    GME_QWEN2_VL_7B_INSTRUCT = "7B_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GME_QWEN2_VL_2B_INSTRUCT: ModelConfig(
             pretrained_model_name="Alibaba-NLP/gme-Qwen2-VL-2B-Instruct",
+        ),
+        ModelVariant.GME_QWEN2_VL_7B_INSTRUCT: ModelConfig(
+            pretrained_model_name="Alibaba-NLP/gme-Qwen2-VL-7B-Instruct",
         ),
     }
 
