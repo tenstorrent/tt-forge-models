@@ -37,7 +37,7 @@ class ModelVariant(StrEnum):
     """Available MobileNetV4 model variants."""
 
     CONV_MEDIUM_E500_R256_IN1K = "Conv_Medium_E500_R256_IN1K"
-    CONV_LARGE_E500_R256_IN1K = "Conv_Large_E500_R256_IN1K"
+    CONV_LARGE_E600_R384_IN1K = "Conv_Large_E600_R384_IN1K"
 
 
 class ModelLoader(ForgeModel):
@@ -48,8 +48,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="hf_hub:timm/mobilenetv4_conv_medium.e500_r256_in1k",
             source=ModelSource.TIMM,
         ),
-        ModelVariant.CONV_LARGE_E500_R256_IN1K: MobileNetV4Config(
-            pretrained_model_name="hf_hub:timm/mobilenetv4_conv_large.e500_r256_in1k",
+        ModelVariant.CONV_LARGE_E600_R384_IN1K: MobileNetV4Config(
+            pretrained_model_name="hf_hub:timm/mobilenetv4_conv_large.e600_r384_in1k",
             source=ModelSource.TIMM,
         ),
     }
