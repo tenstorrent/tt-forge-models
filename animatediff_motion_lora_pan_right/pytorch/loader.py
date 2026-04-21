@@ -99,13 +99,13 @@ class ModelLoader(ForgeModel):
 
         batch_size = 1
         num_frames = 16
-        height = 64
-        width = 64
+        sample_height = 64
+        sample_width = 64
         in_channels = 4
         cross_attention_dim = 768
 
         sample = torch.randn(
-            (batch_size, in_channels, num_frames, height // 8, width // 8),
+            (batch_size, in_channels, num_frames, sample_height, sample_width),
             dtype=dtype,
         )
         timestep = torch.randint(0, 1000, (1,))
