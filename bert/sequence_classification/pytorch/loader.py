@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
+    BOLTUIX_BERT_EMOTION = "boltuix_bert_emotion"
 
 
 class ModelLoader(ForgeModel):
@@ -65,6 +66,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
+        ModelVariant.BOLTUIX_BERT_EMOTION: LLMModelConfig(
+            pretrained_model_name="boltuix/bert-emotion",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -84,6 +89,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
+        ModelVariant.BOLTUIX_BERT_EMOTION: "i love you",
     }
 
     def __init__(self, variant=None):
@@ -122,6 +128,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
+            ModelVariant.BOLTUIX_BERT_EMOTION,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
