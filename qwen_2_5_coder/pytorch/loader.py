@@ -43,6 +43,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_CODER_3B_INSTRUCT_4BIT = "3B_Instruct_4bit"
     QWEN_2_5_CODER_32B_INSTRUCT_AWQ = "32B_Instruct_Awq"
     QWEN_2_5_CODER_32B_INSTRUCT_MLX_8BIT = "32B_Instruct_MLX_8bit"
+    QWEN_2_5_CODER_32B_INSTRUCT_GPTQ_INT8 = "32B_Instruct_GPTQ_Int8"
 
 
 class ModelLoader(ForgeModel):
@@ -114,6 +115,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="lmstudio-community/Qwen2.5-Coder-32B-Instruct-MLX-8bit",
             max_length=128,
         ),
+        ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_GPTQ_INT8: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-Coder-32B-Instruct-GPTQ-Int8",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -156,7 +161,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_2_5_CODER_7B_INSTRUCT_MLX_4BIT,
             ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_AWQ,
             ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_MLX_8BIT,
-            ModelVariant.QWEN_2_5_CODER_0_5B_INSTRUCT_MLX_4BIT,
+            ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_GPTQ_INT8,
         ]:
             group = ModelGroup.VULCAN
 
@@ -221,6 +226,7 @@ class ModelLoader(ForgeModel):
             "unsloth/Qwen2.5-Coder-7B-Instruct-bnb-4bit",
             "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ",
             "lmstudio-community/Qwen2.5-Coder-32B-Instruct-MLX-8bit",
+            "Qwen/Qwen2.5-Coder-32B-Instruct-GPTQ-Int8",
         ):
             model_kwargs["device_map"] = "cpu"
         if "mlx-community" in pretrained_model_name:
