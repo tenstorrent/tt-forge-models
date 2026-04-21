@@ -30,6 +30,9 @@ class ModelVariant(StrEnum):
     MULTILINGUAL_E5_BASE = "intfloat/multilingual-e5-base"
     MULTILINGUAL_E5_LARGE_INSTRUCT = "intfloat/multilingual-e5-large-instruct"
     MULTILINGUAL_E5_SMALL_KO = "dragonkue/multilingual-e5-small-ko"
+    MULTILINGUAL_E5_SMALL_NLI_MATRYOSHKA_128 = (
+        "Fjoralb1/multilingual-e5-small-nli-matryoshka-128"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -50,6 +53,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MULTILINGUAL_E5_SMALL_KO: LLMModelConfig(
             pretrained_model_name="dragonkue/multilingual-e5-small-ko",
+            max_length=512,
+        ),
+        ModelVariant.MULTILINGUAL_E5_SMALL_NLI_MATRYOSHKA_128: LLMModelConfig(
+            pretrained_model_name="Fjoralb1/multilingual-e5-small-nli-matryoshka-128",
             max_length=512,
         ),
     }
