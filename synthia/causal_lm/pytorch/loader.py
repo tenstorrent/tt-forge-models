@@ -33,7 +33,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Synthia v3.0 11B AWQ model loader for causal language modeling."""
+    """Synthia model loader for causal language modeling."""
 
     _VARIANTS = {
         ModelVariant.SYNTHIA_V3_0_11B_AWQ: LLMModelConfig(
