@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
 
     DEBERTA_XLARGE_MNLI = "XLarge_MNLI"
     LLAMA_PROMPT_GUARD_2_22M = "Llama_Prompt_Guard_2_22M"
-    DEBERTA_V3_BASE_RP_NLI = "V3_Base_RP_NLI"
+    DEBERTA_V3_LARGE_GENERATION_SIMILARITY = "V3_Large_Generation_Similarity"
 
 
 class ModelLoader(ForgeModel):
@@ -69,9 +69,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.LLAMA_PROMPT_GUARD_2_22M: ModelConfig(
             pretrained_model_name="meta-llama/Llama-Prompt-Guard-2-22M",
         ),
-        ModelVariant.DEBERTA_V3_BASE_RP_NLI: LLMModelConfig(
-            pretrained_model_name="KomeijiForce/deberta-v3-base-rp-nli",
-            max_length=128,
+        ModelVariant.DEBERTA_V3_LARGE_GENERATION_SIMILARITY: LLMModelConfig(
+            pretrained_model_name="yimingzhang/deberta-v3-large-generation-similarity",
+            max_length=512,
         ),
     }
 
@@ -149,11 +149,12 @@ class ModelLoader(ForgeModel):
                 truncation=True,
                 return_tensors="pt",
             )
-        elif self._variant == ModelVariant.MINICHECK_DEBERTA_V3_LARGE:
-            document, claim = self._SAMPLE_DOC_CLAIMS[self._variant]
+        elif self._variant == ModelVariant.DEBERTA_V3_LARGE_GENERATION_SIMILARITY:
+            generation_a = "The quick brown fox jumps over the lazy dog."
+            generation_b = "A fast brown fox leaps over a sleepy dog."
             inputs = self.tokenizer(
-                document,
-                claim,
+                generation_a,
+                generation_b,
                 max_length=self._variant_config.max_length,
                 padding="max_length",
                 truncation=True,
@@ -178,8 +179,9 @@ class ModelLoader(ForgeModel):
         predicted_class_id = logits.argmax(-1).item()
         if self._variant == ModelVariant.LLAMA_PROMPT_GUARD_2_22M:
             labels = ["BENIGN", "MALICIOUS"]
-        elif self._variant == ModelVariant.DEBERTA_V3_BASE_RP_NLI:
-            labels = ["entailment", "neutral", "contradiction"]
+        elif self._variant == ModelVariant.DEBERTA_V3_LARGE_GENERATION_SIMILARITY:
+            print(f"Predicted class id: {predicted_class_id}")
+            return
         else:
             labels = ["contradiction", "neutral", "entailment"]
         print(f"Predicted: {labels[predicted_class_id]}")
