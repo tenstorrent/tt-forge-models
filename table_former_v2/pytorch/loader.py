@@ -7,7 +7,6 @@ TableFormerV2 model loader implementation for table structure recognition.
 import torch
 from PIL import Image
 from torchvision import transforms
-from transformers import AutoModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -60,8 +59,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        # Importing registers TableFormerV2Config/TableFormerV2 with AutoConfig/AutoModel.
-        import docling_ibm_models.tableformer_v2  # noqa: F401
+        from docling_ibm_models.tableformer_v2 import TableFormerV2
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -70,7 +68,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        model = TableFormerV2.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         return model
