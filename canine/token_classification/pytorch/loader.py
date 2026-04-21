@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available CANINE token classification model variants."""
 
     WTP_CANINE_S_12L = "benjamin/wtp-canine-s-12l"
-    UNIKUD = "malper/unikud"
+    WTP_CANINE_S_1L = "benjamin/wtp-canine-s-1l"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.WTP_CANINE_S_12L: ModelConfig(
             pretrained_model_name="benjamin/wtp-canine-s-12l",
         ),
-        ModelVariant.UNIKUD: ModelConfig(
-            pretrained_model_name="malper/unikud",
+        ModelVariant.WTP_CANINE_S_1L: ModelConfig(
+            pretrained_model_name="benjamin/wtp-canine-s-1l",
         ),
     }
 
