@@ -46,7 +46,7 @@ class ModelVariant(StrEnum):
     """Available Stanza model variants for token classification."""
 
     STANFORDNLP_STANZA_ES = "stanfordnlp/stanza-es"
-    STANFORDNLP_STANZA_JA = "stanfordnlp/stanza-ja"
+    STANFORDNLP_STANZA_FR = "stanfordnlp/stanza-fr"
 
 
 # Per-variant sample text used for NER inference.
@@ -54,7 +54,9 @@ _SAMPLE_TEXTS = {
     ModelVariant.STANFORDNLP_STANZA_ES: (
         "El presidente de México visitó la ciudad de Madrid ayer por la tarde."
     ),
-    ModelVariant.STANFORDNLP_STANZA_JA: "東京都は昨日、山田太郎首相を迎えた。",
+    ModelVariant.STANFORDNLP_STANZA_FR: (
+        "Le président de la France a visité la ville de Paris hier après-midi."
+    ),
 }
 
 
@@ -66,8 +68,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.STANFORDNLP_STANZA_ES: ModelConfig(
             pretrained_model_name="stanfordnlp/stanza-es",
         ),
-        ModelVariant.STANFORDNLP_STANZA_JA: ModelConfig(
-            pretrained_model_name="stanfordnlp/stanza-ja",
+        ModelVariant.STANFORDNLP_STANZA_FR: ModelConfig(
+            pretrained_model_name="stanfordnlp/stanza-fr",
         ),
     }
 
