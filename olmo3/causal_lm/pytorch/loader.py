@@ -34,6 +34,7 @@ class ModelVariant(StrEnum):
     Olmo_3_1125_32B = "3_1125_32b"
     Unsloth_Olmo_3_7B_Instruct = "unsloth_3_7b_instruct"
     Olmo_3_1_7B_RL_Zero_Math = "3.1_7b_rl_zero_math"
+    Geodesic_SFM_Olmo_32B_SFT_Baseline_FYN1668 = "geodesic_sfm_32b_sft_baseline_fyn1668"
 
 
 class ModelLoader(ForgeModel):
@@ -81,6 +82,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="allenai/Olmo-3.1-7B-RL-Zero-Math",
             max_length=256,
         ),
+        ModelVariant.Geodesic_SFM_Olmo_32B_SFT_Baseline_FYN1668: LLMModelConfig(
+            pretrained_model_name="geodesic-research/sfm-olmo_32b_sft_baseline_fyn1668",
+            max_length=256,
+        ),
     }
 
     # Default variant to use
@@ -116,6 +121,7 @@ class ModelLoader(ForgeModel):
         if variant in (
             ModelVariant.Unsloth_Olmo_3_7B_Instruct,
             ModelVariant.Olmo_3_1_7B_RL_Zero_Math,
+            ModelVariant.Geodesic_SFM_Olmo_32B_SFT_Baseline_FYN1668,
         ):
             group = ModelGroup.VULCAN
         else:
