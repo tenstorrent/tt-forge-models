@@ -5,22 +5,24 @@
 Tarsier2 model loader implementation for video/image captioning and description.
 """
 
+import os
 from typing import Optional
 
 import torch
-from datasets import load_dataset
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+from transformers import AutoConfig, AutoProcessor, Qwen2VLForConditionalGeneration
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
 
 
 class ModelVariant(StrEnum):
@@ -63,9 +65,11 @@ class ModelLoader(ForgeModel):
     min_pixels = 56 * 56
     max_pixels = 13 * 28 * 1280
 
+    _PROCESSOR_MODEL = "Qwen/Qwen2-VL-7B-Instruct"
+
     def _load_processor(self):
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            self._PROCESSOR_MODEL,
             min_pixels=self.min_pixels,
             max_pixels=self.max_pixels,
             trust_remote_code=True,
@@ -88,14 +92,11 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
+        model_kwargs["config"] = AutoConfig.from_pretrained(_CONFIG_DIR)
         model = Qwen2VLForConditionalGeneration.from_pretrained(
             model_name, **model_kwargs
         )
         model.eval()
-
-        if self.processor is None:
-            self._load_processor()
-
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
