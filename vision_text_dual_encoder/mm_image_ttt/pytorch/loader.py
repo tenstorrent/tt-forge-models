@@ -40,11 +40,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.CLIP_VIT_LARGE_PATCH14_ROBERTA_LARGE
 
-    _VISION_TEXT_MODEL_PAIRS = {
-        ModelVariant.CLIP_VIT_LARGE_PATCH14_ROBERTA_LARGE: (
-            "openai/clip-vit-large-patch14",
-            "roberta-large",
-        ),
+    _TEXT_MODEL_NAMES = {
+        ModelVariant.CLIP_VIT_LARGE_PATCH14_ROBERTA_LARGE: "roberta-large",
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
@@ -69,7 +66,10 @@ class ModelLoader(ForgeModel):
         )
 
     def _vision_and_text_paths(self):
-        return self._VISION_TEXT_MODEL_PAIRS[self._variant]
+        return (
+            self._variant_config.pretrained_model_name,
+            self._TEXT_MODEL_NAMES[self._variant],
+        )
 
     def _load_processor(self):
         from transformers import (
