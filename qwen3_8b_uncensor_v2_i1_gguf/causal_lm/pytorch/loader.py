@@ -4,7 +4,6 @@
 """
 Qwen3-8B-Uncensor-v2 i1 GGUF model loader implementation for causal language modeling.
 """
-
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -24,24 +23,24 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Qwen3-8B-Uncensor-v2 i1 GGUF model variants for causal language modeling."""
 
-    QWEN3_8B_UNCENSOR_V2_I1_Q4_K_M_GGUF = "Qwen3-8B-Uncensor-v2_i1_Q4_K_M_GGUF"
+    QWEN3_8B_UNCENSOR_V2_I1_GGUF = "8B_UNCENSOR_V2_I1_GGUF"
 
 
 class ModelLoader(ForgeModel):
     """Qwen3-8B-Uncensor-v2 i1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.QWEN3_8B_UNCENSOR_V2_I1_Q4_K_M_GGUF: LLMModelConfig(
+        ModelVariant.QWEN3_8B_UNCENSOR_V2_I1_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/Qwen3-8B-Uncensor-v2-i1-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.QWEN3_8B_UNCENSOR_V2_I1_Q4_K_M_GGUF
+    DEFAULT_VARIANT = ModelVariant.QWEN3_8B_UNCENSOR_V2_I1_GGUF
 
     GGUF_FILE = "Qwen3-8B-Uncensor-v2.i1-Q4_K_M.gguf"
 
-    sample_text = "Give me a short introduction to large language models."
+    sample_text = "Give me a short introduction to large language model."
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -119,6 +118,7 @@ class ModelLoader(ForgeModel):
             messages,
             tokenize=False,
             add_generation_prompt=True,
+            enable_thinking=True,
         )
         prompts = [text]
 
@@ -151,7 +151,6 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
