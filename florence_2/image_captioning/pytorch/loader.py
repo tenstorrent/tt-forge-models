@@ -32,9 +32,14 @@ class ModelVariant(StrEnum):
     BASE_FT = "Base_Ft"
     LARGE = "Large"
     SD3_CAPTIONER = "SD3-Captioner"
+    COMMUNITY_BASE_FT = "Community_Base_Ft"
 
 
 _DESCRIPTION_VARIANTS = {ModelVariant.SD3_CAPTIONER}
+
+# Variants ported to native HF Transformers that use Florence2ForConditionalGeneration
+# directly and do not require trust_remote_code.
+_COMMUNITY_VARIANTS = {ModelVariant.COMMUNITY_BASE_FT}
 
 
 class ModelLoader(ForgeModel):
@@ -52,6 +57,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.SD3_CAPTIONER: ModelConfig(
             pretrained_model_name="gokaygokay/Florence-2-SD3-Captioner",
+        ),
+        ModelVariant.COMMUNITY_BASE_FT: ModelConfig(
+            pretrained_model_name="florence-community/Florence-2-base-ft",
         ),
     }
 
