@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available LFM2.5 model variants for causal language modeling."""
 
     LFM2_5_1_2B_INSTRUCT = "lfm2_5_1_2b_instruct"
+    LFM2_5_1_2B_INSTRUCT_MLX_4BIT = "lfm2_5_1_2b_instruct_mlx_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LFM2_5_1_2B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="unsloth/LFM2.5-1.2B-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.LFM2_5_1_2B_INSTRUCT_MLX_4BIT: LLMModelConfig(
+            pretrained_model_name="LiquidAI/LFM2.5-1.2B-Instruct-MLX-4bit",
             max_length=128,
         ),
     }
@@ -115,6 +120,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._variant == ModelVariant.LFM2_5_1_2B_INSTRUCT_MLX_4BIT:
+            model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
