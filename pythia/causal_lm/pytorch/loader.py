@@ -32,7 +32,7 @@ class ModelVariant(StrEnum):
     PYTHIA_70M_SEED7 = "70M-seed7"
     PYTHIA_70M_SEED8 = "70M-seed8"
     PYTHIA_160M = "160M"
-    PYTHIA_160M_SEED5 = "160M-seed5"
+    PYTHIA_410M_SEED2 = "410M-seed2"
     PYTHIA_410M_SEED3 = "410M-seed3"
     PYTHIA_410M_SEED2 = "410M-seed2"
     PYTHIA_1_4B = "1.4B"
