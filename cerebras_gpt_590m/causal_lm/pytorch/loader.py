@@ -2,8 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-cerebras/Cerebras-GPT-590M model loader implementation for causal language modeling.
+Cerebras-GPT model loader implementation for causal language modeling.
 """
+
+from typing import Optional
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -15,33 +17,51 @@ from ....config import (
     ModelInfo,
     ModelSource,
     ModelTask,
+    StrEnum,
 )
 
 
+class ModelVariant(StrEnum):
+    """Available Cerebras-GPT model variants for causal language modeling."""
+
+    GPT_590M = "590M"
+    GPT_13B = "13B"
+
+
+_VARIANT_MODEL_NAMES = {
+    ModelVariant.GPT_590M: "Cerebras-GPT-590M",
+    ModelVariant.GPT_13B: "Cerebras-GPT-13B",
+}
+
+
 class ModelLoader(ForgeModel):
-    """cerebras/Cerebras-GPT-590M model loader for causal language modeling."""
+    """Cerebras-GPT model loader for causal language modeling."""
 
     _VARIANTS = {
-        "base": LLMModelConfig(
+        ModelVariant.GPT_590M: LLMModelConfig(
             pretrained_model_name="cerebras/Cerebras-GPT-590M",
+            max_length=256,
+        ),
+        ModelVariant.GPT_13B: LLMModelConfig(
+            pretrained_model_name="cerebras/Cerebras-GPT-13B",
             max_length=256,
         ),
     }
 
-    DEFAULT_VARIANT = "base"
+    DEFAULT_VARIANT = ModelVariant.GPT_590M
 
     sample_text = "Generative AI is "
 
-    def __init__(self, variant=None):
+    def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
 
     @classmethod
-    def _get_model_info(cls, variant=None) -> ModelInfo:
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
-            variant = "base"
+            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Cerebras-GPT-590M",
+            model=_VARIANT_MODEL_NAMES[variant],
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
