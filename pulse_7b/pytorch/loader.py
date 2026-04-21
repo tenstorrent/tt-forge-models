@@ -9,7 +9,12 @@ of ECG image interpretation.
 from typing import Optional
 
 from PIL import Image
-from transformers import LlavaForConditionalGeneration, AutoProcessor
+from transformers import (
+    AutoConfig,
+    LlavaConfig,
+    LlavaForConditionalGeneration,
+    AutoProcessor,
+)
 
 from ...base import ForgeModel
 from ...config import (
@@ -22,6 +27,14 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import cast_input_to_type, get_file
+
+
+class _LlavaLlamaConfig(LlavaConfig):
+    # Older PULSE-7B checkpoints use model_type=llava_llama; map it to LlavaConfig.
+    model_type = "llava_llama"
+
+
+AutoConfig.register("llava_llama", _LlavaLlamaConfig, exist_ok=True)
 
 
 class ModelVariant(StrEnum):
@@ -71,15 +84,16 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the PULSE-7B model instance."""
+        if self.processor is None:
+            self._load_processor()
+
         model_name = self._variant_config.pretrained_model_name
         model = LlavaForConditionalGeneration.from_pretrained(str(model_name), **kwargs)
+        model.resize_token_embeddings(len(self.processor.tokenizer))
         model.eval()
 
         if dtype_override:
             model = model.to(dtype_override)
-
-        if self.processor is None:
-            self._load_processor()
 
         return model
 
