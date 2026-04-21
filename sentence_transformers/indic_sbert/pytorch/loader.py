@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available model variants for IndicSBERT."""
 
     INDIC_SENTENCE_SIMILARITY_SBERT = "l3cube-pune/indic-sentence-similarity-sbert"
+    BENGALI_SENTENCE_SIMILARITY_SBERT = "l3cube-pune/bengali-sentence-similarity-sbert"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,15 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="l3cube-pune/indic-sentence-similarity-sbert",
             max_length=128,
         ),
+        ModelVariant.BENGALI_SENTENCE_SIMILARITY_SBERT: LLMModelConfig(
+            pretrained_model_name="l3cube-pune/bengali-sentence-similarity-sbert",
+            max_length=128,
+        ),
+    }
+
+    _SAMPLE_SENTENCES = {
+        ModelVariant.INDIC_SENTENCE_SIMILARITY_SBERT: "यह एक उदाहरण वाक्य है वाक्य समानता के लिए।",
+        ModelVariant.BENGALI_SENTENCE_SIMILARITY_SBERT: "এটি বাক্য সাদৃশ্যের জন্য একটি উদাহরণ বাক্য।",
     }
 
     DEFAULT_VARIANT = ModelVariant.INDIC_SENTENCE_SIMILARITY_SBERT
@@ -88,7 +98,10 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer()
 
         if sentence is None:
-            sentence = "यह एक उदाहरण वाक्य है वाक्य समानता के लिए।"
+            sentence = self._SAMPLE_SENTENCES.get(
+                self._variant,
+                "यह एक उदाहरण वाक्य है वाक्य समानता के लिए।",
+            )
 
         max_length = getattr(self._variant_config, "max_length", 128)
 
