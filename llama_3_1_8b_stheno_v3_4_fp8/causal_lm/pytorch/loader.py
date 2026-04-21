@@ -1,12 +1,8 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
 Llama 3.1 8B Stheno v3.4 FP8 model loader implementation for causal language modeling.
-
-This loader supports the AutoFP8-quantized variant of Sao10K/Llama-3.1-8B-Stheno-v3.4,
-which applies FP8 (E4M3) quantization to weights and activations while keeping the
-lm_head layer in BF16.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -27,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Llama 3.1 8B Stheno v3.4 FP8 model variants for causal language modeling."""
 
-    LLAMA_3_1_8B_STHENO_V3_4_FP8 = "8B_STHENO_V3_4_FP8"
+    LLAMA_3_1_8B_STHENO_V3_4_FP8 = "8B_Stheno_v3.4_FP8"
 
 
 class ModelLoader(ForgeModel):
