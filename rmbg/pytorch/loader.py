@@ -114,16 +114,19 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # deform_conv2d (used in BiRefNet) does not support bfloat16
-        model_kwargs = {"torch_dtype": torch.float32}
+        model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         # Load pre-trained model from HuggingFace
         model = AutoModelForImageSegmentation.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
+
+        # deform_conv2d (used in BiRefNet) does not support bfloat16; cast to float32
+        if dtype_override is None:
+            model = model.to(torch.float32)
 
         # Set matmul precision
         torch.set_float32_matmul_precision(["high", "highest"][0])
