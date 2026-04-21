@@ -75,6 +75,19 @@ class ModelLoader(ForgeModel):
             ]
         )
 
+    @staticmethod
+    def _patch_rename_layer_scale():
+        import timm
+
+        LayerScale = timm.models.vision_transformer.LayerScale
+        if LayerScale.__name__ == "RenameLayerScale":
+            original_init = LayerScale.__init__
+
+            def patched_init(self, dim, init_values=1e-5, inplace=False, **kwargs):
+                original_init(self, dim, init_values=init_values, inplace=inplace)
+
+            LayerScale.__init__ = patched_init
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the KEEP model instance.
 
@@ -84,7 +97,14 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The KEEP model instance for pathology image-text similarity.
         """
+        from transformers import AutoConfig
+
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        self._patch_rename_layer_scale()
 
         model_kwargs = {"trust_remote_code": True}
 
@@ -92,7 +112,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        model = AutoModel.from_pretrained(
+            pretrained_model_name, config=config, **model_kwargs
+        )
         model.eval()
 
         return model
