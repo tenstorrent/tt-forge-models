@@ -158,7 +158,7 @@ class ModelLoader(ForgeModel):
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
-        if self.variant == ModelVariant.YANDEX_GPT_5_LITE_8B_PRETRAIN:
+        if self._variant == ModelVariant.YANDEX_GPT_5_LITE_8B_PRETRAIN:
             prompts = [self.sample_text]
         else:
             messages = [{"role": "user", "content": self.sample_text}]
