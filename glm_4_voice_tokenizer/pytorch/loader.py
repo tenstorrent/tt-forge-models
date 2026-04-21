@@ -10,12 +10,12 @@ from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -40,6 +40,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self._feature_extractor = None
+        self._decoder_start_token_id = 0
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -56,33 +57,38 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_feature_extractor(self, dtype_override=None):
-        from transformers import WhisperFeatureExtractor
+        from transformers import AutoConfig, WhisperFeatureExtractor
 
         self._feature_extractor = WhisperFeatureExtractor.from_pretrained(
             self._variant_config.pretrained_model_name,
         )
 
+        config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name, trust_remote_code=True
+        )
+        self._decoder_start_token_id = getattr(config, "decoder_start_token_id", 0)
+
         return self._feature_extractor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import torch
         from transformers import AutoModel
 
-        model_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        target_dtype = dtype_override if dtype_override is not None else torch.float32
+        model_kwargs = {"trust_remote_code": True, "torch_dtype": target_dtype}
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
+        model.to(target_dtype)
 
         return model
 
     def load_inputs(self, dtype_override=None):
         import numpy as np
+        import torch
 
         if self._feature_extractor is None:
             self._load_feature_extractor(dtype_override=dtype_override)
@@ -98,6 +104,20 @@ class ModelLoader(ForgeModel):
             audio_array,
             sampling_rate=sampling_rate,
             return_tensors="pt",
+        )
+
+        if dtype_override is not None:
+            inputs = {
+                k: (
+                    v.to(dtype_override)
+                    if isinstance(v, torch.Tensor) and v.is_floating_point()
+                    else v
+                )
+                for k, v in inputs.items()
+            }
+
+        inputs["decoder_input_ids"] = (
+            torch.ones((1, 1), dtype=torch.long) * self._decoder_start_token_id
         )
 
         return inputs
