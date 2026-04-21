@@ -23,7 +23,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -35,6 +34,13 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+_TRANSFORMER_IN_CHANNELS = 16
+_LATENT_DEPTH = 2
+_LATENT_HEIGHT = 4
+_LATENT_WIDTH = 4
+_TEXT_HIDDEN_DIM = 4096
+_TEXT_SEQ_LEN = 8
 
 VACE_GGUF_REPO = "QuantStack/Wan2.1_14B_VACE-GGUF"
 FUSIONX_VACE_GGUF_REPO = "QuantStack/Wan2.1_T2V_14B_FusionX_VACE-GGUF"
@@ -111,13 +117,14 @@ class ModelLoader(ForgeModel):
 
         Uses diffusers GGUFQuantizationConfig to load the quantized transformer,
         then constructs the full WanVACEPipeline with the base model's VAE in
-        float32 for numerical stability.
+        float32 for numerical stability. Returns the transformer (WanVACETransformer3DModel)
+        so the test framework receives a torch.nn.Module.
         """
         from diffusers import (
             AutoencoderKLWan,
             GGUFQuantizationConfig,
-            WanTransformer3DModel,
             WanVACEPipeline,
+            WanVACETransformer3DModel,
         )
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
@@ -126,7 +133,7 @@ class ModelLoader(ForgeModel):
         gguf_repo = _GGUF_REPOS[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        transformer = WanTransformer3DModel.from_single_file(
+        transformer = WanVACETransformer3DModel.from_single_file(
             f"https://huggingface.co/{gguf_repo}/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
@@ -145,24 +152,32 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
         )
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for VACE reference-to-video generation."""
-        if prompt is None:
-            prompt = (
-                "A character walking gracefully across a sunlit garden, "
-                "smooth animation, detailed motion, cinematic lighting"
-            )
+        """Prepare synthetic inputs for the WanVACETransformer3DModel forward pass."""
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        batch_size = 1
+        seq_len = _LATENT_DEPTH * _LATENT_HEIGHT * _LATENT_WIDTH
 
-        ref_image = Image.new("RGB", (832, 480), color=(128, 128, 200))
+        hidden_states = torch.randn(
+            batch_size, seq_len, _TRANSFORMER_IN_CHANNELS, dtype=dtype
+        )
+        encoder_hidden_states = torch.randn(
+            batch_size, _TEXT_SEQ_LEN, _TEXT_HIDDEN_DIM, dtype=dtype
+        )
+        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
 
         return {
-            "prompt": prompt,
-            "reference_images": [ref_image],
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "timestep": timestep,
+            "return_dict": False,
         }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if isinstance(output, tuple):
+            return output[0]
+        if hasattr(output, "sample"):
+            return output.sample
+        return output
