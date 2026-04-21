@@ -64,13 +64,19 @@ class MapAnythingWrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
         self.model = model
+        self._data_norm_type = model.encoder.data_norm_type
+        from uniception.models.encoders.image_normalizations import (
+            IMAGE_NORMALIZATION_DICT,
+        )
+
+        norm = IMAGE_NORMALIZATION_DICT[self._data_norm_type]
+        self.register_buffer("img_mean", norm.mean.view(1, 3, 1, 1))
+        self.register_buffer("img_std", norm.std.view(1, 3, 1, 1))
 
     def forward(self, pixel_values):
-        norm_type = self.model.encoder.data_norm_type
-        views = [
-            {"img": img.permute(1, 2, 0) * 255.0, "data_norm_type": [norm_type]}
-            for img in pixel_values
-        ]
+        # pixel_values: (B, C, H, W) in [0, 1] range; normalize for the encoder
+        normalized = (pixel_values - self.img_mean) / self.img_std
+        views = [{"img": normalized, "data_norm_type": [self._data_norm_type]}]
         predictions = self.model.infer(views)
         return predictions[0]["pts3d"]
 
