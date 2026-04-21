@@ -59,7 +59,9 @@ class ModelVariant(StrEnum):
     VIT_BASE_PATCH16_224_AUGREG_IN21K = "Base_Patch16_224_AugReg_IN21K"
     VIT_BASE_PATCH16_384_AUGREG_IN21K_FT_IN1K = "Base_Patch16_384_AugReg_IN21K_FT_IN1K"
     VIT_BASE_PATCH32_CLIP_224_LAION2B_E16 = "Base_Patch32_CLIP_224_LAION2B_E16"
-    VIT_LARGE_PATCH14_CLIP_224_LAION400M_E32 = "Large_Patch14_CLIP_224_LAION400M_E32"
+    VIT_SMALL_PATCH32_224_AUGREG_IN21K_FT_IN1K = (
+        "Small_Patch32_224_AugReg_IN21K_FT_IN1K"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -139,8 +141,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="vit_base_patch32_clip_224.laion2b_e16",
             source=ModelSource.TIMM,
         ),
-        ModelVariant.VIT_LARGE_PATCH14_CLIP_224_LAION400M_E32: ViTConfig(
-            pretrained_model_name="vit_large_patch14_clip_224.laion400m_e32",
+        ModelVariant.VIT_SMALL_PATCH32_224_AUGREG_IN21K_FT_IN1K: ViTConfig(
+            pretrained_model_name="vit_small_patch32_224.augreg_in21k_ft_in1k",
             source=ModelSource.TIMM,
         ),
     }
