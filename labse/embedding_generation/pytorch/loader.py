@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
 
     LABSE = "LaBSE"
     RASA_LABSE = "rasa/LaBSE"
-    PVL_LABSE_BERT = "pvl/labse_bert"
+    SERGEYZH_LABSE_RU_TURBO = "sergeyzh/LaBSE-ru-turbo"
 
 
 class ModelLoader(ForgeModel):
@@ -43,8 +43,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.RASA_LABSE: ModelConfig(
             pretrained_model_name="rasa/LaBSE",
         ),
-        ModelVariant.PVL_LABSE_BERT: ModelConfig(
-            pretrained_model_name="pvl/labse_bert",
+        ModelVariant.SERGEYZH_LABSE_RU_TURBO: ModelConfig(
+            pretrained_model_name="sergeyzh/LaBSE-ru-turbo",
         ),
     }
 
