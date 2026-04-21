@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Orange Speaker-wavLM-tbr model loader implementation for speaker embeddings.
+WavLM-based speaker timbral embedding (tbr) model loader implementation.
 """
 
 from typing import Optional
@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Orange Speaker-wavLM-tbr model loader implementation for speaker timbral embeddings."""
+    """WavLM-based speaker timbral embedding model loader implementation."""
 
     _VARIANTS = {
         ModelVariant.SPEAKER_WAVLM_TBR: ModelConfig(
