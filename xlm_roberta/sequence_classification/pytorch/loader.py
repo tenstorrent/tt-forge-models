@@ -29,8 +29,8 @@ class ModelVariant(StrEnum):
     XLM_ROBERTA_LARGE_HUNGARIAN_LEGISLATIVE_CAP_V3 = (
         "poltextlab/xlm-roberta-large-hungarian-legislative-cap-v3"
     )
-    XLM_ROBERTA_BASE_SNLI_MNLI_ANLI_XNLI = (
-        "symanto/xlm-roberta-base-snli-mnli-anli-xnli"
+    XLM_ROBERTA_LARGE_SPANISH_MEDIA_CAP_V3 = (
+        "poltextlab/xlm-roberta-large-spanish-media-cap-v3"
     )
 
 
@@ -50,8 +50,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="poltextlab/xlm-roberta-large-hungarian-legislative-cap-v3",
             max_length=128,
         ),
-        ModelVariant.XLM_ROBERTA_BASE_SNLI_MNLI_ANLI_XNLI: LLMModelConfig(
-            pretrained_model_name="symanto/xlm-roberta-base-snli-mnli-anli-xnli",
+        ModelVariant.XLM_ROBERTA_LARGE_SPANISH_MEDIA_CAP_V3: LLMModelConfig(
+            pretrained_model_name="poltextlab/xlm-roberta-large-spanish-media-cap-v3",
             max_length=128,
         ),
     }
