@@ -19,7 +19,7 @@ from third_party.tt_forge_models.base import ForgeModel
 
 _SAMPLE_TEXTS = {
     "dbmdz/bert-base-german-uncased": "Die Hauptstadt von Deutschland ist [MASK].",
-    "avichr/heBERT": "הקורונה לקחה את [MASK] ולנו לא נשאר דבר.",
+    "Base_Polish_Cased_v1": "Adam Mickiewicz wielkim polskim [MASK] był.",
 }
 
 
@@ -37,7 +37,7 @@ class ModelVariant(StrEnum):
     LEGAL_BERT_BASE_UNCASED = "nlpaueb/legal-bert-base-uncased"
     RETROMAE_MSMARCO_DISTILL = "Shitao/RetroMAE_MSMARCO_distill"
     BERT_LARGE_UNCASED_WWM = "Large_Uncased_Whole_Word_Masking"
-    HEBERT = "avichr/heBERT"
+    BERT_BASE_POLISH_CASED_V1 = "Base_Polish_Cased_v1"
 
 
 class ModelLoader(ForgeModel):
@@ -89,8 +89,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bert-large-uncased-whole-word-masking",
             max_length=128,
         ),
-        ModelVariant.HEBERT: LLMModelConfig(
-            pretrained_model_name="avichr/heBERT",
+        ModelVariant.BERT_BASE_POLISH_CASED_V1: LLMModelConfig(
+            pretrained_model_name="dkleczek/bert-base-polish-cased-v1",
             max_length=128,
         ),
     }
@@ -140,7 +140,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LEGAL_BERT_BASE_UNCASED,
             ModelVariant.RETROMAE_MSMARCO_DISTILL,
             ModelVariant.BERT_LARGE_UNCASED_WWM,
-            ModelVariant.HEBERT,
+            ModelVariant.BERT_BASE_POLISH_CASED_V1,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
