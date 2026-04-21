@@ -40,6 +40,9 @@ class ModelVariant(StrEnum):
     VIT_BASE_PATCH16_CLIP_224_LAION2B_FT_IN12K_IN1K = (
         "ViT_Base_Patch16_CLIP_224_LAION2B_FT_IN12K_IN1K"
     )
+    VIT_BASE_PATCH32_CLIP_224_METACLIP_2PT5B = (
+        "ViT_Base_Patch32_CLIP_224_MetaCLIP_2pt5B"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -52,6 +55,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.VIT_BASE_PATCH16_CLIP_224_LAION2B_FT_IN12K_IN1K: ViTCLIPConfig(
             pretrained_model_name="hf_hub:timm/vit_base_patch16_clip_224.laion2b_ft_in12k_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.VIT_BASE_PATCH32_CLIP_224_METACLIP_2PT5B: ViTCLIPConfig(
+            pretrained_model_name="hf_hub:timm/vit_base_patch32_clip_224.metaclip_2pt5b",
             source=ModelSource.TIMM,
         ),
     }
