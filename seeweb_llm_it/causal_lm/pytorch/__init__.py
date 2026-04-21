@@ -2,7 +2,4 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""
-SeewebLLM-it PyTorch model implementation for Tenstorrent projects.
-"""
 from .loader import ModelLoader, ModelVariant
