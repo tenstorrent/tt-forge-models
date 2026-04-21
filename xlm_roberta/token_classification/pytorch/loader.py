@@ -25,12 +25,12 @@ class ModelVariant(StrEnum):
     """Available XLM-RoBERTa token classification model variants."""
 
     CRYPTO_NER = "CryptoNER"
-    INDONESIAN_NER = "IndonesianNER"
+    JAPANESE_NER = "JapaneseNER"
 
 
 _VARIANT_SAMPLE_TEXTS = {
     ModelVariant.CRYPTO_NER: "I bought mass Ethereum and mass Bitcoin on Uniswap yesterday",
-    ModelVariant.INDONESIAN_NER: "Gubernur Jawa Barat meresmikan proyek senilai Rp 10 miliar.",
+    ModelVariant.JAPANESE_NER: "鈴井は4月の陽気の良い日に、鈴をつけて北海道のトムラウシへと登った",
 }
 
 
@@ -41,8 +41,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.CRYPTO_NER: ModelConfig(
             pretrained_model_name="covalenthq/cryptoNER",
         ),
-        ModelVariant.INDONESIAN_NER: ModelConfig(
-            pretrained_model_name="khoirif/xlm-roberta-base-indonesian-ner",
+        ModelVariant.JAPANESE_NER: ModelConfig(
+            pretrained_model_name="tsmatz/xlm-roberta-ner-japanese",
         ),
     }
 
