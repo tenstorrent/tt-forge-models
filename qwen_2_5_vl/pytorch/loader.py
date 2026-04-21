@@ -113,13 +113,6 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT:
-            group = ModelGroup.RED
-        elif variant == ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_BNB_4BIT:
-            group = ModelGroup.VULCAN
-        else:
-            group = ModelGroup.GENERALITY
-
         return ModelInfo(
             model="Qwen 2.5-VL",
             variant=variant,
