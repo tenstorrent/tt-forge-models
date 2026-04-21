@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.INDIC_GEMMA_7B_SFT_NAVARASA_2_0_GGUF
 
-    GGUF_FILE = "Indic-gemma-7b-finetuned-sft-Navarasa-2.0-i1-Q4_K_M.gguf"
+    GGUF_FILE = "Indic-gemma-7b-finetuned-sft-Navarasa-2.0.i1-Q4_K_M.gguf"
 
     sample_text = "What is your favorite city?"
 
