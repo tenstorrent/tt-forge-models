@@ -125,8 +125,8 @@ class ModelVariant(StrEnum):
     # RLHFlow variants
     RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA = "RLHFlow_3.1_8B_PRM_Deepseek_Data"
 
-    # Marin variants
-    MARIN_8B_BASE = "Marin_8B_Base"
+    # baddddddddd variants
+    BADDDDDDDDD_LLAMA_85M_SENTENCEPIECE_16K = "Baddddddddd_85M_Sentencepiece_16k"
 
 
 class ModelLoader(ForgeModel):
@@ -294,9 +294,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RLHFlow/Llama3.1-8B-PRM-Deepseek-Data",
             max_length=128,
         ),
-        # Marin variants
-        ModelVariant.MARIN_8B_BASE: LLMModelConfig(
-            pretrained_model_name="marin-community/marin-8b-base",
+        # baddddddddd variants
+        ModelVariant.BADDDDDDDDD_LLAMA_85M_SENTENCEPIECE_16K: LLMModelConfig(
+            pretrained_model_name="baddddddddd/llama-85m-sentencepiece-16k",
             max_length=128,
         ),
     }
@@ -380,6 +380,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.AMD_QUARK_TINY_LLAMA,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA,
+            ModelVariant.BADDDDDDDDD_LLAMA_85M_SENTENCEPIECE_16K,
         ]:
             group = ModelGroup.VULCAN
         else:
