@@ -57,13 +57,13 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
-        from transformers import AutoProcessor
+        from transformers import AutoFeatureExtractor
 
         processor_kwargs = {}
         if dtype_override is not None:
             processor_kwargs["dtype"] = dtype_override
 
-        self._processor = AutoProcessor.from_pretrained(
+        self._processor = AutoFeatureExtractor.from_pretrained(
             self._variant_config.pretrained_model_name, **processor_kwargs
         )
 
