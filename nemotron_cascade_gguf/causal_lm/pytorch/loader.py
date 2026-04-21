@@ -4,7 +4,6 @@
 """
 Nemotron-Cascade GGUF model loader implementation for causal language modeling.
 """
-
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -24,22 +23,24 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Nemotron-Cascade GGUF model variants for causal language modeling."""
 
-    NEMOTRON_CASCADE_2_30B_A3B_GGUF = "Cascade_2_30B_A3B_GGUF"
+    NEMOTRON_CASCADE_2_30B_A3B_MXFP4_MOE_GGUF = "Cascade_2_30B_A3B_MXFP4_MOE_GGUF"
 
 
 class ModelLoader(ForgeModel):
     """Nemotron-Cascade GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.NEMOTRON_CASCADE_2_30B_A3B_GGUF: LLMModelConfig(
-            pretrained_model_name="DevQuasar/nvidia.Nemotron-Cascade-2-30B-A3B-GGUF",
+        ModelVariant.NEMOTRON_CASCADE_2_30B_A3B_MXFP4_MOE_GGUF: LLMModelConfig(
+            pretrained_model_name="noctrex/Nemotron-Cascade-2-30B-A3B-MXFP4_MOE-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.NEMOTRON_CASCADE_2_30B_A3B_GGUF
+    DEFAULT_VARIANT = ModelVariant.NEMOTRON_CASCADE_2_30B_A3B_MXFP4_MOE_GGUF
 
-    GGUF_FILE = "nvidia.Nemotron-Cascade-2-30B-A3B.Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.NEMOTRON_CASCADE_2_30B_A3B_MXFP4_MOE_GGUF: "Nemotron-Cascade-2-30B-A3B-MXFP4_MOE_BF16.gguf",
+    }
 
     sample_text = "Give me a short introduction to large language models."
 
@@ -50,6 +51,10 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -66,7 +71,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -86,11 +91,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -138,6 +143,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
