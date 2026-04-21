@@ -4,6 +4,7 @@
 """
 Qwen3.5 35B A3B Heretic v2 eq v1 GGUF model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -23,6 +24,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Qwen3.5 35B A3B Heretic v2 eq v1 GGUF model variants for causal language modeling."""
 
+    QWEN_3_5_35B_A3B_HERETIC_V2_EQ_V1_I1_GGUF = "35B_A3B_Heretic_v2_eq_v1_I1_GGUF"
     QWEN_3_5_35B_A3B_HERETIC_V2_EQ_V1_GGUF = "35B_A3B_Heretic_v2_eq_v1_GGUF"
 
 
@@ -30,15 +32,22 @@ class ModelLoader(ForgeModel):
     """Qwen3.5 35B A3B Heretic v2 eq v1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.QWEN_3_5_35B_A3B_HERETIC_V2_EQ_V1_GGUF: LLMModelConfig(
+        ModelVariant.QWEN_3_5_35B_A3B_HERETIC_V2_EQ_V1_I1_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/Qwen3.5-35B-A3B-heretic-v2-eq-v1-i1-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_35B_A3B_HERETIC_V2_EQ_V1_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Qwen3.5-35B-A3B-heretic-v2-eq-v1-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.QWEN_3_5_35B_A3B_HERETIC_V2_EQ_V1_GGUF
+    DEFAULT_VARIANT = ModelVariant.QWEN_3_5_35B_A3B_HERETIC_V2_EQ_V1_I1_GGUF
 
-    GGUF_FILE = "Qwen3.5-35B-A3B-heretic-v2-eq-v1.i1-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.QWEN_3_5_35B_A3B_HERETIC_V2_EQ_V1_I1_GGUF: "Qwen3.5-35B-A3B-heretic-v2-eq-v1.i1-Q4_K_M.gguf",
+        ModelVariant.QWEN_3_5_35B_A3B_HERETIC_V2_EQ_V1_GGUF: "Qwen3.5-35B-A3B-heretic-v2-eq-v1.Q4_K_M.gguf",
+    }
 
     sample_text = "Give me a short introduction to large language model."
 
@@ -61,11 +70,16 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @property
+    def _gguf_file(self):
+        """Get the GGUF filename for the current variant."""
+        return self._GGUF_FILES.get(self._variant)
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self._gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +99,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self._gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self._gguf_file
             )
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
@@ -163,6 +177,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
         )
         return self.config
