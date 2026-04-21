@@ -4,8 +4,8 @@
 """
 Synthia model loader implementation for causal language modeling.
 
-Covers TheBloke's AWQ-quantized Solar-based 11B checkpoint and migtissera's
-Llama-2-based 70B v1.5 checkpoint, both fine-tuned for chain-of-thought reasoning.
+Supports Migel Tissera's SynthIA fine-tunes, including the AWQ-quantized
+Solar-based v3.0 11B release and the Mistral-7B-based v1.3 checkpoint.
 """
 
 import torch
