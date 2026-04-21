@@ -34,7 +34,7 @@ class ModelVariant(StrEnum):
         "CAMeL-Lab/bert-base-arabic-camelbert-msa-ner"
     )
     P208P2002_ZH_WIKI_PUNCTUATION_RESTORE = "p208p2002/zh-wiki-punctuation-restore"
-    NOVAKAT_NERKOR_CARS_ONPP_HUBERT = "novakat/nerkor-cars-onpp-hubert"
+    YASHPWR_RESUME_NER_BERT_V2 = "yashpwr/resume-ner-bert-v2"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="p208p2002/zh-wiki-punctuation-restore",
             max_length=128,
         ),
-        ModelVariant.NOVAKAT_NERKOR_CARS_ONPP_HUBERT: LLMModelConfig(
-            pretrained_model_name="novakat/nerkor-cars-onpp-hubert",
+        ModelVariant.YASHPWR_RESUME_NER_BERT_V2: LLMModelConfig(
+            pretrained_model_name="yashpwr/resume-ner-bert-v2",
             max_length=128,
         ),
     }
@@ -96,8 +96,11 @@ class ModelLoader(ForgeModel):
             )
         elif self._variant == ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE:
             self.sample_text = "在一般情况下句子的结尾要用句号来表示停顿"
-        elif self._variant == ModelVariant.NOVAKAT_NERKOR_CARS_ONPP_HUBERT:
-            self.sample_text = "Soros György alapítványt hozott létre New Yorkban."
+        elif self._variant == ModelVariant.YASHPWR_RESUME_NER_BERT_V2:
+            self.sample_text = (
+                "John Smith is a senior software engineer with 8 years of "
+                "experience at Google. Contact: john.smith@gmail.com"
+            )
         else:
             self.sample_text = "HuggingFace is a company based in Paris and New York"
         self.max_length = self._variant_config.max_length
@@ -123,7 +126,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HATMIMOHA_ARABIC_NER,
             ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER,
             ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE,
-            ModelVariant.NOVAKAT_NERKOR_CARS_ONPP_HUBERT,
+            ModelVariant.YASHPWR_RESUME_NER_BERT_V2,
         ):
             group = ModelGroup.VULCAN
 
