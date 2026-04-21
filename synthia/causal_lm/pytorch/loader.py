@@ -29,7 +29,7 @@ class ModelVariant(StrEnum):
     """Available Synthia model variants."""
 
     SYNTHIA_V3_0_11B_AWQ = "Synthia_v3.0_11B_Awq"
-    SYNTHIA_70B_V1_5 = "SynthIA_70B_v1.5"
+    SYNTHIA_7B_V1_3 = "SynthIA_7B_v1.3"
 
 
 class ModelLoader(ForgeModel):
@@ -40,8 +40,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="TheBloke/Synthia-v3.0-11B-AWQ",
             max_length=128,
         ),
-        ModelVariant.SYNTHIA_70B_V1_5: LLMModelConfig(
-            pretrained_model_name="migtissera/SynthIA-70B-v1.5",
+        ModelVariant.SYNTHIA_7B_V1_3: LLMModelConfig(
+            pretrained_model_name="migtissera/SynthIA-7B-v1.3",
             max_length=128,
         ),
     }
