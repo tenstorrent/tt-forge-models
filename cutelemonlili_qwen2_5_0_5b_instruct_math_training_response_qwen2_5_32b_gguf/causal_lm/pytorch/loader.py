@@ -23,9 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available cutelemonlili Qwen2.5 0.5B Instruct MATH Training Response Qwen2.5 32B GGUF model variants for causal language modeling."""
 
-    CUTELEMONLILI_QWEN2_5_0_5B_INSTRUCT_MATH_TRAINING_RESPONSE_QWEN2_5_32B_Q4_K_M_GGUF = (
-        "cutelemonlili_Qwen2.5-0.5B-Instruct_MATH_training_response_Qwen2.5_32B_Q4_K_M_GGUF"
-    )
+    CUTELEMONLILI_QWEN2_5_0_5B_INSTRUCT_MATH_TRAINING_RESPONSE_QWEN2_5_32B_Q4_K_M_GGUF = "cutelemonlili_Qwen2.5-0.5B-Instruct_MATH_training_response_Qwen2.5_32B_Q4_K_M_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -38,7 +36,9 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.CUTELEMONLILI_QWEN2_5_0_5B_INSTRUCT_MATH_TRAINING_RESPONSE_QWEN2_5_32B_Q4_K_M_GGUF
+    DEFAULT_VARIANT = (
+        ModelVariant.CUTELEMONLILI_QWEN2_5_0_5B_INSTRUCT_MATH_TRAINING_RESPONSE_QWEN2_5_32B_Q4_K_M_GGUF
+    )
 
     GGUF_FILE = "Qwen2.5-0.5B-Instruct_MATH_training_response_Qwen2.5_32B.Q4_K_M.gguf"
 
