@@ -6,6 +6,7 @@ LFM2-1.2B-Tool GGUF model loader implementation for causal language modeling.
 
 Supports LiquidAI's LFM2-1.2B-Tool model in GGUF format, fine-tuned for tool/function calling.
 """
+
 import importlib.metadata
 
 import torch
@@ -13,6 +14,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 import transformers.utils.import_utils as _tx_import_utils
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
 
 
 def _refresh_gguf_detection():
@@ -20,6 +22,10 @@ def _refresh_gguf_detection():
         importlib.metadata.packages_distributions()
     )
     _tx_import_utils.is_gguf_available.cache_clear()
+
+
+if "lfm2" not in GGUF_TO_FAST_CONVERTERS:
+    GGUF_TO_FAST_CONVERTERS["lfm2"] = GGUFGPTConverter
 
 
 from ....base import ForgeModel
