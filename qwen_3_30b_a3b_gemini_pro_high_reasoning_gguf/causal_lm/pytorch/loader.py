@@ -26,8 +26,8 @@ class ModelVariant(StrEnum):
     QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_GGUF = (
         "30B_A3B_Gemini_Pro_High_Reasoning_GGUF"
     )
-    QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_SYUJIL_I1_GGUF = (
-        "30B_A3B_Gemini_Pro_High_Reasoning_Syujil_i1_GGUF"
+    QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_HERETIC_GGUF = (
+        "30B_A3B_Gemini_Pro_High_Reasoning_heretic_GGUF"
     )
 
 
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-HI8-GGUF",
             max_length=128,
         ),
-        ModelVariant.QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_SYUJIL_I1_GGUF: LLMModelConfig(
-            pretrained_model_name="Syujil/Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-ABLITERATED-UNCENSORED-i1-GGUF",
+        ModelVariant.QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_HERETIC_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-HI8-heretic-GGUF",
             max_length=128,
         ),
     }
@@ -49,10 +49,14 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_GGUF: "Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-HI8.Q4_K_M.gguf",
-        ModelVariant.QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_SYUJIL_I1_GGUF: "Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-ABLITERATED-UNCENSORED.i1-Q4_K_M.gguf",
+        ModelVariant.QWEN_3_30B_A3B_GEMINI_PRO_HIGH_REASONING_HERETIC_GGUF: "Qwen3-30B-A3B-Gemini-Pro-High-Reasoning-2507-HI8-heretic.Q4_K_M.gguf",
     }
 
     sample_text = "Give me a short introduction to large language model."
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
