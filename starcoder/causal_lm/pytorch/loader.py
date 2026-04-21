@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available StarCoder model variants for causal language modeling."""
 
     STARCODER_15B = "15B"
+    STARCHAT_ALPHA = "starchat_alpha"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.STARCODER_15B: LLMModelConfig(
             pretrained_model_name="bigcode/starcoder",
+            max_length=256,
+        ),
+        ModelVariant.STARCHAT_ALPHA: LLMModelConfig(
+            pretrained_model_name="HuggingFaceH4/starchat-alpha",
             max_length=256,
         ),
     }
