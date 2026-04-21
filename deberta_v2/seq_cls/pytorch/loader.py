@@ -23,7 +23,9 @@ class ModelVariant(StrEnum):
     """Available DeBERTa-v2 model variants for sequence classification."""
 
     SCALETECH_NSFW_CLASSIFIER = "scaleTech_nsfw_classifier"
-    HUGOGIDDINS_ISCRYPTO_FINETUNED_V3 = "hugogiddins_iscrypto_finetuned_v3"
+    HENOKYEMAM_LLAMA_GUARD_SAFEGATE_SS_AUGUST15 = (
+        "henokyemam_llama_guard_safegate_ss_august15"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -33,8 +35,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.SCALETECH_NSFW_CLASSIFIER: ModelConfig(
             pretrained_model_name="scaleTech/myplaygirl-nsfw-classifier",
         ),
-        ModelVariant.HUGOGIDDINS_ISCRYPTO_FINETUNED_V3: ModelConfig(
-            pretrained_model_name="HugoGiddins/iscrypto_finetuned_v3",
+        ModelVariant.HENOKYEMAM_LLAMA_GUARD_SAFEGATE_SS_AUGUST15: ModelConfig(
+            pretrained_model_name="henokyemam/llama-guard-safegate-ss-august15",
         ),
     }
 
