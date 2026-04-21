@@ -152,10 +152,10 @@ class ModelLoader(ForgeModel):
     ) -> Any:
         """Prepare inputs for the VAE.
 
-        Pass vae_type="decoder" (default) or vae_type="encoder".
+        Pass vae_type="encoder" (default) or vae_type="decoder".
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        vae_type = kwargs.get("vae_type", "decoder")
+        vae_type = kwargs.get("vae_type", "encoder")
         latent_channels = self._latent_channels()
 
         if vae_type == "decoder":
