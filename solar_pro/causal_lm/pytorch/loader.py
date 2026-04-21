@@ -125,8 +125,22 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # The cached modeling_solar.py reads rope_scaling["type"] (old format).
+        # Transformers 5.x emits rope_scaling with "rope_type" instead. Fix up the
+        # config before passing it so the custom model code can read it correctly.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if config.rope_scaling and "rope_type" in config.rope_scaling:
+            rope_type = config.rope_scaling["rope_type"]
+            if rope_type == "default":
+                config.rope_scaling = None
+            elif "type" not in config.rope_scaling:
+                config.rope_scaling["type"] = rope_type
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name,
+            config=config,
             trust_remote_code=True,
             **model_kwargs,
         )
