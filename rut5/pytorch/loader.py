@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available ruT5 model variants."""
 
     BASE = "Base"
+    MULTITASK = "Multitask"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: LLMModelConfig(
             pretrained_model_name="ai-forever/ruT5-base",
+            max_length=512,
+        ),
+        ModelVariant.MULTITASK: LLMModelConfig(
+            pretrained_model_name="cointegrated/rut5-base-multitask",
             max_length=512,
         ),
     }
