@@ -145,5 +145,6 @@ class ModelLoader(ForgeModel):
             if seq_len > 1:
                 prediction_mask[i, seq_len - 1] = 1  # SEP token
         inputs["prediction_mask"] = prediction_mask
+        inputs["is_prediction"] = True
 
         return inputs
