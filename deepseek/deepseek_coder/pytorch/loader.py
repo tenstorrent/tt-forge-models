@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     DEEPSEEK_1_3B_BASE = "1_3B_Base"
     DEEPSEEK_1_3B_INSTRUCT = "1_3B_Instruct"
     DEEPSEEK_6_7B_INSTRUCT = "6_7B_Instruct"
+    DEEPSEEK_6_7B_INSTRUCT_AWQ = "6_7B_Instruct_AWQ"
 
 
 class ModelLoader(ForgeModel):
@@ -47,6 +48,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DEEPSEEK_6_7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="deepseek-ai/deepseek-coder-6.7b-instruct",
+            max_length=2048,
+        ),
+        ModelVariant.DEEPSEEK_6_7B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="TheBloke/deepseek-coder-6.7B-instruct-AWQ",
             max_length=2048,
         ),
     }
@@ -80,6 +85,7 @@ class ModelLoader(ForgeModel):
         """
         variant_groups = {
             ModelVariant.DEEPSEEK_6_7B_INSTRUCT: ModelGroup.VULCAN,
+            ModelVariant.DEEPSEEK_6_7B_INSTRUCT_AWQ: ModelGroup.VULCAN,
         }
 
         return ModelInfo(
@@ -128,6 +134,10 @@ class ModelLoader(ForgeModel):
 
         if self._is_gguf_variant():
             model_kwargs["gguf_file"] = self._gguf_file
+
+        # AWQ variants require explicit CPU device mapping
+        if self._variant == ModelVariant.DEEPSEEK_6_7B_INSTRUCT_AWQ:
+            model_kwargs["device_map"] = "cpu"
 
         model_kwargs |= kwargs
 
