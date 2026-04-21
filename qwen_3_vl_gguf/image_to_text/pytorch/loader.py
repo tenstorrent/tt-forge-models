@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3 VL GGUF model variants for image to text."""
 
     QWEN_3_VL_4B_INSTRUCT_GGUF = "4b_instruct_gguf"
+    QWEN_3_VL_32B_INSTRUCT_GGUF = "32b_instruct_gguf"
 
 
 class ModelLoader(ForgeModel):
@@ -37,11 +38,23 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-VL-4B-Instruct-GGUF",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_VL_32B_INSTRUCT_GGUF: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3-VL-32B-Instruct-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_VL_4B_INSTRUCT_GGUF
 
-    GGUF_FILE = "Qwen3-VL-4B-Instruct-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.QWEN_3_VL_4B_INSTRUCT_GGUF: "Qwen3-VL-4B-Instruct-Q4_K_M.gguf",
+        ModelVariant.QWEN_3_VL_32B_INSTRUCT_GGUF: "Qwen3VL-32B-Instruct-Q4_K_M.gguf",
+    }
+
+    _PROCESSOR_REPOS = {
+        ModelVariant.QWEN_3_VL_4B_INSTRUCT_GGUF: "Qwen/Qwen3-VL-4B-Instruct",
+        ModelVariant.QWEN_3_VL_32B_INSTRUCT_GGUF: "Qwen/Qwen3-VL-32B-Instruct",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -60,17 +73,25 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @property
+    def _gguf_file(self):
+        return self._GGUF_FILES[self._variant]
+
+    @property
+    def _processor_repo(self):
+        return self._PROCESSOR_REPOS[self._variant]
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self._gguf_file
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
+        self.processor = AutoProcessor.from_pretrained(self._processor_repo)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
