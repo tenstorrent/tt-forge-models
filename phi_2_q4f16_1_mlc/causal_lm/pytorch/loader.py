@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.PHI_2_Q4F16_1_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/phi-2-q4f16_1-MLC",
+            pretrained_model_name="microsoft/phi-2",
             max_length=128,
         ),
     }
