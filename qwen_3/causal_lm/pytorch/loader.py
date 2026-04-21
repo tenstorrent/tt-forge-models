@@ -52,7 +52,7 @@ class ModelVariant(StrEnum):
     QWEN_3_14B_GPTQ_INT4 = "14B_GPTQ_Int4"
     QWEN_3_32B = "32B"
     QWEN_3_32B_FP8 = "32B_FP8"
-    QWEN_3_32B_GPTQ_INT4 = "32B_GPTQ_Int4"
+    QWEN_3_32B_NVFP4A16 = "32B_NVFP4A16"
     QWEN_3_8B_AWQ = "8B_Awq"
     QWEN_3_8B_NVFP4 = "8B_NVFP4"
     QWEN_3_8B_NVFP4_REDHATAI = "8B_NVFP4_RedHatAI"
@@ -173,8 +173,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-32B-FP8",
             max_length=128,
         ),
-        ModelVariant.QWEN_3_32B_GPTQ_INT4: LLMModelConfig(
-            pretrained_model_name="JunHowie/Qwen3-32B-GPTQ-Int4",
+        ModelVariant.QWEN_3_32B_NVFP4A16: LLMModelConfig(
+            pretrained_model_name="RedHatAI/Qwen3-32B-NVFP4A16",
             max_length=128,
         ),
         ModelVariant.QWEN_3_30B_A3B: LLMModelConfig(
@@ -281,6 +281,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_14B_AWQ,
             ModelVariant.QWEN_3_32B_GPTQ_INT4,
             ModelVariant.QWEN_3_32B_UNSLOTH_BNB_4BIT,
+            ModelVariant.QWEN_3_32B_NVFP4A16,
             ModelVariant.QWEN_3_235B_A22B_THINKING_2507_FP8,
             ModelVariant.QWEN_3_4B_1_JEFF4000,
         ):
