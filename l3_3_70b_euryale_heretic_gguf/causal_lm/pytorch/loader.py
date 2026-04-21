@@ -4,6 +4,12 @@
 """
 L3.3-70B Euryale v2.3 Heretic GGUF model loader implementation for causal language modeling.
 """
+import transformers.utils.import_utils as _import_utils
+
+if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+    _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+    _import_utils.is_gguf_available.cache_clear()
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
