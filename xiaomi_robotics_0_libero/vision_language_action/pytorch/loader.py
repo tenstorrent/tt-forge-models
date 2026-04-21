@@ -35,10 +35,8 @@ class MiBoTInferenceWrapper(torch.nn.Module):
         self.model = model
         self.seed = seed
 
-    def forward(self, state, action_mask, **kwargs):
-        return self.model(
-            state=state, action_mask=action_mask, seed=self.seed, **kwargs
-        )
+    def forward(self, **kwargs):
+        return self.model(seed=self.seed, **kwargs)
 
 
 class ModelVariant(StrEnum):
