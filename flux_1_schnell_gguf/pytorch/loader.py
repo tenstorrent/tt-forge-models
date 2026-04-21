@@ -18,8 +18,13 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import diffusers.utils.import_utils as _diffusers_import_utils
 import torch
 from diffusers import FluxTransformer2DModel, GGUFQuantizationConfig
+
+# gguf may be installed after diffusers caches its availability check;
+# refresh the flag so from_single_file can load GGUF checkpoints.
+_diffusers_import_utils._gguf_available = True
 
 from ...base import ForgeModel
 from ...config import (
