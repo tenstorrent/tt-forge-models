@@ -7,6 +7,8 @@ Gemma3 4B IT OpenBookQA DPO model loader implementation for causal language mode
 This model is a PEFT/LoRA fine-tune of google/gemma-3-4b-it on the OpenBookQA dataset using DPO.
 """
 
+import os
+
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from peft import PeftModel
 from typing import Optional
@@ -72,9 +74,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.BASE_MODEL_NAME, **tokenizer_kwargs
-        )
+        # Load from adapter repo which is public and includes tokenizer files
+        adapter_name = self._variant_config.pretrained_model_name
+        self.tokenizer = AutoTokenizer.from_pretrained(adapter_name, **tokenizer_kwargs)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -84,6 +86,45 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            model = self._load_model_random_weights(dtype_override=dtype_override)
+        else:
+            model = self._load_model_pretrained(dtype_override=dtype_override, **kwargs)
+
+        for param in model.parameters():
+            param.requires_grad = False
+
+        model.eval()
+        self.model = model
+        self.config = model.config
+
+        return model
+
+    def _load_model_random_weights(self, *, dtype_override=None):
+        from transformers import Gemma3ForCausalLM, Gemma3TextConfig
+
+        num_layers = self.num_layers or 34
+        layer_types = (["sliding_attention"] * 5 + ["full_attention"]) * (
+            num_layers // 6
+        ) + ["sliding_attention"] * (num_layers % 6)
+
+        config = Gemma3TextConfig(
+            hidden_size=2560,
+            intermediate_size=10240,
+            num_hidden_layers=num_layers,
+            num_attention_heads=10,
+            num_key_value_heads=2,
+            head_dim=256,
+            vocab_size=262144,
+            use_cache=False,
+            layer_types=layer_types,
+        )
+        model = Gemma3ForCausalLM(config)
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+        return model
+
+    def _load_model_pretrained(self, *, dtype_override=None, **kwargs):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -102,13 +143,6 @@ class ModelLoader(ForgeModel):
         adapter_name = self._variant_config.pretrained_model_name
         model = PeftModel.from_pretrained(base_model, adapter_name)
         model = model.merge_and_unload()
-
-        for param in model.parameters():
-            param.requires_grad = False
-
-        model.eval()
-        self.model = model
-        self.config = model.config
 
         return model
 
