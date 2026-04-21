@@ -21,9 +21,7 @@ class ModelVariant(StrEnum):
     """Available Pi-0.5 model variants."""
 
     LIBERO_BASE = "lerobot_pi05_libero_base"
-    FASTKI_EGO_V4_CHECKPOINT_032500 = (
-        "rayhanfahmed_pi05_fastki_ego_v4_100ep_checkpoint_032500"
-    )
+    SUNSHK_LIBERO_PYTORCH = "sunshk_pi05_libero_pytorch"
 
 
 class ModelLoader(ForgeModel):
@@ -34,8 +32,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.LIBERO_BASE: ModelConfig(
             pretrained_model_name="lerobot/pi05_libero_base",
         ),
-        ModelVariant.FASTKI_EGO_V4_CHECKPOINT_032500: ModelConfig(
-            pretrained_model_name="rayhanfahmed/pi05-fastki-ego-v4-100ep-checkpoint-032500",
+        ModelVariant.SUNSHK_LIBERO_PYTORCH: ModelConfig(
+            pretrained_model_name="sunshk/pi05_libero_pytorch",
         ),
     }
 
