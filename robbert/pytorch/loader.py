@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available RobBERT model variants."""
 
     ROBBERT_V2_DUTCH_BASE = "V2_Dutch_Base"
+    ROBBERT_2023_DUTCH_LARGE = "2023_Dutch_Large"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.ROBBERT_V2_DUTCH_BASE: ModelConfig(
             pretrained_model_name="pdelobelle/robbert-v2-dutch-base",
+        ),
+        ModelVariant.ROBBERT_2023_DUTCH_LARGE: ModelConfig(
+            pretrained_model_name="DTAI-KULeuven/robbert-2023-dutch-large",
         ),
     }
 
