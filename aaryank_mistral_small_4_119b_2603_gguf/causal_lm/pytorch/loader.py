@@ -7,7 +7,57 @@ AaryanK Mistral Small 4 119B 2603 GGUF model loader implementation for causal la
 from typing import Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.modeling_utils as _modeling_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+
+def _patch_mistral4_gguf():
+    """Register mistral4 GGUF architecture as an alias for mistral.
+
+    Mistral Small 4 GGUF files declare architecture 'mistral4', which
+    transformers does not yet recognise. We alias it to 'mistral' so the
+    existing mistral model class and config mapping are used.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    )
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "mistral4" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("mistral4")
+
+    for section in GGUF_TO_TRANSFORMERS_MAPPING:
+        if "mistral" in GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "mistral4",
+                GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"],
+            )
+
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("mistral4", GGUF_TO_FAST_CONVERTERS["llama"])
+
+    def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+        result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+        if result.get("config", {}).get("model_type") == "mistral4":
+            result["config"]["model_type"] = "mistral"
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    if hasattr(_modeling_utils, "load_gguf_checkpoint"):
+        _modeling_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_patch_mistral4_gguf()
+
 
 from ....base import ForgeModel
 from ....config import (
