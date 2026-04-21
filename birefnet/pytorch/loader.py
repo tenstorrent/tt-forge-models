@@ -29,14 +29,14 @@ class ModelVariant(StrEnum):
 
     BIREFNET = "BiRefNet"
     BIREFNET_HR_MATTING = "BiRefNet_HR-matting"
-    BIREFNET_DIS5K = "BiRefNet-DIS5K"
+    BIREFNET_HRSOD = "BiRefNet-HRSOD"
 
 
 # Image sizes per variant
 _VARIANT_IMAGE_SIZES = {
     ModelVariant.BIREFNET: (1024, 1024),
     ModelVariant.BIREFNET_HR_MATTING: (2048, 2048),
-    ModelVariant.BIREFNET_DIS5K: (1024, 1024),
+    ModelVariant.BIREFNET_HRSOD: (1024, 1024),
 }
 
 
@@ -51,8 +51,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.BIREFNET_HR_MATTING: ModelConfig(
             pretrained_model_name="ZhengPeng7/BiRefNet_HR-matting",
         ),
-        ModelVariant.BIREFNET_DIS5K: ModelConfig(
-            pretrained_model_name="ZhengPeng7/BiRefNet-DIS5K",
+        ModelVariant.BIREFNET_HRSOD: ModelConfig(
+            pretrained_model_name="ZhengPeng7/BiRefNet-HRSOD",
         ),
     }
 
