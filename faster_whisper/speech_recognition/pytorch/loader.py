@@ -9,6 +9,10 @@ Note: Faster Whisper models are CTranslate2-quantized versions of OpenAI's
 Whisper models. Since CTranslate2 format is not compatible with PyTorch,
 this loader uses the base OpenAI Whisper models via
 WhisperForConditionalGeneration.
+
+kotoba-tech/kotoba-whisper-v2.0-faster is a CTranslate2-quantized version of
+kotoba-tech/kotoba-whisper-v2.0, a distilled Japanese Whisper model based on
+Whisper Large v3.
 """
 
 from typing import Optional
@@ -31,7 +35,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Faster Whisper speech recognition model variants."""
 
-    MEDIUM = "Medium"
+    LARGE_V3_TURBO = "Large_v3_Turbo"
+    KOTOBA_V2_0 = "Kotoba_v2_0"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +45,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MEDIUM: ModelConfig(
             pretrained_model_name="openai/whisper-medium",
+        ),
+        ModelVariant.KOTOBA_V2_0: ModelConfig(
+            pretrained_model_name="kotoba-tech/kotoba-whisper-v2.0",
         ),
     }
 
