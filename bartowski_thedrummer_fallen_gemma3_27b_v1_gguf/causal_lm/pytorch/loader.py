@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Fallen-Gemma3 27B v1 GGUF model loader implementation for causal language modeling.
+Fallen Gemma3 27B v1 GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,13 +21,13 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Fallen-Gemma3 27B v1 GGUF model variants for causal language modeling."""
+    """Available Fallen Gemma3 27B v1 GGUF model variants for causal language modeling."""
 
     FALLEN_GEMMA3_27B_V1_GGUF = "27B_V1_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """Fallen-Gemma3 27B v1 GGUF model loader implementation for causal language modeling tasks."""
+    """Fallen Gemma3 27B v1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.FALLEN_GEMMA3_27B_V1_GGUF: LLMModelConfig(
@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Fallen-Gemma3 27B v1 GGUF",
+            model="Fallen Gemma3 27B v1 GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
