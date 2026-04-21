@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Llama 3.1 Amelia SD 8B v1 i1 GGUF model variants for causal language modeling."""
 
     LLAMA_3_1_AMELIA_SD_8B_V1_I1_Q4_K_M_GGUF = (
-        "Llama-3.1-Amelia-SD-8B-v1.i1-Q4_K_M.GGUF"
+        "Llama-3.1-Amelia-SD-8B-v1_i1_Q4_K_M_GGUF"
     )
 
 
