@@ -5,8 +5,15 @@
 Table Transformer model loader implementation for object detection.
 """
 
+import json
+
 import torch
-from transformers import AutoImageProcessor, TableTransformerForObjectDetection
+from huggingface_hub import hf_hub_download
+from transformers import (
+    AutoImageProcessor,
+    TableTransformerConfig,
+    TableTransformerForObjectDetection,
+)
 from datasets import load_dataset
 from typing import Optional
 
@@ -78,6 +85,17 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        # breezedeus/pix2text-table-rec ships config.json with `dilation: null`,
+        # which fails strict validation in recent huggingface_hub versions.
+        config_path = hf_hub_download(
+            repo_id=pretrained_model_name, filename="config.json"
+        )
+        with open(config_path) as f:
+            config_dict = json.load(f)
+        if config_dict.get("dilation") is None:
+            config_dict["dilation"] = False
+            model_kwargs["config"] = TableTransformerConfig(**config_dict)
 
         model = TableTransformerForObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
