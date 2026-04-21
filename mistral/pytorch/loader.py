@@ -52,7 +52,7 @@ class ModelVariant(StrEnum):
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
     DEVSTRAL_SMALL_2_24B_INSTRUCT_2512 = "Devstral_Small_2_24B_Instruct_2512"
     MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
-    MISTRAL_7B_INSTRUCT_V03_GPTQ_4BIT = "7B_INSTRUCT_v03_GPTQ_4bit"
+    MISTRAL_NEMO_INSTRUCT_2407_UNSLOTH = "Nemo_INSTRUCT_2407_unsloth"
     MISTRAL_FT_OPTIMIZED_1227 = "ft_optimized_1227"
     MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED = "Small_Instruct_2409_abliterated"
     HERMES_2_PRO_MISTRAL_7B_BNB_4BIT = "Hermes_2_Pro_Mistral_7B_bnb_4bit"
@@ -152,8 +152,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_7B_V03_BNB_4BIT: ModelConfig(
             pretrained_model_name="unsloth/mistral-7b-v0.3-bnb-4bit",
         ),
-        ModelVariant.MISTRAL_7B_INSTRUCT_V03_GPTQ_4BIT: ModelConfig(
-            pretrained_model_name="RedHatAI/Mistral-7B-Instruct-v0.3-GPTQ-4bit",
+        ModelVariant.MISTRAL_NEMO_INSTRUCT_2407_UNSLOTH: ModelConfig(
+            pretrained_model_name="unsloth/Mistral-Nemo-Instruct-2407",
         ),
         ModelVariant.MISTRAL_FT_OPTIMIZED_1227: ModelConfig(
             pretrained_model_name="OpenPipe/mistral-ft-optimized-1227",
@@ -201,7 +201,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_INSTRUCT_V02,
             ModelVariant.MISTRAL_SMALL_22B_INSTRUCT_2409,
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
-            ModelVariant.MISTRAL_7B_INSTRUCT_V03_GPTQ_4BIT,
+            ModelVariant.MISTRAL_NEMO_INSTRUCT_2407_UNSLOTH,
             ModelVariant.MISTRAL_FT_OPTIMIZED_1227,
             ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED,
             ModelVariant.HERMES_2_PRO_MISTRAL_7B_BNB_4BIT,
