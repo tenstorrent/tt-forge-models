@@ -67,7 +67,7 @@ class ModelVariant(StrEnum):
     QWEN_3_14B_AWQ = "14B_Awq"
     QWEN_3_32B_UNSLOTH_BNB_4BIT = "32B_Unsloth_bnb_4bit"
     QWEN_3_235B_A22B_THINKING_2507_FP8 = "235B_A22B_Thinking_2507_FP8"
-    QWEN_3_4B_1_JEFF4000 = "4B_1_Jeff4000"
+    QWEN_3_14B_SUNFLOWER = "14B_Sunflower"
 
 
 class ModelLoader(ForgeModel):
@@ -215,8 +215,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-235B-A22B-Thinking-2507-FP8",
             max_length=128,
         ),
-        ModelVariant.QWEN_3_4B_1_JEFF4000: LLMModelConfig(
-            pretrained_model_name="jeff4000/4b_1",
+        ModelVariant.QWEN_3_14B_SUNFLOWER: LLMModelConfig(
+            pretrained_model_name="Sunbird/Sunflower-14B",
             max_length=128,
         ),
     }
@@ -285,7 +285,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_32B_UNSLOTH_BNB_4BIT,
             ModelVariant.QWEN_3_32B_NVFP4A16,
             ModelVariant.QWEN_3_235B_A22B_THINKING_2507_FP8,
-            ModelVariant.QWEN_3_0_6B_GENSYN_SWARM_FINICKY_BRISTLY_LION,
+            ModelVariant.QWEN_3_14B_SUNFLOWER,
         ):
             group = ModelGroup.VULCAN
         else:
