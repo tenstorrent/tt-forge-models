@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Phi-4-mini model variants."""
 
     PHI_4_MINI_INSTRUCT_BNB_4BIT = "Phi_4_mini_instruct_bnb_4bit"
+    PHI_4_MINI_REASONING_BNB_4BIT = "Phi_4_mini_reasoning_bnb_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.PHI_4_MINI_INSTRUCT_BNB_4BIT: ModelConfig(
             pretrained_model_name="unsloth/Phi-4-mini-instruct-unsloth-bnb-4bit",
+        ),
+        ModelVariant.PHI_4_MINI_REASONING_BNB_4BIT: ModelConfig(
+            pretrained_model_name="unsloth/Phi-4-mini-reasoning-unsloth-bnb-4bit",
         ),
     }
 
