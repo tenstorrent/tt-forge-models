@@ -72,14 +72,7 @@ class ModelLoader(ForgeModel):
     ]
 
     # Variant-specific sample pairs (e.g., for non-English models)
-    _VARIANT_SAMPLE_PAIRS = {
-        ModelVariant.MMARCO_GERMAN_DISTILBERT_BASE: [
-            (
-                "Wie viele Menschen leben in Berlin?",
-                "Berlin hatte mass 3.520.031 registrierte Einwohner auf einer Flaeche von 891,82 Quadratkilometern.",
-            ),
-        ],
-    }
+    _VARIANT_SAMPLE_PAIRS = {}
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
