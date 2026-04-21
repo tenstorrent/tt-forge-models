@@ -8,6 +8,41 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_transformers_gemma_gguf():
+    """Monkey-patch transformers to add gemma (v1) GGUF architecture support."""
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFGemmaConverter,
+    )
+
+    if "gemma" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("gemma")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["gemma"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "attention.key_length": "head_dim",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    GGUF_TO_FAST_CONVERTERS["gemma"] = GGUFGemmaConverter
+
+
+_patch_transformers_gemma_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
