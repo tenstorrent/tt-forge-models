@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-TheCluster Qwen3.5 27B Heretic MLX mxfp4 model loader for causal language modeling.
+TheCluster Qwen3.5 27B Heretic MLX model loader for causal language modeling.
 """
 
 from typing import Optional
@@ -23,17 +23,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available TheCluster Qwen3.5 27B Heretic MLX mxfp4 model variants."""
+    """Available TheCluster Qwen3.5 27B Heretic MLX model variants."""
 
     QWEN3_5_27B_HERETIC_MLX_MXFP4 = "Qwen3_5_27B_Heretic_MLX_mxfp4"
+    QWEN3_5_27B_HERETIC_MLX_BF16 = "Qwen3_5_27B_Heretic_MLX_bf16"
 
 
 class ModelLoader(ForgeModel):
-    """TheCluster Qwen3.5 27B Heretic MLX mxfp4 model loader for causal language modeling."""
+    """TheCluster Qwen3.5 27B Heretic MLX model loader for causal language modeling."""
 
     _VARIANTS = {
         ModelVariant.QWEN3_5_27B_HERETIC_MLX_MXFP4: LLMModelConfig(
             pretrained_model_name="TheCluster/Qwen3.5-27B-Heretic-MLX-mxfp4",
+            max_length=128,
+        ),
+        ModelVariant.QWEN3_5_27B_HERETIC_MLX_BF16: LLMModelConfig(
+            pretrained_model_name="TheCluster/Qwen3.5-27B-Heretic-MLX-bf16",
             max_length=128,
         ),
     }
@@ -53,7 +58,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="TheCluster Qwen3.5 27B Heretic MLX mxfp4",
+            model="TheCluster Qwen3.5 27B Heretic MLX",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
