@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available GritLM model variants."""
 
     GRITLM_8X7B_KTO = "8x7B_KTO"
+    EMB_M7_NODES16_FAST = "emb_m7_nodes16_fast"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GRITLM_8X7B_KTO: ModelConfig(
             pretrained_model_name="GritLM/GritLM-8x7B-KTO",
+        ),
+        ModelVariant.EMB_M7_NODES16_FAST: ModelConfig(
+            pretrained_model_name="GritLM/emb_m7_nodes16_fast",
         ),
     }
 
