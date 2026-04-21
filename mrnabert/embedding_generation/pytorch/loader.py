@@ -82,6 +82,9 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         config = BertConfig.from_pretrained(model_name)
+        # Force standard attention path: flash_attn_triton requires CUDA tensors.
+        # Setting a non-zero dropout prob causes bert_layers.py to skip flash attn.
+        config.attention_probs_dropout_prob = 0.1
         model = AutoModel.from_pretrained(
             model_name,
             trust_remote_code=True,
@@ -95,7 +98,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        inputs = self.tokenizer.batch_encode_plus(
+        inputs = self.tokenizer(
             self.sample_sequences,
             add_special_tokens=True,
             padding="longest",
