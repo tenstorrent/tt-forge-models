@@ -24,24 +24,26 @@ from ...base import ForgeModel
 
 
 class MapAnythingWrapper(nn.Module):
-    """Wrapper around MapAnything that takes a preprocessed image tensor
-    and returns depth predictions."""
+    """Wrapper around MapAnything that takes a normalized image tensor
+    and returns depth predictions via the model's forward pass."""
 
     def __init__(self, model):
         super().__init__()
         self.model = model
 
     def forward(self, image):
+        batch_size = image.shape[0]
         views = [
-            {"img": img.permute(1, 2, 0).cpu().numpy().astype(np.uint8)}
-            for img in image
+            {
+                "img": image,
+                "data_norm_type": [self.model.encoder.data_norm_type],
+                "is_metric_scale": torch.ones(
+                    batch_size, dtype=torch.bool, device=image.device
+                ),
+            }
         ]
-        predictions = self.model.infer(
-            views,
-            memory_efficient_inference=True,
-            use_amp=False,
-        )
-        return predictions[0]["depth_z"]
+        predictions = self.model(views)
+        return predictions[0]["pts3d"]
 
 
 class ModelVariant(StrEnum):
@@ -78,7 +80,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         from mapanything.models import MapAnything
 
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -89,22 +91,16 @@ class ModelLoader(ForgeModel):
         wrapper = MapAnythingWrapper(model)
         wrapper.eval()
 
-        if dtype_override is not None:
-            wrapper = wrapper.to(dtype_override)
-
         return wrapper
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, batch_size=1):
         dataset = load_dataset("huggingface/cats-image", split="test")
-        image = dataset[0]["image"].convert("RGB")
+        image = dataset[0]["image"].convert("RGB").resize((224, 224))
 
-        rgb = torch.from_numpy(np.array(image)).permute(2, 0, 1)
+        rgb = torch.from_numpy(np.array(image)).permute(2, 0, 1).float() / 255.0
         rgb = rgb.unsqueeze(0)
 
         if batch_size > 1:
             rgb = rgb.expand(batch_size, -1, -1, -1)
-
-        if dtype_override is not None and rgb.dtype.is_floating_point:
-            rgb = rgb.to(dtype_override)
 
         return rgb
