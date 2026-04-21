@@ -9,6 +9,18 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
+# SlidingWindowCache was removed in transformers 5.x; inject a stub so the
+# model's custom modeling_solar.py (which uses it for isinstance checks) can load.
+import transformers.cache_utils as _cache_utils
+
+if not hasattr(_cache_utils, "SlidingWindowCache"):
+    from transformers.cache_utils import DynamicCache
+
+    class _SlidingWindowCache(DynamicCache):
+        pass
+
+    _cache_utils.SlidingWindowCache = _SlidingWindowCache
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
