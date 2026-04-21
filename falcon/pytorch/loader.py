@@ -35,7 +35,7 @@ class ModelVariant(StrEnum):
     FALCON_40B = "40B"
     FALCON_7B_INSTRUCT = "7B_Instruct"
     FALCON_7B_INSTRUCT_SHARDED = "7B_Instruct_Sharded"
-    FALCON_RW_1B_T_SFT = "RW_1B_T_SFT"
+    FALCON_TINY_TESTING_ALIBI = "Tiny_Testing_Alibi"
 
 
 class ModelLoader(ForgeModel):
@@ -76,8 +76,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.FALCON_7B_INSTRUCT_SHARDED: ModelConfig(
             pretrained_model_name="vilsonrodrigues/falcon-7b-instruct-sharded",
         ),
-        ModelVariant.FALCON_RW_1B_T_SFT: ModelConfig(
-            pretrained_model_name="KnutJaegersberg/falcon-1b-t-sft",
+        ModelVariant.FALCON_TINY_TESTING_ALIBI: ModelConfig(
+            pretrained_model_name="fxmarty/tiny-testing-falcon-alibi",
         ),
     }
 
@@ -111,6 +111,8 @@ class ModelLoader(ForgeModel):
         ]:
             group = ModelGroup.VULCAN
         elif variant == ModelVariant.FALCON_RW_1B_T_SFT:
+            group = ModelGroup.VULCAN
+        elif variant == ModelVariant.FALCON_TINY_TESTING_ALIBI:
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
