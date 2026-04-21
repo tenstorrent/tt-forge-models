@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     GLINER_LARGE_V21 = "Large_v2.1"
     GLINER_MULTI_V21 = "Multi_v2.1"
     GLINER_MULTI_PII_V1 = "Multi_PII_v1"
-    GLINER_MEDIUM_V25 = "Medium_v2.5"
+    GLINER_SMALL_PII = "Small_PII"
 
 
 class ModelLoader(ForgeModel):
@@ -47,8 +47,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.GLINER_MULTI_PII_V1: ModelConfig(
             pretrained_model_name="urchade/gliner_multi_pii-v1"
         ),
-        ModelVariant.GLINER_MEDIUM_V25: ModelConfig(
-            pretrained_model_name="gliner-community/gliner_medium-v2.5"
+        ModelVariant.GLINER_SMALL_PII: ModelConfig(
+            pretrained_model_name="vicgalle/gliner-small-pii"
         ),
     }
 
@@ -65,7 +65,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.RED
         elif variant in [
             ModelVariant.GLINER_MULTI_PII_V1,
-            ModelVariant.GLINER_MEDIUM_V25,
+            ModelVariant.GLINER_SMALL_PII,
         ]:
             group = ModelGroup.VULCAN
         else:
