@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Llama 3.1 8B Lexi Uncensored V2 GGUF model loader implementation for causal language modeling.
+Llama 3.1 8B Lexi Uncensored GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,24 +21,34 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Llama 3.1 8B Lexi Uncensored V2 GGUF model variants for causal language modeling."""
+    """Available Llama 3.1 8B Lexi Uncensored GGUF model variants for causal language modeling."""
 
     LLAMA_3_1_8B_LEXI_UNCENSORED_V2_GGUF = "8B_Lexi_Uncensored_V2_GGUF"
+    LLAMA_3_1_8B_LEXI_UNCENSORED_GGUF = "8B_Lexi_Uncensored_GGUF"
+
+
+# Map variants to their GGUF filenames
+_GGUF_FILES = {
+    ModelVariant.LLAMA_3_1_8B_LEXI_UNCENSORED_V2_GGUF: "Llama-3.1-8B-Lexi-Uncensored_V2_Q8.gguf",
+    ModelVariant.LLAMA_3_1_8B_LEXI_UNCENSORED_GGUF: "Llama-3.1-8B-Lexi-Uncensored-Q4_K_M.gguf",
+}
 
 
 class ModelLoader(ForgeModel):
-    """Llama 3.1 8B Lexi Uncensored V2 GGUF model loader implementation for causal language modeling tasks."""
+    """Llama 3.1 8B Lexi Uncensored GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.LLAMA_3_1_8B_LEXI_UNCENSORED_V2_GGUF: LLMModelConfig(
             pretrained_model_name="Orenguteng/Llama-3.1-8B-Lexi-Uncensored-V2-GGUF",
             max_length=128,
         ),
+        ModelVariant.LLAMA_3_1_8B_LEXI_UNCENSORED_GGUF: LLMModelConfig(
+            pretrained_model_name="bartowski/Llama-3.1-8B-Lexi-Uncensored-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.LLAMA_3_1_8B_LEXI_UNCENSORED_V2_GGUF
-
-    GGUF_FILE = "Llama-3.1-8B-Lexi-Uncensored_V2_Q8.gguf"
 
     sample_text = "What is your favorite city?"
 
@@ -53,7 +63,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Llama 3.1 8B Lexi Uncensored V2 GGUF",
+            model="Llama 3.1 8B Lexi Uncensored GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -65,7 +75,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = _GGUF_FILES[self._variant]
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -77,6 +87,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+        gguf_file = _GGUF_FILES[self._variant]
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -85,11 +96,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -154,6 +165,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name,
+            gguf_file=_GGUF_FILES[self._variant],
         )
         return self.config
