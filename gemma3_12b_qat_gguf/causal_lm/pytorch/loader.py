@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Gemma 3 12B QAT GGUF model variants for causal language modeling."""
 
     GEMMA_3_12B_IT_QAT_GGUF = "12B_IT_QAT_GGUF"
-    DAMPFINCHEN_GEMMA_3_12B_IT_QAT_GGUF = "Dampfinchen_12B_IT_QAT_GGUF_small_fix"
+    GGML_ORG_GEMMA_3_12B_IT_QAT_GGUF = "ggml_org_12B_IT_QAT_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="lmstudio-community/gemma-3-12B-it-qat-GGUF",
             max_length=128,
         ),
-        ModelVariant.DAMPFINCHEN_GEMMA_3_12B_IT_QAT_GGUF: LLMModelConfig(
-            pretrained_model_name="Dampfinchen/google-gemma-3-12b-it-qat-q4_0-gguf-small-fix",
+        ModelVariant.GGML_ORG_GEMMA_3_12B_IT_QAT_GGUF: LLMModelConfig(
+            pretrained_model_name="ggml-org/gemma-3-12b-it-qat-GGUF",
             max_length=128,
         ),
     }
@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.GEMMA_3_12B_IT_QAT_GGUF: "gemma-3-12B-it-QAT-Q4_0.gguf",
-        ModelVariant.DAMPFINCHEN_GEMMA_3_12B_IT_QAT_GGUF: "gemma-3-12b-it-q4_0_s.gguf",
+        ModelVariant.GGML_ORG_GEMMA_3_12B_IT_QAT_GGUF: "gemma-3-12b-it-qat-Q4_0.gguf",
     }
 
     sample_text = "What is your favorite city?"
