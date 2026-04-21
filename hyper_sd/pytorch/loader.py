@@ -22,9 +22,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from diffusers import DiffusionPipeline, DDIMScheduler
-from huggingface_hub import hf_hub_download
-
+from .src.model_utils import load_pipe, stable_diffusion_preprocessing_xl
 
 LORA_REPO = "ByteDance/Hyper-SD"
 BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
@@ -42,6 +40,12 @@ _LORA_FILES = {
     ModelVariant.SDXL_2STEP_LORA: "Hyper-SDXL-2steps-lora.safetensors",
     ModelVariant.SDXL_4STEP_LORA: "Hyper-SDXL-4steps-lora.safetensors",
     ModelVariant.SDXL_8STEP_LORA: "Hyper-SDXL-8steps-lora.safetensors",
+}
+
+_NUM_INFERENCE_STEPS = {
+    ModelVariant.SDXL_2STEP_LORA: 2,
+    ModelVariant.SDXL_4STEP_LORA: 4,
+    ModelVariant.SDXL_8STEP_LORA: 8,
 }
 
 
@@ -62,6 +66,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.SDXL_2STEP_LORA
 
+    prompt = "a photo of an astronaut riding a horse on mars"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
@@ -70,6 +76,7 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
@@ -91,46 +98,58 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the SDXL pipeline with Hyper-SD LoRA weights applied.
+        """Load the SDXL pipeline with Hyper-SD LoRA weights and return the UNet.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use torch.float16.
 
         Returns:
-            DiffusionPipeline: The SDXL pipeline with Hyper-SD LoRA weights fused.
+            torch.nn.Module: The UNet model used for denoising.
         """
-        dtype = dtype_override or torch.float16
-        pipe = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            variant="fp16",
-            **kwargs,
-        )
-
         lora_file = _LORA_FILES[self._variant]
-        pipe.load_lora_weights(
-            hf_hub_download(LORA_REPO, lora_file),
-        )
-        pipe.fuse_lora()
+        self.pipeline = load_pipe(BASE_MODEL, LORA_REPO, lora_file)
 
-        pipe.scheduler = DDIMScheduler.from_config(
-            pipe.scheduler.config, timestep_spacing="trailing"
-        )
+        if dtype_override is not None:
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return pipe
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1, **kwargs):
-        """Load and return sample text prompts for the Hyper-SD model.
+        """Load and return sample inputs for the Hyper-SD UNet model.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
+            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
             batch_size: Optional batch size for the prompts.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments for the UNet forward method.
         """
-        prompt = [
-            "a photo of an astronaut riding a horse on mars",
-        ] * batch_size
-        return prompt
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        num_steps = _NUM_INFERENCE_STEPS[self._variant]
+
+        (
+            latent_model_input,
+            timesteps,
+            prompt_embeds,
+            timestep_cond,
+            added_cond_kwargs,
+            add_time_ids,
+        ) = stable_diffusion_preprocessing_xl(
+            self.pipeline, self.prompt, num_inference_steps=num_steps
+        )
+
+        timestep = timesteps[0]
+
+        if dtype_override:
+            latent_model_input = latent_model_input.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            prompt_embeds = prompt_embeds.to(dtype_override)
+
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
