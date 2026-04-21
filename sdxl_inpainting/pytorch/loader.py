@@ -29,7 +29,7 @@ class ModelVariant(StrEnum):
     """Available SDXL Inpainting model variants."""
 
     LUSTIFY_SDXL_INPAINTING_V2_0 = "lustify-sdxl-inpainting-v2.0"
-    FOOOCUS_INPAINTING = "fooocus-inpainting"
+    WAIFU_INPAINT_XL = "waifu-inpaint-xl"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.LUSTIFY_SDXL_INPAINTING_V2_0: ModelConfig(
             pretrained_model_name="andro-flock/LUSTIFY-SDXL-NSFW-checkpoint-v2-0-INPAINTING",
         ),
-        ModelVariant.FOOOCUS_INPAINTING: ModelConfig(
-            pretrained_model_name="Vijish/fooocus_inpainting",
+        ModelVariant.WAIFU_INPAINT_XL: ModelConfig(
+            pretrained_model_name="ShinoharaHare/Waifu-Inpaint-XL",
         ),
     }
 
