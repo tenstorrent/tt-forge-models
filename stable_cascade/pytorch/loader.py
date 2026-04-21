@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Stable Cascade model variants."""
 
     STABLE_CASCADE_PRIOR = "Prior"
+    SOTEDIFFUSION_WUERSTCHEN3 = "sotediffusion-wuerstchen3"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.STABLE_CASCADE_PRIOR: ModelConfig(
             pretrained_model_name="stabilityai/stable-cascade-prior",
+        ),
+        ModelVariant.SOTEDIFFUSION_WUERSTCHEN3: ModelConfig(
+            pretrained_model_name="Disty0/sotediffusion-wuerstchen3",
         ),
     }
 
