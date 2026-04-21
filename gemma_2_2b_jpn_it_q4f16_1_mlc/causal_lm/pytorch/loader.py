@@ -4,8 +4,10 @@
 """
 Gemma 2 2B JPN IT Q4F16_1 MLC model loader implementation for causal language modeling.
 """
+import json
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from huggingface_hub import hf_hub_download
+from transformers import AutoModelForCausalLM, AutoTokenizer, Gemma2Config
 from typing import Optional
 
 from ....base import ForgeModel
@@ -59,13 +61,40 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
+    def _build_config_from_mlc(self, num_layers=None):
+        """Build a Gemma2Config from mlc-chat-config.json since the repo lacks config.json."""
+        config_path = hf_hub_download(
+            self._variant_config.pretrained_model_name, "mlc-chat-config.json"
+        )
+        with open(config_path) as f:
+            mlc_config = json.load(f)
 
+        mc = mlc_config["model_config"]
+        n_layers = num_layers if num_layers is not None else mc["num_hidden_layers"]
+        return Gemma2Config(
+            vocab_size=mlc_config.get("vocab_size", 256000),
+            hidden_size=mc["hidden_size"],
+            intermediate_size=mc["intermediate_size"],
+            num_hidden_layers=n_layers,
+            num_attention_heads=mc["num_attention_heads"],
+            num_key_value_heads=mc["num_key_value_heads"],
+            head_dim=mc["head_dim"],
+            hidden_activation=mc.get("hidden_activation", "gelu_pytorch_tanh"),
+            max_position_embeddings=mc.get("context_window_size", 4096),
+            rms_norm_eps=mc["rms_norm_eps"],
+            attention_bias=mc.get("attention_bias", False),
+            attn_logit_softcapping=mc.get("attn_logit_softcapping", 50.0),
+            final_logit_softcapping=mc.get("final_logit_softcapping", 30.0),
+            query_pre_attn_scalar=mc.get("query_pre_attn_scalar", 224),
+            sliding_window=mc.get("sliding_window", 4096),
+            pad_token_id=mlc_config.get("pad_token_id", 0),
+            eos_token_id=mlc_config.get("eos_token_id", 1),
+            bos_token_id=mlc_config.get("bos_token_id", 2),
+        )
+
+    def _load_tokenizer(self, dtype_override=None):
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -73,25 +102,17 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
+        config = self._build_config_from_mlc(num_layers=self.num_layers)
+
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config, **model_kwargs).eval()
 
         self.config = model.config
         self.model = model
@@ -131,7 +152,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.config = self._build_config_from_mlc()
         return self.config
