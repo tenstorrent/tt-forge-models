@@ -51,6 +51,7 @@ class ModelVariant(StrEnum):
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
     DEVSTRAL_SMALL_2_24B_INSTRUCT_2512 = "Devstral_Small_2_24B_Instruct_2512"
     MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
+    DEVSTRAL_SMALL_2505_UNSLOTH_BNB_4BIT = "Devstral_Small_2505_unsloth_bnb_4bit"
     MISTRAL_FT_OPTIMIZED_1227 = "ft_optimized_1227"
     MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED = "Small_Instruct_2409_abliterated"
     MISTRAL_NEMO_BASE_2407_4BIT = "Nemo_BASE_2407_4bit"
@@ -147,6 +148,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_7B_V03_BNB_4BIT: ModelConfig(
             pretrained_model_name="unsloth/mistral-7b-v0.3-bnb-4bit",
         ),
+        ModelVariant.DEVSTRAL_SMALL_2505_UNSLOTH_BNB_4BIT: ModelConfig(
+            pretrained_model_name="unsloth/Devstral-Small-2505-unsloth-bnb-4bit",
+        ),
         ModelVariant.MISTRAL_FT_OPTIMIZED_1227: ModelConfig(
             pretrained_model_name="OpenPipe/mistral-ft-optimized-1227",
         ),
@@ -193,6 +197,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_INSTRUCT_V02,
             ModelVariant.MISTRAL_SMALL_22B_INSTRUCT_2409,
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
+            ModelVariant.DEVSTRAL_SMALL_2505_UNSLOTH_BNB_4BIT,
             ModelVariant.MISTRAL_FT_OPTIMIZED_1227,
             ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED,
             ModelVariant.MISTRAL_NEMO_BASE_2407_4BIT,
@@ -283,6 +288,7 @@ class ModelLoader(ForgeModel):
         # BnB/AWQ variants need device_map="cpu" for CPU-based loading
         if self._variant in (
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
+            ModelVariant.DEVSTRAL_SMALL_2505_UNSLOTH_BNB_4BIT,
             ModelVariant.MINISTRAL_3_14B_REASONING_AWQ_4BIT,
             ModelVariant.OPEN_HERMES_2_5_MISTRAL_7B_AWQ,
             ModelVariant.MISTRAL_NEMO_BASE_2407_4BIT,
