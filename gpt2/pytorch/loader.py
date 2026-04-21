@@ -34,7 +34,7 @@ class ModelVariant(StrEnum):
     GPT2_LARGE = "Large"
     GPT2_LUMELETO = "Lumeleto"
     GPT2_SEQUENCE_CLASSIFICATION = "Sequence_Classification"
-    GPT2_MNLI = "MNLI"
+    GPT2_COLA = "Cola"
     TINY_RANDOM = "tiny-random"
     TINY_RANDOM_GEN_CONFIG = "tiny-random-gen-config"
 
@@ -63,9 +63,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mnoukhov/gpt2-imdb-sentiment-classifier",
             max_length=256,
         ),
-        ModelVariant.GPT2_MNLI: LLMModelConfig(
-            pretrained_model_name="tanganke/gpt2_mnli",
-            max_length=128,
+        ModelVariant.GPT2_COLA: LLMModelConfig(
+            pretrained_model_name="tanganke/gpt2_cola",
+            max_length=256,
         ),
         ModelVariant.TINY_RANDOM: LLMModelConfig(
             pretrained_model_name="peft-internal-testing/tiny-random-gpt2",
@@ -95,7 +95,7 @@ class ModelLoader(ForgeModel):
 
         if variant in (
             ModelVariant.GPT2_SEQUENCE_CLASSIFICATION,
-            ModelVariant.GPT2_MNLI,
+            ModelVariant.GPT2_COLA,
         ):
             task = ModelTask.NLP_TEXT_CLS
         else:
@@ -107,7 +107,7 @@ class ModelLoader(ForgeModel):
             in (
                 ModelVariant.GPT2_LARGE,
                 ModelVariant.TINY_RANDOM,
-                ModelVariant.TINY_RANDOM_GEN_CONFIG,
+                ModelVariant.GPT2_COLA,
             )
             else ModelGroup.GENERALITY
         )
@@ -129,7 +129,7 @@ class ModelLoader(ForgeModel):
         # Set padding side to left for classification variants
         if self._variant in (
             ModelVariant.GPT2_SEQUENCE_CLASSIFICATION,
-            ModelVariant.GPT2_MNLI,
+            ModelVariant.GPT2_COLA,
         ):
             self.tokenizer.padding_side = "left"
 
@@ -233,7 +233,7 @@ class ModelLoader(ForgeModel):
 
         if self._variant in (
             ModelVariant.GPT2_SEQUENCE_CLASSIFICATION,
-            ModelVariant.GPT2_MNLI,
+            ModelVariant.GPT2_COLA,
         ):
             # For classification: map class index to label
             predicted_value = logits.argmax(-1).item()
