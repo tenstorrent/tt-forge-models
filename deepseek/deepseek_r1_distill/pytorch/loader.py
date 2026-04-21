@@ -28,9 +28,7 @@ class ModelVariant(StrEnum):
     """Available DeepSeek R1 Distill model variants."""
 
     DISTILL_QWEN_1_5B = "Distill_Qwen_1_5B"
-    DISTILL_QWEN_1_5B_VANILLA_PSYSCAM_VANILLA_EPHISHLLM = (
-        "Distill_Qwen_1_5B_vanilla_psyscam_vanilla_ephishllm"
-    )
+    DISTILL_QWEN_1_5B_EDCASTR_JAVASCRIPT_V8 = "Distill_Qwen_1_5B_edcastr_JavaScript_v8"
     DISTILL_QWEN_7B = "Distill_Qwen_7B"
     DISTILL_QWEN_7B_UNSLOTH_BNB_4BIT = "Distill_Qwen_7B_unsloth_bnb_4bit"
     DISTILL_QWEN_14B = "Distill_Qwen_14B"
@@ -50,8 +48,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
             max_length=2048,
         ),
-        ModelVariant.DISTILL_QWEN_1_5B_VANILLA_PSYSCAM_VANILLA_EPHISHLLM: LLMModelConfig(
-            pretrained_model_name="ZhiqiEliWang/ds_r1_1.5b_vanilla_psyscam_vanilla_ephishllm",
+        ModelVariant.DISTILL_QWEN_1_5B_EDCASTR_JAVASCRIPT_V8: LLMModelConfig(
+            pretrained_model_name="Edcastro/DeepSeek-R1-Distill-Qwen-1.5B-edcastr_JavaScript-v8",
             max_length=2048,
         ),
         ModelVariant.DISTILL_QWEN_7B: LLMModelConfig(
