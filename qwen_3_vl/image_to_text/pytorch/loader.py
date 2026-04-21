@@ -45,7 +45,7 @@ class ModelVariant(StrEnum):
     QWEN_3_VL_30B_A3B_THINKING = "30b_a3b_thinking"
     QWEN_3_VL_235B_A22B_INSTRUCT_AWQ = "235b_a22b_instruct_awq"
     UNSLOTH_QWEN_3_VL_4B_INSTRUCT = "unsloth_4b_instruct"
-    ROBOMETER_4B = "robometer_4b"
+    QWEN_3_VL_8B_INSTRUCT_C_ABLITERATED_V3 = "8b_instruct_c_abliterated_v3"
 
 
 class ModelLoader(ForgeModel):
@@ -117,8 +117,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/Qwen3-VL-4B-Instruct",
             max_length=128,
         ),
-        ModelVariant.ROBOMETER_4B: LLMModelConfig(
-            pretrained_model_name="robometer/Robometer-4B",
+        ModelVariant.QWEN_3_VL_8B_INSTRUCT_C_ABLITERATED_V3: LLMModelConfig(
+            pretrained_model_name="prithivMLmods/Qwen3-VL-8B-Instruct-c_abliterated-v3",
             max_length=128,
         ),
     }
@@ -175,7 +175,7 @@ class ModelLoader(ForgeModel):
                 ModelVariant.QWEN_3_VL_32B_INSTRUCT,
                 ModelVariant.QWEN_3_VL_235B_A22B_INSTRUCT_AWQ,
                 ModelVariant.UNSLOTH_QWEN_3_VL_4B_INSTRUCT,
-                ModelVariant.ROBOMETER_4B,
+                ModelVariant.QWEN_3_VL_8B_INSTRUCT_C_ABLITERATED_V3,
             )
             else ModelGroup.RED
         )
