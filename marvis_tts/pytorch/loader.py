@@ -22,19 +22,19 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Marvis TTS model variants."""
 
-    MARVIS_TTS_250M_V0_1 = "Marvis_TTS_250M_V0_1"
+    MARVIS_TTS_250M_V0_2 = "Marvis_TTS_250M_V0_2"
 
 
 class ModelLoader(ForgeModel):
     """Marvis TTS model loader implementation for text-to-speech tasks."""
 
     _VARIANTS = {
-        ModelVariant.MARVIS_TTS_250M_V0_1: ModelConfig(
-            pretrained_model_name="Marvis-AI/marvis-tts-250m-v0.1",
+        ModelVariant.MARVIS_TTS_250M_V0_2: ModelConfig(
+            pretrained_model_name="Marvis-AI/marvis-tts-250m-v0.2",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.MARVIS_TTS_250M_V0_1
+    DEFAULT_VARIANT = ModelVariant.MARVIS_TTS_250M_V0_2
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
