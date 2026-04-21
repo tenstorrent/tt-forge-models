@@ -23,7 +23,7 @@ from ....tools.utils import cast_input_to_type
 
 class ModelVariant(StrEnum):
     INTERNLM2_5_7B = "2.5_7B"
-    INTERNLM2_5_20B_CHAT_AWQ = "2.5_20B_Chat_AWQ"
+    INTERNLM2_5_1_8B_CHAT = "2.5_1_8B_Chat"
 
 
 class ModelLoader(ForgeModel):
@@ -31,8 +31,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.INTERNLM2_5_7B: ModelConfig(
             pretrained_model_name="internlm/internlm2_5-7b",
         ),
-        ModelVariant.INTERNLM2_5_20B_CHAT_AWQ: ModelConfig(
-            pretrained_model_name="internlm/internlm2_5-20b-chat-4bit-awq",
+        ModelVariant.INTERNLM2_5_1_8B_CHAT: ModelConfig(
+            pretrained_model_name="internlm/internlm2_5-1_8b-chat",
         ),
     }
 
