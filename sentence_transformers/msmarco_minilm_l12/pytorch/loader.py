@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available model variants for msmarco-MiniLM-L12-cos-v5."""
 
     MSMARCO_MINILM_L12_COS_V5 = "sentence-transformers/msmarco-MiniLM-L12-cos-v5"
+    MSMARCO_MINILM_L12_V3 = "sentence-transformers/msmarco-MiniLM-L12-v3"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MSMARCO_MINILM_L12_COS_V5: LLMModelConfig(
             pretrained_model_name="sentence-transformers/msmarco-MiniLM-L12-cos-v5",
+            max_length=256,
+        ),
+        ModelVariant.MSMARCO_MINILM_L12_V3: LLMModelConfig(
+            pretrained_model_name="sentence-transformers/msmarco-MiniLM-L12-v3",
             max_length=256,
         ),
     }
