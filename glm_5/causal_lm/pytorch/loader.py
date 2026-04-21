@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available GLM-5 model variants for causal language modeling."""
 
     GLM_5_NVFP4_MTP = "NVFP4_MTP"
+    GLM_5_8BIT_MXFP8 = "8bit_MXFP8"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GLM_5_NVFP4_MTP: LLMModelConfig(
             pretrained_model_name="festr2/GLM-5-NVFP4-MTP",
+            max_length=128,
+        ),
+        ModelVariant.GLM_5_8BIT_MXFP8: LLMModelConfig(
+            pretrained_model_name="mlx-community/GLM-5-8bit-MXFP8",
             max_length=128,
         ),
     }
