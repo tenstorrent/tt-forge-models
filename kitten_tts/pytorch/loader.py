@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-KittenTTS Nano model loader implementation for text-to-speech tasks.
+KittenTTS model loader implementation for text-to-speech tasks.
 """
 import torch
 import torch.nn as nn
@@ -36,14 +36,18 @@ class ModelVariant(StrEnum):
     """Available KittenTTS model variants."""
 
     KITTEN_TTS_NANO_0_1 = "nano-0.1"
+    KITTEN_TTS_MINI_0_1 = "mini-0.1"
 
 
 class ModelLoader(ForgeModel):
-    """KittenTTS Nano model loader implementation for text-to-speech tasks."""
+    """KittenTTS model loader implementation for text-to-speech tasks."""
 
     _VARIANTS = {
         ModelVariant.KITTEN_TTS_NANO_0_1: ModelConfig(
             pretrained_model_name="KittenML/kitten-tts-nano-0.1",
+        ),
+        ModelVariant.KITTEN_TTS_MINI_0_1: ModelConfig(
+            pretrained_model_name="KittenML/kitten-tts-mini-0.1",
         ),
     }
 
