@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available RynnBrain model variants for image to text."""
 
     RYNNBRAIN_8B = "8B"
+    RYNNBRAIN_NAV_8B = "Nav_8B"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.RYNNBRAIN_8B: LLMModelConfig(
             pretrained_model_name="Alibaba-DAMO-Academy/RynnBrain-8B",
+            max_length=128,
+        ),
+        ModelVariant.RYNNBRAIN_NAV_8B: LLMModelConfig(
+            pretrained_model_name="Alibaba-DAMO-Academy/RynnBrain-Nav-8B",
             max_length=128,
         ),
     }
