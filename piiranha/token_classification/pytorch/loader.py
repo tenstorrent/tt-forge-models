@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     PIIRANHA_V1_DETECT_PERSONAL_INFORMATION = (
         "iiiorg/piiranha-v1-detect-personal-information"
     )
+    PII_SENSITIVE_NER_GERMAN = "HuggingLil/pii-sensitive-ner-german"
 
 
 class ModelLoader(ForgeModel):
@@ -40,10 +41,19 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="iiiorg/piiranha-v1-detect-personal-information",
             max_length=256,
         ),
+        ModelVariant.PII_SENSITIVE_NER_GERMAN: LLMModelConfig(
+            pretrained_model_name="HuggingLil/pii-sensitive-ner-german",
+            max_length=256,
+        ),
     }
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.PIIRANHA_V1_DETECT_PERSONAL_INFORMATION
+
+    _SAMPLE_TEXTS = {
+        ModelVariant.PIIRANHA_V1_DETECT_PERSONAL_INFORMATION: "My name is John Smith and my email is john.smith@example.com. I live at 123 Main Street, New York.",
+        ModelVariant.PII_SENSITIVE_NER_GERMAN: "Elena Petrov ist Kosovarin und hat die Emailadresse elena.petrov@uni-berlin.de angegeben.",
+    }
 
     def __init__(self, variant=None):
         """Initialize ModelLoader with specified variant.
@@ -57,7 +67,7 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.model_name = pretrained_model_name
-        self.sample_text = "My name is John Smith and my email is john.smith@example.com. I live at 123 Main Street, New York."
+        self.sample_text = self._SAMPLE_TEXTS[self._variant]
         self.max_length = self._variant_config.max_length
         self.tokenizer = None
 
