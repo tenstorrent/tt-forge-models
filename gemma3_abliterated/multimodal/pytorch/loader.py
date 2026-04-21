@@ -30,6 +30,9 @@ class ModelVariant(StrEnum):
     """Available Gemma3 Abliterated multimodal model variants."""
 
     GEMMA_3_27B_IT_ABLITERATED = "nramanan/gemma-3-27b-it-abliterated"
+    GEMMA_3_27B_IT_ABLITERATED_NORMPRESERVE = (
+        "YanLabs/gemma-3-27b-it-abliterated-normpreserve"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +41,11 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GEMMA_3_27B_IT_ABLITERATED: LLMModelConfig(
             pretrained_model_name="nramanan/gemma-3-27b-it-abliterated",
+        ),
+        ModelVariant.GEMMA_3_27B_IT_ABLITERATED_NORMPRESERVE: LLMModelConfig(
+            pretrained_model_name=str(
+                ModelVariant.GEMMA_3_27B_IT_ABLITERATED_NORMPRESERVE
+            ),
         ),
     }
 
