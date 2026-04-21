@@ -3,9 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Qwen3-TTS MLX model loader implementation for text-to-speech tasks.
-
-MLX community conversion of Qwen3-TTS-12Hz-0.6B-CustomVoice, an
-8-bit quantized speech synthesis model.
 """
 import torch
 import torch.nn as nn
@@ -44,12 +41,12 @@ class Qwen3TTSTalkerWrapper(nn.Module):
 class ModelVariant(StrEnum):
     """Available Qwen3-TTS MLX model variants."""
 
-    QWEN3_TTS_0_6B_CUSTOM_VOICE_8BIT_MLX = "0.6B-CustomVoice-8bit-MLX"
+    QWEN3_TTS_1_7B_VOICE_DESIGN_8BIT = "1.7B-VoiceDesign-8bit"
 
 
-# Talker hidden sizes per variant for constructing dummy inputs.
+# Talker hidden size for the 1.7B variant.
 _TALKER_HIDDEN_SIZE = {
-    ModelVariant.QWEN3_TTS_0_6B_CUSTOM_VOICE_8BIT_MLX: 1024,
+    ModelVariant.QWEN3_TTS_1_7B_VOICE_DESIGN_8BIT: 2048,
 }
 
 
@@ -57,12 +54,12 @@ class ModelLoader(ForgeModel):
     """Qwen3-TTS MLX model loader implementation for text-to-speech tasks."""
 
     _VARIANTS = {
-        ModelVariant.QWEN3_TTS_0_6B_CUSTOM_VOICE_8BIT_MLX: ModelConfig(
-            pretrained_model_name="mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
+        ModelVariant.QWEN3_TTS_1_7B_VOICE_DESIGN_8BIT: ModelConfig(
+            pretrained_model_name="mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.QWEN3_TTS_0_6B_CUSTOM_VOICE_8BIT_MLX
+    DEFAULT_VARIANT = ModelVariant.QWEN3_TTS_1_7B_VOICE_DESIGN_8BIT
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -70,7 +67,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Qwen3-TTS-MLX",
+            model="Qwen3-TTS MLX",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.MM_TTS,
