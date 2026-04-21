@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     NEMOTRON_3_NANO_30B_A3B_MLX_4BIT = "3_Nano_30B_A3B_MLX_4bit"
     NEMOTRON_3_SUPER_120B_A12B_NVFP4 = "3_Super_120B_A12B_NVFP4"
     NEMOTRON_NANO_9B_V2_NVFP4 = "Nano_9B_v2_NVFP4"
+    OPEN_REASONING_NEMOTRON_14B = "OpenReasoning_14B"
 
 
 class ModelLoader(ForgeModel):
@@ -53,6 +54,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.NEMOTRON_NANO_9B_V2_NVFP4: LLMModelConfig(
             pretrained_model_name="nvidia/NVIDIA-Nemotron-Nano-9B-v2-NVFP4",
+            max_length=128,
+        ),
+        ModelVariant.OPEN_REASONING_NEMOTRON_14B: LLMModelConfig(
+            pretrained_model_name="nvidia/OpenReasoning-Nemotron-14B",
             max_length=128,
         ),
     }
@@ -103,6 +108,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.NEMOTRON_3_SUPER_120B_A12B_NVFP4,
         ModelVariant.NEMOTRON_NANO_9B_V2_NVFP4,
     }
+
+    # Qwen2-based variants don't support enable_thinking in chat templates.
+    _QWEN2_VARIANTS = {ModelVariant.OPEN_REASONING_NEMOTRON_14B}
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
