@@ -44,7 +44,7 @@ class ModelVariant(StrEnum):
     QWEN3_TTS_0_6B_BASE = "0.6B-Base"
     QWEN3_TTS_1_7B_BASE = "1.7B-Base"
     QWEN3_TTS_1_7B_VOICE_DESIGN = "1.7B-VoiceDesign"
-    QWEN3_TTS_1_7B_SAYRO = "1.7B-Sayro"
+    QWEN3_TTS_1_7B_VOICE_DESIGN_MLX_8BIT = "1.7B-VoiceDesign-MLX-8bit"
 
 
 # Talker hidden sizes per variant for constructing dummy inputs.
@@ -52,7 +52,7 @@ _TALKER_HIDDEN_SIZE = {
     ModelVariant.QWEN3_TTS_0_6B_BASE: 1024,
     ModelVariant.QWEN3_TTS_1_7B_BASE: 2048,
     ModelVariant.QWEN3_TTS_1_7B_VOICE_DESIGN: 2048,
-    ModelVariant.QWEN3_TTS_1_7B_SAYRO: 2048,
+    ModelVariant.QWEN3_TTS_1_7B_VOICE_DESIGN_MLX_8BIT: 2048,
 }
 
 
@@ -69,8 +69,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN3_TTS_1_7B_VOICE_DESIGN: ModelConfig(
             pretrained_model_name="Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
         ),
-        ModelVariant.QWEN3_TTS_1_7B_SAYRO: ModelConfig(
-            pretrained_model_name="uzlm/sayro-tts-1.7B",
+        ModelVariant.QWEN3_TTS_1_7B_VOICE_DESIGN_MLX_8BIT: ModelConfig(
+            pretrained_model_name="mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit",
         ),
     }
 
