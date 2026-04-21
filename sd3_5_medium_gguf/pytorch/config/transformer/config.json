@@ -11,7 +11,7 @@
   "out_channels": 16,
   "patch_size": 2,
   "pooled_projection_dim": 2048,
-  "pos_embed_max_size": 192,
+  "pos_embed_max_size": 384,
   "qk_norm": "rms_norm",
   "sample_size": 128
 }
