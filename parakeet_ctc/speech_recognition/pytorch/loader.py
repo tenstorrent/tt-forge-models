@@ -81,6 +81,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCTC.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
+        target_dtype = dtype_override if dtype_override is not None else torch.float32
+        model = model.to(dtype=target_dtype)
         model.eval()
 
         return model
