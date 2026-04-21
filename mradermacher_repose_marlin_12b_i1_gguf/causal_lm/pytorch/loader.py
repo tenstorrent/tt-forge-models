@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "Repose-Marlin-12B.i1-Q4_K_M.gguf"
 
-    sample_text = "Give me a short introduction to large language models."
+    sample_text = "What is your favorite city?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
