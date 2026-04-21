@@ -4,8 +4,12 @@
 
 """
 Parakeet TDT HF model loader implementation for automatic speech recognition.
+
+Uses NeMo ASR to load the model since the HuggingFace transformers integration
+for parakeet_tdt model type is not yet available in a released version.
 """
 
+import torch
 from typing import Optional
 
 from ....base import ForgeModel
@@ -31,7 +35,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.TDT_0_6B_V3_HF: ModelConfig(
-            pretrained_model_name="bezzam/parakeet-tdt-0.6b-v3-hf",
+            pretrained_model_name="nvidia/parakeet-tdt-0.6b-v3",
         ),
     }
 
@@ -39,8 +43,6 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._processor = None
-        self.model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -56,70 +58,35 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self):
-        from transformers import AutoProcessor
-
-        self._processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-        )
-
-        return self._processor
-
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoModel
+        import nemo.collections.asr as nemo_asr
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        self.model = AutoModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            **model_kwargs,
+        model = nemo_asr.models.ASRModel.from_pretrained(
+            self._variant_config.pretrained_model_name
         )
-        self.model.eval()
-        if dtype_override is not None:
-            self.model.to(dtype_override)
+        model.eval()
 
-        return self.model
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
+        return model
 
     def load_inputs(self, dtype_override=None):
         import numpy as np
-        import torch
 
-        if self.model is None:
-            self.load_model(dtype_override=dtype_override)
-
-        if self._processor is None:
-            self._load_processor()
-
-        model_param = next(self.model.parameters())
-        device = model_param.device
-        dtype = dtype_override or model_param.dtype
-
-        # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
         duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
             np.float32
         )
 
-        inputs = self._processor(
-            audio_array,
-            sampling_rate=sampling_rate,
-            return_tensors="pt",
-        )
+        input_signal = torch.tensor(audio_array).unsqueeze(0)
+        input_signal_length = torch.tensor([len(audio_array)])
 
-        # Cast inputs to match model dtype and device
-        for key in inputs:
-            if (
-                isinstance(inputs[key], torch.Tensor)
-                and inputs[key].is_floating_point()
-            ):
-                inputs[key] = inputs[key].to(device=device, dtype=dtype)
-            elif isinstance(inputs[key], torch.Tensor):
-                inputs[key] = inputs[key].to(device=device)
+        if dtype_override is not None:
+            input_signal = input_signal.to(dtype_override)
 
-        return inputs
+        return {
+            "input_signal": input_signal,
+            "input_signal_length": input_signal_length,
+        }
