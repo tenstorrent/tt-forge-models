@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Norwegian T5 model variants."""
 
     BASE_NCC_NB_NN = "Base_NCC_nb_nn"
+    NB_NN_TRANSLATION = "nb_nn_translation"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE_NCC_NB_NN: LLMModelConfig(
             pretrained_model_name="pere/norwegian-t5-base-NCC-nb-nn",
+            max_length=512,
+        ),
+        ModelVariant.NB_NN_TRANSLATION: LLMModelConfig(
+            pretrained_model_name="pere/nb-nn-translation",
             max_length=512,
         ),
     }
