@@ -11,6 +11,22 @@ model is too large to load directly.
 from typing import Optional
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.cache_utils import DynamicCache
+
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length: int, layer_idx: int = 0) -> int:
+        max_length = self.get_max_cache_shape()
+        previous_seq_length = self.get_seq_length(layer_idx)
+        if (
+            max_length is not None
+            and max_length > 0
+            and previous_seq_length + new_seq_length > max_length
+        ):
+            return max_length - new_seq_length
+        return previous_seq_length
+
+    DynamicCache.get_usable_length = _get_usable_length
 
 from ....base import ForgeModel
 from ....config import (
