@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Sailor2-8B-Chat model loader implementation for causal language modeling.
+Sailor2 Chat model loader implementation for causal language modeling.
 """
 
 from typing import Optional
@@ -26,14 +26,19 @@ class ModelVariant(StrEnum):
     """Available Sailor2 model variants for causal language modeling."""
 
     SAILOR2_8B_CHAT = "8B_Chat"
+    SAILOR2_1B_CHAT = "1B_Chat"
 
 
 class ModelLoader(ForgeModel):
-    """Sailor2-8B-Chat model loader implementation for causal language modeling tasks."""
+    """Sailor2 Chat model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.SAILOR2_8B_CHAT: LLMModelConfig(
             pretrained_model_name="sail/Sailor2-8B-Chat",
+            max_length=128,
+        ),
+        ModelVariant.SAILOR2_1B_CHAT: LLMModelConfig(
+            pretrained_model_name="sail/Sailor2-1B-Chat",
             max_length=128,
         ),
     }
