@@ -4,6 +4,7 @@
 """
 GLM 4.7 Flash Derestricted i1 GGUF model loader implementation for causal language modeling.
 """
+
 from typing import Optional
 
 import torch
