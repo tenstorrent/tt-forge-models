@@ -143,11 +143,8 @@ class ModelVariant(StrEnum):
     # RLHFlow variants
     RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA = "RLHFlow_3.1_8B_PRM_Deepseek_Data"
 
-    # AllenAI Tulu variants
-    LLAMA_3_1_TULU_3_8B = "3.1_Tulu_3_8B"
-
-    # ISTA-DASLab rehosted variants
-    LLAMA_3_8B_INSTRUCT_ISTA_DASLAB = "3.0_8B_Instruct_ISTA_DASLab"
+    # DeepMount00 variants
+    DEEPMOUNT00_LLAMA_3_1_8B_ITA = "DeepMount00_3.1_8B_ITA"
 
 
 class ModelLoader(ForgeModel):
@@ -356,14 +353,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RLHFlow/Llama3.1-8B-PRM-Deepseek-Data",
             max_length=128,
         ),
-        # AllenAI Tulu variants
-        ModelVariant.LLAMA_3_1_TULU_3_8B: LLMModelConfig(
-            pretrained_model_name="allenai/Llama-3.1-Tulu-3-8B",
-            max_length=128,
-        ),
-        # ISTA-DASLab rehosted variants
-        ModelVariant.LLAMA_3_8B_INSTRUCT_ISTA_DASLAB: LLMModelConfig(
-            pretrained_model_name="ISTA-DASLab/Meta-Llama-3-8B-Instruct",
+        # DeepMount00 variants
+        ModelVariant.DEEPMOUNT00_LLAMA_3_1_8B_ITA: LLMModelConfig(
+            pretrained_model_name="DeepMount00/Llama-3.1-8b-ITA",
             max_length=128,
         ),
     }
@@ -450,7 +442,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.AMD_QUARK_TINY_LLAMA,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA,
-            ModelVariant.TINYLLAMA_1_1B_INTERMEDIATE_STEP_1195K_2_5T,
+            ModelVariant.DEEPMOUNT00_LLAMA_3_1_8B_ITA,
         ]:
             group = ModelGroup.VULCAN
         else:
