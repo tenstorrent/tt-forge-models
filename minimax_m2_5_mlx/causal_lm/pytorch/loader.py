@@ -32,6 +32,7 @@ class ModelVariant(StrEnum):
     """Available MiniMax-M2.5 MLX model variants."""
 
     MINIMAX_M2_5_MLX_6BIT = "M2.5_MLX_6bit"
+    MINIMAX_M2_5_JANG_2L = "M2.5_JANG_2L"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +41,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MINIMAX_M2_5_MLX_6BIT: LLMModelConfig(
             pretrained_model_name="lmstudio-community/MiniMax-M2.5-MLX-6bit",
+            max_length=128,
+        ),
+        ModelVariant.MINIMAX_M2_5_JANG_2L: LLMModelConfig(
+            pretrained_model_name="JANGQ-AI/MiniMax-M2.5-JANG_2L",
             max_length=128,
         ),
     }
