@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Nomic Embed Text v1.5 GGUF model variants for embedding generation."""
 
-    NOMIC_EMBED_TEXT_V1_5_GGUF = "nomic-embed-text-v1.5-gguf"
+    NOMIC_EMBED_TEXT_V1_5_GGUF = "nomic-embed-text-v1.5-GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -31,13 +31,19 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.NOMIC_EMBED_TEXT_V1_5_GGUF: ModelConfig(
-            pretrained_model_name="second-state/Nomic-embed-text-v1.5-Embedding-GGUF",
+            pretrained_model_name="mradermacher/nomic-embed-text-v1.5-GGUF",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.NOMIC_EMBED_TEXT_V1_5_GGUF
 
-    GGUF_FILE = "nomic-embed-text-v1.5-f16.gguf"
+    _GGUF_FILES = {
+        ModelVariant.NOMIC_EMBED_TEXT_V1_5_GGUF: "nomic-embed-text-v1.5.Q4_K_M.gguf",
+    }
+
+    @property
+    def GGUF_FILE(self):
+        return self._GGUF_FILES[self._variant]
 
     sample_sentences = [
         "search_document: TSNE is a dimensionality reduction algorithm created by Laurens van Der Maaten"
