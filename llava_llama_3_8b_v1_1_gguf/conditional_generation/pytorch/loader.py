@@ -85,6 +85,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.gguf_file
 
+        # GGUF config is parsed as LlamaConfig; provide the full LlavaConfig
+        # from the HF model so the vision tower can be instantiated.
+        model_kwargs["config"] = AutoConfig.from_pretrained(self._PROCESSOR_NAME)
+
         model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
@@ -139,7 +143,5 @@ class ModelLoader(ForgeModel):
         }
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
-        )
+        self.config = AutoConfig.from_pretrained(self._PROCESSOR_NAME)
         return self.config
