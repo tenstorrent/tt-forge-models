@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available LLM-jp model variants for causal language modeling."""
 
     LLMJP_3_1_13B = "3.1_13B"
-    LLMJP_13B_INSTRUCT_FULL_JASTER_V1_0 = "13B_Instruct_Full_Jaster_v1.0"
+    LLMJP_3_1_1_8B = "3.1_1.8B"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="llm-jp/llm-jp-3.1-13b",
             max_length=128,
         ),
-        ModelVariant.LLMJP_13B_INSTRUCT_FULL_JASTER_V1_0: LLMModelConfig(
-            pretrained_model_name="llm-jp/llm-jp-13b-instruct-full-jaster-v1.0",
+        ModelVariant.LLMJP_3_1_1_8B: LLMModelConfig(
+            pretrained_model_name="llm-jp/llm-jp-3.1-1.8b",
             max_length=128,
         ),
     }
