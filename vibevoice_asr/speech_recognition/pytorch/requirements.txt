@@ -1,1 +1,1 @@
-bitsandbytes
+transformers>=5.5.0

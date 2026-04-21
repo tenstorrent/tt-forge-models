@@ -5,13 +5,14 @@
 VibeVoice-ASR model loader implementation for speech recognition (ASR).
 
 VibeVoice-ASR is a speech model from Microsoft for automatic speech recognition,
-transcription, and speaker diarization. This loader targets the 4-bit quantized
-variant (scerz/VibeVoice-ASR-4bit) using bitsandbytes NF4 quantization.
+transcription, and speaker diarization. This loader uses the official HuggingFace
+variant (microsoft/VibeVoice-ASR-HF) with native transformers support.
 """
 
 from typing import Optional
 
 import numpy as np
+import torch
 
 from ....base import ForgeModel
 from ....config import (
@@ -36,7 +37,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.V4BIT: ModelConfig(
-            pretrained_model_name="scerz/VibeVoice-ASR-4bit",
+            pretrained_model_name="microsoft/VibeVoice-ASR-HF",
         ),
     }
 
@@ -66,7 +67,6 @@ class ModelLoader(ForgeModel):
 
         self._processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
         )
 
         return self._processor
@@ -82,9 +82,10 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForSpeechSeq2Seq.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
             **model_kwargs,
         )
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
         model.eval()
 
         return model
@@ -94,17 +95,25 @@ class ModelLoader(ForgeModel):
         if self._processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        # Generate synthetic 1-second audio at 16kHz
-        sampling_rate = 16000
+        sampling_rate = 24000
         duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
             np.float32
         )
 
         inputs = self._processor(
-            audio_array,
+            text="transcribe",
+            audio=audio_array,
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            for key in inputs:
+                if (
+                    isinstance(inputs[key], torch.Tensor)
+                    and inputs[key].is_floating_point()
+                ):
+                    inputs[key] = inputs[key].to(dtype_override)
 
         return inputs
