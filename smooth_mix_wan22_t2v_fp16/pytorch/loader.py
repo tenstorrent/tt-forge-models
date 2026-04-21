@@ -33,17 +33,18 @@ from ...config import (
 REPO_ID = "BigDannyPt/WAN-2.2-SmoothMix-FP16"
 CONFIG_REPO = "Wan-AI/Wan2.2-T2V-A14B-Diffusers"
 
-_SAFETENSORS_FILES = {
-    "HIGH_NOISE_FP16": "smoothmixTxt2vidHigh-FP16.safetensors",
-    "LOW_NOISE_FP16": "smoothmixTxt2vidLow-FP16.safetensors",
-}
-
 
 class ModelVariant(StrEnum):
     """Available smoothMixWan22 T2V FP16 variants."""
 
     HIGH_NOISE_FP16 = "HighNoise_FP16"
     LOW_NOISE_FP16 = "LowNoise_FP16"
+
+
+_SAFETENSORS_FILES = {
+    ModelVariant.HIGH_NOISE_FP16: "smoothmixTxt2vidHigh-FP16.safetensors",
+    ModelVariant.LOW_NOISE_FP16: "smoothmixTxt2vidLow-FP16.safetensors",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -76,22 +77,13 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _get_file_key(self) -> str:
-        """Map variant to safetensors file key."""
-        return {
-            ModelVariant.HIGH_NOISE_FP16: "HIGH_NOISE_FP16",
-            ModelVariant.LOW_NOISE_FP16: "LOW_NOISE_FP16",
-        }[self._variant]
-
     def _load_transformer(
         self, dtype: torch.dtype = torch.float16
     ) -> WanTransformer3DModel:
         """Load diffusion transformer from FP16 safetensors file."""
-        file_key = self._get_file_key()
-
         model_path = hf_hub_download(
             repo_id=REPO_ID,
-            filename=_SAFETENSORS_FILES[file_key],
+            filename=_SAFETENSORS_FILES[self._variant],
         )
 
         self._transformer = WanTransformer3DModel.from_single_file(
