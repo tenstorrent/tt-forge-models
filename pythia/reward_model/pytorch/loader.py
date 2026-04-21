@@ -52,14 +52,23 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_tokenizer(self):
+        from transformers import AutoTokenizer
+
+        if self.tokenizer is None:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+        return self.tokenizer
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+        from transformers import AutoModelForSequenceClassification
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+        self._load_tokenizer()
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -73,14 +82,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        if self.tokenizer is None:
-            from transformers import AutoTokenizer
-
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self._variant_config.pretrained_model_name
-            )
-            if self.tokenizer.pad_token is None:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
+        self._load_tokenizer()
 
         input_text = (
             "SUBREDDIT: r/AskReddit\n"
