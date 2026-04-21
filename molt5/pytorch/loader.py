@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available MolT5 model variants."""
 
     BASE_SMILES2CAPTION = "Base_Smiles2Caption"
+    LARGE = "Large"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE_SMILES2CAPTION: LLMModelConfig(
             pretrained_model_name="laituan245/molt5-base-smiles2caption",
+            max_length=512,
+        ),
+        ModelVariant.LARGE: LLMModelConfig(
+            pretrained_model_name="laituan245/molt5-large",
             max_length=512,
         ),
     }
