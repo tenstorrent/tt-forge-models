@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available PubChem10M SMILES BPE Masked LM model variants."""
 
     PUBCHEM10M_SMILES_BPE_450K = "PubChem10M_SMILES_BPE_450k"
+    PUBCHEM10M_SMILES_BPE_60K = "PubChem10M_SMILES_BPE_60k"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.PUBCHEM10M_SMILES_BPE_450K: ModelConfig(
             pretrained_model_name="seyonec/PubChem10M_SMILES_BPE_450k",
+        ),
+        ModelVariant.PUBCHEM10M_SMILES_BPE_60K: ModelConfig(
+            pretrained_model_name="seyonec/PubChem10M_SMILES_BPE_60k",
         ),
     }
 
