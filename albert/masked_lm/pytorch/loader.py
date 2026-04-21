@@ -32,7 +32,7 @@ class ModelVariant(StrEnum):
     XLARGE_V2 = "Xlarge_v2"
     XXLARGE_V2 = "Xxlarge_v2"
     KOR_BASE = "Kor_Base"
-    INDOBERT_LITE_BASE_P2 = "Indobert_Lite_Base_P2"
+    CHINESE_BASE = "Chinese_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -76,8 +76,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="kykim/albert-kor-base",
             max_length=128,
         ),
-        ModelVariant.INDOBERT_LITE_BASE_P2: LLMModelConfig(
-            pretrained_model_name="indobenchmark/indobert-lite-base-p2",
+        ModelVariant.CHINESE_BASE: LLMModelConfig(
+            pretrained_model_name="voidful/albert_chinese_base",
             max_length=128,
         ),
     }
@@ -89,15 +89,12 @@ class ModelLoader(ForgeModel):
     sample_text = "The capital of France is [MASK]."
 
     # Variants that use BertTokenizerFast instead of AlbertTokenizer
-    _BERT_TOKENIZER_VARIANTS = {
-        ModelVariant.KOR_BASE,
-        ModelVariant.INDOBERT_LITE_BASE_P2,
-    }
+    _BERT_TOKENIZER_VARIANTS = {ModelVariant.KOR_BASE, ModelVariant.CHINESE_BASE}
 
-    # Per-variant sample texts (Korean variant uses Korean text)
+    # Per-variant sample texts (Korean and Chinese variants use native-language text)
     _SAMPLE_TEXTS = {
         ModelVariant.KOR_BASE: "한국의 수도는 [MASK]입니다.",
-        ModelVariant.INDOBERT_LITE_BASE_P2: "Aku adalah anak [MASK].",
+        ModelVariant.CHINESE_BASE: "今天[MASK]情很好。",
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
@@ -123,7 +120,7 @@ class ModelLoader(ForgeModel):
         """
         group = (
             ModelGroup.VULCAN
-            if variant in {ModelVariant.KOR_BASE, ModelVariant.INDOBERT_LITE_BASE_P2}
+            if variant in (ModelVariant.KOR_BASE, ModelVariant.CHINESE_BASE)
             else ModelGroup.GENERALITY
         )
         return ModelInfo(
@@ -150,7 +147,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        # Load the tokenizer (Korean variant uses BertTokenizerFast)
+        # Load the tokenizer (Korean and Chinese variants use BertTokenizerFast)
         tokenizer_cls = (
             BertTokenizerFast
             if self._variant in self._BERT_TOKENIZER_VARIANTS
