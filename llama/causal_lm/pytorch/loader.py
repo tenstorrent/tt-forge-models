@@ -121,6 +121,7 @@ class ModelVariant(StrEnum):
     LLAMA_2_7B = "2_7B"
     LLAMA_2_7B_GPTQ = "2_7B_GPTQ"
     LLAMA_2_70B_MMLU = "2_70B_Mmlu"
+    MOMO_70B_V1_1 = "Momo_70B_V1.1"
 
     # Unsloth variants
     UNSLOTH_LLAMA_2_7B = "Unsloth_2_7B"
@@ -293,6 +294,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="itsliupeng/llama2_70b_mmlu",
             max_length=128,
         ),
+        ModelVariant.MOMO_70B_V1_1: LLMModelConfig(
+            pretrained_model_name="bongchoi/MoMo-70B-V1.1",
+            max_length=128,
+        ),
         # Unsloth variants
         ModelVariant.UNSLOTH_LLAMA_2_7B: LLMModelConfig(
             pretrained_model_name="unsloth/llama-2-7b",
@@ -408,6 +413,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4,
             ModelVariant.LLAMA_2_70B_MMLU,
+            ModelVariant.MOMO_70B_V1_1,
         ]:
             group = ModelGroup.VULCAN
         elif (
