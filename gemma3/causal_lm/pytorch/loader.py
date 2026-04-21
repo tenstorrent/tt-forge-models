@@ -33,7 +33,7 @@ class ModelVariant(StrEnum):
     GEMMA_3_27B_IT = "27B_Instruct"
     GEMMA_3_4B_IT_BNB_4BIT = "4B_Instruct_bnb_4bit"
     GEMMA_3_1B_IT_AWQ_INT4 = "1B_Instruct_awq_int4"
-    GEMMA_3_1B_IT_NMT_21 = "1B_Instruct_NMT_21"
+    GEMMA_3_12B_NOVISION = "12B_NoVision"
 
 
 class ModelLoader(ForgeModel):
@@ -76,8 +76,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="gaunernst/gemma-3-1b-it-int4-awq",
             max_length=256,
         ),
-        ModelVariant.GEMMA_3_1B_IT_NMT_21: LLMModelConfig(
-            pretrained_model_name="odats/nmt_21",
+        ModelVariant.GEMMA_3_12B_NOVISION: LLMModelConfig(
+            pretrained_model_name="gghfez/gemma-3-12b-novision",
             max_length=256,
         ),
     }
@@ -103,7 +103,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_3_27B_IT,
             ModelVariant.GEMMA_3_4B_IT_BNB_4BIT,
             ModelVariant.GEMMA_3_1B_IT_AWQ_INT4,
-            ModelVariant.GEMMA_3_1B_IT_NMT_21,
+            ModelVariant.GEMMA_3_12B_NOVISION,
         ):
             group = ModelGroup.VULCAN
         else:
