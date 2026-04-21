@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
     """Available Step3 VL model variants."""
 
     STEP3_VL = "Step3_VL"
-    STEP3_VL_10B_FP8 = "Step3_VL_10B_FP8"
+    STEP3_VL_10B_GGUF_Q4_K_M = "Step3_VL_10B_GGUF_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
@@ -37,12 +37,20 @@ class ModelLoader(ForgeModel):
         ModelVariant.STEP3_VL: ModelConfig(
             pretrained_model_name="stepfun-ai/step3",
         ),
-        ModelVariant.STEP3_VL_10B_FP8: ModelConfig(
-            pretrained_model_name="stepfun-ai/Step3-VL-10B-FP8",
+        ModelVariant.STEP3_VL_10B_GGUF_Q4_K_M: ModelConfig(
+            pretrained_model_name="seanbailey518/Step3-VL-10B-GGUF",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.STEP3_VL
+
+    _GGUF_FILES = {
+        ModelVariant.STEP3_VL_10B_GGUF_Q4_K_M: "Step3-VL-10B-Q4_K_M.gguf",
+    }
+
+    _BASE_PROCESSOR_NAMES = {
+        ModelVariant.STEP3_VL_10B_GGUF_Q4_K_M: "stepfun-ai/Step3-VL-10B",
+    }
 
     sample_text = "What is shown in this image?"
     sample_image_url = "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
@@ -50,6 +58,10 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+
+    @property
+    def _gguf_file(self):
+        return self._GGUF_FILES.get(self._variant)
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -66,8 +78,11 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        processor_name = self._BASE_PROCESSOR_NAMES.get(
+            self._variant, self._variant_config.pretrained_model_name
+        )
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+            processor_name, trust_remote_code=True
         )
 
         return self.processor
@@ -81,6 +96,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._gguf_file is not None:
+            model_kwargs["gguf_file"] = self._gguf_file
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
