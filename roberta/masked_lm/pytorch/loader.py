@@ -25,7 +25,8 @@ class ModelVariant(StrEnum):
 
     XLM_BASE = "Xlm_Base"
     ROBERTA_BASE = "Roberta_Base"
-    ROBECZECH_BASE = "RobeCzech_Base"
+    SECUREBERT = "SecureBERT"
+    ANONYMOUS_PINEAPPLE_ROBERTA_BASE = "Anonymous_Pineapple_Roberta_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -44,6 +45,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.ICEBERT: ModelConfig(
             pretrained_model_name="mideind/IceBERT",
+        ),
+        ModelVariant.ANONYMOUS_PINEAPPLE_ROBERTA_BASE: ModelConfig(
+            pretrained_model_name="Anonymous-Pineapple/roberta-base",
         ),
     }
 
@@ -72,7 +76,11 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         group = ModelGroup.GENERALITY
-        if variant in (ModelVariant.ROBERTA_BASE, ModelVariant.ROBECZECH_BASE):
+        if variant in (
+            ModelVariant.ROBERTA_BASE,
+            ModelVariant.SECUREBERT,
+            ModelVariant.ANONYMOUS_PINEAPPLE_ROBERTA_BASE,
+        ):
             group = ModelGroup.VULCAN
         return ModelInfo(
             model="RoBERTa",
