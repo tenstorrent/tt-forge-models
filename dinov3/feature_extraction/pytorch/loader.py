@@ -49,7 +49,7 @@ class ModelLoader(ForgeModel):
             source=ModelSource.HUGGING_FACE,
         ),
         ModelVariant.LARGE: DINOv3Config(
-            pretrained_model_name="camenduru/dinov3-vitl16-pretrain-lvd1689m",
+            pretrained_model_name="Tooony133/dinov3-vitl16-pretrain-lvd1689m",
             source=ModelSource.HUGGING_FACE,
         ),
         ModelVariant.SMALL_PLUS_PATCH16_TIMM: DINOv3Config(
