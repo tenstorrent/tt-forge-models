@@ -5,8 +5,10 @@
 Florence-2 prompt generation model loader implementation (PyTorch).
 """
 
+import sys
+
 import torch
-from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers import AutoConfig, AutoProcessor, AutoModelForCausalLM
 from typing import Optional
 from PIL import Image
 
@@ -62,19 +64,41 @@ class ModelLoader(ForgeModel):
         )
         return self.processor
 
+    @staticmethod
+    def _patch_florence2_language_config():
+        for name, mod in sys.modules.items():
+            if "configuration_florence2" not in name:
+                continue
+            cls = getattr(mod, "Florence2LanguageConfig", None)
+            if cls is not None:
+                cls.forced_bos_token_id = None
+                return
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
+        try:
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+        except AttributeError as e:
+            if "forced_bos_token_id" not in str(e):
+                raise
+            self._patch_florence2_language_config()
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+
+        config.tie_word_embeddings = False
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs["attn_implementation"] = "eager"
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name,
-            trust_remote_code=True,
-            attn_implementation="eager",
-            **model_kwargs,
+            pretrained_model_name, **model_kwargs
         )
         model.eval()
         return model
