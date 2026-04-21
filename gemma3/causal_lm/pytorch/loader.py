@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     GEMMA_3_270M = "270M"
     GEMMA_3_270M_IT = "270M_Instruct"
+    GEMMA_3_270M_IT_QAT = "270M_Instruct_QAT"
     GEMMA_3_1B_PT = "1B_Pretrained"
     GEMMA_3_1B_PT_UNSLOTH = "1B_Pretrained_Unsloth"
     GEMMA_3_1B_IT = "1B_Instruct"
@@ -46,6 +47,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GEMMA_3_270M_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-3-270m-it",
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_3_270M_IT_QAT: LLMModelConfig(
+            pretrained_model_name="unsloth/gemma-3-270m-it-qat",
             max_length=256,
         ),
         ModelVariant.GEMMA_3_1B_PT: LLMModelConfig(
@@ -100,6 +105,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         if variant in (
+            ModelVariant.GEMMA_3_270M_IT_QAT,
             ModelVariant.GEMMA_3_27B_IT,
             ModelVariant.GEMMA_3_4B_IT_BNB_4BIT,
             ModelVariant.GEMMA_3_1B_IT_AWQ_INT4,
