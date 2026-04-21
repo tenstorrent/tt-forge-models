@@ -55,26 +55,18 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         from transformers import AutoModel
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
-            **model_kwargs,
+            **kwargs,
         )
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
-
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         import numpy as np
 
         # Generate a synthetic 1-second audio waveform at 24kHz
@@ -87,8 +79,4 @@ class ModelLoader(ForgeModel):
 
         # Model expects input of shape (batch, channels, samples)
         wav = torch.from_numpy(audio_array).unsqueeze(0).unsqueeze(0)
-
-        if dtype_override is not None:
-            wav = wav.to(dtype_override)
-
         return {"input_values": wav}
