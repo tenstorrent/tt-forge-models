@@ -4,8 +4,15 @@
 """
 mlx-community/Qwen3-Coder-Next-bf16 model loader for causal language modeling.
 """
+import os
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
+    Qwen3NextForCausalLM,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -76,13 +83,8 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
+        config = AutoConfig.from_pretrained(pretrained_model_name)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
                 if hasattr(config.text_config, "layer_types"):
@@ -91,11 +93,24 @@ class ModelLoader(ForgeModel):
                     ]
             else:
                 config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+                if hasattr(config, "layer_types"):
+                    config.layer_types = config.layer_types[: self.num_layers]
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            model = Qwen3NextForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["config"] = config
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+
+        model = model.eval()
 
         self.config = model.config
         self.model = model
