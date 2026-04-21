@@ -4,6 +4,7 @@
 """
 SandLogic Qwen3 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -18,6 +19,22 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _ensure_gguf_in_package_map():
+    # transformers builds PACKAGE_DISTRIBUTION_MAPPING once at import time.
+    # When gguf is installed at runtime (by RequirementsManager), "gguf" is
+    # absent from the snapshot, causing is_gguf_available() to crash with
+    # InvalidVersion: 'N/A'.  Refresh the entry here, at load time, when gguf
+    # is guaranteed to be present on disk.
+    try:
+        from transformers.utils import import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            importlib.metadata.version("gguf")  # raises if not installed
+            _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+    except Exception:
+        pass
 
 
 class ModelVariant(StrEnum):
@@ -101,6 +118,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+        _ensure_gguf_in_package_map()
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
