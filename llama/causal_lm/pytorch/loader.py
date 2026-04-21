@@ -141,6 +141,9 @@ class ModelVariant(StrEnum):
     # Tap-M variants
     TAP_M_LUNA_AI_LLAMA2_UNCENSORED_FP16 = "Tap_M_Luna_AI_Llama2_Uncensored_FP16"
 
+    # garage-bAInd variants
+    PLATYPUS2_70B = "Platypus2_70B"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -336,6 +339,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Tap-M/Luna-AI-Llama2-Uncensored-FP16",
             max_length=128,
         ),
+        # garage-bAInd variants
+        ModelVariant.PLATYPUS2_70B: LLMModelConfig(
+            pretrained_model_name="garage-bAInd/Platypus2-70B",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -389,6 +397,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.UPSTAGE_LLAMA_30B_INSTRUCT,
             ModelVariant.NB_NOTRAM_LLAMA_3_2_3B_INSTRUCT,
             ModelVariant.TAP_M_LUNA_AI_LLAMA2_UNCENSORED_FP16,
+            ModelVariant.PLATYPUS2_70B,
         ]:
             group = ModelGroup.VULCAN
         elif (
