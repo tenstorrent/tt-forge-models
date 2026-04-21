@@ -39,6 +39,7 @@ class ModelVariant(StrEnum):
 
     # TIMM variants
     INCEPTION_V3_TF_ADV_IN1K = "V3.tf_Adv_In1k"
+    INCEPTION_V3_GLUON_IN1K = "V3.Gluon_In1k"
     INCEPTION_V4 = "v4"
     INCEPTION_V4_TF_IN1K = "V4.tf_In1k"
 
@@ -54,6 +55,10 @@ class ModelLoader(ForgeModel):
         # TIMM variants
         ModelVariant.INCEPTION_V3_TF_ADV_IN1K: InceptionConfig(
             pretrained_model_name="hf_hub:timm/inception_v3.tf_adv_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.INCEPTION_V3_GLUON_IN1K: InceptionConfig(
+            pretrained_model_name="hf_hub:timm/inception_v3.gluon_in1k",
             source=ModelSource.TIMM,
         ),
         ModelVariant.INCEPTION_V4: InceptionConfig(
@@ -103,7 +108,10 @@ class ModelLoader(ForgeModel):
         # Get source from variant config
         source = cls._VARIANTS[variant].source
 
-        if variant == ModelVariant.INCEPTION_V3_TF_ADV_IN1K:
+        if variant in (
+            ModelVariant.INCEPTION_V3_TF_ADV_IN1K,
+            ModelVariant.INCEPTION_V3_GLUON_IN1K,
+        ):
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
