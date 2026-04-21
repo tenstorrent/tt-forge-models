@@ -88,7 +88,9 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer()
 
         if sentence is None:
-            sentence = "Emergency response teams are coordinating disaster relief efforts."
+            sentence = (
+                "Emergency response teams are coordinating disaster relief efforts."
+            )
 
         max_length = getattr(self._variant_config, "max_length", 128)
 
