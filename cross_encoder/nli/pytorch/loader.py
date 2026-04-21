@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available Cross-Encoder NLI model variants."""
 
     NLI_DEBERTA_V3_XSMALL = "nli-deberta-v3-xsmall"
+    NLI_DEBERTA_BASE = "nli-deberta-base"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +31,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.NLI_DEBERTA_V3_XSMALL: ModelConfig(
             pretrained_model_name="cross-encoder/nli-deberta-v3-xsmall",
+        ),
+        ModelVariant.NLI_DEBERTA_BASE: ModelConfig(
+            pretrained_model_name="cross-encoder/nli-deberta-base",
         ),
     }
 
