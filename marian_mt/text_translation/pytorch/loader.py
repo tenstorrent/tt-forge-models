@@ -36,6 +36,7 @@ class ModelVariant(StrEnum):
     OPUS_MT_TC_BIG_EN_KO = "Opus_Mt_Tc_Big_En_Ko"
     OPUS_MT_EN_GMQ = "Opus_Mt_En_Gmq"
     MT_DSPEC_HEALTH_EN_CY = "Mt_Dspec_Health_En_Cy"
+    OPUS_MT_MT_EN = "Opus_Mt_Mt_En"
 
 
 class ModelLoader(ForgeModel):
@@ -81,6 +82,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MT_DSPEC_HEALTH_EN_CY: LLMModelConfig(
             pretrained_model_name="techiaith/mt-dspec-health-en-cy",
         ),
+        ModelVariant.OPUS_MT_MT_EN: LLMModelConfig(
+            pretrained_model_name="Helsinki-NLP/opus-mt-mt-en",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.OPUS_MT_TR_EN
@@ -91,6 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.OPUS_MT_TC_BIG_EN_KO: "The weather is beautiful today and the sun is shining brightly.",
         ModelVariant.OPUS_MT_EN_GMQ: ">>sv<< The weather is beautiful today and the sun is shining brightly.",
         ModelVariant.MT_DSPEC_HEALTH_EN_CY: "The patient has a headache.",
+        ModelVariant.OPUS_MT_MT_EN: "Il-ġurnata hija sabiħa ħafna.",
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
