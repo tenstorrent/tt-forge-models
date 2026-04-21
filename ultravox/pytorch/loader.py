@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available Ultravox model variants."""
 
     V0_3 = "v0_3"
+    V0_4 = "v0_4"
     V0_5_LLAMA_3_2_1B = "v0_5_Llama_3_2_1B"
     V0_5_LLAMA_3_1_8B = "v0_5_Llama_3_1_8B"
     V0_7_GLM_4_6 = "v0_7_glm_4_6"
@@ -40,6 +41,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.V0_3: ModelConfig(
             pretrained_model_name="fixie-ai/ultravox-v0_3",
+        ),
+        ModelVariant.V0_4: ModelConfig(
+            pretrained_model_name="fixie-ai/ultravox-v0_4",
         ),
         ModelVariant.V0_5_LLAMA_3_2_1B: ModelConfig(
             pretrained_model_name="fixie-ai/ultravox-v0_5-llama-3_2-1b",
