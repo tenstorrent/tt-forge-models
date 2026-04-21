@@ -5,8 +5,13 @@
 DeepSeek Coder V2 model loader implementation for causal language modeling.
 """
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
 from typing import Optional
+
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = lambda self, new_seq_len, layer_idx=0: (
+        self.get_seq_length(layer_idx)
+    )
 from ....tools.utils import generate_no_cache, pad_inputs
 from ....base import ForgeModel
 from ....config import (
@@ -131,18 +136,13 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        if self._variant in self._BASE_VARIANTS:
-            inputs = self.tokenizer(
-                self.sample_text,
-                return_tensors="pt",
-            ).input_ids
-        else:
-            messages = [{"role": "user", "content": self.sample_text}]
-            inputs = self.tokenizer.apply_chat_template(
-                messages,
-                add_generation_prompt=True,
-                return_tensors="pt",
-            )
+        messages = [{"role": "user", "content": self.sample_text}]
+        text = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        inputs = self.tokenizer(text, return_tensors="pt")["input_ids"]
         padded_inputs, seq_len = pad_inputs(inputs)
         self.seq_len = seq_len
 

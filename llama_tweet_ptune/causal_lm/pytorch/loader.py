@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LLAMA_TWEET_PTUNE
 
-    BASE_MODEL_NAME = "meta-llama/Llama-2-7b-hf"
+    BASE_MODEL_NAME = "NousResearch/Llama-2-7b-hf"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
 
         adapter_name = self._variant_config.pretrained_model_name
         model = PeftModel.from_pretrained(base_model, adapter_name)
-        model = model.merge_and_unload()
+        model.eval()
 
         for param in model.parameters():
             param.requires_grad = False

@@ -6,9 +6,54 @@ Step3 VL model loader implementation for multimodal conditional generation.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from PIL import Image
 from typing import Optional
+
+
+def _compute_default_rope_parameters(config, device=None, **kwargs):
+    base = getattr(config, "rope_theta", 10000.0)
+    partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+    head_dim = (
+        getattr(config, "head_dim", None)
+        or config.hidden_size // config.num_attention_heads
+    )
+    dim = int(head_dim * partial_rotary_factor)
+    inv_freq = 1.0 / (
+        base
+        ** (
+            torch.arange(0, dim, 2, dtype=torch.int64).to(
+                device=device, dtype=torch.float
+            )
+            / dim
+        )
+    )
+    return inv_freq, 1.0
+
+
+if "default" not in ROPE_INIT_FUNCTIONS:
+    ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
+
+
+def _patch_rotary_embedding_init():
+    from transformers import PreTrainedModel
+
+    original_init_weights = PreTrainedModel._init_weights
+
+    def patched_init_weights(self, module):
+        if "RotaryEmbedding" in module.__class__.__name__ and not hasattr(
+            module, "compute_default_rope_parameters"
+        ):
+            module.compute_default_rope_parameters = staticmethod(
+                _compute_default_rope_parameters
+            )
+        return original_init_weights(self, module)
+
+    PreTrainedModel._init_weights = patched_init_weights
+
+
+_patch_rotary_embedding_init()
 
 from ...base import ForgeModel
 from ...config import (
@@ -93,7 +138,24 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        defaults = {
+            "pad_token_id": config.__dict__.get("eos_token_id", 0),
+            "use_cache": True,
+            "output_attentions": False,
+        }
+        for attr, default in defaults.items():
+            if attr not in config.__dict__:
+                setattr(config, attr, default)
+            if (
+                hasattr(config, "text_config")
+                and attr not in config.text_config.__dict__
+            ):
+                setattr(config.text_config, attr, getattr(config, attr, default))
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         if self._gguf_file is not None:

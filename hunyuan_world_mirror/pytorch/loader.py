@@ -12,6 +12,8 @@ Requires the HunyuanWorld-Mirror repository to be cloned at /tmp/hunyuan_world_m
 """
 import os
 import sys
+import types
+from unittest.mock import MagicMock
 
 import torch
 from typing import Optional
@@ -28,6 +30,32 @@ from ...config import (
 )
 
 REPO_PATH = "/tmp/hunyuan_world_mirror_repo"
+
+
+def _patch_cuda_autocast():
+    """Replace torch.amp.autocast 'cuda' calls with 'cpu' for non-CUDA environments."""
+    _original_autocast = torch.amp.autocast
+
+    class _PatchedAutocast(_original_autocast):
+        def __init__(self, device_type, *args, **kwargs):
+            if device_type == "cuda" and not torch.cuda.is_available():
+                device_type = "cpu"
+                if kwargs.get("dtype") not in (torch.bfloat16, torch.float16):
+                    kwargs["enabled"] = False
+            super().__init__(device_type, *args, **kwargs)
+
+    torch.amp.autocast = _PatchedAutocast
+
+
+def _mock_gsplat():
+    """Mock gsplat module which requires CUDA to install."""
+    if "gsplat" not in sys.modules:
+        gsplat = types.ModuleType("gsplat")
+        gsplat.rendering = MagicMock()
+        gsplat.strategy = MagicMock()
+        sys.modules["gsplat"] = gsplat
+        sys.modules["gsplat.rendering"] = gsplat.rendering
+        sys.modules["gsplat.strategy"] = gsplat.strategy
 
 
 def _ensure_repo_importable():
@@ -90,6 +118,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The WorldMirror 3D geometric prediction model.
         """
+        _patch_cuda_autocast()
+        _mock_gsplat()
         _ensure_repo_importable()
         from src.models.models.worldmirror import WorldMirror
 
@@ -97,7 +127,7 @@ class ModelLoader(ForgeModel):
         model = WorldMirror.from_pretrained(repo_id)
         model.eval()
 
-        if dtype_override is not None:
+        if dtype_override is not None and torch.cuda.is_available():
             model = model.to(dtype_override)
 
         return model
@@ -108,6 +138,8 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input dict with 'views' and 'cond_flags' for the model forward pass.
         """
+        if not torch.cuda.is_available():
+            dtype_override = None
         dtype = dtype_override or torch.float32
 
         # img: input images [B, N, 3, H, W] in [0, 1]

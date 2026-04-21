@@ -6,6 +6,21 @@ HyperCLOVAX SEED Vision Instruct model loader implementation for multimodal visu
 """
 
 import torch
+from typing import TypedDict
+import transformers.processing_utils as _pu
+import transformers.modeling_utils as _mu
+
+if not hasattr(_pu, "ChatTemplateLoadKwargs"):
+    _pu.ChatTemplateLoadKwargs = TypedDict("ChatTemplateLoadKwargs", {})
+    _pu.AllKwargsForChatTemplate.__annotations__[
+        "mm_load_kwargs"
+    ] = _pu.ChatTemplateLoadKwargs
+
+if not hasattr(_mu, "no_init_weights"):
+    from transformers.initialization import no_init_weights
+
+    _mu.no_init_weights = no_init_weights
+
 from transformers import AutoProcessor, AutoModelForCausalLM
 from PIL import Image
 from typing import Optional
@@ -73,8 +88,6 @@ class ModelLoader(ForgeModel):
             self._load_processor()
 
         model_kwargs = {"trust_remote_code": True, "_attn_implementation": "eager"}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
@@ -84,6 +97,14 @@ class ModelLoader(ForgeModel):
         self.model = model
 
         return model
+
+    @staticmethod
+    def _cast_nested(obj, dtype):
+        if torch.is_tensor(obj):
+            return cast_input_to_type(obj, dtype)
+        if isinstance(obj, list):
+            return [ModelLoader._cast_nested(item, dtype) for item in obj]
+        return obj
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
@@ -104,7 +125,7 @@ class ModelLoader(ForgeModel):
             },
         ]
 
-        prompt = self.processor.apply_chat_template(
+        prompt = self.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
 
@@ -116,6 +137,8 @@ class ModelLoader(ForgeModel):
             for key in inputs:
                 if torch.is_tensor(inputs[key]):
                     inputs[key] = cast_input_to_type(inputs[key], dtype_override)
+                elif isinstance(inputs[key], list):
+                    inputs[key] = self._cast_nested(inputs[key], dtype_override)
 
         if batch_size > 1:
             for key in inputs:

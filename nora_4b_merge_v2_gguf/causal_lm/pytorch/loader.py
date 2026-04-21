@@ -8,6 +8,12 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.utils.import_utils as _tx_import_utils
+
+if "gguf" not in _tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+    _tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+_tx_import_utils.is_gguf_available.cache_clear()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
