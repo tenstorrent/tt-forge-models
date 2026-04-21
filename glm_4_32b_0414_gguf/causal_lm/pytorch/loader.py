@@ -4,7 +4,6 @@
 """
 GLM-4-32B-0414 GGUF model loader implementation for causal language modeling.
 """
-
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
