@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    MARMA_BERT_BASE_SWEDISH_CASED_SENTIMENT = "marma_Bert_Base_Swedish_Cased_Sentiment"
+    POLTEXTLAB_HUNEMBERT8 = "poltextlab_HunEmBERT8"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.MARMA_BERT_BASE_SWEDISH_CASED_SENTIMENT: LLMModelConfig(
-            pretrained_model_name="marma/bert-base-swedish-cased-sentiment",
+        ModelVariant.POLTEXTLAB_HUNEMBERT8: LLMModelConfig(
+            pretrained_model_name="poltextlab/HunEmBERT8",
             max_length=128,
         ),
     }
@@ -95,7 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.MARMA_BERT_BASE_SWEDISH_CASED_SENTIMENT: "Det här är ju fantastiskt!",
+        ModelVariant.POLTEXTLAB_HUNEMBERT8: "Nagyon boldog vagyok ma.",
     }
 
     def __init__(self, variant=None):
@@ -134,7 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.MARMA_BERT_BASE_SWEDISH_CASED_SENTIMENT,
+            ModelVariant.POLTEXTLAB_HUNEMBERT8,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
