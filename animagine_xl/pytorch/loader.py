@@ -4,12 +4,12 @@
 """
 Animagine XL model loader implementation.
 
-Animagine XL is an anime-focused text-to-image model family based on Stable Diffusion XL,
-fine-tuned for high-quality anime-style image generation.
+Animagine XL is an anime-focused text-to-image model family based on
+Stable Diffusion XL, fine-tuned for high-quality anime-style image generation.
 
 Available variants:
 - ANIMAGINE_XL_3_1: votepurchase/animagine-xl-3.1 text-to-image generation
-- ANIMAGINE_XL_4_0_V4OPT: John6666/animagine-xl-40-v4opt-sdxl text-to-image generation
+- ANIMAGINE_XL_4_0_ZERO: cagliostrolab/animagine-xl-4.0-zero text-to-image generation
 """
 
 from typing import Optional
@@ -33,7 +33,7 @@ class ModelVariant(StrEnum):
     """Available Animagine XL model variants."""
 
     ANIMAGINE_XL_3_1 = "Animagine_XL_3_1"
-    ANIMAGINE_XL_4_0_V4OPT = "Animagine_XL_4_0_v4opt"
+    ANIMAGINE_XL_4_0_ZERO = "Animagine_XL_4_0_Zero"
 
 
 class ModelLoader(ForgeModel):
@@ -43,8 +43,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.ANIMAGINE_XL_3_1: ModelConfig(
             pretrained_model_name="votepurchase/animagine-xl-3.1",
         ),
-        ModelVariant.ANIMAGINE_XL_4_0_V4OPT: ModelConfig(
-            pretrained_model_name="John6666/animagine-xl-40-v4opt-sdxl",
+        ModelVariant.ANIMAGINE_XL_4_0_ZERO: ModelConfig(
+            pretrained_model_name="cagliostrolab/animagine-xl-4.0-zero",
         ),
     }
     DEFAULT_VARIANT = ModelVariant.ANIMAGINE_XL_3_1
