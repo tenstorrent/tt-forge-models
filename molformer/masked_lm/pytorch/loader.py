@@ -4,7 +4,7 @@
 """
 MoLFormer model loader implementation for masked language modeling.
 """
-from transformers import AutoTokenizer, AutoModelForMaskedLM
+from transformers import AutoTokenizer, AutoModelForMaskedLM, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -67,8 +67,16 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+        )
+        if not hasattr(config, "is_decoder"):
+            config.is_decoder = False
+
         model = AutoModelForMaskedLM.from_pretrained(
             self._variant_config.pretrained_model_name,
+            config=config,
             trust_remote_code=True,
             **model_kwargs,
         )
