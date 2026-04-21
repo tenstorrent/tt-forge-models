@@ -29,12 +29,8 @@ class ModelVariant(StrEnum):
     XLM_ROBERTA_LARGE_HUNGARIAN_LEGISLATIVE_CAP_V3 = (
         "poltextlab/xlm-roberta-large-hungarian-legislative-cap-v3"
     )
-    XLM_ROBERTA_LARGE_SPANISH_CAP_V3 = "poltextlab/xlm-roberta-large-spanish-cap-v3"
-    XLM_ROBERTA_LARGE_GERMAN_PARLSPEECH_CAP_V3 = (
-        "poltextlab/xlm-roberta-large-german-parlspeech-cap-v3"
-    )
-    CLAP_AI_ROBERTA_BASE_MULTILINGUAL_SENTIMENT = (
-        "clapAI/roberta-base-multilingual-sentiment"
+    XLM_ROBERTA_LARGE_POOLED_EMOTIONS9_V2 = (
+        "poltextlab/xlm-roberta-large-pooled-emotions9-v2"
     )
 
 
@@ -54,16 +50,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="poltextlab/xlm-roberta-large-hungarian-legislative-cap-v3",
             max_length=128,
         ),
-        ModelVariant.XLM_ROBERTA_LARGE_SPANISH_CAP_V3: LLMModelConfig(
-            pretrained_model_name="poltextlab/xlm-roberta-large-spanish-cap-v3",
-            max_length=128,
-        ),
-        ModelVariant.XLM_ROBERTA_LARGE_GERMAN_PARLSPEECH_CAP_V3: LLMModelConfig(
-            pretrained_model_name="poltextlab/xlm-roberta-large-german-parlspeech-cap-v3",
-            max_length=128,
-        ),
-        ModelVariant.CLAP_AI_ROBERTA_BASE_MULTILINGUAL_SENTIMENT: LLMModelConfig(
-            pretrained_model_name="clapAI/roberta-base-multilingual-sentiment",
+        ModelVariant.XLM_ROBERTA_LARGE_POOLED_EMOTIONS9_V2: LLMModelConfig(
+            pretrained_model_name="poltextlab/xlm-roberta-large-pooled-emotions9-v2",
             max_length=128,
         ),
     }
