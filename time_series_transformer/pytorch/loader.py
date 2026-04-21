@@ -94,7 +94,12 @@ class ModelLoader(ForgeModel):
         past_values = torch.randn(1, past_length, dtype=dtype)
         past_time_features = torch.randn(1, past_length, num_time_features, dtype=dtype)
         past_observed_mask = torch.ones(1, past_length, dtype=dtype)
-        static_categorical_features = torch.zeros(1, 1, dtype=torch.long)
+        static_categorical_features = torch.zeros(
+            1, config.num_static_categorical_features, dtype=torch.long
+        )
+        static_real_features = torch.randn(
+            1, config.num_static_real_features, dtype=dtype
+        )
         future_values = torch.randn(1, prediction_length, dtype=dtype)
         future_time_features = torch.randn(
             1, prediction_length, num_time_features, dtype=dtype
@@ -105,6 +110,7 @@ class ModelLoader(ForgeModel):
             "past_time_features": past_time_features,
             "past_observed_mask": past_observed_mask,
             "static_categorical_features": static_categorical_features,
+            "static_real_features": static_real_features,
             "future_values": future_values,
             "future_time_features": future_time_features,
         }
