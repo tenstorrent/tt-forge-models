@@ -45,7 +45,7 @@ class ModelVariant(StrEnum):
     QWEN_3_VL_30B_A3B_THINKING = "30b_a3b_thinking"
     QWEN_3_VL_235B_A22B_INSTRUCT_AWQ = "235b_a22b_instruct_awq"
     UNSLOTH_QWEN_3_VL_4B_INSTRUCT = "unsloth_4b_instruct"
-    QWEN_3_VL_8B_INSTRUCT_ABLITERATED_V2 = "8b_instruct_abliterated_v2"
+    UNSLOTH_QWEN_3_VL_4B_INSTRUCT_BNB_4BIT = "unsloth_4b_instruct_bnb_4bit"
 
 
 class ModelLoader(ForgeModel):
@@ -117,8 +117,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/Qwen3-VL-4B-Instruct",
             max_length=128,
         ),
-        ModelVariant.QWEN_3_VL_8B_INSTRUCT_ABLITERATED_V2: LLMModelConfig(
-            pretrained_model_name="prithivMLmods/Qwen3-VL-8B-Instruct-abliterated-v2",
+        ModelVariant.UNSLOTH_QWEN_3_VL_4B_INSTRUCT_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen3-VL-4B-Instruct-bnb-4bit",
             max_length=128,
         ),
     }
@@ -175,7 +175,7 @@ class ModelLoader(ForgeModel):
                 ModelVariant.QWEN_3_VL_32B_INSTRUCT,
                 ModelVariant.QWEN_3_VL_235B_A22B_INSTRUCT_AWQ,
                 ModelVariant.UNSLOTH_QWEN_3_VL_4B_INSTRUCT,
-                ModelVariant.QWEN_3_VL_8B_INSTRUCT_ABLITERATED_V2,
+                ModelVariant.UNSLOTH_QWEN_3_VL_4B_INSTRUCT_BNB_4BIT,
             )
             else ModelGroup.RED
         )
