@@ -29,7 +29,6 @@ from ...config import (
 )
 
 REPO_ID = "calcuis/ltxv0.9.6-gguf"
-BASE_REPO = "Lightricks/LTX-Video"
 
 
 class ModelVariant(StrEnum):
