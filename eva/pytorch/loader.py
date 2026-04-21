@@ -34,6 +34,7 @@ class ModelVariant(StrEnum):
     """Available EVA model variants."""
 
     LARGE_PATCH14_196_IN22K_FT_IN22K_IN1K = "Large_Patch14_196_IN22K_FT_IN22K_IN1K"
+    LARGE_PATCH14_336_IN22K_FT_IN22K_IN1K = "Large_Patch14_336_IN22K_FT_IN22K_IN1K"
 
 
 class ModelLoader(ForgeModel):
@@ -42,6 +43,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LARGE_PATCH14_196_IN22K_FT_IN22K_IN1K: EvaConfig(
             pretrained_model_name="hf_hub:timm/eva_large_patch14_196.in22k_ft_in22k_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.LARGE_PATCH14_336_IN22K_FT_IN22K_IN1K: EvaConfig(
+            pretrained_model_name="hf_hub:timm/eva_large_patch14_336.in22k_ft_in22k_in1k",
             source=ModelSource.TIMM,
         ),
     }
