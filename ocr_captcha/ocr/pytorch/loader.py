@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available OCR Captcha model variants."""
 
     OCR_CAPTCHA_V3 = "ocr-captcha-v3"
+    TROCR_BASE_PRINTED_CAPTCHA_OCR = "trocr-base-printed-captcha-ocr"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.OCR_CAPTCHA_V3: ModelConfig(
             pretrained_model_name="anuashok/ocr-captcha-v3",
+        ),
+        ModelVariant.TROCR_BASE_PRINTED_CAPTCHA_OCR: ModelConfig(
+            pretrained_model_name="DunnBC22/trocr-base-printed_captcha_ocr",
         ),
     }
 
