@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
     BASE = "Base"
     BASE_VI = "Base_VI"
     FR_7K_LARGE = "FR_7K_Large"
-    SMALL = "Small"
+    BASE_SIMCLR_BS4096 = "Base_SimCLR_BS4096"
 
 
 class ModelLoader(ForgeModel):
@@ -43,8 +43,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.FR_7K_LARGE: ModelConfig(
             pretrained_model_name="LeBenchmark/wav2vec2-FR-7K-large",
         ),
-        ModelVariant.SMALL: ModelConfig(
-            pretrained_model_name="chaanks/wav2vec2-small",
+        ModelVariant.BASE_SIMCLR_BS4096: ModelConfig(
+            pretrained_model_name="dys-asr/wav2vec2-base-simclr-bs4096",
         ),
     }
 
