@@ -138,12 +138,10 @@ class ModelLoader(ForgeModel):
         )
 
     # Variants that require trust_remote_code for tokenizer loading
-    _TRUST_REMOTE_CODE_VARIANTS = {ModelVariant.KOBERT}
+    _TRUST_REMOTE_CODE_VARIANTS = set()
 
     # Variant-specific sample texts
-    _SAMPLE_TEXTS = {
-        ModelVariant.KOBERT: "한국어 모델을 테스트하는 예제 문장입니다",
-    }
+    _SAMPLE_TEXTS = {}
 
     def _load_tokenizer(self):
         """Load tokenizer for the current variant.
