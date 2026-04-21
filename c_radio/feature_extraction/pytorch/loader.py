@@ -124,14 +124,9 @@ class ModelLoader(ForgeModel):
         image = dataset[0]["image"]
 
         inputs = self.processor(images=image, return_tensors="pt")
+        pixel_values = inputs["pixel_values"].repeat_interleave(batch_size, dim=0)
 
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        if dtype_override is not None and pixel_values.dtype.is_floating_point:
+            pixel_values = pixel_values.to(dtype_override)
 
-        if dtype_override is not None:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]) and inputs[key].dtype.is_floating_point:
-                    inputs[key] = inputs[key].to(dtype_override)
-
-        return inputs
+        return pixel_values
