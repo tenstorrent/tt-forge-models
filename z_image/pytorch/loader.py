@@ -65,26 +65,51 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Z-Image pipeline.
+        """Load and return the Z-Image transformer model.
 
         Returns:
-            ZImagePipeline: The Z-Image pipeline instance.
+            ZImageTransformer2DModel: The Z-Image transformer model.
         """
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        self.pipeline = ZImagePipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            low_cpu_mem_usage=False,
-            **kwargs,
-        )
+        self._load_pipeline(dtype_override=dtype_override)
+        return self.pipeline.transformer
+
+    def _load_pipeline(self, dtype_override=None):
+        if self.pipeline is None:
+            dtype = dtype_override if dtype_override is not None else torch.bfloat16
+            self.pipeline = ZImagePipeline.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=False,
+            )
         return self.pipeline
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the Z-Image model.
+        """Load and return sample inputs for the Z-Image transformer.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Input tensors matching the transformer's forward signature.
         """
-        return [
-            "A cinematic shot of a baby raccoon wearing an intricate italian priest robe."
-        ] * batch_size
+        pipe = self._load_pipeline(dtype_override=dtype_override)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        prompt = "A cinematic shot of a baby raccoon wearing an intricate italian priest robe."
+        prompts = [prompt] * batch_size
+
+        cap_feats = pipe._encode_prompt(prompt=prompts, device="cpu")
+
+        height = 128
+        width = 128
+        num_channels_latents = pipe.transformer.in_channels
+        vae_scale = pipe.vae_scale_factor * 2
+        height_latent = 2 * (height // vae_scale)
+        width_latent = 2 * (width // vae_scale)
+
+        latents = torch.randn(
+            batch_size, num_channels_latents, height_latent, width_latent, dtype=dtype
+        )
+        latents = latents.unsqueeze(2)
+        x = list(latents.unbind(dim=0))
+
+        t = torch.tensor([0.5] * batch_size, dtype=dtype)
+
+        return {"x": x, "t": t, "cap_feats": cap_feats, "return_dict": False}
