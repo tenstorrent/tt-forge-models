@@ -4,7 +4,10 @@
 """
 LaViDa-LLaDA v1.0 Instruct model loader implementation for causal language modeling.
 """
+import os
+import shutil
 import torch
+from huggingface_hub import snapshot_download, hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -66,15 +69,38 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            self._get_local_model_dir(),
             trust_remote_code=True,
             **tokenizer_kwargs,
         )
 
         return self.tokenizer
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def _get_local_model_dir(self):
+        """Download model snapshot and inject missing modeling_llada.py from GSAI-ML/LLaDA-8B-Instruct.
+
+        In transformers 5.x, use_cache is treated as a GenerationConfig param and is
+        not stored on PretrainedConfig, so we patch the modeling file to use getattr.
+        """
         pretrained_model_name = self._variant_config.pretrained_model_name
+        model_dir = snapshot_download(pretrained_model_name)
+        modeling_dst = os.path.join(model_dir, "modeling_llada.py")
+        if not os.path.exists(modeling_dst):
+            modeling_src = hf_hub_download(
+                "GSAI-ML/LLaDA-8B-Instruct", "modeling_llada.py"
+            )
+            with open(modeling_src) as f:
+                content = f.read()
+            content = content.replace(
+                "self.config.use_cache",
+                "getattr(self.config, 'use_cache', False)",
+            )
+            with open(modeling_dst, "w") as f:
+                f.write(content)
+        return model_dir
+
+    def load_model(self, *, dtype_override=None, **kwargs):
+        model_dir = self._get_local_model_dir()
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -85,14 +111,12 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
+            config = AutoConfig.from_pretrained(model_dir, trust_remote_code=True)
             config.n_layers = self.num_layers
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+            model_dir, trust_remote_code=True, **model_kwargs
         )
         model.eval()
         self.config = model.config
@@ -130,7 +154,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            self._get_local_model_dir(),
             trust_remote_code=True,
         )
 
