@@ -42,9 +42,6 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.WM_16BITS
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
-        super().__init__(variant)
-
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
