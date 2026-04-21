@@ -4,6 +4,7 @@
 """
 Qwen 2.5 Coder GGUF model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -25,7 +26,7 @@ class ModelVariant(StrEnum):
 
     QWEN_2_5_CODER_32B_INSTRUCT_GGUF = "32B_Instruct_GGUF"
     QWEN_2_5_CODER_32B_GGUF = "32B_GGUF"
-    LMSTUDIO_QWEN_2_5_CODER_32B_INSTRUCT_GGUF = "lmstudio_community_32B_Instruct_GGUF"
+    QWEN_2_5_CODER_32B_BARTOWSKI_GGUF = "32B_Bartowski_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -40,8 +41,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="lmstudio-community/Qwen2.5-Coder-32B-GGUF",
             max_length=128,
         ),
-        ModelVariant.LMSTUDIO_QWEN_2_5_CODER_32B_INSTRUCT_GGUF: LLMModelConfig(
-            pretrained_model_name="lmstudio-community/Qwen2.5-Coder-32B-Instruct-GGUF",
+        ModelVariant.QWEN_2_5_CODER_32B_BARTOWSKI_GGUF: LLMModelConfig(
+            pretrained_model_name="bartowski/Qwen2.5-Coder-32B-GGUF",
             max_length=128,
         ),
     }
@@ -51,7 +52,7 @@ class ModelLoader(ForgeModel):
     _GGUF_FILES = {
         ModelVariant.QWEN_2_5_CODER_32B_INSTRUCT_GGUF: "qwen2.5-coder-32b-instruct-q4_k_m.gguf",
         ModelVariant.QWEN_2_5_CODER_32B_GGUF: "Qwen2.5-Coder-32B-Q4_K_M.gguf",
-        ModelVariant.LMSTUDIO_QWEN_2_5_CODER_32B_INSTRUCT_GGUF: "Qwen2.5-Coder-32B-Instruct-Q4_K_M.gguf",
+        ModelVariant.QWEN_2_5_CODER_32B_BARTOWSKI_GGUF: "Qwen2.5-Coder-32B-Q4_K_M.gguf",
     }
 
     sample_text = "write a quick sort algorithm."
@@ -126,7 +127,10 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        if self._variant == ModelVariant.QWEN_2_5_CODER_32B_GGUF:
+        if self._variant in (
+            ModelVariant.QWEN_2_5_CODER_32B_GGUF,
+            ModelVariant.QWEN_2_5_CODER_32B_BARTOWSKI_GGUF,
+        ):
             prompts = [self.sample_text]
         else:
             messages = [
