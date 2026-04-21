@@ -64,6 +64,14 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import importlib.metadata
+        import transformers.utils.import_utils as _triu
+
+        # Refresh transformers' package distribution cache so dynamically-installed
+        # gguf is found. transformers 5.x caches this mapping at import time, before
+        # gguf is installed by RequirementsManager.
+        _triu.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
 
