@@ -4,25 +4,23 @@
 """
 HunyuanVideo model loader for tt_forge_models.
 
-HunyuanVideo is a family of DiT (Diffusion Transformer) video generation models
-by Tencent. The original tencent/HunyuanVideo is a 13B parameter text-to-video
-model; HunyuanVideo 1.5 is an 8.3B parameter refresh. All variants use a 3D
-Causal VAE for spatial and temporal compression.
+HunyuanVideo 1.5 is an 8.3B parameter DiT (Diffusion Transformer) video generation
+model by Tencent. It supports text-to-video and image-to-video generation with a
+3D Causal VAE for spatial (16x) and temporal (4x) compression.
 
 Repositories:
-- https://huggingface.co/tencent/HunyuanVideo (via diffusers mirror below)
-- https://huggingface.co/hunyuanvideo-community/HunyuanVideo
 - https://huggingface.co/hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-720p_t2v
+- https://huggingface.co/hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_i2v
 
 Available subfolders:
 - transformer: HunyuanVideoTransformer3DModel / HunyuanVideo15Transformer3DModel
-- vae: AutoencoderKLHunyuanVideo
+- vae: AutoencoderKLHunyuanVideo / AutoencoderKLHunyuanVideo15
 """
 
 from typing import Any, Optional
 
 import torch
-from diffusers import HunyuanVideoPipeline
+from diffusers import HunyuanVideo15ImageToVideoPipeline, HunyuanVideoPipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -42,7 +40,7 @@ class ModelVariant(StrEnum):
     """Available HunyuanVideo variants."""
 
     HUNYUAN_VIDEO_720P = "720p"
-    HUNYUAN_VIDEO_ORIGINAL_T2V = "original_t2v"
+    HUNYUAN_VIDEO_480P_I2V = "480p_i2v"
 
 
 class ModelLoader(ForgeModel):
@@ -58,8 +56,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.HUNYUAN_VIDEO_720P: ModelConfig(
             pretrained_model_name="hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-720p_t2v",
         ),
-        ModelVariant.HUNYUAN_VIDEO_ORIGINAL_T2V: ModelConfig(
-            pretrained_model_name="hunyuanvideo-community/HunyuanVideo",
+        ModelVariant.HUNYUAN_VIDEO_480P_I2V: ModelConfig(
+            pretrained_model_name="hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_i2v",
         ),
     }
 
@@ -76,7 +74,10 @@ class ModelLoader(ForgeModel):
                 f"Unknown subfolder: {subfolder}. Supported: {SUPPORTED_SUBFOLDERS}"
             )
         self._subfolder = subfolder
-        self.pipeline: Optional[HunyuanVideoPipeline] = None
+        self.pipeline: Any = None
+
+    def _is_i2v_variant(self) -> bool:
+        return self._variant == ModelVariant.HUNYUAN_VIDEO_480P_I2V
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -92,8 +93,13 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype: torch.dtype) -> HunyuanVideoPipeline:
-        self.pipeline = HunyuanVideoPipeline.from_pretrained(
+    def _load_pipeline(self, dtype: torch.dtype) -> Any:
+        pipeline_cls = (
+            HunyuanVideo15ImageToVideoPipeline
+            if self._is_i2v_variant()
+            else HunyuanVideoPipeline
+        )
+        self.pipeline = pipeline_cls.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
         )
@@ -117,8 +123,8 @@ class ModelLoader(ForgeModel):
             self._load_pipeline(dtype)
 
         if self._subfolder == "transformer" or self._subfolder is None:
-            if self._variant == ModelVariant.HUNYUAN_VIDEO_ORIGINAL_T2V:
-                return self._load_original_transformer_inputs(dtype)
+            if self._is_i2v_variant():
+                return self._load_i2v_transformer_inputs(dtype)
             return self._load_transformer_inputs(dtype)
         elif self._subfolder == "vae":
             vae_type = kwargs.get("vae_type", "decoder")
@@ -127,15 +133,14 @@ class ModelLoader(ForgeModel):
             else:
                 return self._load_vae_encoder_inputs(dtype)
 
-    def _load_original_transformer_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic inputs for the original HunyuanVideoTransformer3DModel."""
+    def _load_i2v_transformer_inputs(self, dtype: torch.dtype) -> dict:
+        """Prepare synthetic inputs for the HunyuanVideo 1.5 i2v transformer."""
         batch_size = 1
         config = self.pipeline.transformer.config
 
-        # Use small dimensions for testing; shape is (B, C, T, H, W).
         latent_num_frames = 3
-        latent_height = 8
-        latent_width = 8
+        latent_height = 4
+        latent_width = 4
 
         hidden_states = torch.randn(
             batch_size,
@@ -146,26 +151,35 @@ class ModelLoader(ForgeModel):
             dtype=dtype,
         )
 
-        text_seq_len = 64
+        qwen_seq_len = 32
         encoder_hidden_states = torch.randn(
-            batch_size, text_seq_len, config.text_embed_dim, dtype=dtype
+            batch_size, qwen_seq_len, config.text_embed_dim, dtype=dtype
         )
-        encoder_attention_mask = torch.ones(batch_size, text_seq_len, dtype=torch.long)
+        encoder_attention_mask = torch.ones(batch_size, qwen_seq_len, dtype=torch.long)
 
-        pooled_projections = torch.randn(
-            batch_size, config.pooled_projection_dim, dtype=dtype
+        byt5_seq_len = 16
+        encoder_hidden_states_2 = torch.randn(
+            batch_size, byt5_seq_len, config.text_embed_2_dim, dtype=dtype
+        )
+        encoder_attention_mask_2 = torch.ones(
+            batch_size, byt5_seq_len, dtype=torch.long
+        )
+
+        image_seq_len = 729
+        image_embeds = torch.randn(
+            batch_size, image_seq_len, config.image_embed_dim, dtype=dtype
         )
 
         timestep = torch.tensor([500], dtype=torch.long).expand(batch_size)
-        guidance = torch.tensor([6.0], dtype=dtype).expand(batch_size)
 
         return {
             "hidden_states": hidden_states,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
             "encoder_attention_mask": encoder_attention_mask,
-            "pooled_projections": pooled_projections,
-            "guidance": guidance,
+            "encoder_hidden_states_2": encoder_hidden_states_2,
+            "encoder_attention_mask_2": encoder_attention_mask_2,
+            "image_embeds": image_embeds,
             "return_dict": False,
         }
 
