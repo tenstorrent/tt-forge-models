@@ -23,7 +23,9 @@ class ModelVariant(StrEnum):
     """Available DeBERTa-v2 model variants for sequence classification."""
 
     SCALETECH_NSFW_CLASSIFIER = "scaleTech_nsfw_classifier"
-    DEBERTA_V2_XXLARGE_MNLI = "deberta_v2_xxlarge_mnli"
+    HENOKYEMAM_LLAMA_GUARD_SAFEGATE_SS_AUGUST15 = (
+        "henokyemam_llama_guard_safegate_ss_august15"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -33,8 +35,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.SCALETECH_NSFW_CLASSIFIER: ModelConfig(
             pretrained_model_name="scaleTech/myplaygirl-nsfw-classifier",
         ),
-        ModelVariant.DEBERTA_V2_XXLARGE_MNLI: ModelConfig(
-            pretrained_model_name="microsoft/deberta-v2-xxlarge-mnli",
+        ModelVariant.HENOKYEMAM_LLAMA_GUARD_SAFEGATE_SS_AUGUST15: ModelConfig(
+            pretrained_model_name="henokyemam/llama-guard-safegate-ss-august15",
         ),
     }
 
@@ -43,6 +45,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
+        self.model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -73,6 +76,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        self.model = model
         return model
 
     def load_inputs(self, dtype_override=None):
@@ -109,8 +113,12 @@ class ModelLoader(ForgeModel):
     def decode_output(self, co_out):
         logits = co_out[0]
         predicted_class_id = logits.argmax(-1).item()
-        if self._variant == ModelVariant.DEBERTA_V2_XXLARGE_MNLI:
-            labels = ["contradiction", "neutral", "entailment"]
-        else:
+        if self._variant == ModelVariant.SCALETECH_NSFW_CLASSIFIER:
             labels = ["NSFW", "SFW"]
-        print(f"Predicted: {labels[predicted_class_id]}")
+            print(f"Predicted: {labels[predicted_class_id]}")
+            return
+        if self.model is not None and hasattr(self.model.config, "id2label"):
+            label = self.model.config.id2label[predicted_class_id]
+            print(f"Predicted: {label}")
+        else:
+            print(f"Predicted class ID: {predicted_class_id}")
