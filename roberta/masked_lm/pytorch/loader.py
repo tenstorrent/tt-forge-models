@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     XLM_BASE = "Xlm_Base"
     ROBERTA_BASE = "Roberta_Base"
     SECUREBERT = "SecureBERT"
-    TWITTER_ROBERTA_BASE = "Twitter_Roberta_Base"
+    ICEBERT = "IceBERT"
 
 
 class ModelLoader(ForgeModel):
@@ -43,8 +43,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.SECUREBERT: ModelConfig(
             pretrained_model_name="ehsanaghaei/SecureBERT",
         ),
-        ModelVariant.TWITTER_ROBERTA_BASE: ModelConfig(
-            pretrained_model_name="cardiffnlp/twitter-roberta-base",
+        ModelVariant.ICEBERT: ModelConfig(
+            pretrained_model_name="mideind/IceBERT",
         ),
     }
 
@@ -76,7 +76,7 @@ class ModelLoader(ForgeModel):
         if variant in (
             ModelVariant.ROBERTA_BASE,
             ModelVariant.SECUREBERT,
-            ModelVariant.TWITTER_ROBERTA_BASE,
+            ModelVariant.ICEBERT,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
