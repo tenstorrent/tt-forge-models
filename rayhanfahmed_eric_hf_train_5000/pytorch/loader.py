@@ -97,10 +97,13 @@ class ModelLoader(ForgeModel):
         num_cameras = len(config.image_features)
         height, width = config.image_resolution
 
-        images = torch.zeros(
-            batch_size, num_cameras, 3, height, width, dtype=torch.float32
-        )
-        img_masks = torch.ones(batch_size, num_cameras, dtype=torch.bool)
+        images = [
+            torch.zeros(batch_size, 3, height, width, dtype=torch.float32)
+            for _ in range(num_cameras)
+        ]
+        img_masks = [
+            torch.ones(batch_size, dtype=torch.bool) for _ in range(num_cameras)
+        ]
 
         lang_tokens = torch.zeros(
             batch_size, config.tokenizer_max_length, dtype=torch.long
