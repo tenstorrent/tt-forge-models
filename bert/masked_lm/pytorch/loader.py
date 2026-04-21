@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     BERT_LARGE_CASED = "Large_Cased"
     BERT_BASE_MULTILINGUAL_CASED = "Base_Multilingual_Cased"
     BIO_CLINICAL_BERT = "Bio_ClinicalBERT"
+    BIO_CLINICAL_MPBERT = "BioClinicalMPBERT"
     BIOBERT_BASE_CASED_V1_1 = "BioBERT_Base_Cased_v1.1"
     BERT_LARGE_PORTUGUESE_CASED = "Large_Portuguese_Cased"
     LEGAL_BERT_BASE_UNCASED = "nlpaueb/legal-bert-base-uncased"
@@ -60,6 +61,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.BIO_CLINICAL_BERT: LLMModelConfig(
             pretrained_model_name="emilyalsentzer/Bio_ClinicalBERT",
+            max_length=128,
+        ),
+        ModelVariant.BIO_CLINICAL_MPBERT: LLMModelConfig(
+            pretrained_model_name="Laihaoran/BioClinicalMPBERT",
             max_length=128,
         ),
         ModelVariant.BIOBERT_BASE_CASED_V1_1: LLMModelConfig(
@@ -123,6 +128,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.BERT_LARGE_CASED,
             ModelVariant.BERT_BASE_MULTILINGUAL_CASED,
             ModelVariant.BIO_CLINICAL_BERT,
+            ModelVariant.BIO_CLINICAL_MPBERT,
             ModelVariant.BIOBERT_BASE_CASED_V1_1,
             ModelVariant.BERT_LARGE_PORTUGUESE_CASED,
             ModelVariant.LEGAL_BERT_BASE_UNCASED,
