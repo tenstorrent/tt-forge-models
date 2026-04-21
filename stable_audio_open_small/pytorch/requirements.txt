@@ -1,1 +1,2 @@
-stable-audio-tools
+# stable-audio-tools is installed without deps in requirements.nodeps.txt
+# to avoid its pandas==2.0.2 constraint (no Python 3.12 wheel available).
