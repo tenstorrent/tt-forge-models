@@ -43,6 +43,9 @@ class ModelVariant(StrEnum):
     QWEN_3_VL_32B_INSTRUCT = "32b_instruct"
     QWEN_3_VL_30B_A3B_THINKING = "30b_a3b_thinking"
     UNSLOTH_QWEN_3_VL_4B_INSTRUCT = "unsloth_4b_instruct"
+    CODEGOAT24_UNIFIED_REWARD_THINK_QWEN3VL_8B = (
+        "codegoat24_unified_reward_think_qwen3vl_8b"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -106,6 +109,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/Qwen3-VL-4B-Instruct",
             max_length=128,
         ),
+        ModelVariant.CODEGOAT24_UNIFIED_REWARD_THINK_QWEN3VL_8B: LLMModelConfig(
+            pretrained_model_name="CodeGoat24/UnifiedReward-Think-qwen3vl-8b",
+            max_length=128,
+        ),
     }
 
     # Variants that use the MoE architecture
@@ -157,6 +164,7 @@ class ModelLoader(ForgeModel):
                 ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT_MLX_4BIT,
                 ModelVariant.QWEN_3_VL_32B_INSTRUCT,
                 ModelVariant.UNSLOTH_QWEN_3_VL_4B_INSTRUCT,
+                ModelVariant.CODEGOAT24_UNIFIED_REWARD_THINK_QWEN3VL_8B,
             )
             else ModelGroup.RED
         )
