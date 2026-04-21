@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     PYTHIA_70M_DEDUPED = "70M-deduped"
     PYTHIA_70M_SEED7 = "70M-seed7"
     PYTHIA_160M = "160M"
-    PYTHIA_160M_SEED2 = "160M-seed2"
+    PYTHIA_160M_V0 = "160M-v0"
     PYTHIA_410M_SEED3 = "410M-seed3"
     PYTHIA_1_4B = "1.4B"
     PYTHIA_6_9B_DEDUPED = "6.9B-deduped"
@@ -66,12 +66,12 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="EleutherAI/pythia-160m",
             max_length=256,
         ),
-        ModelVariant.PYTHIA_160M_SEED2: LLMModelConfig(
-            pretrained_model_name="EleutherAI/pythia-160m-seed2",
+        ModelVariant.PYTHIA_160M_V0: LLMModelConfig(
+            pretrained_model_name="EleutherAI/pythia-160m-v0",
             max_length=256,
         ),
-        ModelVariant.PYTHIA_410M_SEED3: LLMModelConfig(
-            pretrained_model_name="EleutherAI/pythia-410m-seed3",
+        ModelVariant.PYTHIA_410M_SEED1: LLMModelConfig(
+            pretrained_model_name="EleutherAI/pythia-410m-seed1",
             max_length=256,
         ),
         ModelVariant.PYTHIA_1_4B: LLMModelConfig(
