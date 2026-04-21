@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available LightOnOCR model variants for image-to-text tasks."""
 
     LIGHTON_OCR_2_1B_BBOX = "lighton_ocr_2_1b_bbox"
+    LIGHTON_OCR_2_1B_BBOX_SOUP = "lighton_ocr_2_1b_bbox_soup"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LIGHTON_OCR_2_1B_BBOX: LLMModelConfig(
             pretrained_model_name="lightonai/LightOnOCR-2-1B-bbox",
+        ),
+        ModelVariant.LIGHTON_OCR_2_1B_BBOX_SOUP: LLMModelConfig(
+            pretrained_model_name="lightonai/LightOnOCR-2-1B-bbox-soup",
         ),
     }
 
