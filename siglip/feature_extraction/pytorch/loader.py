@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available SigLIP feature extraction model variants."""
 
     SO400M_PATCH14_224 = "So400m_Patch14_224"
+    BASE_PATCH16_224_WEBLI = "Base_Patch16_224_WebLI"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SO400M_PATCH14_224: ModelConfig(
             pretrained_model_name="vit_so400m_patch14_siglip_224",
+        ),
+        ModelVariant.BASE_PATCH16_224_WEBLI: ModelConfig(
+            pretrained_model_name="vit_base_patch16_siglip_224.webli",
         ),
     }
 
