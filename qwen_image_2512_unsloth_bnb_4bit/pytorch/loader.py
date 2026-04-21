@@ -12,10 +12,12 @@ Available variants:
 - QWEN_IMAGE_2512_UNSLOTH_BNB_4BIT: BNB 4-bit Qwen-Image-2512 transformer
 """
 
+import json
 from typing import Any, Optional
 
 import torch
 from diffusers import QwenImageTransformer2DModel
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -67,13 +69,15 @@ class ModelLoader(ForgeModel):
     def _load_transformer(
         self, dtype: torch.dtype = torch.float32
     ) -> QwenImageTransformer2DModel:
-        """Load the BNB 4-bit quantized diffusion transformer."""
-        self._transformer = QwenImageTransformer2DModel.from_pretrained(
-            REPO_ID,
-            subfolder="transformer",
-            torch_dtype=dtype,
-            device_map="cpu",
-        )
+        """Load the diffusion transformer from config, bypassing bitsandbytes quantization."""
+        config_path = hf_hub_download(REPO_ID, "transformer/config.json")
+        with open(config_path) as f:
+            config = json.load(f)
+        config.pop("quantization_config", None)
+        config.pop("_class_name", None)
+        config.pop("_diffusers_version", None)
+        config.pop("_name_or_path", None)
+        self._transformer = QwenImageTransformer2DModel(**config).to(dtype=dtype)
         self._transformer.eval()
         return self._transformer
 
@@ -90,13 +94,16 @@ class ModelLoader(ForgeModel):
             self._transformer = self._transformer.to(dtype=dtype_override)
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+    ) -> Any:
         """Prepare sample inputs for the diffusion transformer.
 
         Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        batch_size = kwargs.get("batch_size", 1)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         # From model config: in_channels=64 (img_in linear input dimension)
         img_dim = 64
