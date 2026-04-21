@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     """Available Mask2Former model variants for panoptic segmentation."""
 
     SWIN_L_MAPILLARY_VISTAS = "Swin_Large_Mapillary_Vistas"
-    SWIN_L_ADE = "Swin_Large_Ade"
+    SWIN_T_CITYSCAPES = "Swin_Tiny_Cityscapes"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.SWIN_L_MAPILLARY_VISTAS: ModelConfig(
             pretrained_model_name="facebook/mask2former-swin-large-mapillary-vistas-panoptic"
         ),
-        ModelVariant.SWIN_L_ADE: ModelConfig(
-            pretrained_model_name="facebook/mask2former-swin-large-ade-panoptic"
+        ModelVariant.SWIN_T_CITYSCAPES: ModelConfig(
+            pretrained_model_name="facebook/mask2former-swin-tiny-cityscapes-panoptic"
         ),
     }
 
