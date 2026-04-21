@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available mradermacher Huihui Qwen3.5 4B Claude 4.6 Opus Abliterated i1 GGUF model variants for causal language modeling."""
 
     HUIHUI_QWEN3_5_4B_CLAUDE_4_6_OPUS_ABLITERATED_I1_GGUF = (
-        "Huihui_Qwen3_5_4B_Claude_4_6_Opus_abliterated_i1_GGUF"
+        "4B_Claude_4_6_Opus_Abliterated_i1_GGUF"
     )
 
 
