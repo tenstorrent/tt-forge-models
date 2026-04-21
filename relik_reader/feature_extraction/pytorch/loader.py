@@ -62,6 +62,47 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import torch
+        import torch.nn as nn
+        import transformers.modeling_utils
+
+        # PoolerEndLogits was removed from transformers.modeling_utils in transformers>=5.0.
+        # Restore it so the model's remote code (modeling_relik.py) can import it.
+        if not hasattr(transformers.modeling_utils, "PoolerEndLogits"):
+
+            class PoolerEndLogits(nn.Module):
+                def __init__(self, config):
+                    super().__init__()
+                    self.dense_0 = nn.Linear(config.hidden_size * 2, config.hidden_size)
+                    self.activation = nn.Tanh()
+                    self.LayerNorm = nn.LayerNorm(
+                        config.hidden_size, eps=config.layer_norm_eps
+                    )
+                    self.dense_1 = nn.Linear(config.hidden_size, 1)
+
+                def forward(
+                    self,
+                    hidden_states,
+                    start_states=None,
+                    start_positions=None,
+                    p_mask=None,
+                ):
+                    assert start_states is not None or start_positions is not None
+                    if start_positions is not None:
+                        slen, hsz = hidden_states.shape[-2:]
+                        start_positions = start_positions[:, None, None].expand(
+                            -1, -1, hsz
+                        )
+                        start_states = hidden_states.gather(-2, start_positions)
+                        start_states = start_states.expand(-1, slen, -1)
+                    x = self.dense_0(torch.cat([hidden_states, start_states], dim=-1))
+                    x = self.activation(x)
+                    x = self.LayerNorm(x)
+                    x = self.dense_1(x).squeeze(-1)
+                    return x
+
+            transformers.modeling_utils.PoolerEndLogits = PoolerEndLogits
+
         from transformers import AutoModel, AutoTokenizer
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
