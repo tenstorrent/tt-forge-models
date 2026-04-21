@@ -49,16 +49,7 @@ def load_t2i_adapter_canny_sd15v2_pipe(adapter_model_name, base_model_name):
 
 
 def create_canny_conditioning_image(height=512, width=512):
-    """Create a dummy canny edge conditioning image.
-
-    Args:
-        height: Image height
-        width: Image width
-
-    Returns:
-        PIL.Image: A dummy conditioning image (black image simulating canny edges)
-    """
-    return Image.new("RGB", (width, height), color=(0, 0, 0))
+    return Image.new("L", (width, height), color=0)
 
 
 def t2i_adapter_canny_sd15v2_preprocessing(
