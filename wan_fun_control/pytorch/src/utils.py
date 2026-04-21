@@ -7,12 +7,13 @@
 import torch
 
 
-# 14B Control model has 36 input channels:
-# 16 (latent) + 16 (control latent) + 4 (mask/extra conditioning)
-TRANSFORMER_IN_CHANNELS_14B = 36
+# Wan2.1-Fun control checkpoint stores weights at the repo root, with 36 input
+# channels: 16 (latent) + 16 (control latent) + 4 (mask/extra conditioning).
+WAN21_TRANSFORMER_IN_CHANNELS = 36
 
-# 1.3B Control model has 48 input channels per its HuggingFace config (in_dim=48).
-TRANSFORMER_IN_CHANNELS_1_3B = 48
+# Wan2.2-Fun-A14B-Control stores dual experts (high/low noise) in subfolders,
+# with 52 input channels: 16 (latent) + 16 (control latent) + 16 (ref) + 4 (mask).
+WAN22_TRANSFORMER_IN_CHANNELS = 52
 
 # Small test dimensions
 LATENT_HEIGHT = 4
@@ -35,22 +36,32 @@ WAN_1_3B_CONFIG_REPO = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
 # ============================================================================
 
 
-def load_transformer(pretrained_model_name: str, dtype: torch.dtype):
+def load_transformer(
+    pretrained_model_name: str,
+    dtype: torch.dtype,
+    subfolder: str = None,
+):
     """
     Load WanTransformer3DModel from the 14B control checkpoint.
 
-    The model stores config.json and diffusion_pytorch_model.safetensors at the
-    repo root (no subfolder), so we load directly from the model ID.
+    For Wan2.1-Fun the weights live at the repo root (no subfolder). Wan2.2-Fun
+    stores dual experts under ``high_noise_model/`` and ``low_noise_model/``
+    subfolders, so callers pass the desired expert as ``subfolder``.
 
     Args:
         pretrained_model_name: HuggingFace model ID
         dtype: Torch dtype for model weights
+        subfolder: Optional subfolder within the repo that holds the weights
     """
     from diffusers import WanTransformer3DModel
 
+    load_kwargs = {"torch_dtype": dtype}
+    if subfolder is not None:
+        load_kwargs["subfolder"] = subfolder
+
     transformer = WanTransformer3DModel.from_pretrained(
         pretrained_model_name,
-        torch_dtype=dtype,
+        **load_kwargs,
     )
     transformer.eval()
     return transformer
@@ -93,7 +104,16 @@ def load_transformer_1_3b(pretrained_model_name: str, dtype: torch.dtype):
 # ============================================================================
 
 
-def _make_transformer_inputs(in_channels: int, dtype: torch.dtype) -> dict:
+def load_transformer_inputs(
+    dtype: torch.dtype = torch.bfloat16,
+    in_channels: int = WAN21_TRANSFORMER_IN_CHANNELS,
+) -> dict:
+    """
+    Prepare synthetic inputs for WanTransformer3DModel forward pass.
+
+    Wan2.1-Fun Control expects 36 input channels; Wan2.2-Fun-A14B-Control
+    expects 52 (the extra 16 come from the reference-conv latent).
+    """
     batch_size = 1
     seq_len = LATENT_DEPTH * LATENT_HEIGHT * LATENT_WIDTH
 
