@@ -39,9 +39,7 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "jina-embeddings-v4-text-matching-Q4_K_M.gguf"
 
-    sample_sentences = [
-        "Query: Jina Embeddings v4 is a text matching embedding model"
-    ]
+    sample_sentences = ["Query: Jina Embeddings v4 is a text matching embedding model"]
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
