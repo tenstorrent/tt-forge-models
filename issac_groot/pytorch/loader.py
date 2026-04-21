@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
 
     GROOT_N1_5_3B = "Gr00t_N1.5_3B"
     GROOT_N1_6_3B = "Gr00t_N1.6_3B"
-    GROOT_N1_6_BEHAVIOR1K = "Gr00t_N1.6_BEHAVIOR1k"
+    GROOT_N1_6_DROID = "Gr00t_N1.6_DROID"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.GROOT_N1_6_3B: ModelConfig(
             pretrained_model_name="nvidia/GR00T-N1.6-3B",
         ),
-        ModelVariant.GROOT_N1_6_BEHAVIOR1K: ModelConfig(
-            pretrained_model_name="nvidia/GR00T-N1.6-BEHAVIOR1k",
+        ModelVariant.GROOT_N1_6_DROID: ModelConfig(
+            pretrained_model_name="nvidia/GR00T-N1.6-DROID",
         ),
     }
 
@@ -107,8 +107,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         group = (
             ModelGroup.VULCAN
-            if variant
-            in (ModelVariant.GROOT_N1_6_3B, ModelVariant.GROOT_N1_6_BEHAVIOR1K)
+            if variant in (ModelVariant.GROOT_N1_6_3B, ModelVariant.GROOT_N1_6_DROID)
             else ModelGroup.RED
         )
         return ModelInfo(
