@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Kaon-L Mistral 24B v0.1 i1 GGUF model loader implementation for causal language modeling.
+Kaon L Mistral 24B v0.1 i1 GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,13 +21,13 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Kaon-L Mistral 24B v0.1 i1 GGUF model variants for causal language modeling."""
+    """Available Kaon L Mistral 24B v0.1 i1 GGUF model variants for causal language modeling."""
 
-    KAON_L_MISTRAL_24B_V0_1_I1_GGUF = "Kaon_L_Mistral_24B_v0_1_i1_GGUF"
+    KAON_L_MISTRAL_24B_V0_1_I1_GGUF = "24b_v0.1_i1_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """Kaon-L Mistral 24B v0.1 i1 GGUF model loader implementation for causal language modeling tasks."""
+    """Kaon L Mistral 24B v0.1 i1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.KAON_L_MISTRAL_24B_V0_1_I1_GGUF: LLMModelConfig(
@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "kaon-l-mistral-24b-v0.1.i1-Q4_K_M.gguf"
 
-    sample_text = "What is the meaning of life?"
+    sample_text = "What is your favorite city?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Kaon-L Mistral 24B v0.1 i1 GGUF",
+            model="Kaon L Mistral 24B v0.1 i1 GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -150,6 +150,7 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
