@@ -81,10 +81,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        full_model = LlavaForConditionalGeneration.from_pretrained(
+        model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
-        )
-        model = full_model.language_model.eval()
+        ).eval()
 
         return model
 
