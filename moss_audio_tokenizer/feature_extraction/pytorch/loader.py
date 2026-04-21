@@ -73,6 +73,8 @@ class ModelLoader(ForgeModel):
         model.eval()
         if dtype_override is not None:
             model.to(dtype_override)
+        else:
+            model.float()
 
         return model
 
