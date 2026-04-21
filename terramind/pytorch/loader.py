@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available TerraMind model variants."""
 
     LARGE = "large"
+    TINY = "tiny"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LARGE: ModelConfig(
             pretrained_model_name="ibm-esa-geospatial/TerraMind-1.0-large",
+        ),
+        ModelVariant.TINY: ModelConfig(
+            pretrained_model_name="ibm-esa-geospatial/TerraMind-1.0-tiny",
         ),
     }
 
@@ -70,7 +74,7 @@ class ModelLoader(ForgeModel):
         from terratorch import BACKBONE_REGISTRY
 
         model = BACKBONE_REGISTRY.build(
-            "terramind_v1_large",
+            f"terramind_v1_{self._variant.value}",
             pretrained=True,
             modalities=["S2L2A"],
         )
