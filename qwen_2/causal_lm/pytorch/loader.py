@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     SEA_QWEN2_1_5B = "SeaQwen2_1.5B"
     TINY_QWEN2_2_5 = "tiny_Qwen2ForCausalLM_2.5"
     JANE_STREET_DORMANT_MODEL_WARMUP = "Jane_Street_Dormant_Model_Warmup"
-    KO_YOSHIDA_SAMPLE1 = "ko_yoshida_sample1"
+    QWEN2_1_5B_ITA_INSTRUCT = "Qwen2_1.5B_ITA_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="jane-street/dormant-model-warmup",
             max_length=128,
         ),
-        ModelVariant.KO_YOSHIDA_SAMPLE1: LLMModelConfig(
-            pretrained_model_name="ko-yoshida/sample1",
+        ModelVariant.QWEN2_1_5B_ITA_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="e-palmisano/Qwen2-1.5B-ITA-Instruct",
             max_length=128,
         ),
     }
@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.TINY_QWEN2_2_5,
             ModelVariant.QWEN2_7B_INSTRUCT,
             ModelVariant.QWEN2_AB_ZSX,
-            ModelVariant.KO_YOSHIDA_SAMPLE1,
+            ModelVariant.QWEN2_1_5B_ITA_INSTRUCT,
         ):
             group = ModelGroup.VULCAN
 
