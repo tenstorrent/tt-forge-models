@@ -120,6 +120,16 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        # T5ForSequenceClassification requires config.eos_token_id in input_ids.
+        # This tokenizer's eos_token_id differs from the model config's, so we
+        # insert the config's EOS at the end of the content tokens.
+        eos_id = self.model.config.eos_token_id
+        if eos_id is not None and not inputs["input_ids"].eq(eos_id).any():
+            content_len = inputs["attention_mask"][0].sum().item()
+            if content_len < self.max_length:
+                inputs["input_ids"][0, content_len] = eos_id
+                inputs["attention_mask"][0, content_len] = 1
+
         return inputs
 
     def decode_output(self, co_out):
