@@ -117,7 +117,7 @@ class ModelVariant(StrEnum):
     # Llama 2 variants
     LLAMA_2_7B = "2_7B"
     LLAMA_2_7B_GPTQ = "2_7B_GPTQ"
-    LLAMA_2_70B_FB16_GUANACO_1K = "2_70B_Fb16_Guanaco_1k"
+    LLAMA_2_70B_QLORA_GPT4 = "2_70B_Qlora_Gpt4"
 
     # Unsloth variants
     UNSLOTH_LLAMA_2_7B = "Unsloth_2_7B"
@@ -281,8 +281,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="meta-llama/Llama-2-7b-hf",
             max_length=128,
         ),
-        ModelVariant.LLAMA_2_70B_FB16_GUANACO_1K: LLMModelConfig(
-            pretrained_model_name="quantumaikr/llama-2-70b-fb16-guanaco-1k",
+        ModelVariant.LLAMA_2_70B_QLORA_GPT4: LLMModelConfig(
+            pretrained_model_name="liuxiang886/llama2-70B-qlora-gpt4",
             max_length=128,
         ),
         # Unsloth variants
@@ -394,6 +394,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4,
             ModelVariant.LLAMA_3_8B_INSTRUCT_ISTA_DASLAB,
+            ModelVariant.LLAMA_2_70B_QLORA_GPT4,
         ]:
             group = ModelGroup.VULCAN
         elif (
