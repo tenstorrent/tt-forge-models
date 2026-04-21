@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available TraDo model variants for causal language modeling."""
 
     TRADO_4B_INSTRUCT = "4b_instruct"
+    TRADO_8B_THINKING = "8b_thinking"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TRADO_4B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="Gen-Verse/TraDo-4B-Instruct",
+            max_length=256,
+        ),
+        ModelVariant.TRADO_8B_THINKING: LLMModelConfig(
+            pretrained_model_name="Gen-Verse/TraDo-8B-Thinking",
             max_length=256,
         ),
     }
