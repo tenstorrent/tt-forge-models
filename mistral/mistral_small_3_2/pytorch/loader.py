@@ -23,6 +23,9 @@ class ModelVariant(StrEnum):
     """Available Mistral Small 3.2 model variants."""
 
     MISTRAL_SMALL_3_2_24B_INSTRUCT = "unsloth/Mistral-Small-3.2-24B-Instruct-2506"
+    MISTRAL_SMALL_3_2_24B_INSTRUCT_AWQ_SYM = (
+        "jeffcookio/Mistral-Small-3.2-24B-Instruct-2506-awq-sym"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -31,6 +34,11 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT),
+        ),
+        ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_AWQ_SYM: LLMModelConfig(
+            pretrained_model_name=str(
+                ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_AWQ_SYM
+            ),
         ),
     }
 
@@ -55,6 +63,10 @@ class ModelLoader(ForgeModel):
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
+
+    @property
+    def _is_awq(self) -> bool:
+        return self._variant == ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_AWQ_SYM
 
     def _load_processor(self, dtype_override=None):
         """Load processor for the current variant."""
@@ -88,6 +100,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._is_awq:
+            model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
         model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
