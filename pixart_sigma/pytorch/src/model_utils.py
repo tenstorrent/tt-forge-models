@@ -48,7 +48,12 @@ def pixart_sigma_preprocessing(pipe, prompt, device="cpu", num_inference_steps=1
 
     latent_channels = pipe.transformer.config.in_channels
     latents = torch.randn(
-        (1, latent_channels, height // pipe.vae_scale_factor, width // pipe.vae_scale_factor),
+        (
+            1,
+            latent_channels,
+            height // pipe.vae_scale_factor,
+            width // pipe.vae_scale_factor,
+        ),
         device=device,
         dtype=prompt_embeds.dtype,
     )

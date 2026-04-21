@@ -83,4 +83,11 @@ class ModelLoader(ForgeModel):
             prompt_embeds = prompt_embeds.to(dtype_override)
             prompt_attention_mask = prompt_attention_mask.to(dtype_override)
 
-        return [latent_model_input, timestep, prompt_embeds, prompt_attention_mask]
+        return {
+            "hidden_states": latent_model_input,
+            "encoder_hidden_states": prompt_embeds,
+            "timestep": timestep,
+            "added_cond_kwargs": {"resolution": None, "aspect_ratio": None},
+            "encoder_attention_mask": prompt_attention_mask,
+            "return_dict": False,
+        }
