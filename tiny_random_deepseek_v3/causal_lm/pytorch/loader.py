@@ -8,7 +8,18 @@ Tiny Random DeepSeek-V3 model loader implementation for causal language modeling
 from typing import Optional
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
+
+# transformers 5.x removed get_usable_length from DynamicCache; restore it for
+# DeepSeek V3 remote code which relies on the old 4.x semantics.
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(
+        self, new_seq_length: int, layer_idx: Optional[int] = 0
+    ) -> int:
+        return self.get_seq_length(layer_idx=layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
 
 from ....base import ForgeModel
 from ....config import (
