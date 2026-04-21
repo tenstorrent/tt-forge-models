@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available KoBART model variants for summarization."""
 
     V3 = "V3"
+    BART_R3F = "BART_R3F"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.V3: LLMModelConfig(
             pretrained_model_name="EbanLee/kobart-summary-v3",
+            max_length=1026,
+        ),
+        ModelVariant.BART_R3F: LLMModelConfig(
+            pretrained_model_name="alaggung/bart-r3f",
             max_length=1026,
         ),
     }
