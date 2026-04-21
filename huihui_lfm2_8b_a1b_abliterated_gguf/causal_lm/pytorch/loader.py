@@ -53,6 +53,12 @@ def _patch_lfm2moe_support():
     if "lfm2" in TENSOR_PROCESSORS:
         TENSOR_PROCESSORS["lfm2moe"] = TENSOR_PROCESSORS["lfm2"]
 
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "gpt2" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["lfm2moe"] = GGUF_TO_FAST_CONVERTERS["gpt2"]
+        GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = GGUF_TO_FAST_CONVERTERS["gpt2"]
+
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     _patch_lfm2moe_support()
