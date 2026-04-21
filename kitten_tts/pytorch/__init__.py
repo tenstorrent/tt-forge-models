@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-KittenTTS Nano PyTorch model implementation for Tenstorrent projects.
+KittenTTS PyTorch model implementation for Tenstorrent projects.
 """
 from .loader import ModelLoader, ModelVariant
