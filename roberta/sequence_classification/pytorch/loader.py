@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
 
     EMOTION_ENGLISH_LARGE = "Emotion_English_Large"
     BASE_EMPATHY = "Base_Empathy"
-    FORMALITY_RANKER = "Formality_Ranker"
+    BASE_QQP = "Base_QQP"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bdotloh/roberta-base-empathy",
             max_length=128,
         ),
-        ModelVariant.FORMALITY_RANKER: LLMModelConfig(
-            pretrained_model_name="s-nlp/roberta-base-formality-ranker",
+        ModelVariant.BASE_QQP: LLMModelConfig(
+            pretrained_model_name="JeremiahZ/roberta-base-qqp",
             max_length=128,
         ),
     }
@@ -50,7 +50,7 @@ class ModelLoader(ForgeModel):
     _SAMPLE_TEXTS = {
         ModelVariant.EMOTION_ENGLISH_LARGE: "I am so happy today, everything is going great!",
         ModelVariant.BASE_EMPATHY: "It breaks my heart to see so many people suffering after the earthquake.",
-        ModelVariant.FORMALITY_RANKER: "I would like to kindly request your presence at the annual board meeting.",
+        ModelVariant.BASE_QQP: "How can I learn Python? What is the best way to learn Python programming?",
     }
 
     def __init__(self, variant=None):
