@@ -16,6 +16,7 @@ from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 
 def _patch_mistral3_support():
@@ -25,7 +26,8 @@ def _patch_mistral3_support():
     transformers 5.x does not yet recognise. The configuration keys are
     identical to the 'mistral' architecture, so we alias them and then fix
     the resulting model_type to 'ministral3' so AutoModelForCausalLM
-    resolves to Ministral3ForCausalLM.
+    resolves to Ministral3ForCausalLM. We also register 'ministral3' in
+    GGUF_TO_FAST_CONVERTERS using the llama tokenizer converter.
     """
     if "mistral3" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
@@ -35,6 +37,10 @@ def _patch_mistral3_support():
                 "mistral3",
                 _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"],
             )
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "ministral3", GGUF_TO_FAST_CONVERTERS["llama"]
+        )
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
