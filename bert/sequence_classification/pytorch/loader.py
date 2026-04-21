@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     BHADRESH_SAVANI_BERT_BASE_UNCASED_EMOTION = (
         "bhadresh_savani_Bert_Base_Uncased_Emotion"
     )
+    TEXTATTACK_BERT_BASE_UNCASED_MRPC = "Base_Uncased_MRPC"
 
 
 class ModelLoader(ForgeModel):
@@ -72,6 +73,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bhadresh-savani/bert-base-uncased-emotion",
             max_length=128,
         ),
+        ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_MRPC: LLMModelConfig(
+            pretrained_model_name="textattack/bert-base-uncased-MRPC",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -98,6 +103,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
         ModelVariant.BHADRESH_SAVANI_BERT_BASE_UNCASED_EMOTION: "I love using transformers. The best part is wide range of support and its easy to use",
+        ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_MRPC: "The company announced record profits this quarter.",
     }
 
     def __init__(self, variant=None):
@@ -137,6 +143,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
             ModelVariant.BHADRESH_SAVANI_BERT_BASE_UNCASED_EMOTION,
+            ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_MRPC,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
