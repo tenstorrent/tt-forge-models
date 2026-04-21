@@ -9,10 +9,15 @@ Wan-AI/Wan2.1-T2V-1.3B text-to-video diffusion model, finetuned from
 TurboDiffusion/TurboWan2.1-T2V-1.3B-480P for fast few-step inference.
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
+import diffusers  # type: ignore[import]
 import torch
-from diffusers import DiffusionPipeline  # type: ignore[import]
+from diffusers import DiffusionPipeline, WanPipeline  # type: ignore[import]
+
+# WanDMDPipeline is not yet in a released version of diffusers; use WanPipeline as a stand-in.
+if not hasattr(diffusers, "WanDMDPipeline"):
+    diffusers.WanDMDPipeline = WanPipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -24,6 +29,12 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+# Wan 2.1 1.3B transformer config: in_channels=16, text_dim=4096, patch_size=[1,2,2]
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -41,10 +52,6 @@ class ModelLoader(ForgeModel):
         ),
     }
     DEFAULT_VARIANT = ModelVariant.TURBOWAN_2_1_T2V_1_3B
-
-    DEFAULT_PROMPT = (
-        "A stylish woman walks down a Tokyo street filled with warm glowing neon"
-    )
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -67,27 +74,22 @@ class ModelLoader(ForgeModel):
     def _load_pipeline(
         self, dtype_override: Optional[torch.dtype] = None
     ) -> DiffusionPipeline:
-        pipe_kwargs = {
-            "torch_dtype": (
-                dtype_override if dtype_override is not None else torch.bfloat16
-            ),
-        }
-
         self.pipeline = DiffusionPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
-            **pipe_kwargs,
+            torch_dtype=(
+                dtype_override if dtype_override is not None else torch.bfloat16
+            ),
         )
-
         return self.pipeline
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the TurboWan2.1-T2V-1.3B pipeline.
+        """Load and return the WanTransformer3DModel from the TurboWan pipeline.
 
         Args:
             dtype_override: Optional torch dtype to instantiate the pipeline with.
 
         Returns:
-            DiffusionPipeline: The TurboWan2.1-T2V-1.3B text-to-video pipeline.
+            WanTransformer3DModel: The transformer component.
         """
         if self.pipeline is None:
             self._load_pipeline(dtype_override=dtype_override)
@@ -95,16 +97,35 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype=dtype_override)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for the TurboWan2.1-T2V-1.3B pipeline.
+    def _load_transformer_inputs(self, dtype: torch.dtype) -> Dict[str, Any]:
+        """Prepare inputs for the WanTransformer3DModel forward pass."""
+        config = self.pipeline.transformer.config
+        return {
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
+        }
 
-        Args:
-            prompt: Optional text prompt for video generation.
+    def load_inputs(self, **kwargs) -> Any:
+        """Prepare inputs for the WanTransformer3DModel.
 
         Returns:
-            dict: Input dictionary with prompt for the pipeline.
+            dict: Tensor inputs for the transformer forward pass.
         """
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {"prompt": prompt_value}
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        return self._load_transformer_inputs(dtype)
