@@ -34,7 +34,7 @@ class ModelVariant(StrEnum):
     GEMMA_3_4B_PT = "unsloth/gemma-3-4b-pt"
     GEMMA_3_4B_IT = "google/gemma-3-4b-it"
     GEMMA_3_4B_IT_QAT_4BIT = "mlx-community/gemma-3-4b-it-qat-bf16"
-    GEMMA_3_4B_IT_MLX_8BIT = "mlx-community/gemma-3-4b-it-8bit"
+    GEMMA_3_4B_IT_GPTQ_4BIT_128G = "ISTA-DASLab/gemma-3-4b-it-GPTQ-4b-128g"
     GEMMA_3_4B_VL_HERETIC_UNCENSORED = (
         "DavidAU/Gemma-3-4B-VL-it-Gemini-Pro-Heretic-Uncensored-Thinking"
     )
@@ -60,8 +60,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.GEMMA_3_4B_IT_QAT_4BIT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_4B_IT_QAT_4BIT),
         ),
-        ModelVariant.GEMMA_3_4B_IT_MLX_8BIT: LLMModelConfig(
-            pretrained_model_name=str(ModelVariant.GEMMA_3_4B_IT_MLX_8BIT),
+        ModelVariant.GEMMA_3_4B_IT_GPTQ_4BIT_128G: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.GEMMA_3_4B_IT_GPTQ_4BIT_128G),
         ),
         ModelVariant.GEMMA_3_4B_VL_HERETIC_UNCENSORED: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_4B_VL_HERETIC_UNCENSORED),
@@ -104,8 +104,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         if variant in (
             ModelVariant.GEMMA_3_4B_IT_QAT_4BIT,
-            ModelVariant.GEMMA_3_12B_IT_HERETIC,
-            ModelVariant.GEMMA_3_12B_IT_LENIENTCHATFIX,
+            ModelVariant.GEMMA_3_4B_IT_GPTQ_4BIT_128G,
             ModelVariant.GEMMA_3_27B_IT_QAT_W4A16,
             ModelVariant.GEMMA_3_27B_IT_QAT_AUTOAWQ,
         ):
@@ -270,7 +269,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_3_4B_PT,
             ModelVariant.GEMMA_3_4B_IT,
             ModelVariant.GEMMA_3_4B_IT_QAT_4BIT,
-            ModelVariant.GEMMA_3_4B_IT_MLX_8BIT,
+            ModelVariant.GEMMA_3_4B_IT_GPTQ_4BIT_128G,
             ModelVariant.GEMMA_3_12B_IT,
             ModelVariant.GEMMA_3_12B_IT_BNB_4BIT,
             ModelVariant.GEMMA_3_12B_IT_FP8_DYNAMIC,
