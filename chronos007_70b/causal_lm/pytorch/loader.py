@@ -40,9 +40,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.CHRONOS007_70B
 
     # Sample input text for inference (Alpaca instruction format per model card)
-    sample_text = (
-        "### Instruction:\n" "What is the capital of France?\n\n" "### Response:\n"
-    )
+    sample_text = "### Instruction:\nWhat is the capital of France?\n\n### Response:\n"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
