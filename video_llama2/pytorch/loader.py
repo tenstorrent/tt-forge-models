@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-VideoLLaMA2 model loader implementation for multimodal audio-visual video understanding.
+VideoLLaMA2 model loader implementation for multimodal video understanding.
 """
 
 from typing import Optional
@@ -25,19 +25,19 @@ from ...tools.utils import cast_input_to_type
 class ModelVariant(StrEnum):
     """Available VideoLLaMA2 model variants."""
 
-    V2_1_7B_AV = "v2_1_7b_av"
+    V2_1_7B_16F = "v2_1_7b_16f"
 
 
 class ModelLoader(ForgeModel):
-    """VideoLLaMA2 model loader for multimodal audio-visual video understanding."""
+    """VideoLLaMA2 model loader for multimodal video understanding."""
 
     _VARIANTS = {
-        ModelVariant.V2_1_7B_AV: ModelConfig(
-            pretrained_model_name="DAMO-NLP-SG/VideoLLaMA2.1-7B-AV",
+        ModelVariant.V2_1_7B_16F: ModelConfig(
+            pretrained_model_name="DAMO-NLP-SG/VideoLLaMA2.1-7B-16F",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.V2_1_7B_AV
+    DEFAULT_VARIANT = ModelVariant.V2_1_7B_16F
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize VideoLLaMA2 model loader."""
@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        text_prompt = "<video>\nPlease describe the video with audio information."
+        text_prompt = "<video>\nWhat is shown in this video?"
 
         inputs = self.tokenizer(text_prompt, return_tensors="pt")
 
