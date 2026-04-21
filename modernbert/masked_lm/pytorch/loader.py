@@ -27,6 +27,14 @@ class ModelVariant(StrEnum):
     CLINICAL_BASE = "Clinical_Base"
 
 
+_SAMPLE_TEXTS = {
+    ModelVariant.BASE: "The capital of France is [MASK].",
+    ModelVariant.LARGE: "The capital of France is [MASK].",
+    ModelVariant.BIOCLINICAL_BASE: "The patient was diagnosed with [MASK].",
+    ModelVariant.CLINICAL_BASE: "The patient was diagnosed with [MASK].",
+}
+
+
 class ModelLoader(ForgeModel):
     """ModernBERT model loader implementation for masked language modeling."""
 
