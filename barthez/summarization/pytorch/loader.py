@@ -87,10 +87,24 @@ class ModelLoader(ForgeModel):
             tokenizer: The loaded tokenizer instance
         """
         from transformers import AutoTokenizer
+        from transformers.models.barthez.tokenization_barthez import BarthezTokenizer
 
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-        )
+        # transformers 5.x BarthezTokenizer passes vocab as dict to tokenizers.Unigram,
+        # which requires a Sequence of (token, score) tuples.
+        original_init = BarthezTokenizer.__init__
+
+        def _patched_init(self_inner, vocab=None, **kwargs):
+            if isinstance(vocab, dict):
+                vocab = list(vocab.items())
+            original_init(self_inner, vocab=vocab, **kwargs)
+
+        BarthezTokenizer.__init__ = _patched_init
+        try:
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name,
+            )
+        finally:
+            BarthezTokenizer.__init__ = original_init
 
         return self._tokenizer
 
