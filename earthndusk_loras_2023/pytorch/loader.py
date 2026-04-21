@@ -1,11 +1,8 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-EarthnDusk Loras_2023 Stable Diffusion model loader implementation.
-
-Loads the Stable Diffusion v1.5 base pipeline and applies a LoRA weight file
-from EarthnDusk/Loras_2023, a backup collection of SD1.5 LoRA adapters.
+EarthnDusk Loras_2023 LoRA Stable Diffusion model loader implementation
 """
 
 import torch
@@ -26,22 +23,22 @@ from typing import Optional
 class ModelVariant(StrEnum):
     """Available EarthnDusk Loras_2023 model variants."""
 
-    DUSK_ART_V7 = "dusk_art_v7"
+    DUSK_ART_V6 = "DuskArtV6"
 
 
 class ModelLoader(ForgeModel):
-    """EarthnDusk Loras_2023 Stable Diffusion model loader implementation."""
+    """EarthnDusk Loras_2023 LoRA Stable Diffusion model loader implementation."""
 
     _VARIANTS = {
-        ModelVariant.DUSK_ART_V7: ModelConfig(
+        ModelVariant.DUSK_ART_V6: ModelConfig(
             pretrained_model_name="EarthnDusk/Loras_2023",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.DUSK_ART_V7
+    DEFAULT_VARIANT = ModelVariant.DUSK_ART_V6
 
     _LORA_WEIGHT_NAMES = {
-        ModelVariant.DUSK_ART_V7: "Jan_11_SD15/DuskArtV7.safetensors",
+        ModelVariant.DUSK_ART_V6: "DuskArtV6.safetensors",
     }
 
     _BASE_MODEL = "runwayml/stable-diffusion-v1-5"
@@ -73,6 +70,6 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         prompt = [
-            "a mystical fantasy landscape, dusk_art style, vibrant colors, detailed",
+            "a beautiful fantasy illustration, detailed artwork, masterpiece",
         ] * batch_size
         return prompt
