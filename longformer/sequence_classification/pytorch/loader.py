@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Longformer model loader implementation for sequence classification (coherence classification).
+Longformer model loader implementation for sequence classification (harmful content detection).
 """
 
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -22,27 +22,22 @@ from ....base import ForgeModel
 class ModelVariant(StrEnum):
     """Available Longformer sequence classification model variants."""
 
-    LENGUIST_COHERENCE_SYNTHETIC_CLASSIFIER = (
-        "longformer-coherence-synthetic-classifier"
-    )
+    LIBRAI_LONGFORMER_HARMFUL_RO = "longformer-harmful-ro"
 
 
 class ModelLoader(ForgeModel):
     """Longformer model loader for sequence classification."""
 
     _VARIANTS = {
-        ModelVariant.LENGUIST_COHERENCE_SYNTHETIC_CLASSIFIER: LLMModelConfig(
-            pretrained_model_name="lenguist/longformer-coherence-synthetic-classifier",
+        ModelVariant.LIBRAI_LONGFORMER_HARMFUL_RO: LLMModelConfig(
+            pretrained_model_name="LibrAI/longformer-harmful-ro",
             max_length=512,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.LENGUIST_COHERENCE_SYNTHETIC_CLASSIFIER
+    DEFAULT_VARIANT = ModelVariant.LIBRAI_LONGFORMER_HARMFUL_RO
 
-    sample_text = (
-        "The sun rose over the quiet valley, casting long shadows across the meadow. "
-        "Birds began their morning songs, and a gentle breeze stirred the leaves."
-    )
+    sample_text = "Acesta este un exemplu de text in limba romana pentru clasificare."
 
     def __init__(self, variant=None):
         super().__init__(variant)
