@@ -33,7 +33,7 @@ class ModelVariant(StrEnum):
     QWEN_3_EMBEDDING_4B_FP8_V2 = "Embedding_4B_FP8_v2"
     QWEN_3_EMBEDDING_8B = "Embedding_8B"
     QWEN_3_EMBEDDING_4B_4BIT_DWQ = "Embedding_4B_4bit_DWQ"
-    YUAN_EMBEDDING_2_0_EN = "Yuan_Embedding_2_0_en"
+    QWEN_3_EMBEDDING_0_6B_AKAHANA = "Embedding_0_6B_akahana"
 
 
 class ModelLoader(ForgeModel):
@@ -59,8 +59,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_3_EMBEDDING_4B_4BIT_DWQ: ModelConfig(
             pretrained_model_name="mlx-community/Qwen3-Embedding-4B-4bit-DWQ",
         ),
-        ModelVariant.YUAN_EMBEDDING_2_0_EN: ModelConfig(
-            pretrained_model_name="IEITYuan/Yuan-embedding-2.0-en",
+        ModelVariant.QWEN_3_EMBEDDING_0_6B_AKAHANA: ModelConfig(
+            pretrained_model_name="akahana/qwen3-0.6b-text-embedding",
         ),
     }
 
@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
         elif variant in (
             ModelVariant.QWEN_3_EMBEDDING_4B_W4A16_G128,
-            ModelVariant.QWEN_3_EMBEDDING_4B_FP8_V2,
+            ModelVariant.QWEN_3_EMBEDDING_0_6B_AKAHANA,
         ):
             group = ModelGroup.VULCAN
         else:
@@ -255,7 +255,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_EMBEDDING_0_6B,
             ModelVariant.QWEN_3_EMBEDDING_4B,
             ModelVariant.QWEN_3_EMBEDDING_4B_W4A16_G128,
-            ModelVariant.QWEN_3_EMBEDDING_4B_FP8_V2,
+            ModelVariant.QWEN_3_EMBEDDING_0_6B_AKAHANA,
         ]:
             return None
 
