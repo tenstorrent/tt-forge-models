@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available GTE-Multilingual-Base model variants for embedding generation."""
 
     GTE_MULTILINGUAL_BASE = "gte-multilingual-base"
+    OB_SEMANTIC_MODEL = "ob_semantic_model"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GTE_MULTILINGUAL_BASE: ModelConfig(
             pretrained_model_name="Alibaba-NLP/gte-multilingual-base",
+        ),
+        ModelVariant.OB_SEMANTIC_MODEL: ModelConfig(
+            pretrained_model_name="SteveTran/ob_semantic_model",
         ),
     }
 
