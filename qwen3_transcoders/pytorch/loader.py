@@ -23,23 +23,23 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     """Available Qwen3 Transcoders model variants."""
 
-    QWEN3_4B = "qwen3-4b-transcoders"
+    QWEN3_0_6B_LOWL0 = "qwen3-0.6b-transcoders-lowl0"
 
 
 class ModelLoader(ForgeModel):
     """Qwen3 Transcoders model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.QWEN3_4B: LLMModelConfig(
-            pretrained_model_name="mwhanna/qwen3-4b-transcoders",
+        ModelVariant.QWEN3_0_6B_LOWL0: LLMModelConfig(
+            pretrained_model_name="mwhanna/qwen3-0.6b-transcoders-lowl0",
             max_length=256,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.QWEN3_4B
+    DEFAULT_VARIANT = ModelVariant.QWEN3_0_6B_LOWL0
 
     _BASE_MODELS = {
-        ModelVariant.QWEN3_4B: "Qwen/Qwen3-4B",
+        ModelVariant.QWEN3_0_6B_LOWL0: "Qwen/Qwen3-0.6B",
     }
 
     sample_text = "What is your favorite city?"
