@@ -39,7 +39,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.BERT_VITS2_MNN
 
-    sample_text = "Hello, this is a test of text to speech."
+    sample_text = "你好，这是一个语音合成的测试。"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
