@@ -29,13 +29,6 @@ class ModelVariant(StrEnum):
     SOULX_SINGER_PREPROCESS_0_6B_V2 = "SoulX_Singer_Preprocess_Parakeet_TDT_0.6B_v2"
 
 
-# Repos that ship the .nemo archive inside a subfolder (rather than at the
-# HuggingFace repo root) map the variant to its relative file path.
-_BUNDLED_NEMO_FILES = {
-    ModelVariant.SOULX_SINGER_PREPROCESS_0_6B_V2: "parakeet-tdt-0.6b-v2/parakeet-tdt-0.6b-v2.nemo",
-}
-
-
 class ModelLoader(ForgeModel):
     """Parakeet TDT model loader implementation for speech recognition (PyTorch)."""
 
@@ -49,6 +42,12 @@ class ModelLoader(ForgeModel):
         ModelVariant.SOULX_SINGER_PREPROCESS_0_6B_V2: ModelConfig(
             pretrained_model_name="Soul-AILab/SoulX-Singer-Preprocess",
         ),
+    }
+
+    # Variants whose .nemo archive is stored inside a repo subfolder are fetched
+    # via hf_hub_download + ASRModel.restore_from instead of from_pretrained.
+    _BUNDLED_NEMO_FILES = {
+        ModelVariant.SOULX_SINGER_PREPROCESS_0_6B_V2: "parakeet-tdt-0.6b-v2/parakeet-tdt-0.6b-v2.nemo",
     }
 
     DEFAULT_VARIANT = ModelVariant.PARAKEET_TDT_0_6B_V3
@@ -74,7 +73,7 @@ class ModelLoader(ForgeModel):
         import nemo.collections.asr as nemo_asr
 
         repo_id = self._variant_config.pretrained_model_name
-        bundled_filename = _BUNDLED_NEMO_FILES.get(self._variant)
+        bundled_filename = self._BUNDLED_NEMO_FILES.get(self._variant)
         if bundled_filename is not None:
             from huggingface_hub import hf_hub_download
 
