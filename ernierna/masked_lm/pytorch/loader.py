@@ -3,9 +3,23 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 ERNIE-RNA model loader implementation for masked language modeling on RNA sequences.
+
+ERNIE-RNA uses a BERT-like architecture with sinusoidal position embeddings.
+The multimolecule package that provides the native ErnieRna classes is
+incompatible with the pinned transformers version, so we load the model as
+BertForMaskedLM with weight-key remapping.
 """
-from transformers import AutoTokenizer, AutoModelForMaskedLM
+import importlib.util
+import sys
+import types
+from collections import OrderedDict
+from pathlib import Path
 from typing import Optional
+
+import torch
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
+from transformers import BertConfig, BertForMaskedLM
 
 from ....base import ForgeModel
 from ....config import (
@@ -19,9 +33,65 @@ from ....config import (
 )
 
 
-class ModelVariant(StrEnum):
-    """Available ERNIE-RNA model variants."""
+def _load_rna_tokenizer_class():
+    mod_key = "multimolecule.tokenisers.rna.tokenization_rna"
+    if mod_key in sys.modules:
+        return sys.modules[mod_key].RnaTokenizer
 
+    existing_mm = sys.modules.get("multimolecule")
+    if existing_mm and hasattr(existing_mm, "__spec__") and existing_mm.__spec__:
+        site = str(Path(existing_mm.__spec__.origin).parent / "tokenisers")
+    else:
+        import sysconfig
+
+        site_packages = sysconfig.get_path("purelib")
+        site = str(Path(site_packages) / "multimolecule" / "tokenisers")
+
+    for name in [
+        "multimolecule",
+        "multimolecule.tokenisers",
+        "multimolecule.tokenisers.rna",
+    ]:
+        if name not in sys.modules:
+            sys.modules[name] = types.ModuleType(name)
+
+    for mod_name, rel in [
+        ("multimolecule.tokenisers.alphabet", "alphabet.py"),
+        ("multimolecule.tokenisers.utils", "utils.py"),
+        ("multimolecule.tokenisers.tokenization_utils", "tokenization_utils.py"),
+        ("multimolecule.tokenisers.rna.utils", "rna/utils.py"),
+        (mod_key, "rna/tokenization_rna.py"),
+    ]:
+        if mod_name not in sys.modules:
+            spec = importlib.util.spec_from_file_location(mod_name, f"{site}/{rel}")
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[mod_name] = mod
+            spec.loader.exec_module(mod)
+
+    return sys.modules[mod_key].RnaTokenizer
+
+
+def _remap_ernierna_to_bert(state_dict):
+    new_sd = OrderedDict()
+    for k, v in state_dict.items():
+        nk = k
+        if nk.startswith("model."):
+            nk = "bert." + nk[len("model.") :]
+        nk = nk.replace("layer_norm", "LayerNorm")
+
+        if nk.startswith("lm_head.transform."):
+            nk = nk.replace("lm_head.transform.", "cls.predictions.transform.")
+        elif nk == "lm_head.bias":
+            nk = "cls.predictions.bias"
+
+        if "pairwise_bias_proj" in nk:
+            continue
+
+        new_sd[nk] = v
+    return new_sd
+
+
+class ModelVariant(StrEnum):
     ERNIERNA = "multimolecule/ernierna"
 
 
@@ -54,9 +124,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self):
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        RnaTokenizer = _load_rna_tokenizer_class()
+        self.tokenizer = RnaTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
         )
         return self.tokenizer
 
@@ -64,16 +134,35 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        repo = self._variant_config.pretrained_model_name
 
-        model = AutoModelForMaskedLM.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            **model_kwargs,
+        config = BertConfig(
+            vocab_size=26,
+            hidden_size=768,
+            num_hidden_layers=12,
+            num_attention_heads=12,
+            intermediate_size=3072,
+            hidden_act="gelu",
+            hidden_dropout_prob=0.1,
+            attention_probs_dropout_prob=0.1,
+            max_position_embeddings=1026,
+            type_vocab_size=2,
+            initializer_range=0.02,
+            layer_norm_eps=1e-12,
+            pad_token_id=0,
         )
+        if dtype_override is not None:
+            config.torch_dtype = dtype_override
+
+        model = BertForMaskedLM(config)
+
+        weights_path = hf_hub_download(repo, "model.safetensors")
+        raw_sd = load_file(weights_path)
+        bert_sd = _remap_ernierna_to_bert(raw_sd)
+        model.load_state_dict(bert_sd, strict=False)
+
+        if dtype_override is not None:
+            model = model.to(dtype_override)
 
         return model
 
@@ -81,7 +170,6 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # RNA sequence with <mask> token for masked LM task
         masked_sequence = "uagc<mask>uaucagacugauguuga"
 
         inputs = self.tokenizer(
