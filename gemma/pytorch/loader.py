@@ -46,6 +46,9 @@ class ModelVariant(StrEnum):
     # Gemma 2.x (Efficient-Large-Model)
     ELM_GEMMA_2_2B_IT = "ELM_2_2B_IT"
 
+    # Gemma 2B fine-tunes (VibeStudio Nidum uncensored)
+    NIDUM_GEMMA_2B_UNCENSORED = "NIDUM_GEMMA_2B_UNCENSORED"
+
 
 class ModelLoader(ForgeModel):
     """Gemma model loader implementation for causal language modeling tasks."""
@@ -97,6 +100,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.ELM_GEMMA_2_2B_IT: LLMModelConfig(
             pretrained_model_name="Efficient-Large-Model/gemma-2-2b-it",
         ),
+        ModelVariant.NIDUM_GEMMA_2B_UNCENSORED: LLMModelConfig(
+            pretrained_model_name="VibeStudio/Nidum-Gemma-2B-Uncensored",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_1_1_2B_IT
@@ -125,7 +131,11 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         # Instruct and larger models are RED, others generality
-        if variant in (ModelVariant.GEMMA_2B_IT, ModelVariant.GEMMA_7B):
+        if variant in (
+            ModelVariant.GEMMA_2B_IT,
+            ModelVariant.GEMMA_7B,
+            ModelVariant.NIDUM_GEMMA_2B_UNCENSORED,
+        ):
             group = ModelGroup.VULCAN
         elif any(x in variant.value for x in ["IT", "7B", "9B", "27B"]):
             group = ModelGroup.RED
@@ -257,6 +267,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_2_2B_IT_BNB_4BIT,
             ModelVariant.GEMMA_2_2B_JPN_IT,
             ModelVariant.ELM_GEMMA_2_2B_IT,
+            ModelVariant.NIDUM_GEMMA_2B_UNCENSORED,
         ]:
             assert (
                 self.config.num_attention_heads % mesh_shape[1] == 0
@@ -274,6 +285,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_2_2B_IT_BNB_4BIT,
             ModelVariant.GEMMA_2_2B_JPN_IT,
             ModelVariant.ELM_GEMMA_2_2B_IT,
+            ModelVariant.NIDUM_GEMMA_2B_UNCENSORED,
         ]:
             return None
 
