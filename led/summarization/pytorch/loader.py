@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available LED model variants for summarization."""
 
     LARGE_16384 = "Large_16384"
+    BASE_BOOK_SUMMARY = "base-book-summary"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LARGE_16384: LLMModelConfig(
             pretrained_model_name="allenai/led-large-16384",
+        ),
+        ModelVariant.BASE_BOOK_SUMMARY: LLMModelConfig(
+            pretrained_model_name="pszemraj/led-base-book-summary",
         ),
     }
 
