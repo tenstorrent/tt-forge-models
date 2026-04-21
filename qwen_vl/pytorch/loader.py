@@ -5,8 +5,30 @@
 Qwen-VL model loader implementation for vision-language tasks.
 """
 
+import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
+
+# Qwen-VL's remote code requires transformers_stream_generator which imports
+# DisjunctiveConstraint, BeamSearchScorer, PhrasalConstraint,
+# ConstrainedBeamSearchScorer, and SampleOutput — all removed in transformers 5.x.
+# Inject stubs so the remote code can be loaded without errors.
+def _patch_transformers_stream_generator_compat():
+    from transformers.generation import utils as _gen_utils
+
+    for _name in [
+        "DisjunctiveConstraint",
+        "BeamSearchScorer",
+        "PhrasalConstraint",
+        "ConstrainedBeamSearchScorer",
+    ]:
+        if not hasattr(transformers, _name):
+            setattr(transformers, _name, type(_name, (), {}))
+    if not hasattr(_gen_utils, "SampleOutput"):
+        _gen_utils.SampleOutput = _gen_utils.GenerateOutput
+
+
+_patch_transformers_stream_generator_compat()
 
 from ...base import ForgeModel
 from ...config import (
