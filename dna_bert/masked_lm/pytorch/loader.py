@@ -23,13 +23,25 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available DNABERT model variants for masked language modeling."""
 
+    DNA_BERT_3 = "zhihan1996/DNA_bert_3"
     DNA_BERT_6 = "zhihan1996/DNA_bert_6"
+
+
+# K-mer size per variant for constructing properly tokenized DNA inputs.
+_KMER_SIZES = {
+    ModelVariant.DNA_BERT_3: 3,
+    ModelVariant.DNA_BERT_6: 6,
+}
 
 
 class ModelLoader(ForgeModel):
     """DNABERT model loader implementation for masked language modeling."""
 
     _VARIANTS = {
+        ModelVariant.DNA_BERT_3: LLMModelConfig(
+            pretrained_model_name="zhihan1996/DNA_bert_3",
+            max_length=128,
+        ),
         ModelVariant.DNA_BERT_6: LLMModelConfig(
             pretrained_model_name="zhihan1996/DNA_bert_6",
             max_length=128,
@@ -81,13 +93,17 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # DNABERT uses k-mer tokenization (6-mers for DNA_bert_6).
-        # Input DNA sequences must be pre-tokenized into space-separated 6-mers
-        # with one token replaced by [MASK].
-        dna_sequence = (
-            "ACTGAC CTGACT TGACTG GACTGA ACTGAC CTGACT"
-            " [MASK] GACTGA ACTGAC CTGACT TGACTG GACTGA"
-        )
+        # DNABERT uses k-mer tokenization (3-mers for DNA_bert_3, 6-mers for
+        # DNA_bert_6). Input DNA sequences must be pre-tokenized into
+        # space-separated k-mers with one token replaced by [MASK].
+        kmer_size = _KMER_SIZES[self._variant]
+        raw_dna = "ACTGACCTGACTTGACTGGACTGAACTGACCTGACTGACTGAACTGACCTGACTTGACTGGACTGA"
+        kmers = [
+            raw_dna[i : i + kmer_size] for i in range(len(raw_dna) - kmer_size + 1)
+        ]
+        # Mask a token near the middle of the sequence.
+        kmers[len(kmers) // 2] = "[MASK]"
+        dna_sequence = " ".join(kmers)
 
         max_length = self._variant_config.max_length
         inputs = self.tokenizer(
