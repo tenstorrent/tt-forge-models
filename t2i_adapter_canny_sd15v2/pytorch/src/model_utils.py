@@ -152,7 +152,7 @@ def t2i_adapter_canny_sd15v2_preprocessing(
 
     return (
         latent_model_input,
-        timesteps,
+        timesteps[0:1],
         prompt_embeds,
         adapter_state,
     )
