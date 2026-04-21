@@ -40,6 +40,8 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "Phi-4-mini-instruct-Q4_K_M.gguf"
 
+    BASE_MODEL = "microsoft/Phi-4-mini-instruct"
+
     sample_text = "Give me a short introduction to large language models."
 
     def __init__(
@@ -65,10 +67,9 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self.BASE_MODEL, **tokenizer_kwargs
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -88,9 +89,7 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            config = AutoConfig.from_pretrained(self.BASE_MODEL)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -151,7 +150,5 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        self.config = AutoConfig.from_pretrained(self.BASE_MODEL)
         return self.config
