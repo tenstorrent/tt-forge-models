@@ -88,9 +88,7 @@ class NeuralNet(
         road_objects = partner_obs.view(
             -1, self.max_observable_agents, PARTNER_FEAT_DIM
         )
-        road_graph = roadgraph_obs.view(
-            -1, TOP_K_ROAD_POINTS, ROAD_GRAPH_FEAT_DIM
-        )
+        road_graph = roadgraph_obs.view(-1, TOP_K_ROAD_POINTS, ROAD_GRAPH_FEAT_DIM)
         return ego_state, road_objects, road_graph
 
     def encode_observations(self, observation):
