@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     BASE_LS960 = "Base_ls960"
     MHUBERT_147 = "mHuBERT_147"
+    BASE_AUDIOSET = "Base_audioset"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MHUBERT_147: ModelConfig(
             pretrained_model_name="utter-project/mHuBERT-147",
+        ),
+        ModelVariant.BASE_AUDIOSET: ModelConfig(
+            pretrained_model_name="ALM/hubert-base-audioset",
         ),
     }
 
