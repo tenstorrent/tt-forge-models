@@ -52,6 +52,7 @@ class ModelVariant(StrEnum):
     MISTRAL_7B_V03_BNB_4BIT = "7B_v03_bnb_4bit"
     MISTRAL_FT_OPTIMIZED_1227 = "ft_optimized_1227"
     MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED = "Small_Instruct_2409_abliterated"
+    YARN_MISTRAL_7B_64K = "Yarn_Mistral_7B_64K"
 
 
 class ModelLoader(ForgeModel):
@@ -151,6 +152,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED: ModelConfig(
             pretrained_model_name="byroneverson/Mistral-Small-Instruct-2409-abliterated",
         ),
+        ModelVariant.YARN_MISTRAL_7B_64K: ModelConfig(
+            pretrained_model_name="NousResearch/Yarn-Mistral-7b-64k",
+        ),
     }
 
     # Default variant to use
@@ -190,6 +194,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_7B_V03_BNB_4BIT,
             ModelVariant.MISTRAL_FT_OPTIMIZED_1227,
             ModelVariant.MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED,
+            ModelVariant.YARN_MISTRAL_7B_64K,
         ):
             group = ModelGroup.VULCAN
         elif variant in [
