@@ -5,8 +5,6 @@
 Marigold Normals model loader implementation for monocular surface normal estimation.
 """
 import torch
-from diffusers import MarigoldNormalsPipeline
-from datasets import load_dataset
 from typing import Optional
 
 from ...config import (
@@ -19,6 +17,7 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+from .src.model_utils import load_pipe, marigold_normals_preprocessing
 
 
 class ModelVariant(StrEnum):
@@ -56,36 +55,30 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype_override=None):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-        pipe = MarigoldNormalsPipeline.from_pretrained(
-            pretrained_model_name, torch_dtype=dtype_override or torch.float32
-        )
-        pipe.to("cpu")
-
-        for module in [pipe.unet, pipe.vae, pipe.text_encoder]:
-            module.eval()
-            for param in module.parameters():
-                param.requires_grad = False
-
-        self.pipeline = pipe
-        return pipe
-
     def load_model(self, *, dtype_override=None, **kwargs):
-        if self.pipeline is None:
-            self._load_pipeline(dtype_override=dtype_override)
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        self.pipeline = load_pipe(pretrained_model_name, dtype=dtype_override)
 
-        return self.pipeline
+        if dtype_override is not None:
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
+
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.pipeline is None:
-            self._load_pipeline(dtype_override=dtype_override)
+            self.load_model(dtype_override=dtype_override)
 
-        pipe = self.pipeline
+        sample, timestep, encoder_hidden_states = marigold_normals_preprocessing(
+            self.pipeline
+        )
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        if dtype_override:
+            sample = sample.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            encoder_hidden_states = encoder_hidden_states.to(dtype_override)
 
-        inputs = {"image": image, "num_inference_steps": 10, "batch_size": batch_size}
-
-        return inputs
+        return {
+            "sample": sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+        }
