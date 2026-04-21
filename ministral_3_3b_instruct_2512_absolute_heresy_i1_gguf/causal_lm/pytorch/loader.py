@@ -43,6 +43,15 @@ def _patch_transformers_mistral3_gguf():
         "config"
     ]["mistral"]
 
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    for arch in ("mistral", "mistral3"):
+        if arch not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS[arch] = GGUFLlamaConverter
+
     orig_load = gguf_utils.load_gguf_checkpoint
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
@@ -54,9 +63,9 @@ def _patch_transformers_mistral3_gguf():
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    import transformers.models.auto.tokenization_auto as tok_auto
     import transformers.configuration_utils as config_utils
     import transformers.modeling_utils as modeling_utils
+    import transformers.models.auto.tokenization_auto as tok_auto
 
     for mod in (tok_auto, config_utils, modeling_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
