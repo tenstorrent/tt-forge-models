@@ -4,6 +4,12 @@
 
 """
 NLLB-200 model loader implementation for text translation.
+
+The DISTILLED_600M_CT2_INT8 variant corresponds to
+JustFrederik/nllb-200-distilled-600M-ct2-int8, a CTranslate2 INT8 conversion of
+facebook/nllb-200-distilled-600M. Since CTranslate2 format is not compatible
+with PyTorch, this loader uses the base facebook checkpoint, mirroring the
+ivrit_whisper pattern.
 """
 
 import torch
@@ -26,7 +32,7 @@ class ModelVariant(StrEnum):
 
     DISTILLED_600M = "Distilled_600M"
     NLLB_200_1_3B = "1.3B"
-    AFRINLLB_12ENC_8DEC_548M = "AfriNLLB_12enc_8dec_548M"
+    DISTILLED_600M_CT2_INT8 = "Distilled_600M_CT2_INT8"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +45,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.NLLB_200_1_3B: LLMModelConfig(
             pretrained_model_name="facebook/nllb-200-1.3B",
         ),
-        ModelVariant.AFRINLLB_12ENC_8DEC_548M: LLMModelConfig(
-            pretrained_model_name="AfriNLP/AfriNLLB-12enc-8dec-iterative-548m-ft",
+        ModelVariant.DISTILLED_600M_CT2_INT8: LLMModelConfig(
+            pretrained_model_name="facebook/nllb-200-distilled-600M",
         ),
     }
 
