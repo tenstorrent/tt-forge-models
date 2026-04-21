@@ -146,11 +146,14 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
+        config = AutoConfig.from_pretrained(self.BASE_MODEL)
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["config"] = config
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
