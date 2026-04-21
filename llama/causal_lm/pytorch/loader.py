@@ -111,8 +111,8 @@ class ModelVariant(StrEnum):
     # HuggingFace community variants
     HUGGYLLAMA_7B = "Huggyllama_7B"
 
-    # Decapoda Research variants
-    DECAPODA_RESEARCH_LLAMA_7B = "Decapoda_Research_Llama_7B"
+    # TheBloke variants
+    GUANACO_13B_HF = "Guanaco_13B_HF"
 
     # Llama 2 variants
     LLAMA_2_7B = "2_7B"
@@ -310,6 +310,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="huggyllama/llama-7b",
             max_length=128,
         ),
+        # TheBloke variants
+        ModelVariant.GUANACO_13B_HF: LLMModelConfig(
+            pretrained_model_name="TheBloke/guanaco-13B-HF",
+            max_length=128,
+        ),
         # Yahma variants
         ModelVariant.YAHMA_LLAMA_7B: LLMModelConfig(
             pretrained_model_name="yahma/llama-7b-hf",
@@ -407,6 +412,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_2_70B_QLORA_GPT4,
             ModelVariant.LLAMA_2_70B_INSTRUCT_UPSTAGE,
             ModelVariant.LLAMA_2_70B_FB16_KOREAN,
+            ModelVariant.GUANACO_13B_HF,
         ]:
             group = ModelGroup.VULCAN
         elif (
