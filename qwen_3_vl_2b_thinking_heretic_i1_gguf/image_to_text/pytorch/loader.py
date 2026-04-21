@@ -2,8 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Qwen 3 VL 2B Thinking Heretic i1 GGUF model loader implementation for
-image to text.
+Qwen 3 VL 2B Thinking heretic i1 GGUF model loader implementation for image to text.
 """
 
 from transformers import (
@@ -25,22 +24,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen 3 VL 2B Thinking Heretic i1 GGUF variants for image to text."""
+    """Available Qwen 3 VL 2B Thinking heretic i1 GGUF model variants for image to text."""
 
-    QWEN_3_VL_2B_THINKING_HERETIC_I1_Q4_K_M_GGUF = "2b_thinking_heretic_i1_q4_k_m_gguf"
+    QWEN_3_VL_2B_THINKING_HERETIC_I1_GGUF = "2b_thinking_heretic_i1_gguf"
 
 
 class ModelLoader(ForgeModel):
-    """Qwen 3 VL 2B Thinking Heretic i1 GGUF loader for image to text tasks."""
+    """Qwen 3 VL 2B Thinking heretic i1 GGUF model loader implementation for image to text tasks."""
 
     _VARIANTS = {
-        ModelVariant.QWEN_3_VL_2B_THINKING_HERETIC_I1_Q4_K_M_GGUF: LLMModelConfig(
+        ModelVariant.QWEN_3_VL_2B_THINKING_HERETIC_I1_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/Qwen3-VL-2B-Thinking-heretic-i1-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.QWEN_3_VL_2B_THINKING_HERETIC_I1_Q4_K_M_GGUF
+    DEFAULT_VARIANT = ModelVariant.QWEN_3_VL_2B_THINKING_HERETIC_I1_GGUF
 
     GGUF_FILE = "Qwen3-VL-2B-Thinking-heretic.i1-Q4_K_M.gguf"
 
@@ -53,7 +52,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="Qwen 3 VL 2B Thinking Heretic i1 GGUF",
+            model="Qwen 3 VL 2B Thinking heretic i1 GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_IMAGE_TO_TEXT,
