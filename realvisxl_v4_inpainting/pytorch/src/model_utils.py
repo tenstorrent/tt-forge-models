@@ -173,6 +173,7 @@ def realvisxl_v4_inpainting_preprocessing(
         width=width,
         dtype=prompt_embeds.dtype,
         device=device,
+        generator=None,
         do_classifier_free_guidance=do_classifier_free_guidance,
     )
 
