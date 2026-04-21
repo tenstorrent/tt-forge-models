@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available SpanMarker NER model variants."""
 
     GENERIC_NER_V1_FEWNERD_FINE_SUPER = "generic-ner-v1-fewnerd-fine-super"
+    BERT_BASE_MULTILINGUAL_CASED_MULTINERD = "bert-base-multilingual-cased-multinerd"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +31,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GENERIC_NER_V1_FEWNERD_FINE_SUPER: LLMModelConfig(
             pretrained_model_name="guishe/span-marker-generic-ner-v1-fewnerd-fine-super",
+            max_length=256,
+        ),
+        ModelVariant.BERT_BASE_MULTILINGUAL_CASED_MULTINERD: LLMModelConfig(
+            pretrained_model_name="lxyuan/span-marker-bert-base-multilingual-cased-multinerd",
             max_length=256,
         ),
     }
