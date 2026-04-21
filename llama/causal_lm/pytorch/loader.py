@@ -132,8 +132,8 @@ class ModelVariant(StrEnum):
     # RLHFlow variants
     RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA = "RLHFlow_3.1_8B_PRM_Deepseek_Data"
 
-    # KnutJaegersberg variants
-    KNUTJAEGERSBERG_BLACK_GOO_RECIPE_C = "KnutJaegersberg_Black_Goo_Recipe_C"
+    # ank028 variants
+    ANK028_LLAMA_3_2_1B_INSTRUCT_MEDMCQA = "Ank028_3.2_1B_Instruct_Medmcqa"
 
 
 class ModelLoader(ForgeModel):
@@ -315,9 +315,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RLHFlow/Llama3.1-8B-PRM-Deepseek-Data",
             max_length=128,
         ),
-        # KnutJaegersberg variants
-        ModelVariant.KNUTJAEGERSBERG_BLACK_GOO_RECIPE_C: LLMModelConfig(
-            pretrained_model_name="KnutJaegersberg/black_goo_recipe_c",
+        # ank028 variants
+        ModelVariant.ANK028_LLAMA_3_2_1B_INSTRUCT_MEDMCQA: LLMModelConfig(
+            pretrained_model_name="ank028/Llama-3.2-1B-Instruct-medmcqa",
             max_length=128,
         ),
     }
@@ -402,7 +402,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.AMD_QUARK_TINY_LLAMA,
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.RLHFLOW_LLAMA_3_1_8B_PRM_DEEPSEEK_DATA,
-            ModelVariant.DECAPODA_RESEARCH_LLAMA_7B,
+            ModelVariant.ANK028_LLAMA_3_2_1B_INSTRUCT_MEDMCQA,
         ]:
             group = ModelGroup.VULCAN
         else:
@@ -688,6 +688,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.JACKFRAM_LLAMA_160M,
             ModelVariant.OPENPIPE_PII_REDACT_GENERAL,
             ModelVariant.FAIRSEQ2_DUMMY_LLAMA_3_2_1B,
+            ModelVariant.ANK028_LLAMA_3_2_1B_INSTRUCT_MEDMCQA,
         ]:
             return None
 
