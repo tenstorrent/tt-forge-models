@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Chatterbox Turbo ONNX",
+            model="Chatterbox Turbo",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.MM_TTS,
@@ -70,7 +70,9 @@ class ModelLoader(ForgeModel):
         from huggingface_hub import hf_hub_download
 
         repo_id = self._variant_config.pretrained_model_name
-        model_path = hf_hub_download(repo_id=repo_id, filename="onnx/language_model.onnx")
+        model_path = hf_hub_download(
+            repo_id=repo_id, filename="onnx/language_model.onnx"
+        )
         # External weights file must live next to the main ONNX file.
         hf_hub_download(repo_id=repo_id, filename="onnx/language_model.onnx_data")
 
