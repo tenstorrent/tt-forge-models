@@ -77,7 +77,9 @@ class MapAnythingWrapper(torch.nn.Module):
         # pixel_values: (B, C, H, W) in [0, 1] range; normalize for the encoder
         normalized = (pixel_values - self.img_mean) / self.img_std
         views = [{"img": normalized, "data_norm_type": [self._data_norm_type]}]
-        predictions = self.model.infer(views)
+        # use_amp=False: CPU autocast only supports bfloat16, but the model's
+        # device detection falls back to float16 on CPU which is unsupported.
+        predictions = self.model.infer(views, use_amp=False)
         return predictions[0]["pts3d"]
 
 
