@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available Minitron model variants for causal language modeling."""
 
     MISTRAL_NEMO_MINITRON_8B_INSTRUCT = "Mistral_NeMo_Minitron_8B_Instruct"
-    MISTRAL_NEMO_MINITRON_8B_BASE = "Mistral_NeMo_Minitron_8B_Base"
+    MINITRON_4B_BASE = "Minitron_4B_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -36,13 +36,15 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="nvidia/Mistral-NeMo-Minitron-8B-Instruct",
             max_length=128,
         ),
-        ModelVariant.MISTRAL_NEMO_MINITRON_8B_BASE: LLMModelConfig(
-            pretrained_model_name="nvidia/Mistral-NeMo-Minitron-8B-Base",
+        ModelVariant.MINITRON_4B_BASE: LLMModelConfig(
+            pretrained_model_name="nvidia/Minitron-4B-Base",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.MISTRAL_NEMO_MINITRON_8B_INSTRUCT
+
+    _BASE_VARIANTS = {ModelVariant.MINITRON_4B_BASE}
 
     sample_text = "Give me a short introduction to large language model."
 
@@ -107,8 +109,8 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        if self._variant == ModelVariant.MISTRAL_NEMO_MINITRON_8B_BASE:
-            prompts = [self.sample_text]
+        if self._variant in self._BASE_VARIANTS:
+            text = self.sample_text
         else:
             messages = [{"role": "user", "content": self.sample_text}]
             text = self.tokenizer.apply_chat_template(
@@ -116,7 +118,6 @@ class ModelLoader(ForgeModel):
                 tokenize=False,
                 add_generation_prompt=True,
             )
-            prompts = [text]
 
         inputs = self.tokenizer(
             prompts,
