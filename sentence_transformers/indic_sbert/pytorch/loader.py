@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available model variants for IndicSBERT."""
 
     INDIC_SENTENCE_SIMILARITY_SBERT = "l3cube-pune/indic-sentence-similarity-sbert"
-    TAMIL_SENTENCE_SIMILARITY_SBERT = "l3cube-pune/tamil-sentence-similarity-sbert"
+    HINDI_SENTENCE_SIMILARITY_SBERT = "l3cube-pune/hindi-sentence-similarity-sbert"
 
 
 class ModelLoader(ForgeModel):
@@ -36,15 +36,15 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="l3cube-pune/indic-sentence-similarity-sbert",
             max_length=128,
         ),
-        ModelVariant.TAMIL_SENTENCE_SIMILARITY_SBERT: LLMModelConfig(
-            pretrained_model_name="l3cube-pune/tamil-sentence-similarity-sbert",
+        ModelVariant.HINDI_SENTENCE_SIMILARITY_SBERT: LLMModelConfig(
+            pretrained_model_name="l3cube-pune/hindi-sentence-similarity-sbert",
             max_length=128,
         ),
     }
 
     _SAMPLE_SENTENCES = {
         ModelVariant.INDIC_SENTENCE_SIMILARITY_SBERT: "यह एक उदाहरण वाक्य है वाक्य समानता के लिए।",
-        ModelVariant.TAMIL_SENTENCE_SIMILARITY_SBERT: "இது வாக்கிய ஒற்றுமைக்கான ஒரு உதாரண வாக்கியமாகும்.",
+        ModelVariant.HINDI_SENTENCE_SIMILARITY_SBERT: "यह एक उदाहरण वाक्य है वाक्य समानता के लिए।",
     }
 
     DEFAULT_VARIANT = ModelVariant.INDIC_SENTENCE_SIMILARITY_SBERT
