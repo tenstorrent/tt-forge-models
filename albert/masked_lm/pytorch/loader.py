@@ -32,6 +32,7 @@ class ModelVariant(StrEnum):
     XLARGE_V2 = "Xlarge_v2"
     XXLARGE_V2 = "Xxlarge_v2"
     KOR_BASE = "Kor_Base"
+    INDOBERT_LITE_BASE_P2 = "Indobert_Lite_Base_P2"
 
 
 class ModelLoader(ForgeModel):
@@ -75,6 +76,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="kykim/albert-kor-base",
             max_length=128,
         ),
+        ModelVariant.INDOBERT_LITE_BASE_P2: LLMModelConfig(
+            pretrained_model_name="indobenchmark/indobert-lite-base-p2",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -84,11 +89,15 @@ class ModelLoader(ForgeModel):
     sample_text = "The capital of France is [MASK]."
 
     # Variants that use BertTokenizerFast instead of AlbertTokenizer
-    _BERT_TOKENIZER_VARIANTS = {ModelVariant.KOR_BASE}
+    _BERT_TOKENIZER_VARIANTS = {
+        ModelVariant.KOR_BASE,
+        ModelVariant.INDOBERT_LITE_BASE_P2,
+    }
 
     # Per-variant sample texts (Korean variant uses Korean text)
     _SAMPLE_TEXTS = {
         ModelVariant.KOR_BASE: "한국의 수도는 [MASK]입니다.",
+        ModelVariant.INDOBERT_LITE_BASE_P2: "Aku adalah anak [MASK].",
     }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
@@ -114,7 +123,7 @@ class ModelLoader(ForgeModel):
         """
         group = (
             ModelGroup.VULCAN
-            if variant == ModelVariant.KOR_BASE
+            if variant in {ModelVariant.KOR_BASE, ModelVariant.INDOBERT_LITE_BASE_P2}
             else ModelGroup.GENERALITY
         )
         return ModelInfo(
