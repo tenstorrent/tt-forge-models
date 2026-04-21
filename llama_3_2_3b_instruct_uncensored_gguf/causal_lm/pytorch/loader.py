@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     MRADERMACHER_LLAMA_3_2_3B_INSTRUCT_UNCENSORED = (
         "mradermacher_Llama_3_2_3B_Instruct_uncensored"
     )
+    HUNGNG_LLAMA_3_2_UNCENSORED_EROTICA = "hungng_Llama_3_2_uncensored_erotica"
 
 
 class ModelLoader(ForgeModel):
@@ -36,12 +37,17 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/Llama-3.2-3B-Instruct-uncensored-GGUF",
             max_length=128,
         ),
+        ModelVariant.HUNGNG_LLAMA_3_2_UNCENSORED_EROTICA: LLMModelConfig(
+            pretrained_model_name="hungng/Llama-3.2-uncensored-erotica",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.MRADERMACHER_LLAMA_3_2_3B_INSTRUCT_UNCENSORED
 
     _GGUF_FILES = {
         ModelVariant.MRADERMACHER_LLAMA_3_2_3B_INSTRUCT_UNCENSORED: "Llama-3.2-3B-Instruct-uncensored.Q4_K_M.gguf",
+        ModelVariant.HUNGNG_LLAMA_3_2_UNCENSORED_EROTICA: "unsloth.F16.gguf",
     }
 
     sample_text = "Give me a short introduction to large language models."
