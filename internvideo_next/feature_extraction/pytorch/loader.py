@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     """Available InternVideoNext feature extraction model variants."""
 
     LARGE_P14_RES224_F16 = "Large_P14_Res224_F16"
+    BASE_P14_RES224_F16 = "Base_P14_Res224_F16"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LARGE_P14_RES224_F16: ModelConfig(
             pretrained_model_name="revliter/internvideo_next_large_p14_res224_f16",
+        ),
+        ModelVariant.BASE_P14_RES224_F16: ModelConfig(
+            pretrained_model_name="revliter/internvideo_next_base_p14_res224_f16",
         ),
     }
 
