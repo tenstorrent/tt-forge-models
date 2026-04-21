@@ -120,8 +120,6 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        if self._variant == ModelVariant.LFM2_5_1_2B_INSTRUCT_MLX_4BIT:
-            model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
