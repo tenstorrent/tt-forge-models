@@ -80,12 +80,6 @@ class ModelLoader(ForgeModel):
         ModelVariant.TOMH_TOXIGEN_HATEBERT: "bert-base-uncased",
     }
 
-    # Variants whose tokenizer repo ships custom code (auto_map) and requires
-    # trust_remote_code=True at load time.
-    _TOKENIZER_TRUST_REMOTE_CODE = {
-        ModelVariant.MSKANG1120_KOBERT_BASELINE_MODEL,
-    }
-
     # Variant-specific sample texts
     _SAMPLE_TEXTS = {
         ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SST_2: "the movie was great!",
@@ -159,12 +153,7 @@ class ModelLoader(ForgeModel):
 
         # Initialize tokenizer (use override if model repo has mismatched tokenizer)
         tokenizer_name = self._TOKENIZER_OVERRIDES.get(self._variant, self.model_name)
-        tokenizer_kwargs = {}
-        if self._variant in self._TOKENIZER_TRUST_REMOTE_CODE:
-            tokenizer_kwargs["trust_remote_code"] = True
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            tokenizer_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
