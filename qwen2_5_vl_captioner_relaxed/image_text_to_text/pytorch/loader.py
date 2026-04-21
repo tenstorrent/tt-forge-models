@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Qwen2.5-VL Captioner Relaxed model loader implementation for image to text.
+Qwen2.5-VL Captioner Relaxed model loader implementation for image-text-to-text tasks.
 """
 from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
 from typing import Optional
@@ -20,13 +20,13 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen2.5-VL Captioner Relaxed model variants for image to text."""
+    """Available Qwen2.5-VL Captioner Relaxed model variants for image-text-to-text tasks."""
 
     QWEN2_5_VL_7B_CAPTIONER_RELAXED = "7b"
 
 
 class ModelLoader(ForgeModel):
-    """Qwen2.5-VL Captioner Relaxed model loader implementation for image to text tasks."""
+    """Qwen2.5-VL Captioner Relaxed model loader implementation for image-text-to-text tasks."""
 
     _VARIANTS = {
         ModelVariant.QWEN2_5_VL_7B_CAPTIONER_RELAXED: LLMModelConfig(
@@ -73,7 +73,7 @@ class ModelLoader(ForgeModel):
             model="Qwen2.5-VL Captioner Relaxed",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.NLP_IMAGE_TO_TEXT,
+            task=ModelTask.MM_IMAGE_TTT,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            torch.nn.Module: The Qwen2.5-VL Captioner Relaxed model instance for image to text.
+            torch.nn.Module: The Qwen2.5-VL Captioner Relaxed model instance for image-text-to-text.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
