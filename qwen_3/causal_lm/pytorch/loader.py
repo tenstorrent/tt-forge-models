@@ -63,6 +63,7 @@ class ModelVariant(StrEnum):
     QWEN_3_4B_BASE_PS_PROB_SEED43_0322_01_HYEONGWON = (
         "4B_Base_PS_Prob_Seed43_0322_01_Hyeongwon"
     )
+    QWEN_3_4B_128K_UNSLOTH = "4B_128K_Unsloth"
 
 
 class ModelLoader(ForgeModel):
@@ -198,6 +199,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Hyeongwon/PS_prob_seed43_Qwen3-4B-Base_0322-01",
             max_length=128,
         ),
+        ModelVariant.QWEN_3_4B_128K_UNSLOTH: LLMModelConfig(
+            pretrained_model_name="unsloth/Qwen3-4B-128K",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -262,6 +267,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_32B_UNSLOTH_BNB_4BIT,
             ModelVariant.QWEN_3_235B_A22B_THINKING_2507_FP8,
             ModelVariant.QWEN_3_4B_BASE_PS_PROB_SEED43_0322_01_HYEONGWON,
+            ModelVariant.QWEN_3_4B_128K_UNSLOTH,
         ):
             group = ModelGroup.VULCAN
         else:
