@@ -4,6 +4,7 @@
 """
 Llama-Nemotron-Rerank model loader implementation for passage ranking.
 """
+
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from typing import Optional
@@ -75,6 +76,7 @@ class ModelLoader(ForgeModel):
     def _load_tokenizer(self, dtype_override=None):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -89,7 +91,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForSequenceClassification.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
         model.eval()
 
