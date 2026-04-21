@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
 
     QWEN_2_5_OMNI_7B = "7B"
     QWEN_2_5_OMNI_7B_AWQ = "7B_Awq"
-    TEVATRON_QWEN_2_5_OMNI_7B_THINKER = "tevatron_7B_thinker"
+    TEVATRON_QWEN_2_5_OMNI_7B_THINKER = "Tevatron_7B_Thinker"
 
 
 class ModelLoader(ForgeModel):
