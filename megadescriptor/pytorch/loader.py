@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
 
     T_224 = "T_224"
     L_384 = "L_384"
+    LYNX_V4_V2_T_256 = "LynxV4_v2_T_256"
 
 
 class ModelLoader(ForgeModel):
@@ -47,6 +48,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.L_384: MegaDescriptorConfig(
             pretrained_model_name="hf_hub:BVRA/MegaDescriptor-L-384",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.LYNX_V4_V2_T_256: MegaDescriptorConfig(
+            pretrained_model_name="hf_hub:strakajk/LynxV4-MegaDescriptor-v2-T-256",
             source=ModelSource.TIMM,
         ),
     }
