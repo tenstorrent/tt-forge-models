@@ -71,11 +71,22 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoModel
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
-        full_model = AutoModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
+        repo = self._variant_config.pretrained_model_name
+        config_class = get_class_from_dynamic_module(
+            "configuration_mossttsrealtime.MossTTSRealtimeConfig",
+            repo,
+        )
+        config = config_class.from_pretrained(repo)
+
+        model_class = get_class_from_dynamic_module(
+            "modeling_mossttsrealtime.MossTTSRealtime",
+            repo,
+        )
+        full_model = model_class.from_pretrained(
+            repo,
+            config=config,
             torch_dtype=dtype_override or torch.float32,
         )
         model = MossTTSRealtimeLanguageWrapper(full_model.language_model)
