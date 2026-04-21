@@ -34,7 +34,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.QWEN_3_VL_4B_THINKING_GGUF: LLMModelConfig(
-            pretrained_model_name="Qwen/Qwen3-VL-4B-Thinking-GGUF",
+            pretrained_model_name="cccccccccc418/Qwen3-VL-4B-Thinking-GGUF",
             max_length=128,
         ),
     }
