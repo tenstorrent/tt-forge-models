@@ -100,11 +100,17 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
+        # The GGUF metadata identifies the architecture as "lfm2" (base LM), but
+        # AutoModelForImageTextToText needs Lfm2VlConfig. Load the VL config explicitly
+        # from the non-GGUF model so transformers uses the correct model class.
+        vl_config = AutoConfig.from_pretrained(self._PROCESSOR_NAMES[self._variant])
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.gguf_file
+        model_kwargs["config"] = vl_config
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
