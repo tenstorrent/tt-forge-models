@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Trinity Mini GGUF model variants for causal language modeling."""
 
     TRINITY_MINI_GGUF = "GGUF"
-    TRINITY_MINI_ARCEE_GGUF = "arcee_GGUF"
+    TRINITY_MINI_I1_GGUF = "i1_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="MaziyarPanahi/Trinity-Mini-GGUF",
             max_length=128,
         ),
-        ModelVariant.TRINITY_MINI_ARCEE_GGUF: LLMModelConfig(
-            pretrained_model_name="arcee-ai/Trinity-Mini-GGUF",
+        ModelVariant.TRINITY_MINI_I1_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Trinity-Mini-i1-GGUF",
             max_length=128,
         ),
     }
@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.TRINITY_MINI_GGUF: "Trinity-Mini.Q4_K_M.gguf",
-        ModelVariant.TRINITY_MINI_ARCEE_GGUF: "Trinity-Mini-Q4_K_M.gguf",
+        ModelVariant.TRINITY_MINI_I1_GGUF: "Trinity-Mini.i1-Q4_K_M.gguf",
     }
 
     sample_text = "Give me a short introduction to large language models."
