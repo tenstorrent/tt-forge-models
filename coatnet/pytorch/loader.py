@@ -38,6 +38,7 @@ class ModelVariant(StrEnum):
 
     COATNET_0_RW_224 = "CoAtNet_0_RW_224"
     COATNET_1_RW_224 = "CoAtNet_1_RW_224"
+    COATNET_2_RW_224 = "CoAtNet_2_RW_224"
 
 
 class ModelLoader(ForgeModel):
@@ -50,6 +51,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.COATNET_1_RW_224: CoAtNetConfig(
             pretrained_model_name="hf_hub:timm/coatnet_1_rw_224.sw_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.COATNET_2_RW_224: CoAtNetConfig(
+            pretrained_model_name="hf_hub:timm/coatnet_2_rw_224.sw_in12k_ft_in1k",
             source=ModelSource.TIMM,
         ),
     }
