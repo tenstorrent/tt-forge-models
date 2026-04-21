@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
 
     JAVALION = "javalion"
     TINY_RANDOM = "tiny-random"
-    GPT_J_6B_DOLLY = "gpt-j-6b-dolly"
+    GPT4ALL_J = "gpt4all-j"
 
 
 class ModelLoader(ForgeModel):
@@ -40,8 +40,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="peft-internal-testing/tiny-random-GPTJForCausalLM",
             max_length=256,
         ),
-        ModelVariant.GPT_J_6B_DOLLY: LLMModelConfig(
-            pretrained_model_name="Corianas/gpt-j-6B-Dolly",
+        ModelVariant.GPT4ALL_J: LLMModelConfig(
+            pretrained_model_name="nomic-ai/gpt4all-j",
             max_length=256,
         ),
     }
