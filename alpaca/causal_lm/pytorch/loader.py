@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Alpaca model variants."""
 
     ALPACA_7B_REPRODUCED = "7B_Reproduced"
+    ALPACA_NATIVE = "native"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.ALPACA_7B_REPRODUCED: ModelConfig(
             pretrained_model_name="PKU-Alignment/alpaca-7b-reproduced",
+        ),
+        ModelVariant.ALPACA_NATIVE: ModelConfig(
+            pretrained_model_name="maicomputer/alpaca-native",
         ),
     }
 
