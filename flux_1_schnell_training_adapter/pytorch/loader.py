@@ -38,7 +38,7 @@ ADAPTER_WEIGHT_NAME = "pytorch_lora_weights.safetensors"
 class ModelVariant(StrEnum):
     """Available FLUX.1-schnell Training Adapter model variants."""
 
-    FLUX_1_SCHNELL_TRAINING_ADAPTER = "FLUX.1-schnell-training-adapter"
+    FLUX_1_SCHNELL_TRAINING_ADAPTER = "Flux_1_Schnell_Training_Adapter"
 
 
 class ModelLoader(ForgeModel):
