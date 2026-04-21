@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
     )
     DISTILBERT_BASE_UNCASED_EMOTION = "distilbert-base-uncased-emotion"
     ISOM5240_2026SPRING5240L1 = "isom5240-2026Spring5240L1"
-    DHPOLLACK_DISTILBERT_DUMMY_SENTIMENT = "dhpollack-distilbert-dummy-sentiment"
+    EMAIL_PHISHING_DISTILBERT_FINETUNED = "email-phishing-distilbert-finetuned"
 
 
 class ModelLoader(ForgeModel):
@@ -46,8 +46,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="isom5240/2026Spring5240L1",
             max_length=128,
         ),
-        ModelVariant.DHPOLLACK_DISTILBERT_DUMMY_SENTIMENT: LLMModelConfig(
-            pretrained_model_name="dhpollack/distilbert-dummy-sentiment",
+        ModelVariant.EMAIL_PHISHING_DISTILBERT_FINETUNED: LLMModelConfig(
+            pretrained_model_name="aamoshdahal/email-phishing-distilbert-finetuned",
             max_length=128,
         ),
     }
@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.DISTILBERT_BASE_UNCASED_FINETUNED_SST_2_ENGLISH: "the movie was great!",
         ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION: "I love using transformers. The best part is wide range of support and its easy to use",
         ModelVariant.ISOM5240_2026SPRING5240L1: "the movie was great!",
-        ModelVariant.DHPOLLACK_DISTILBERT_DUMMY_SENTIMENT: "this is a test",
+        ModelVariant.EMAIL_PHISHING_DISTILBERT_FINETUNED: "Urgent: Your account has been suspended. Click this link immediately to verify your credentials or your access will be permanently revoked.",
     }
 
     def __init__(self, variant=None):
@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
         if variant_name in (
             ModelVariant.DISTILBERT_BASE_UNCASED_EMOTION,
             ModelVariant.ISOM5240_2026SPRING5240L1,
-            ModelVariant.DHPOLLACK_DISTILBERT_DUMMY_SENTIMENT,
+            ModelVariant.EMAIL_PHISHING_DISTILBERT_FINETUNED,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
