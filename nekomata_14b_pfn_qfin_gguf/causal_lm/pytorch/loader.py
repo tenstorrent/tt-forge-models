@@ -52,8 +52,11 @@ def _patch_transformers_qwen_gguf():
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
         result = orig_load(*args, **kwargs)
-        if result.get("config", {}).get("model_type") == "qwen":
-            result["config"]["model_type"] = "qwen2"
+        config = result.get("config", {})
+        if config.get("model_type") == "qwen":
+            config["model_type"] = "qwen2"
+            # Qwen v1 uses MHA (no GQA), so KV heads = attention heads
+            config.setdefault("num_key_value_heads", config.get("num_attention_heads"))
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
