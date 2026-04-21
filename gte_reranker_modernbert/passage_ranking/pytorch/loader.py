@@ -4,7 +4,9 @@
 """
 GTE Reranker ModernBERT model loader implementation for passage ranking.
 """
+
 import torch
+import torch.nn as nn
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from typing import Optional
 
@@ -74,7 +76,7 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -84,7 +86,16 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        return model
+        class Wrapper(nn.Module):
+            def __init__(self, model):
+                super().__init__()
+                self.model = model
+
+            def forward(self, **kwargs):
+                out = self.model(**kwargs)
+                return out.logits
+
+        return Wrapper(model)
 
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
