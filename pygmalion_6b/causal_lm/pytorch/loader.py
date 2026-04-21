@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Pygmalion-6B model variants."""
 
     PYGMALION_6B = "6B"
-    GPT_J_PYG_PPO_6B = "gpt-j-pyg-ppo-6b"
+    PPO_SHYGMALION_6B = "ppo-shygmalion-6b"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="PygmalionAI/pygmalion-6b",
             max_length=256,
         ),
-        ModelVariant.GPT_J_PYG_PPO_6B: LLMModelConfig(
-            pretrained_model_name="TehVenom/GPT-J-Pyg_PPO-6B",
+        ModelVariant.PPO_SHYGMALION_6B: LLMModelConfig(
+            pretrained_model_name="TehVenom/PPO_Shygmalion-6b",
             max_length=256,
         ),
     }
