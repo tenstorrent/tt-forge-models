@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available GLiClass model variants for zero-shot text classification."""
 
     INSTRUCT_LARGE_V1_0 = "Instruct_Large_v1.0"
+    BASE_V3_0 = "Base_v3.0"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.INSTRUCT_LARGE_V1_0: ModelConfig(
             pretrained_model_name="knowledgator/gliclass-instruct-large-v1.0",
+        ),
+        ModelVariant.BASE_V3_0: ModelConfig(
+            pretrained_model_name="knowledgator/gliclass-base-v3.0",
         ),
     }
 
