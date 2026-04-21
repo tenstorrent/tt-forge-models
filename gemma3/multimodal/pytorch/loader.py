@@ -40,8 +40,7 @@ class ModelVariant(StrEnum):
     )
     GEMMA_3_12B_IT = "google/gemma-3-12b-it"
     GEMMA_3_12B_IT_BNB_4BIT = "unsloth/gemma-3-12b-it-unsloth-bnb-4bit"
-    GEMMA_3_12B_IT_HERETIC = "Sabomako/gemma-3-12b-it-heretic"
-    GEMMA_3_12B_IT_LENIENTCHATFIX = "m8than/gemma-3-12b-it-lenientchatfix"
+    GEMMA_3_12B_IT_HERETIC = "p-e-w/gemma-3-12b-it-heretic"
     GEMMA_3_27B_IT = "google/gemma-3-27b-it"
     GEMMA_3_27B_IT_QAT_W4A16 = "leon-se/gemma-3-27b-it-qat-W4A16-G128"
     GEMMA_3_27B_IT_QAT_COMPRESSED_TENSORS = (
@@ -77,9 +76,6 @@ class ModelLoader(ForgeModel):
         ModelVariant.GEMMA_3_12B_IT_HERETIC: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_12B_IT_HERETIC),
         ),
-        ModelVariant.GEMMA_3_12B_IT_LENIENTCHATFIX: LLMModelConfig(
-            pretrained_model_name=str(ModelVariant.GEMMA_3_12B_IT_LENIENTCHATFIX),
-        ),
         ModelVariant.GEMMA_3_27B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_27B_IT),
         ),
@@ -108,7 +104,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         if variant in (
             ModelVariant.GEMMA_3_4B_IT_QAT_4BIT,
-            ModelVariant.GEMMA_3_4B_IT_GPTQ_4BIT_128G,
+            ModelVariant.GEMMA_3_12B_IT_HERETIC,
             ModelVariant.GEMMA_3_27B_IT_QAT_W4A16,
             ModelVariant.GEMMA_3_27B_IT_QAT_COMPRESSED_TENSORS,
         ):
@@ -276,7 +272,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_3_4B_IT_GPTQ_4BIT_128G,
             ModelVariant.GEMMA_3_12B_IT,
             ModelVariant.GEMMA_3_12B_IT_BNB_4BIT,
-            ModelVariant.GEMMA_3_12B_IT_FP8_DYNAMIC,
+            ModelVariant.GEMMA_3_12B_IT_HERETIC,
         ]:
             assert (
                 self.config.text_config.num_attention_heads % mesh_shape[1] == 0
