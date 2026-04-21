@@ -9,7 +9,7 @@ import torch
 import torchvision.transforms as T
 from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoProcessor, AutoTokenizer
 from typing import Optional
 
 from ...tools.utils import get_file
@@ -26,6 +26,9 @@ from ...config import (
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
+
+# Variants that use the HF-native format (AutoProcessor + apply_chat_template).
+_HF_NATIVE_VARIANTS = {"2_2B"}
 
 
 def build_transform(input_size):
@@ -116,6 +119,7 @@ class ModelVariant(StrEnum):
     """Available SAIL-VL model variants."""
 
     SAIL_VL_1D6_8B = "1d6_8B"
+    SAIL_VL2_2B = "2_2B"
 
 
 class ModelLoader(ForgeModel):
@@ -125,14 +129,22 @@ class ModelLoader(ForgeModel):
         ModelVariant.SAIL_VL_1D6_8B: ModelConfig(
             pretrained_model_name="BytedanceDouyinContent/SAIL-VL-1d6-8B",
         ),
+        ModelVariant.SAIL_VL2_2B: ModelConfig(
+            pretrained_model_name="BytedanceDouyinContent/SAIL-VL2-2B",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.SAIL_VL_1D6_8B
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.processor = None
         self.tokenizer = None
         self.model = None
+
+    @property
+    def _is_hf_native(self):
+        return self._variant.value in _HF_NATIVE_VARIANTS
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -148,6 +160,13 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_processor(self):
+        self.processor = AutoProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+        )
+        return self.processor
+
     def _load_tokenizer(self):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -159,7 +178,10 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.tokenizer is None:
+        if self._is_hf_native:
+            if self.processor is None:
+                self._load_processor()
+        elif self.tokenizer is None:
             self._load_tokenizer()
 
         model_kwargs = {
@@ -176,7 +198,47 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def _load_inputs_hf_native(self, dtype_override=None, batch_size=1):
+        """Load inputs for HF-native variants using AutoProcessor."""
+        if self.processor is None:
+            self._load_processor()
+
+        image_file = get_file(
+            "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
+        )
+        image = Image.open(image_file).convert("RGB")
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": str(image_file)},
+                    {"type": "text", "text": "What is shown in this image?"},
+                ],
+            }
+        ]
+
+        text = self.processor.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=False
+        )
+        inputs = self.processor(
+            images=image,
+            text=text,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+        )
+
+        if dtype_override is not None and "pixel_values" in inputs:
+            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+
+        for key in inputs:
+            if torch.is_tensor(inputs[key]) and batch_size > 1:
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
+        return dict(inputs)
+
+    def _load_inputs_custom(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
             self._load_tokenizer()
 
@@ -231,18 +293,33 @@ class ModelLoader(ForgeModel):
             "use_cache": False,
         }
 
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        if self._is_hf_native:
+            return self._load_inputs_hf_native(
+                dtype_override=dtype_override, batch_size=batch_size
+            )
+        return self._load_inputs_custom(
+            dtype_override=dtype_override, batch_size=batch_size
+        )
+
     def decode_output(self, outputs, input_length=None):
         if isinstance(outputs, str):
             return outputs
 
-        if self.tokenizer is None:
-            self._load_tokenizer()
+        if self._is_hf_native:
+            if self.processor is None:
+                self._load_processor()
+            tokenizer = self.processor.tokenizer
+        else:
+            if self.tokenizer is None:
+                self._load_tokenizer()
+            tokenizer = self.tokenizer
 
         if torch.is_tensor(outputs) and outputs.dtype in [torch.long, torch.int]:
             if input_length is not None:
                 outputs = outputs[:, input_length:]
-            return self.tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+            return tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
         else:
             logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
             next_token_id = torch.argmax(logits[:, -1, :], dim=-1)
-            return self.tokenizer.decode(next_token_id)
+            return tokenizer.decode(next_token_id)
