@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available CodeLlama model variants for causal language modeling."""
 
     CODE_LLAMA_13B = "13B"
-    MARTYN_CODELLAMA_MEGAMERGE_DARE_34B = "Martyn_CodeLlama_MegaMerge_DARE_34B"
+    CODE_LLAMA_34B_PYTHON = "34B_Python"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="codellama/CodeLlama-13b-hf",
             max_length=128,
         ),
-        ModelVariant.MARTYN_CODELLAMA_MEGAMERGE_DARE_34B: LLMModelConfig(
-            pretrained_model_name="martyn/codellama-megamerge-dare-34b",
+        ModelVariant.CODE_LLAMA_34B_PYTHON: LLMModelConfig(
+            pretrained_model_name="codellama/CodeLlama-34b-Python-hf",
             max_length=128,
         ),
     }
