@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "MFANNv0.24.i1-Q4_K_M.gguf"
 
-    sample_text = "Give me a short introduction to large language model."
+    sample_text = "What is your favorite city?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -150,7 +150,6 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
