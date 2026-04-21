@@ -4,9 +4,12 @@
 """
 NVIDIA Nemotron Nano 9B v2 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+import importlib.util
+from typing import Optional
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
@@ -18,6 +21,31 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _ensure_gguf_importable():
+    """Patch gguf.__version__ and clear is_gguf_available cache for transformers compatibility.
+
+    When RequirementsManager installs gguf after transformers is already imported,
+    transformers' PACKAGE_DISTRIBUTION_MAPPING is stale. is_gguf_available() falls
+    back to getattr(gguf, '__version__', 'N/A'), which returns 'N/A' since gguf has
+    no __version__ attribute. version.parse('N/A') then raises InvalidVersion.
+    Setting gguf.__version__ from importlib.metadata and clearing the lru_cache
+    lets is_gguf_available() re-evaluate correctly.
+    """
+    if importlib.util.find_spec("gguf") is None:
+        return
+    import gguf
+
+    if not hasattr(gguf, "__version__"):
+        try:
+            gguf.__version__ = importlib.metadata.version("gguf")
+        except importlib.metadata.PackageNotFoundError:
+            return
+
+    from transformers.utils.import_utils import is_gguf_available
+
+    is_gguf_available.cache_clear()
 
 
 class ModelVariant(StrEnum):
@@ -62,6 +90,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _ensure_gguf_importable()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -136,6 +165,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        _ensure_gguf_importable()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
