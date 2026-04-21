@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
         gguf_filename = _GGUF_FILES[self._variant]
 
         self.transformer = Lumina2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{gguf_filename}",
+            f"https://huggingface.co/{repo_id}/{gguf_filename}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
