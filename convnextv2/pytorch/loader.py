@@ -43,6 +43,7 @@ class ModelVariant(StrEnum):
     NANO_FCMAE_FT_IN22K_IN1K = "Nano_FCMAE_FT_IN22K_IN1K"
     BASE_1K_224 = "Base_1K_224"
     LARGE_FOOD101 = "Large_Food101"
+    TEST_R160_IN1K = "Test_R160_IN1K"
 
 
 class ModelLoader(ForgeModel):
@@ -64,6 +65,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.LARGE_FOOD101: ConvNeXtV2Config(
             pretrained_model_name="lakshyaM/convnextv2_large_food101",
             source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.TEST_R160_IN1K: ConvNeXtV2Config(
+            pretrained_model_name="hf_hub:timm/test_convnext2.r160_in1k",
+            source=ModelSource.TIMM,
         ),
     }
 
