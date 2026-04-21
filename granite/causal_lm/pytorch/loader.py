@@ -42,7 +42,7 @@ class ModelLoader(ForgeModel):
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.GRANITE_3_3_8B_INSTRUCT
+    DEFAULT_VARIANT = ModelVariant.GRANITE_3B_CODE_INSTRUCT_2K
 
     # Shared configuration parameters
     sample_text = "What is the capital of France?"
