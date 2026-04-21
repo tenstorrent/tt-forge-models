@@ -23,12 +23,16 @@ from ....tools.utils import cast_input_to_type
 
 class ModelVariant(StrEnum):
     INTERNLM2_5_7B = "2.5_7B"
+    INTERNLM2_5_20B_CHAT_AWQ = "2.5_20B_Chat_AWQ"
 
 
 class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.INTERNLM2_5_7B: ModelConfig(
             pretrained_model_name="internlm/internlm2_5-7b",
+        ),
+        ModelVariant.INTERNLM2_5_20B_CHAT_AWQ: ModelConfig(
+            pretrained_model_name="internlm/internlm2_5-20b-chat-4bit-awq",
         ),
     }
 
@@ -74,6 +78,9 @@ class ModelLoader(ForgeModel):
         self._ensure_tokenizer()
 
         model_kwargs = {"use_cache": False, "trust_remote_code": True}
+        if self._variant == ModelVariant.INTERNLM2_5_20B_CHAT_AWQ:
+            model_kwargs["device_map"] = "cpu"
+
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
                 self._variant_config.pretrained_model_name,
