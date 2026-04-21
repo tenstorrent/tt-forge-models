@@ -23,11 +23,15 @@ from ....tools.utils import cast_input_to_type
 
 class ModelVariant(StrEnum):
     SARVAM_1 = "SARVAM_1"
+    SARVAM_1_V0_5 = "SARVAM_1_V0_5"
 
 
 class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SARVAM_1: ModelConfig(pretrained_model_name="sarvamai/sarvam-1"),
+        ModelVariant.SARVAM_1_V0_5: ModelConfig(
+            pretrained_model_name="sarvamai/sarvam-1-v0.5"
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.SARVAM_1
