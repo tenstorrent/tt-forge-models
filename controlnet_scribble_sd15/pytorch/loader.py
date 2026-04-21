@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available ControlNet Scribble SD1.5 model variants."""
 
     LLLYASVIEL_CONTROL_V11P_SD15_SCRIBBLE = "lllyasviel_control_v11p_sd15_scribble"
+    LLLYASVIEL_SD_CONTROLNET_SCRIBBLE = "lllyasviel_sd_controlnet_scribble"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LLLYASVIEL_CONTROL_V11P_SD15_SCRIBBLE: ModelConfig(
             pretrained_model_name="lllyasviel/control_v11p_sd15_scribble",
+        ),
+        ModelVariant.LLLYASVIEL_SD_CONTROLNET_SCRIBBLE: ModelConfig(
+            pretrained_model_name="lllyasviel/sd-controlnet-scribble",
         ),
     }
 
