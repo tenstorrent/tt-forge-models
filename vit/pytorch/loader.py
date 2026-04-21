@@ -51,6 +51,7 @@ class ModelVariant(StrEnum):
 
     # HuggingFace fine-tuned variants
     AI_IMAGE_DETECTOR = "AI_Image_Detector"
+    BLUR_VS_CLEAN = "Blur_Vs_Clean"
 
     # TIMM variants
     VIT_BASE_PATCH14_DINOV2_LVD142M = "Base_Patch14_DINOv2_LVD142M"
@@ -90,6 +91,10 @@ class ModelLoader(ForgeModel):
         # HuggingFace fine-tuned variants
         ModelVariant.AI_IMAGE_DETECTOR: ViTConfig(
             pretrained_model_name="umm-maybe/AI-image-detector",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.BLUR_VS_CLEAN: ViTConfig(
+            pretrained_model_name="harrytechiz/vit-base-patch16-224-blur_vs_clean",
             source=ModelSource.HUGGING_FACE,
         ),
         # Torchvision variants
@@ -167,7 +172,7 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.RED
         elif variant == ModelVariant.AI_IMAGE_DETECTOR:
             group = ModelGroup.VULCAN
-        elif variant == ModelVariant.BASE_PATCH32_384:
+        elif variant == ModelVariant.BLUR_VS_CLEAN:
             group = ModelGroup.VULCAN
         elif cls._VARIANTS[variant].source == ModelSource.TIMM:
             group = ModelGroup.VULCAN
