@@ -48,6 +48,17 @@ def _patch_deepseek_v2_gguf_tokenizer():
                 ]
                 if special:
                     tokenizer.add_special_tokens(special)
+            # Set bos/eos from GGUF metadata so the iquest_coder loader's
+            # bos/eos swap (which corrects GGUFLlamaConverter's swap) still
+            # yields in-range token IDs instead of falling back to <s>/<\/s>.
+            bos_id = getattr(proto, "bos_token_id", None)
+            eos_id = getattr(proto, "eos_token_id", None)
+            self.additional_kwargs["bos_token"] = (
+                proto.tokens[bos_id] if bos_id is not None else None
+            )
+            self.additional_kwargs["eos_token"] = (
+                proto.tokens[eos_id] if eos_id is not None else None
+            )
             return tokenizer
 
     GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFDeepSeekV2Converter
