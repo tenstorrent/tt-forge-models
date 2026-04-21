@@ -4,8 +4,57 @@
 """
 AMPLIFY model loader implementation for masked language modeling on protein sequences.
 """
-from transformers import AutoTokenizer, AutoModelForMaskedLM
+import sys
+import types
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from transformers import AutoTokenizer, AutoModel
 from typing import Optional
+
+
+def _ensure_xformers_stub():
+    """Inject a minimal xformers stub so the AMPLIFY hub code can import without CUDA xformers.
+
+    The AMPLIFY remote model code uses xformers.ops.SwiGLU (weight layout: w12 + w3) and
+    xformers.ops.memory_efficient_attention (only invoked on CUDA; CPU path uses
+    scaled_dot_product_attention). We provide compatible pure-PyTorch replacements.
+    """
+    if "xformers" in sys.modules:
+        return
+
+    class SwiGLU(nn.Module):
+        def __init__(
+            self, in_features, hidden_features, out_features=None, bias=True, **kwargs
+        ):
+            super().__init__()
+            out_features = out_features or in_features
+            self.w12 = nn.Linear(in_features, 2 * hidden_features, bias=bias)
+            self.w3 = nn.Linear(hidden_features, out_features, bias=bias)
+
+        def forward(self, x):
+            x1, x2 = self.w12(x).chunk(2, dim=-1)
+            return self.w3(F.silu(x1) * x2)
+
+    def memory_efficient_attention(query, key, value, attn_bias=None, p=0.0, **kwargs):
+        # Transpose from (B, M, H, K) to (B, H, M, K) for sdpa
+        q = query.transpose(1, 2)
+        k = key.transpose(1, 2)
+        v = value.transpose(1, 2)
+        out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_bias, dropout_p=p)
+        return out.transpose(1, 2)
+
+    ops_mod = types.ModuleType("xformers.ops")
+    ops_mod.SwiGLU = SwiGLU
+    ops_mod.memory_efficient_attention = memory_efficient_attention
+
+    xformers_mod = types.ModuleType("xformers")
+    xformers_mod.ops = ops_mod
+
+    sys.modules["xformers"] = xformers_mod
+    sys.modules["xformers.ops"] = ops_mod
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -54,6 +103,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self):
+        _ensure_xformers_stub()
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
@@ -61,6 +111,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _ensure_xformers_stub()
         if self.tokenizer is None:
             self._load_tokenizer()
 
@@ -69,7 +120,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForMaskedLM.from_pretrained(
+        model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
 
@@ -86,6 +137,13 @@ class ModelLoader(ForgeModel):
             masked_sequence,
             return_tensors="pt",
             add_special_tokens=True,
+        )
+
+        # AMPLIFY expects an additive attention mask (0.0 = attend, -inf = mask)
+        inputs["attention_mask"] = torch.where(
+            inputs["attention_mask"].bool(),
+            torch.tensor(0.0),
+            torch.tensor(float("-inf")),
         )
 
         return inputs
