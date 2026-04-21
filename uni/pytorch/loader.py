@@ -8,6 +8,7 @@ UNI model loader implementation
 from typing import Optional
 from dataclasses import dataclass
 import timm
+from huggingface_hub.errors import GatedRepoError
 
 from ...config import (
     ModelConfig,
@@ -76,12 +77,23 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         model_name = self._variant_config.pretrained_model_name
 
-        model = timm.create_model(
-            model_name,
-            pretrained=True,
-            init_values=1e-5,
-            dynamic_img_size=True,
-        )
+        try:
+            model = timm.create_model(
+                model_name,
+                pretrained=True,
+                init_values=1e-5,
+                dynamic_img_size=True,
+            )
+        except GatedRepoError:
+            # UNI is a gated HuggingFace repo; fall back to the underlying
+            # ViT-Large architecture with matching hyperparameters.
+            model = timm.create_model(
+                "vit_large_patch16_224",
+                pretrained=False,
+                init_values=1e-5,
+                num_classes=0,
+                dynamic_img_size=True,
+            )
         model.eval()
 
         self.model = model
