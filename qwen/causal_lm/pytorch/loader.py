@@ -4,9 +4,20 @@
 """
 Qwen model loader implementation for causal language modeling.
 """
+import sys
+import types
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+# transformers_stream_generator is incompatible with transformers 5.x.
+# Qwen's remote code only calls init_stream_support() to patch streaming generation,
+# which is not needed in compile-only evaluation.
+if "transformers_stream_generator" not in sys.modules:
+    _stub = types.ModuleType("transformers_stream_generator")
+    _stub.init_stream_support = lambda: None
+    sys.modules["transformers_stream_generator"] = _stub
 
 from ....base import ForgeModel
 from ....config import (
@@ -102,8 +113,15 @@ class ModelLoader(ForgeModel):
         )
 
         if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+            if self.tokenizer.eos_token is not None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+                self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+            elif hasattr(self.tokenizer, "eod_id"):
+                # Qwen tokenizer uses eod_id rather than eos_token
+                self.tokenizer.pad_token_id = self.tokenizer.eod_id
+                self.tokenizer.pad_token = "<|endoftext|>"
+            else:
+                self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
 
         return self.tokenizer
 
