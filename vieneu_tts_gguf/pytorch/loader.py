@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-VieNeu TTS 0.3B GGUF model loader for Vietnamese text-to-speech generation.
+VieNeu TTS GGUF model loader for Vietnamese text-to-speech generation.
 """
 
 import torch
@@ -25,19 +25,19 @@ class ModelVariant(StrEnum):
     """Available VieNeu TTS GGUF model variants."""
 
     VIENEU_TTS_0_3B_Q4_GGUF = "0.3B_Q4_GGUF"
-    VIENEU_TTS_0_3B_NGOC_HUYEN_Q4_GGUF = "0.3B_ngoc_huyen_Q4_GGUF"
+    VIENEU_TTS_Q8_GGUF = "Q8_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """VieNeu TTS 0.3B GGUF model loader for Vietnamese text-to-speech tasks."""
+    """VieNeu TTS GGUF model loader for Vietnamese text-to-speech tasks."""
 
     _VARIANTS = {
         ModelVariant.VIENEU_TTS_0_3B_Q4_GGUF: LLMModelConfig(
             pretrained_model_name="pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf",
             max_length=128,
         ),
-        ModelVariant.VIENEU_TTS_0_3B_NGOC_HUYEN_Q4_GGUF: LLMModelConfig(
-            pretrained_model_name="pnnbao-ump/VieNeu-TTS-0.3B-ngoc-huyen-gguf-Q4_0",
+        ModelVariant.VIENEU_TTS_Q8_GGUF: LLMModelConfig(
+            pretrained_model_name="pnnbao-ump/VieNeu-TTS-q8-gguf",
             max_length=128,
         ),
     }
@@ -46,7 +46,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.VIENEU_TTS_0_3B_Q4_GGUF: "VieNeu-TTS-0_3B-Q4_0.gguf",
-        ModelVariant.VIENEU_TTS_0_3B_NGOC_HUYEN_Q4_GGUF: "VieNeu-TTS-0.3B-ngoc-huyen-Q4_0.gguf",
+        ModelVariant.VIENEU_TTS_Q8_GGUF: "VieNeu-TTS-q8_0.gguf",
     }
 
     sample_text = "Xin chào, tôi là VieNeu."
@@ -55,6 +55,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.config = None
+        self.gguf_file = self._GGUF_FILES[self._variant]
 
     @property
     def gguf_file(self):
