@@ -16,6 +16,7 @@ from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 
 def _patch_granite_support():
@@ -48,10 +49,18 @@ def _patch_granite_support():
         "granite", granite_config_map
     )
 
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("granite", GGUF_TO_FAST_CONVERTERS["llama"])
+
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     _patch_granite_support()
     result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "granite":
+        # granite GGUF stores head_count_kv as a per-layer list; collapse to scalar
+        kv_heads = result["config"].get("num_key_value_heads")
+        if isinstance(kv_heads, list):
+            result["config"]["num_key_value_heads"] = kv_heads[0]
     return result
 
 
