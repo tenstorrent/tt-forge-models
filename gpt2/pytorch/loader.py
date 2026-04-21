@@ -4,6 +4,7 @@
 """
 GPT-2 model loader implementations for text generation and sequence classification.
 """
+
 import torch
 from transformers import (
     AutoModelForSequenceClassification,
@@ -32,6 +33,7 @@ class ModelVariant(StrEnum):
     GPT2_LARGE = "Large"
     GPT2_LUMELETO = "Lumeleto"
     GPT2_SEQUENCE_CLASSIFICATION = "Sequence_Classification"
+    GPT2_MNLI = "MNLI"
     TINY_RANDOM = "tiny-random"
 
 
@@ -55,6 +57,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mnoukhov/gpt2-imdb-sentiment-classifier",
             max_length=256,
         ),
+        ModelVariant.GPT2_MNLI: LLMModelConfig(
+            pretrained_model_name="tanganke/gpt2_mnli",
+            max_length=128,
+        ),
         ModelVariant.TINY_RANDOM: LLMModelConfig(
             pretrained_model_name="peft-internal-testing/tiny-random-gpt2",
             max_length=256,
@@ -77,14 +83,22 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
-        if variant == ModelVariant.GPT2_SEQUENCE_CLASSIFICATION:
+        if variant in (
+            ModelVariant.GPT2_SEQUENCE_CLASSIFICATION,
+            ModelVariant.GPT2_MNLI,
+        ):
             task = ModelTask.NLP_TEXT_CLS
         else:
             task = ModelTask.NLP_CAUSAL_LM
 
         group = (
             ModelGroup.VULCAN
-            if variant in (ModelVariant.GPT2_LARGE, ModelVariant.TINY_RANDOM)
+            if variant
+            in (
+                ModelVariant.GPT2_LARGE,
+                ModelVariant.TINY_RANDOM,
+                ModelVariant.GPT2_MNLI,
+            )
             else ModelGroup.GENERALITY
         )
 
@@ -103,7 +117,10 @@ class ModelLoader(ForgeModel):
         )
 
         # Set padding side to left for classification variants
-        if self._variant == ModelVariant.GPT2_SEQUENCE_CLASSIFICATION:
+        if self._variant in (
+            ModelVariant.GPT2_SEQUENCE_CLASSIFICATION,
+            ModelVariant.GPT2_MNLI,
+        ):
             self.tokenizer.padding_side = "left"
 
         return self.tokenizer
@@ -163,6 +180,22 @@ class ModelLoader(ForgeModel):
 
             return {"input_ids": input_ids}
 
+        elif self._variant == ModelVariant.GPT2_MNLI:
+            premise = "The new rights are nice enough."
+            hypothesis = "Everyone really likes the newest benefits."
+            tokenized = self.tokenizer(
+                premise,
+                hypothesis,
+                return_tensors="pt",
+                padding="max_length",
+                truncation=True,
+                max_length=self._variant_config.max_length,
+            )
+            return {
+                "input_ids": tokenized["input_ids"],
+                "attention_mask": tokenized["attention_mask"],
+            }
+
         else:
             test_input = self.sample_text
             tokenized = self.tokenizer(
@@ -184,7 +217,10 @@ class ModelLoader(ForgeModel):
 
         logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
 
-        if self._variant == ModelVariant.GPT2_SEQUENCE_CLASSIFICATION:
+        if self._variant in (
+            ModelVariant.GPT2_SEQUENCE_CLASSIFICATION,
+            ModelVariant.GPT2_MNLI,
+        ):
             # For classification: map class index to label
             predicted_value = logits.argmax(-1).item()
             model = self.load_model()
