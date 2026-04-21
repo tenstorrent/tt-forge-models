@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-ELYZA Thinking 1.0 Qwen 32B GGUF model loader implementation for causal language modeling.
+ELYZA-Thinking 1.0 Qwen 32B GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,13 +21,13 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available ELYZA Thinking 1.0 Qwen 32B GGUF model variants for causal language modeling."""
+    """Available ELYZA-Thinking 1.0 Qwen 32B GGUF model variants for causal language modeling."""
 
-    ELYZA_THINKING_1_0_QWEN_32B_I1_GGUF = "Thinking_1.0_Qwen_32B_i1_GGUF"
+    ELYZA_THINKING_1_0_QWEN_32B_I1_GGUF = "1.0_Qwen_32B_i1_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """ELYZA Thinking 1.0 Qwen 32B GGUF model loader implementation for causal language modeling tasks."""
+    """ELYZA-Thinking 1.0 Qwen 32B GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.ELYZA_THINKING_1_0_QWEN_32B_I1_GGUF: LLMModelConfig(
@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="ELYZA Thinking 1.0 Qwen 32B GGUF",
+            model="ELYZA-Thinking 1.0 Qwen 32B GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
