@@ -90,6 +90,8 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Ferret-UI-Llama8b model."""
+        if self.model is None:
+            raise RuntimeError("load_model() must be called before load_inputs()")
         if self.tokenizer is None:
             self._load_tokenizer()
 
