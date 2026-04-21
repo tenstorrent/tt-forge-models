@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
     """Available Chinese LLaMA 2 model variants."""
 
     CHINESE_LLAMA_2_13B_16K = "Chinese_LLaMA_2_13B_16K"
-    LINLY_AI_CHINESE_LLAMA_2_7B_HF = "Linly_AI_Chinese_LLaMA_2_7B_hf"
+    FLAGALPHA_LLAMA2_CHINESE_7B_CHAT = "FlagAlpha_Llama2_Chinese_7b_Chat"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.CHINESE_LLAMA_2_13B_16K: ModelConfig(
             pretrained_model_name="hfl/chinese-llama-2-13b-16k",
         ),
-        ModelVariant.LINLY_AI_CHINESE_LLAMA_2_7B_HF: ModelConfig(
-            pretrained_model_name="Linly-AI/Chinese-LLaMA-2-7B-hf",
+        ModelVariant.FLAGALPHA_LLAMA2_CHINESE_7B_CHAT: ModelConfig(
+            pretrained_model_name="FlagAlpha/Llama2-Chinese-7b-Chat",
         ),
     }
 
