@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available LLaVA-OneVision model variants."""
 
     LLAVA_ONEVISION_QWEN2_0_5B_OV = "Qwen2_0.5B_OV"
+    LLAVA_ONEVISION_QWEN2_0_5B_SI = "Qwen2_0.5B_SI"
     LLAVA_ONEVISION_QWEN2_7B_SI = "Qwen2_7B_SI"
 
 
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LLAVA_ONEVISION_QWEN2_0_5B_OV: ModelConfig(
             pretrained_model_name="llava-hf/llava-onevision-qwen2-0.5b-ov-hf",
+        ),
+        ModelVariant.LLAVA_ONEVISION_QWEN2_0_5B_SI: ModelConfig(
+            pretrained_model_name="llava-hf/llava-onevision-qwen2-0.5b-si-hf",
         ),
         ModelVariant.LLAVA_ONEVISION_QWEN2_7B_SI: ModelConfig(
             pretrained_model_name="llava-hf/llava-onevision-qwen2-7b-si-hf",
