@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
 
     BLOOMZ_1B1 = "1B1"
     BLOOMZ_7B1 = "7B1"
-    BLOOMZ_176B = "176B"
+    BLOOM_ZH_3B_CHAT_IKALA = "Bloom_Zh_3b_Chat_Ikala"
 
 
 class ModelLoader(ForgeModel):
@@ -41,8 +41,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bigscience/bloomz-7b1",
             max_length=128,
         ),
-        ModelVariant.BLOOMZ_176B: LLMModelConfig(
-            pretrained_model_name="bigscience/bloomz",
+        ModelVariant.BLOOM_ZH_3B_CHAT_IKALA: LLMModelConfig(
+            pretrained_model_name="ikala/bloom-zh-3b-chat",
             max_length=128,
         ),
     }
