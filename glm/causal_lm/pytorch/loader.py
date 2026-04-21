@@ -39,7 +39,7 @@ class ModelVariant(StrEnum):
     GLM_5_MXFP4_Q8 = "5_MXFP4_Q8"
     GLM_Z1_9B_0414 = "Z1_9B_0414"
     GLM_Z1_32B_0414 = "Z1_32B_0414"
-    PRATHAMAVATSA = "Prathamavatsa"
+    GLM_4_32B_0414 = "4_32B_0414"
 
 
 class ModelLoader(ForgeModel):
@@ -87,8 +87,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="zai-org/GLM-Z1-32B-0414",
             max_length=128,
         ),
-        ModelVariant.PRATHAMAVATSA: LLMModelConfig(
-            pretrained_model_name="cosmicoptima/Prathamavatsa",
+        ModelVariant.GLM_4_32B_0414: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-4-32B-0414",
             max_length=128,
         ),
     }
@@ -134,7 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GLM_5_MXFP4_Q8,
             ModelVariant.GLM_Z1_9B_0414,
             ModelVariant.GLM_Z1_32B_0414,
-            ModelVariant.PRATHAMAVATSA,
+            ModelVariant.GLM_4_32B_0414,
         ):
             group = ModelGroup.VULCAN
         else:
