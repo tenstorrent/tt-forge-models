@@ -25,11 +25,13 @@ class ModelVariant(StrEnum):
     """Available DataComp CLIP model variants."""
 
     VIT_B_16 = "ViT_B_16"
+    VIT_B_16_LAION_L_S1B = "ViT_B_16_laion_L_s1B"
 
 
 # Mapping from variant to OpenCLIP tokenizer name
 _TOKENIZER_NAME = {
     ModelVariant.VIT_B_16: "ViT-B-16",
+    ModelVariant.VIT_B_16_LAION_L_S1B: "ViT-B-16",
 }
 
 
@@ -39,6 +41,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.VIT_B_16: ModelConfig(
             pretrained_model_name="hf-hub:flavour/CLIP-ViT-B-16-DataComp.XL-s13B-b90K",
+        ),
+        ModelVariant.VIT_B_16_LAION_L_S1B: ModelConfig(
+            pretrained_model_name="hf-hub:laion/CLIP-ViT-B-16-DataComp.L-s1B-b8K",
         ),
     }
 
