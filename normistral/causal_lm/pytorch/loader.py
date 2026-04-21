@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
     """Available NorMistral model variants for causal language modeling."""
 
     NORMISTRAL_11B_WARM = "11B-warm"
-    NORMISTRAL_11B_TRANSLATE = "11B-translate"
+    NORMISTRAL_11B_THINKING = "11B-thinking"
 
 
 class ModelLoader(ForgeModel):
@@ -38,8 +38,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="norallm/normistral-11b-warm",
             max_length=256,
         ),
-        ModelVariant.NORMISTRAL_11B_TRANSLATE: LLMModelConfig(
-            pretrained_model_name="norallm/normistral-11b-translate",
+        ModelVariant.NORMISTRAL_11B_THINKING: LLMModelConfig(
+            pretrained_model_name="norallm/normistral-11b-thinking",
             max_length=256,
         ),
     }
