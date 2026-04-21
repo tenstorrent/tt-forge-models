@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available LayoutLM document QA model variants."""
 
     IMPIRA_LAYOUTLM_DOCUMENT_QA = "Impira LayoutLM Document QA"
+    IMPIRA_LAYOUTLM_INVOICES = "Impira LayoutLM Invoices"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.IMPIRA_LAYOUTLM_DOCUMENT_QA: ModelConfig(
             pretrained_model_name="impira/layoutlm-document-qa",
+        ),
+        ModelVariant.IMPIRA_LAYOUTLM_INVOICES: ModelConfig(
+            pretrained_model_name="impira/layoutlm-invoices",
         ),
     }
 
