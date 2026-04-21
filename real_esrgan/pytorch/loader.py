@@ -6,6 +6,7 @@ Real-ESRGAN model loader implementation for image super-resolution
 """
 
 import torch
+from dataclasses import dataclass
 from typing import Optional
 from safetensors.torch import load_file
 from huggingface_hub import hf_hub_download
@@ -23,18 +24,31 @@ from ...config import (
 from .src.rrdbnet import RRDBNet
 
 
+@dataclass
+class RealESRGANConfig(ModelConfig):
+    """Configuration specific to Real-ESRGAN models."""
+
+    filename: str = "RealESRGAN_x4plus.safetensors"
+
+
 class ModelVariant(StrEnum):
     """Available Real-ESRGAN model variants."""
 
     X4PLUS = "x4plus"
+    X4PLUS_SDCPP_GGUF = "x4plus_sdcpp_gguf"
 
 
 class ModelLoader(ForgeModel):
     """Real-ESRGAN model loader implementation for image super-resolution tasks."""
 
     _VARIANTS = {
-        ModelVariant.X4PLUS: ModelConfig(
+        ModelVariant.X4PLUS: RealESRGANConfig(
             pretrained_model_name="Comfy-Org/Real-ESRGAN_repackaged",
+            filename="RealESRGAN_x4plus.safetensors",
+        ),
+        ModelVariant.X4PLUS_SDCPP_GGUF: RealESRGANConfig(
+            pretrained_model_name="wbruna/upscalers-sdcpp-gguf",
+            filename="RealESRGAN_x4plus.gguf",
         ),
     }
 
@@ -54,6 +68,27 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _load_gguf_state_dict(weights_path: str) -> dict:
+        """Load tensors from a GGUF file into a PyTorch state_dict.
+
+        The stable-diffusion.cpp convert tool preserves the original PyTorch
+        state_dict keys, so tensors can be mapped directly by name.
+        """
+        import gguf
+
+        reader = gguf.GGUFReader(weights_path)
+        state_dict = {}
+        for tensor in reader.tensors:
+            array = tensor.data
+            if tensor.tensor_type == gguf.GGMLQuantizationType.F16:
+                array = array.view("float16")
+            elif tensor.tensor_type == gguf.GGMLQuantizationType.F32:
+                array = array.view("float32")
+            shape = tuple(reversed([int(d) for d in tensor.shape]))
+            state_dict[tensor.name] = torch.from_numpy(array.reshape(shape).copy())
+        return state_dict
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Real-ESRGAN RRDBNet model.
 
@@ -72,12 +107,16 @@ class ModelLoader(ForgeModel):
             scale=4,
         )
 
-        # Download and load safetensors weights
         weights_path = hf_hub_download(
             repo_id=self._variant_config.pretrained_model_name,
-            filename="RealESRGAN_x4plus.safetensors",
+            filename=self._variant_config.filename,
         )
-        state_dict = load_file(weights_path)
+
+        if self._variant_config.filename.endswith(".gguf"):
+            state_dict = self._load_gguf_state_dict(weights_path)
+        else:
+            state_dict = load_file(weights_path)
+
         model.load_state_dict(state_dict)
 
         if dtype_override is not None:
