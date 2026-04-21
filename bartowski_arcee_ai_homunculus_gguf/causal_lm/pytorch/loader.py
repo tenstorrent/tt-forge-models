@@ -4,6 +4,7 @@
 """
 bartowski arcee-ai Homunculus GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -61,7 +62,23 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _refresh_gguf_package_mapping():
+        # transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time; gguf
+        # is installed later by RequirementsManager so the cache misses it,
+        # causing version.parse('N/A') to raise InvalidVersion in is_gguf_available().
+        try:
+            import transformers.utils.import_utils as _tfu
+
+            if "gguf" not in _tfu.PACKAGE_DISTRIBUTION_MAPPING:
+                _tfu.PACKAGE_DISTRIBUTION_MAPPING = (
+                    importlib.metadata.packages_distributions()
+                )
+        except Exception:
+            pass
+
     def _load_tokenizer(self, dtype_override=None):
+        self._refresh_gguf_package_mapping()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -76,6 +93,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._refresh_gguf_package_mapping()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -154,6 +172,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._refresh_gguf_package_mapping()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
