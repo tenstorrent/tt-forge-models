@@ -34,7 +34,9 @@ class ModelVariant(StrEnum):
         "CAMeL-Lab/bert-base-arabic-camelbert-msa-ner"
     )
     P208P2002_ZH_WIKI_PUNCTUATION_RESTORE = "p208p2002/zh-wiki-punctuation-restore"
-    YASHPWR_RESUME_NER_BERT_V2 = "yashpwr/resume-ner-bert-v2"
+    QCRI_BERT_BASE_MULTILINGUAL_CASED_POS_ENGLISH = (
+        "QCRI/bert-base-multilingual-cased-pos-english"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -66,8 +68,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="p208p2002/zh-wiki-punctuation-restore",
             max_length=128,
         ),
-        ModelVariant.YASHPWR_RESUME_NER_BERT_V2: LLMModelConfig(
-            pretrained_model_name="yashpwr/resume-ner-bert-v2",
+        ModelVariant.QCRI_BERT_BASE_MULTILINGUAL_CASED_POS_ENGLISH: LLMModelConfig(
+            pretrained_model_name="QCRI/bert-base-multilingual-cased-pos-english",
             max_length=128,
         ),
     }
@@ -126,7 +128,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HATMIMOHA_ARABIC_NER,
             ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER,
             ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE,
-            ModelVariant.YASHPWR_RESUME_NER_BERT_V2,
+            ModelVariant.QCRI_BERT_BASE_MULTILINGUAL_CASED_POS_ENGLISH,
         ):
             group = ModelGroup.VULCAN
 
