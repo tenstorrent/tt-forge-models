@@ -29,7 +29,7 @@ class ModelVariant(StrEnum):
 
     DEEPSEEK_OCR = "Ocr"
     DEEPSEEK_OCR_UNSLOTH = "Ocr-Unsloth"
-    DEEPSEEK_OCR_LATEST_BF16_I64 = "Ocr-Latest-BF16-I64"
+    DEEPSEEK_OCR_JALEA96_BNB_4BIT_NF4 = "Ocr-Jalea96-Bnb-4bit-NF4"
 
 
 class ModelLoader(ForgeModel):
@@ -43,8 +43,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.DEEPSEEK_OCR_UNSLOTH: ModelConfig(
             pretrained_model_name="unsloth/DeepSeek-OCR",
         ),
-        ModelVariant.DEEPSEEK_OCR_LATEST_BF16_I64: ModelConfig(
-            pretrained_model_name="prithivMLmods/DeepSeek-OCR-Latest-BF16.I64",
+        ModelVariant.DEEPSEEK_OCR_JALEA96_BNB_4BIT_NF4: ModelConfig(
+            pretrained_model_name="Jalea96/DeepSeek-OCR-bnb-4bit-NF4",
         ),
     }
 
@@ -86,7 +86,7 @@ class ModelLoader(ForgeModel):
             if variant
             in (
                 ModelVariant.DEEPSEEK_OCR_UNSLOTH,
-                ModelVariant.DEEPSEEK_OCR_LATEST_BF16_I64,
+                ModelVariant.DEEPSEEK_OCR_JALEA96_BNB_4BIT_NF4,
             )
             else ModelGroup.GENERALITY
         )
@@ -129,7 +129,7 @@ class ModelLoader(ForgeModel):
 
         if self.variant in (
             ModelVariant.DEEPSEEK_OCR_UNSLOTH,
-            ModelVariant.DEEPSEEK_OCR_LATEST_BF16_I64,
+            ModelVariant.DEEPSEEK_OCR_JALEA96_BNB_4BIT_NF4,
         ):
             model = AutoModel.from_pretrained(
                 pretrained_model_name,
