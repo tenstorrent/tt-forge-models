@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
 
     QWEN_2_5_OMNI_7B = "7B"
     QWEN_2_5_OMNI_7B_AWQ = "7B_Awq"
+    TEVATRON_QWEN_2_5_OMNI_7B_THINKER = "tevatron_7B_thinker"
 
 
 class ModelLoader(ForgeModel):
@@ -41,6 +42,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_2_5_OMNI_7B_AWQ: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-Omni-7B-AWQ",
+        ),
+        ModelVariant.TEVATRON_QWEN_2_5_OMNI_7B_THINKER: LLMModelConfig(
+            pretrained_model_name="Tevatron/Qwen2.5-Omni-7B-Thinker",
         ),
     }
 
@@ -85,8 +89,13 @@ class ModelLoader(ForgeModel):
             "min_pixels": self.min_pixels,
             "max_pixels": self.max_pixels,
         }
+        # Tevatron's thinker-only extraction does not ship processor files;
+        # fall back to the base Qwen2.5-Omni-7B processor.
+        processor_name = self._variant_config.pretrained_model_name
+        if self._variant == ModelVariant.TEVATRON_QWEN_2_5_OMNI_7B_THINKER:
+            processor_name = "Qwen/Qwen2.5-Omni-7B"
         self.processor = Qwen2_5OmniProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
+            processor_name, **processor_kwargs
         )
         return self.processor
 
