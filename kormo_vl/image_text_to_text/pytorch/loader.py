@@ -7,6 +7,7 @@ understanding and bilingual (Korean/English) vision-language tasks.
 """
 from typing import Optional
 
+import torch
 from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
@@ -109,12 +110,13 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             for key in inputs:
-                if inputs[key].dtype.is_floating_point:
+                if torch.is_tensor(inputs[key]) and inputs[key].is_floating_point():
                     inputs[key] = inputs[key].to(dtype_override)
 
         if batch_size > 1:
             for key in inputs:
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+                if torch.is_tensor(inputs[key]):
+                    inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return dict(inputs)
 
