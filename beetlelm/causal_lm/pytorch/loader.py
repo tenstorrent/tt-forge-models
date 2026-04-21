@@ -26,6 +26,9 @@ class ModelVariant(StrEnum):
     BEETLELM_DEU_L1_ENG_L2_BALANCED = "beetlelm_deu_L1_eng_L2_balanced"
 
 
+TOKENIZER_NAME = "BeetleLM/bpe_babylm-eng-babylm-deu"
+
+
 class ModelLoader(ForgeModel):
     """BeetleLM model loader implementation for causal language modeling tasks."""
 
@@ -91,10 +94,11 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            TOKENIZER_NAME,
             trust_remote_code=True,
             **tokenizer_kwargs,
         )
+        self.tokenizer.pad_token = "<PAD>"
 
         return self.tokenizer
 
