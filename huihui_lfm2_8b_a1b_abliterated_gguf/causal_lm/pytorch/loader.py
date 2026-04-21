@@ -8,6 +8,82 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
+    TENSOR_PROCESSORS,
+)
+
+
+def _patch_lfm2moe_support():
+    """Register lfm2moe architecture for GGUF loading.
+
+    Transformers 5.x supports lfm2_moe as a model type but does not include
+    lfm2moe in GGUF architecture mappings. We register the config mapping and
+    reuse the lfm2 tensor processor.
+    """
+    if "lfm2moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("lfm2moe")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["lfm2moe"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "norm_eps",
+        "vocab_size": "vocab_size",
+        "shortconv.l_cache": "conv_L_cache",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "leading_dense_block_count": "num_dense_layers",
+    }
+
+    if "lfm2" in TENSOR_PROCESSORS:
+        TENSOR_PROCESSORS["lfm2moe"] = TENSOR_PROCESSORS["lfm2"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    _patch_lfm2moe_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "lfm2moe":
+        result["config"]["model_type"] = "lfm2_moe"
+    return result
+
+
+_patch_lfm2moe_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+# Patch get_gguf_hf_weights_map to handle lfm2_moe -> lfm2moe reverse mapping
+_orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None:
+        model_type = hf_model.config.model_type
+    if model_type == "lfm2_moe":
+        model_type = "lfm2moe"
+    return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
