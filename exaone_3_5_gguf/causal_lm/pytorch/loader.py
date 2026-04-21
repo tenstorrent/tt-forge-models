@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available EXAONE 3.5 GGUF model variants for causal language modeling."""
 
     EXAONE_3_5_7_8B_INSTRUCT_GGUF = "3.5_7.8B_Instruct_GGUF"
+    LGAI_EXAONE_3_5_7_8B_INSTRUCT_GGUF = "LGAI_3.5_7.8B_Instruct_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.EXAONE_3_5_7_8B_INSTRUCT_GGUF: LLMModelConfig(
             pretrained_model_name="lmstudio-community/EXAONE-3.5-7.8B-Instruct-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.LGAI_EXAONE_3_5_7_8B_INSTRUCT_GGUF: LLMModelConfig(
+            pretrained_model_name="LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct-GGUF",
             max_length=128,
         ),
     }
