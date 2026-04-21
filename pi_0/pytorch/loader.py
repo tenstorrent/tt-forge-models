@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
 
     LIBERO_BASE = "lerobot_pi0_libero_base"
     BASE = "pi0_base"
+    INTACT_FINETUNE_BRIDGE = "juexzz_intact_pi0_finetune_bridge"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="lerobot/pi0_base",
+        ),
+        ModelVariant.INTACT_FINETUNE_BRIDGE: ModelConfig(
+            pretrained_model_name="juexzz/INTACT-pi0-finetune-bridge",
         ),
     }
 
@@ -63,10 +67,15 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        if variant == ModelVariant.INTACT_FINETUNE_BRIDGE:
+            group = ModelGroup.VULCAN
+        else:
+            group = ModelGroup.RED
+
         return ModelInfo(
             model="pi_0",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.MM_ACTION_PREDICTION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
