@@ -24,7 +24,7 @@ class ModelVariant(StrEnum):
 
     JAVALION = "javalion"
     TINY_RANDOM = "tiny-random"
-    HAKUREI_RANDOM_TINIER = "hakurei-random-tinier"
+    GPT_J_6B_DOLLY = "gpt-j-6b-dolly"
 
 
 class ModelLoader(ForgeModel):
@@ -40,8 +40,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="peft-internal-testing/tiny-random-GPTJForCausalLM",
             max_length=256,
         ),
-        ModelVariant.HAKUREI_RANDOM_TINIER: LLMModelConfig(
-            pretrained_model_name="hakurei/gpt-j-random-tinier",
+        ModelVariant.GPT_J_6B_DOLLY: LLMModelConfig(
+            pretrained_model_name="Corianas/gpt-j-6B-Dolly",
             max_length=256,
         ),
     }
