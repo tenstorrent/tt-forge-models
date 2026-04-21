@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available MedSAM model variants."""
 
     VIT_BASE = "Vit_Base"
+    WANGLAB_VIT_BASE = "Wanglab_Vit_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.VIT_BASE: ModelConfig(
             pretrained_model_name="flaviagiammarino/medsam-vit-base",
+        ),
+        ModelVariant.WANGLAB_VIT_BASE: ModelConfig(
+            pretrained_model_name="wanglab/medsam-vit-base",
         ),
     }
 
