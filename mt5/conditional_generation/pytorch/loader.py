@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available MT5 model variants."""
 
     TINY_RANDOM = "Tiny_Random"
-    MT0_SMALL = "bigscience/mt0-small"
+    MT0_SMALL = "mt0-small"
 
 
 class ModelLoader(ForgeModel):
