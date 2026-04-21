@@ -8,6 +8,12 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+# gguf 0.18.0 doesn't expose __version__, so transformers' is_gguf_available() fails
+# to parse 'N/A' as a version. Registering the distribution name fixes the lookup.
+from transformers.utils.import_utils import PACKAGE_DISTRIBUTION_MAPPING
+
+PACKAGE_DISTRIBUTION_MAPPING.setdefault("gguf", ["gguf"])
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
