@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Kanana model variants."""
 
     KANANA_1_5_8B_INSTRUCT = "1.5_8B_Instruct"
+    KANANA_SAFEGUARD_8B = "Safeguard_8B"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.KANANA_1_5_8B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="kakaocorp/kanana-1.5-8b-instruct-2505",
+        ),
+        ModelVariant.KANANA_SAFEGUARD_8B: LLMModelConfig(
+            pretrained_model_name="kakaocorp/kanana-safeguard-8b",
         ),
     }
 
