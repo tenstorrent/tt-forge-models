@@ -107,10 +107,8 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.RED
         elif variant in [
             ModelVariant.FALCON_7B_INSTRUCT_SHARDED,
-            ModelVariant.FALCON_RW_1B_T_SFT,
+            ModelVariant.FALCON_TINY_TESTING_ALIBI,
         ]:
-            group = ModelGroup.VULCAN
-        elif variant == ModelVariant.FALCON_TINY_TESTING_ALIBI:
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
