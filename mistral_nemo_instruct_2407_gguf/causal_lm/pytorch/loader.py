@@ -24,8 +24,8 @@ class ModelVariant(StrEnum):
     """Available Mistral Nemo Instruct 2407 GGUF model variants for causal language modeling."""
 
     MISTRAL_NEMO_INSTRUCT_2407_GGUF = "Nemo_Instruct_2407_GGUF"
-    MISTRAL_NEMO_INSTRUCT_2407_SECOND_STATE_GGUF = (
-        "Nemo_Instruct_2407_second_state_GGUF"
+    SECOND_STATE_MISTRAL_NEMO_INSTRUCT_2407_GGUF = (
+        "second_state_Nemo_Instruct_2407_GGUF"
     )
 
 
@@ -37,7 +37,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bartowski/Mistral-Nemo-Instruct-2407-GGUF",
             max_length=128,
         ),
-        ModelVariant.MISTRAL_NEMO_INSTRUCT_2407_SECOND_STATE_GGUF: LLMModelConfig(
+        ModelVariant.SECOND_STATE_MISTRAL_NEMO_INSTRUCT_2407_GGUF: LLMModelConfig(
             pretrained_model_name="second-state/Mistral-Nemo-Instruct-2407-GGUF",
             max_length=128,
         ),
@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.MISTRAL_NEMO_INSTRUCT_2407_GGUF: "Mistral-Nemo-Instruct-2407-Q4_K_M.gguf",
-        ModelVariant.MISTRAL_NEMO_INSTRUCT_2407_SECOND_STATE_GGUF: "Mistral-Nemo-Instruct-2407-Q4_K_M.gguf",
+        ModelVariant.SECOND_STATE_MISTRAL_NEMO_INSTRUCT_2407_GGUF: "Mistral-Nemo-Instruct-2407-Q4_K_M.gguf",
     }
 
     sample_text = "What is the meaning of life?"
