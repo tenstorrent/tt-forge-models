@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
         "ProteinSequenceAnnotation/esm2_t33_650M_UR50_190K_steps"
     )
     ESM2_T36_3B_UR50D = "facebook/esm2_t36_3B_UR50D"
+    SYNTHYRA_ESM2_8M = "Synthyra/ESM2-8M"
 
 
 class ModelLoader(ForgeModel):
@@ -42,6 +43,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.ESM2_T36_3B_UR50D: ModelConfig(
             pretrained_model_name="facebook/esm2_t36_3B_UR50D",
+        ),
+        ModelVariant.SYNTHYRA_ESM2_8M: ModelConfig(
+            pretrained_model_name="Synthyra/ESM2-8M",
         ),
     }
 
@@ -67,9 +71,16 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @property
+    def _needs_trust_remote_code(self):
+        return self._variant == ModelVariant.SYNTHYRA_ESM2_8M
+
     def _load_tokenizer(self):
+        tokenizer_kwargs = {}
+        if self._needs_trust_remote_code:
+            tokenizer_kwargs["trust_remote_code"] = True
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
         return self.tokenizer
 
@@ -80,6 +91,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._needs_trust_remote_code:
+            model_kwargs["trust_remote_code"] = True
         model_kwargs |= kwargs
 
         model = AutoModelForMaskedLM.from_pretrained(
