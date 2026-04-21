@@ -62,6 +62,13 @@ if not hasattr(DynamicCache, "to_legacy_cache"):
 
     DynamicCache.to_legacy_cache = _to_legacy_cache
 
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length: int, layer_idx: int = 0) -> int:
+        return self.get_seq_length(layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
+
 from transformers import AutoConfig, AutoTokenizer
 from transformers.dynamic_module_utils import get_class_from_dynamic_module, get_imports
 
