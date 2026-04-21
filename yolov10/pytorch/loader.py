@@ -109,9 +109,7 @@ class ModelLoader(ForgeModel):
 
         if self._variant == ModelVariant.JAMESLAHM_YOLOV10N:
             yolo_wrapper = YOLOv10.from_pretrained(variant)
-            model = (
-                yolo_wrapper.model if hasattr(yolo_wrapper, "model") else yolo_wrapper
-            )
+            model = yolo_wrapper.model
         else:
             model.load_state_dict(weights["model"].float().state_dict())
 
