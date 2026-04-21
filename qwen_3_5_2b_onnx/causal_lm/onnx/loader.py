@@ -40,6 +40,14 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_5_2B_ONNX
 
+    # onnx.load resolves external data relative to the graph file's directory.
+    _EXTERNAL_DATA_FILES = (
+        "onnx/decoder_model_merged.onnx_data",
+        "onnx/decoder_model_merged.onnx_data_1",
+        "onnx/decoder_model_merged.onnx_data_2",
+        "onnx/decoder_model_merged.onnx_data_3",
+    )
+
     sample_text = "Give me a short introduction to large language model."
 
     def __init__(self, variant: Optional[ModelVariant] = None):
@@ -56,14 +64,6 @@ class ModelLoader(ForgeModel):
             source=ModelSource.HUGGING_FACE,
             framework=Framework.ONNX,
         )
-
-    # onnx.load resolves external data relative to the graph file's directory.
-    _EXTERNAL_DATA_FILES = (
-        "onnx/decoder_model_merged.onnx_data",
-        "onnx/decoder_model_merged.onnx_data_1",
-        "onnx/decoder_model_merged.onnx_data_2",
-        "onnx/decoder_model_merged.onnx_data_3",
-    )
 
     def load_model(self, **kwargs):
         """Load and return the Qwen 3.5 2B ONNX model.
