@@ -4,6 +4,7 @@
 """
 DINOv2 model loader implementation for feature extraction (PyTorch).
 """
+
 import torch
 from transformers import AutoImageProcessor, AutoModel
 from datasets import load_dataset
@@ -25,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available DINOv2 feature extraction model variants."""
 
     XRAY_BASE = "XRay_Base"
+    TRENDYOL_ECOMMERCE_256D = "Trendyol_Ecommerce_256D"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.XRAY_BASE: ModelConfig(
             pretrained_model_name="StanfordAIMI/dinov2-base-xray-224",
+        ),
+        ModelVariant.TRENDYOL_ECOMMERCE_256D: ModelConfig(
+            pretrained_model_name="Trendyol/trendyol-dino-v2-ecommerce-256d",
         ),
     }
 
@@ -79,7 +84,9 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        self.processor = AutoImageProcessor.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
 
         return self.processor
 
@@ -100,7 +107,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        model = AutoModel.from_pretrained(
+            pretrained_model_name, trust_remote_code=True, **model_kwargs
+        )
         model.eval()
 
         return model
