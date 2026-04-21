@@ -1,46 +1,48 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Qwen3 8B SciLit01 i1 GGUF model loader implementation for causal language modeling.
+Qwen3-8B SciLit01 i1 GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen3 8B SciLit01 i1 GGUF model variants for causal language modeling."""
+    """Available Qwen3-8B SciLit01 i1 GGUF model variants for causal language modeling."""
 
-    QWEN3_8B_SCILIT01_I1_Q4_K_M = "qwen3_8b_scilit01_i1_Q4_K_M"
+    QWEN3_8B_SCILIT01_I1_GGUF = "8B_SciLit01_I1_GGUF"
 
 
 class ModelLoader(ForgeModel):
-    """Qwen3 8B SciLit01 i1 GGUF model loader implementation for causal language modeling tasks."""
+    """Qwen3-8B SciLit01 i1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.QWEN3_8B_SCILIT01_I1_Q4_K_M: LLMModelConfig(
+        ModelVariant.QWEN3_8B_SCILIT01_I1_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/Qwen3-8B-SciLit01-i1-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.QWEN3_8B_SCILIT01_I1_Q4_K_M
+    DEFAULT_VARIANT = ModelVariant.QWEN3_8B_SCILIT01_I1_GGUF
 
     GGUF_FILE = "Qwen3-8B-SciLit01.i1-Q4_K_M.gguf"
 
-    sample_text = "Give me a short introduction to large language model."
+    sample_text = "Give me a short introduction to large language models."
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -53,7 +55,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Qwen3 8B SciLit01 i1 GGUF",
+            model="Qwen3-8B SciLit01 i1 GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -108,12 +110,7 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
+        messages = [{"role": "user", "content": self.sample_text}]
         text = self.tokenizer.apply_chat_template(
             messages,
             tokenize=False,
