@@ -26,6 +26,14 @@ class ModelVariant(StrEnum):
 
     PARAKEET_TDT_0_6B_V3 = "Parakeet_TDT_0.6B_v3"
     PARAKEET_TDT_1_1B = "Parakeet_TDT_1.1B"
+    SOULX_SINGER_PREPROCESS_0_6B_V2 = "SoulX_Singer_Preprocess_Parakeet_TDT_0.6B_v2"
+
+
+# Repos that ship the .nemo archive inside a subfolder (rather than at the
+# HuggingFace repo root) map the variant to its relative file path.
+_BUNDLED_NEMO_FILES = {
+    ModelVariant.SOULX_SINGER_PREPROCESS_0_6B_V2: "parakeet-tdt-0.6b-v2/parakeet-tdt-0.6b-v2.nemo",
+}
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +45,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.PARAKEET_TDT_1_1B: ModelConfig(
             pretrained_model_name="nvidia/parakeet-tdt-1.1b",
+        ),
+        ModelVariant.SOULX_SINGER_PREPROCESS_0_6B_V2: ModelConfig(
+            pretrained_model_name="Soul-AILab/SoulX-Singer-Preprocess",
         ),
     }
 
@@ -62,9 +73,17 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         import nemo.collections.asr as nemo_asr
 
-        model = nemo_asr.models.ASRModel.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        repo_id = self._variant_config.pretrained_model_name
+        bundled_filename = _BUNDLED_NEMO_FILES.get(self._variant)
+        if bundled_filename is not None:
+            from huggingface_hub import hf_hub_download
+
+            checkpoint_path = hf_hub_download(
+                repo_id=repo_id, filename=bundled_filename
+            )
+            model = nemo_asr.models.ASRModel.restore_from(checkpoint_path)
+        else:
+            model = nemo_asr.models.ASRModel.from_pretrained(repo_id)
         model.eval()
 
         if dtype_override is not None:
