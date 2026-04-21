@@ -4,6 +4,7 @@
 """
 Skycog 31B v1 i1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -61,7 +62,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _ensure_gguf_version():
+        """Ensure gguf.__version__ is set so transformers' is_gguf_available() works correctly.
+
+        transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf is
+        installed after transformers is imported (via per-model requirements.txt), the
+        cached mapping is stale and the fallback path reads gguf.__version__, which the
+        gguf package does not expose. This sets it from importlib.metadata so the
+        version check succeeds.
+        """
+        try:
+            import gguf as _gguf
+
+            if not hasattr(_gguf, "__version__") or _gguf.__version__ == "N/A":
+                _gguf.__version__ = importlib.metadata.version("gguf")
+        except Exception:
+            pass
+
     def _load_tokenizer(self, dtype_override=None):
+        self._ensure_gguf_version()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -136,6 +156,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        self._ensure_gguf_version()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
