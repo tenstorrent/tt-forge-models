@@ -5,23 +5,24 @@
 Ferret-UI-Llama8b model loader implementation for image-text-to-text tasks.
 """
 
-from typing import Optional
-
 import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoTokenizer, CLIPImageProcessor
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
-    Framework,
-    LLMModelConfig,
-    ModelGroup,
+    ModelConfig,
     ModelInfo,
-    ModelSource,
+    ModelGroup,
     ModelTask,
+    ModelSource,
+    Framework,
     StrEnum,
 )
 from ....tools.utils import get_file
+
+IMAGE_TOKEN_INDEX = -200
 
 
 class ModelVariant(StrEnum):
@@ -34,25 +35,20 @@ class ModelLoader(ForgeModel):
     """Ferret-UI-Llama8b model loader for image-text-to-text tasks."""
 
     _VARIANTS = {
-        ModelVariant.FERRET_UI_LLAMA8B: LLMModelConfig(
+        ModelVariant.FERRET_UI_LLAMA8B: ModelConfig(
             pretrained_model_name="jadechoghari/Ferret-UI-Llama8b",
-            max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.FERRET_UI_LLAMA8B
 
-    sample_image_url = (
-        "https://cdn.britannica.com/61/93061-050-99147DCE/"
-        "Statue-of-Liberty-Island-New-York-Bay.jpg"
-    )
-    sample_text = "Describe the image in details."
-    vision_tower_name = "openai/clip-vit-large-patch14-336"
+    sample_text = "Describe the image in details"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
+        """Initialize Ferret-UI-Llama8b model loader."""
         super().__init__(variant)
         self.tokenizer = None
-        self.image_processor = None
+        self.model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -62,65 +58,66 @@ class ModelLoader(ForgeModel):
             model="Ferret-UI-Llama8b",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.MM_IMAGE_TTT,
+            task=ModelTask.CV_IMAGE_TO_TEXT,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
     def _load_tokenizer(self):
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, trust_remote_code=True
         )
         return self.tokenizer
 
-    def _load_image_processor(self):
-        self.image_processor = CLIPImageProcessor.from_pretrained(
-            self.vision_tower_name
-        )
-        return self.image_processor
-
     def load_model(self, *, dtype_override=None, **kwargs):
+        """Load and return the Ferret-UI-Llama8b model instance."""
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if self.tokenizer is None:
+            self._load_tokenizer()
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        else:
-            model_kwargs["torch_dtype"] = torch.bfloat16
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        """Load and return sample inputs for the Ferret-UI-Llama8b model."""
         if self.tokenizer is None:
             self._load_tokenizer()
-        if self.image_processor is None:
-            self._load_image_processor()
 
-        image_file = get_file(self.sample_image_url)
+        # Build prompt with <image> placeholder; Ferret-UI substitutes it with
+        # IMAGE_TOKEN_INDEX during the forward pass.
+        prompt = "<image>\n" + self.sample_text
+
+        pre, post = prompt.split("<image>", 1)
+        pre_ids = self.tokenizer(
+            pre, return_tensors="pt", add_special_tokens=True
+        ).input_ids
+        post_ids = self.tokenizer(
+            post, return_tensors="pt", add_special_tokens=False
+        ).input_ids
+        img_tok = torch.tensor([[IMAGE_TOKEN_INDEX]], dtype=pre_ids.dtype)
+        input_ids = torch.cat([pre_ids, img_tok, post_ids], dim=1)
+        attention_mask = torch.ones_like(input_ids)
+
+        # Load and preprocess a sample image through the CLIP vision tower.
+        image_file = get_file(
+            "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
+        )
         image = Image.open(image_file).convert("RGB")
-        pixel_values = self.image_processor(images=image, return_tensors="pt")[
+
+        vision_tower = self.model.get_vision_tower()
+        pixel_values = vision_tower.image_processor(images=image, return_tensors="pt")[
             "pixel_values"
         ]
-
-        prompt = (
-            "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n"
-            f"<image>\n{self.sample_text}<|eot_id|>"
-            "<|start_header_id|>assistant<|end_header_id|>\n\n"
-        )
-        tokenized = self.tokenizer(
-            prompt,
-            return_tensors="pt",
-            add_special_tokens=False,
-            max_length=self._variant_config.max_length,
-            truncation=True,
-        )
-        input_ids = tokenized["input_ids"]
-        attention_mask = tokenized["attention_mask"]
 
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
@@ -134,20 +131,5 @@ class ModelLoader(ForgeModel):
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "images": pixel_values,
+            "image_sizes": [image.size],
         }
-
-    def decode_output(self, outputs, input_length=None):
-        if isinstance(outputs, str):
-            return outputs
-
-        if self.tokenizer is None:
-            self._load_tokenizer()
-
-        if torch.is_tensor(outputs) and outputs.dtype in (torch.long, torch.int):
-            if input_length is not None:
-                outputs = outputs[:, input_length:]
-            return self.tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
-
-        logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
-        next_token_id = torch.argmax(logits[:, -1, :], dim=-1)
-        return self.tokenizer.decode(next_token_id, skip_special_tokens=True)
