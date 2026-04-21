@@ -34,6 +34,7 @@ class ModelVariant(StrEnum):
 
     TINY_RANDOM = "tiny_random"
     LLAVA_NEXT_VIDEO_7B = "LLaVA_NeXT_Video_7B"
+    LMMS_LAB_LLAVA_NEXT_VIDEO_7B = "lmms-lab_LLaVA-NeXT-Video-7B"
 
 
 class ModelLoader(ForgeModel):
@@ -45,6 +46,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LLAVA_NEXT_VIDEO_7B: ModelConfig(
             pretrained_model_name="llava-hf/LLaVA-NeXT-Video-7B-hf",
+        ),
+        ModelVariant.LMMS_LAB_LLAVA_NEXT_VIDEO_7B: ModelConfig(
+            pretrained_model_name="lmms-lab/LLaVA-NeXT-Video-7B",
         ),
     }
 
