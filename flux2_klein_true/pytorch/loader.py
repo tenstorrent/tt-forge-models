@@ -4,6 +4,10 @@
 """
 FLUX.2 Klein True model loader implementation for text-to-image generation
 """
+import json
+import os
+import tempfile
+
 import torch
 from diffusers.models import Flux2Transformer2DModel
 from typing import Optional
@@ -18,6 +22,25 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+_TRANSFORMER_CONFIG = {
+    "_class_name": "Flux2Transformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "patch_size": 1,
+    "in_channels": 128,
+    "num_layers": 8,
+    "num_single_layers": 24,
+    "attention_head_dim": 128,
+    "num_attention_heads": 32,
+    "joint_attention_dim": 12288,
+    "timestep_guidance_channels": 256,
+    "mlp_ratio": 3.0,
+    "axes_dims_rope": [32, 32, 32, 32],
+    "rope_theta": 2000,
+    "eps": 1e-06,
+    "guidance_embeds": True,
+}
 
 
 class ModelVariant(StrEnum):
@@ -58,13 +81,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _make_local_config_dir():
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
+
     def load_model(self, *, dtype_override=None, **kwargs):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         repo_id = self._variant_config.pretrained_model_name
+        config_dir = self._make_local_config_dir()
         self.transformer = Flux2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{self.SAFETENSORS_FILE}",
+            f"https://huggingface.co/{repo_id}/blob/main/{self.SAFETENSORS_FILE}",
+            config=config_dir,
+            subfolder="transformer",
             torch_dtype=compute_dtype,
+            low_cpu_mem_usage=False,
         )
 
         return self.transformer
