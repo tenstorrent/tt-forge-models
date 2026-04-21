@@ -34,7 +34,6 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DAYHOFF_170M_GRS_76000: LLMModelConfig(
             pretrained_model_name="microsoft/Dayhoff-170M-GRS-76000",
-            max_length=50,
         ),
     }
 
