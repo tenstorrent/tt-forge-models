@@ -8,6 +8,7 @@ VideoMAE model loader implementation for video feature extraction.
 from typing import Optional
 
 import numpy as np
+import torch
 from transformers import VideoMAEForPreTraining, VideoMAEImageProcessor
 
 from ...base import ForgeModel
@@ -96,9 +97,21 @@ class ModelLoader(ForgeModel):
                 k: v.repeat_interleave(batch_size, dim=0) for k, v in inputs.items()
             }
 
+        # VideoMAEForPreTraining requires bool_masked_pos indicating which patches are masked
+        model_config = VideoMAEForPreTraining.config_class.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+        seq_length = (model_config.num_frames // model_config.tubelet_size) * (
+            model_config.image_size // model_config.patch_size
+        ) ** 2
+        inputs["bool_masked_pos"] = torch.randint(0, 2, (batch_size, seq_length)).bool()
+
         if dtype_override:
             inputs = {
-                k: cast_input_to_type(v, dtype_override) for k, v in inputs.items()
+                k: cast_input_to_type(v, dtype_override)
+                if k != "bool_masked_pos"
+                else v
+                for k, v in inputs.items()
             }
 
         return dict(inputs)
