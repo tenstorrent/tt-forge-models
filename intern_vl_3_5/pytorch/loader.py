@@ -126,7 +126,7 @@ class ModelVariant(StrEnum):
     INTERN_VL3_5_2B_INSTRUCT = "2B_Instruct"
     INTERN_VL3_5_GPT_OSS_20B_A4B = "GPT_OSS_20B_A4B"
     INTERN_VL3_5_14B = "14B"
-    INTERN_VL3_5_38B_INSTRUCT = "38B_Instruct"
+    INTERN_VL3_5_8B_FP8_DYNAMIC = "8B_FP8_Dynamic"
 
 
 class ModelLoader(ForgeModel):
@@ -151,8 +151,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.INTERN_VL3_5_14B: LLMModelConfig(
             pretrained_model_name="OpenGVLab/InternVL3_5-14B",
         ),
-        ModelVariant.INTERN_VL3_5_38B_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="OpenGVLab/InternVL3_5-38B-Instruct",
+        ModelVariant.INTERN_VL3_5_8B_FP8_DYNAMIC: LLMModelConfig(
+            pretrained_model_name="brandonbeiler/InternVL3_5-8B-FP8-Dynamic",
         ),
     }
 
