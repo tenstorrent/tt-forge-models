@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Gemma 3 12B QAT GGUF model variants for causal language modeling."""
 
     GEMMA_3_12B_IT_QAT_GGUF = "12B_IT_QAT_GGUF"
+    DAMPFINCHEN_GEMMA_3_12B_IT_QAT_GGUF = "Dampfinchen_12B_IT_QAT_GGUF_small_fix"
 
 
 class ModelLoader(ForgeModel):
@@ -34,13 +35,24 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="lmstudio-community/gemma-3-12B-it-qat-GGUF",
             max_length=128,
         ),
+        ModelVariant.DAMPFINCHEN_GEMMA_3_12B_IT_QAT_GGUF: LLMModelConfig(
+            pretrained_model_name="Dampfinchen/google-gemma-3-12b-it-qat-q4_0-gguf-small-fix",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_12B_IT_QAT_GGUF
 
-    GGUF_FILE = "gemma-3-12B-it-QAT-Q4_0.gguf"
+    _GGUF_FILES = {
+        ModelVariant.GEMMA_3_12B_IT_QAT_GGUF: "gemma-3-12B-it-QAT-Q4_0.gguf",
+        ModelVariant.DAMPFINCHEN_GEMMA_3_12B_IT_QAT_GGUF: "gemma-3-12b-it-q4_0_s.gguf",
+    }
 
     sample_text = "What is your favorite city?"
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -65,7 +77,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +97,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -154,6 +166,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
