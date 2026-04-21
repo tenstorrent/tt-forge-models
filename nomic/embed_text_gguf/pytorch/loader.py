@@ -68,9 +68,8 @@ def _load_model_from_gguf(pretrained_model_name, gguf_file, config_repo, model_k
         if hf_name is None:
             continue
         weights = dequantize(tensor.data, tensor.tensor_type)
+        # dequantize returns tensors already in PyTorch (row-major, [out, in]) convention.
         pt = torch.from_numpy(weights.copy())
-        if pt.ndim == 2:
-            pt = pt.T
         # Pad vocabulary dimension if the model uses a rounded vocab size.
         if hf_name == "embeddings.word_embeddings.weight":
             target_vocab = model_sd[hf_name].shape[0]
