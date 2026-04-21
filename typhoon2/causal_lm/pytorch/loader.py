@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available Typhoon2 model variants for causal language modeling."""
 
     TYPHOON2_8B_INSTRUCT = "8B_Instruct"
+    TYPHOON2_5_QWEN3_30B_A3B = "2.5_Qwen3_30B_A3B"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.TYPHOON2_8B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="typhoon-ai/llama3.1-typhoon2-8b-instruct",
+            max_length=128,
+        ),
+        ModelVariant.TYPHOON2_5_QWEN3_30B_A3B: LLMModelConfig(
+            pretrained_model_name="typhoon-ai/typhoon2.5-qwen3-30b-a3b",
             max_length=128,
         ),
     }
