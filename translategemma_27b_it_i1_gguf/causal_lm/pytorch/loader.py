@@ -40,7 +40,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "translategemma-27b-it.i1-Q4_K_M.gguf"
 
-    sample_text = "Translate the following English text to French: Hello, how are you today?"
+    sample_text = (
+        "Translate the following English text to French: Hello, how are you today?"
+    )
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
