@@ -36,6 +36,7 @@ class ModelVariant(StrEnum):
     """Available MaxViT model variants."""
 
     MAXVIT_BASE_TF_512_IN1K = "MaxViT_Base_TF_512_IN1K"
+    MAXVIT_BASE_TF_224_IN1K = "MaxViT_Base_TF_224_IN1K"
 
 
 class ModelLoader(ForgeModel):
@@ -44,6 +45,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MAXVIT_BASE_TF_512_IN1K: MaxViTConfig(
             pretrained_model_name="maxvit_base_tf_512.in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.MAXVIT_BASE_TF_224_IN1K: MaxViTConfig(
+            pretrained_model_name="maxvit_base_tf_224.in1k",
             source=ModelSource.TIMM,
         ),
     }
