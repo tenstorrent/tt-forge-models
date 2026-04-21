@@ -4,9 +4,28 @@
 """
 Mixtral 8x7B MoE RP Story GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.utils.import_utils as _import_utils
+
+
+def _patched_is_gguf_available(min_version="0.10.0"):
+    try:
+        from packaging import version
+
+        v = importlib.metadata.version("gguf")
+        return version.parse(v) >= version.parse(min_version)
+    except Exception:
+        return False
+
+
+_import_utils.is_gguf_available = _patched_is_gguf_available
+_gguf_utils.is_gguf_available = _patched_is_gguf_available
 
 from ....base import ForgeModel
 from ....config import (
