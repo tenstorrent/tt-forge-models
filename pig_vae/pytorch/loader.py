@@ -5,10 +5,9 @@
 """
 Pig VAE model loader implementation.
 
-Loads the calcuis/pig-vae GGUF-format VAE models using diffusers'
-GGUF quantization support. These are standard VAE architectures
-(e.g. Stable Diffusion AutoencoderKL) distributed in GGUF format
-for efficient storage and inference.
+Loads the calcuis/pig-vae GGUF-format VAE models using manual GGUF
+dequantization. These are VAE architectures with 16 latent channels
+(vs standard SD VAE's 4) distributed in GGUF format.
 
 Available variants:
 - SD_VAE_FP16: Stable Diffusion VAE in fp16 GGUF format
@@ -17,8 +16,9 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import AutoencoderKL, GGUFQuantizationConfig  # type: ignore[import]
-from huggingface_hub import hf_hub_download  # type: ignore[import]
+from diffusers import AutoencoderKL
+from gguf import GGMLQuantizationType, GGUFReader, dequantize
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -33,16 +33,30 @@ from ...config import (
 
 REPO_ID = "calcuis/pig-vae"
 
-# Variant-specific GGUF filenames
 SD_VAE_FILENAME = "pig_sd_vae_fp32-f16.gguf"
 
-# SD VAE config source for architecture definition
-SD_VAE_CONFIG = "stabilityai/sd-vae-ft-mse"
+LATENT_CHANNELS = 16
+IMAGE_CHANNELS = 3
+IMAGE_HEIGHT = 512
+IMAGE_WIDTH = 512
 
-# SD VAE latent space: 4 channels, 8x spatial compression
-LATENT_CHANNELS = 4
-LATENT_HEIGHT = 64
-LATENT_WIDTH = 64
+
+def _load_gguf_as_state_dict(gguf_path, model_state_dict):
+    reader = GGUFReader(gguf_path)
+    state_dict = {}
+    for tensor in reader.tensors:
+        data = tensor.data
+        if tensor.tensor_type not in (
+            GGMLQuantizationType.F32,
+            GGMLQuantizationType.F16,
+        ):
+            data = dequantize(data, tensor.tensor_type)
+        weights = torch.from_numpy(data.copy()).float()
+        if tensor.name in model_state_dict:
+            expected_shape = model_state_dict[tensor.name].shape
+            weights = weights.reshape(expected_shape)
+        state_dict[tensor.name] = weights
+    return state_dict
 
 
 class ModelVariant(StrEnum):
@@ -79,36 +93,40 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the Pig VAE model from GGUF format.
-
-        Returns:
-            AutoencoderKL instance loaded from GGUF checkpoint.
-        """
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._vae is None:
             gguf_path = hf_hub_download(REPO_ID, SD_VAE_FILENAME)
-            self._vae = AutoencoderKL.from_single_file(
-                gguf_path,
-                config=SD_VAE_CONFIG,
-                quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
-                torch_dtype=dtype,
+
+            vae = AutoencoderKL(
+                in_channels=3,
+                out_channels=3,
+                down_block_types=("DownEncoderBlock2D",) * 4,
+                up_block_types=("UpDecoderBlock2D",) * 4,
+                block_out_channels=(128, 256, 512, 512),
+                latent_channels=LATENT_CHANNELS,
+                layers_per_block=2,
+                norm_num_groups=32,
+                use_quant_conv=False,
+                use_post_quant_conv=False,
             )
-            self._vae.eval()
+
+            gguf_state_dict = _load_gguf_as_state_dict(gguf_path, vae.state_dict())
+            vae.load_state_dict(gguf_state_dict, strict=False)
+            vae = vae.to(dtype=dtype)
+            vae.eval()
+            self._vae = vae
         elif dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
         return self._vae
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare latent inputs for the VAE decoder.
-
-        Returns:
-            Latent tensor of shape [batch, 4, 64, 64].
-        """
-        dtype = kwargs.get("dtype_override", torch.float32)
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        dtype = dtype_override if dtype_override is not None else torch.float32
         return torch.randn(
             1,
-            LATENT_CHANNELS,
-            LATENT_HEIGHT,
-            LATENT_WIDTH,
+            IMAGE_CHANNELS,
+            IMAGE_HEIGHT,
+            IMAGE_WIDTH,
             dtype=dtype,
         )
