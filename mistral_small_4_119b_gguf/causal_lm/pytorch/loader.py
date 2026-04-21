@@ -4,18 +4,21 @@
 """
 Mistral Small 4 119B GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+
+import os
 from typing import Optional
+
+import torch
+from transformers import AutoTokenizer, Mistral4Config, Mistral4ForCausalLM
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -40,6 +43,8 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "mistralai_Mistral-Small-4-119B-2603-Q4_K_M/mistralai_Mistral-Small-4-119B-2603-Q4_K_M-00001-of-00002.gguf"
 
+    BASE_MODEL = "mistralai/Mistral-Small-4-119B-2603"
+
     sample_text = "What is your favorite city?"
 
     def __init__(
@@ -61,43 +66,82 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+    def _build_config(self):
+        config = Mistral4Config(
+            hidden_size=4096,
+            intermediate_size=12288,
+            num_hidden_layers=36,
+            num_attention_heads=32,
+            num_key_value_heads=1,
+            vocab_size=131072,
+            max_position_embeddings=1048576,
+            rms_norm_eps=1e-6,
+            n_routed_experts=128,
+            num_experts_per_tok=4,
+            n_shared_experts=1,
+            moe_intermediate_size=2048,
+            q_lora_rank=1024,
+            kv_lora_rank=256,
+            qk_head_dim=128,
+            v_head_dim=128,
+            qk_rope_head_dim=64,
+            qk_nope_head_dim=64,
+            first_k_dense_replace=0,
+            n_group=1,
+            topk_group=1,
+            routed_scaling_factor=1.0,
+            norm_topk_prob=True,
+            rope_interleave=True,
+            rope_parameters={
+                "type": "yarn",
+                "rope_theta": 10000.0,
+                "factor": 128.0,
+                "original_max_position_embeddings": 8192,
+                "max_position_embeddings": 1048576,
+                "beta_fast": 32.0,
+                "beta_slow": 1.0,
+                "mscale_all_dim": 1.0,
+                "mscale": 1.0,
+                "llama_4_scaling_beta": 0.1,
+                "partial_rotary_factor": 0.5,
+                "rope_type": "yarn",
+            },
         )
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+        return config
+
+    def _load_tokenizer(self, dtype_override=None):
+        self.tokenizer = AutoTokenizer.from_pretrained(self.BASE_MODEL)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        config = self._build_config()
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+        if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+            model = Mistral4ForCausalLM(config).to(
+                dtype=model_kwargs.get("torch_dtype", torch.float32)
             )
-            config.num_hidden_layers = self.num_layers
+        else:
+            model_kwargs["gguf_file"] = self.GGUF_FILE
+            model_kwargs |= kwargs
             model_kwargs["config"] = config
+            from transformers import AutoModelForCausalLM
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            model = AutoModelForCausalLM.from_pretrained(
+                self._variant_config.pretrained_model_name, **model_kwargs
+            )
 
+        model = model.eval()
         self.config = model.config
         self.model = model
         return model
@@ -142,19 +186,18 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.q_a_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.q_b_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.kv_a_proj_with_mqa.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.kv_b_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.mlp.shared_experts.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.shared_experts.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.shared_experts.down_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        self.config = self._build_config()
         return self.config
