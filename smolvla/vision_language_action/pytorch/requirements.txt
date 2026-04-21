@@ -1,0 +1,3 @@
+lerobot[smolvla,transformers-dep]
+typing_inspect
+numpy<2.4
