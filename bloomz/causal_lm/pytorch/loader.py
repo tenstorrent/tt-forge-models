@@ -24,6 +24,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available BLOOMZ model variants for causal language modeling."""
 
+    BLOOMZ_1B1 = "1B1"
     BLOOMZ_7B1 = "7B1"
     BLOOMZ_176B = "176B"
 
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     """BLOOMZ model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
+        ModelVariant.BLOOMZ_1B1: LLMModelConfig(
+            pretrained_model_name="bigscience/bloomz-1b1",
+            max_length=128,
+        ),
         ModelVariant.BLOOMZ_7B1: LLMModelConfig(
             pretrained_model_name="bigscience/bloomz-7b1",
             max_length=128,
