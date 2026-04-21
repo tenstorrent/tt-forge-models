@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Chinese CLIP model variants for image-text similarity."""
 
     LARGE_PATCH14 = "Large_Patch14"
+    QA_CLIP_VIT_L_14 = "QA-CLIP-ViT-L-14"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LARGE_PATCH14: ModelConfig(
             pretrained_model_name="OFA-Sys/chinese-clip-vit-large-patch14",
+        ),
+        ModelVariant.QA_CLIP_VIT_L_14: ModelConfig(
+            pretrained_model_name="TencentARC/QA-CLIP-ViT-L-14",
         ),
     }
 
