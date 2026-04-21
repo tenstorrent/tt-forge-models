@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
     GEMMA_3_4B_IT_BNB_4BIT = "4B_Instruct_bnb_4bit"
     GEMMA_3_1B_IT_AWQ_INT4 = "1B_Instruct_awq_int4"
     GEMMA_3_4B_IT_MAMAYLM_V1 = "4B_Instruct_MamayLM_v1"
+    GEMMA_3_12B_CLAUDE_REASONING = "12B_Claude_3_7_Sonnet_Reasoning"
 
 
 class ModelLoader(ForgeModel):
@@ -85,6 +86,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="INSAIT-Institute/MamayLM-Gemma-3-4B-IT-v1.0",
             max_length=256,
         ),
+        ModelVariant.GEMMA_3_12B_CLAUDE_REASONING: LLMModelConfig(
+            pretrained_model_name="reedmayhew/claude-3.7-sonnet-reasoning-gemma3-12B",
+            max_length=256,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_270M_IT
@@ -110,6 +115,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_3_4B_IT_BNB_4BIT,
             ModelVariant.GEMMA_3_1B_IT_AWQ_INT4,
             ModelVariant.GEMMA_3_4B_IT_MAMAYLM_V1,
+            ModelVariant.GEMMA_3_12B_CLAUDE_REASONING,
         ):
             group = ModelGroup.VULCAN
         else:
