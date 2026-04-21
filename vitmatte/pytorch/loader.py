@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available ViTMatte model variants."""
 
     SMALL_COMPOSITION_1K = "Small_Composition_1k"
+    BASE_DISTINCTIONS_646 = "Base_Distinctions_646"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SMALL_COMPOSITION_1K: ModelConfig(
             pretrained_model_name="hustvl/vitmatte-small-composition-1k",
+        ),
+        ModelVariant.BASE_DISTINCTIONS_646: ModelConfig(
+            pretrained_model_name="hustvl/vitmatte-base-distinctions-646",
         ),
     }
 
