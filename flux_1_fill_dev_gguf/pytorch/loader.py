@@ -27,7 +27,7 @@ from ...config import (
 )
 
 GGUF_REPO = "YarvixPA/FLUX.1-Fill-dev-GGUF"
-BASE_REPO = "black-forest-labs/FLUX.1-Fill-dev"
+BASE_REPO = "camenduru/FLUX.1-Fill-dev-ungated"
 
 
 class ModelVariant(StrEnum):
