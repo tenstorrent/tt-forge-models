@@ -46,8 +46,8 @@ class ModelVariant(StrEnum):
     # Gemma 2.x (Efficient-Large-Model)
     ELM_GEMMA_2_2B_IT = "ELM_2_2B_IT"
 
-    # Gemma 7B fine-tunes (MoxoffSrL Italian)
-    MOXOFF_VOLARE = "MOXOFF_VOLARE"
+    # Gemma 7B fine-tunes (Moxoff Volare - Italian RAG SFT/LoRA)
+    VOLARE = "VOLARE"
 
 
 class ModelLoader(ForgeModel):
@@ -100,7 +100,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.ELM_GEMMA_2_2B_IT: LLMModelConfig(
             pretrained_model_name="Efficient-Large-Model/gemma-2-2b-it",
         ),
-        ModelVariant.MOXOFF_VOLARE: LLMModelConfig(
+        ModelVariant.VOLARE: LLMModelConfig(
             pretrained_model_name="MoxoffSrL/Volare",
             max_length=256,
         ),
@@ -135,7 +135,7 @@ class ModelLoader(ForgeModel):
         if variant in (
             ModelVariant.GEMMA_2B_IT,
             ModelVariant.GEMMA_7B,
-            ModelVariant.MOXOFF_VOLARE,
+            ModelVariant.VOLARE,
         ):
             group = ModelGroup.VULCAN
         elif any(x in variant.value for x in ["IT", "7B", "9B", "27B"]):
