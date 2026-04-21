@@ -4,10 +4,12 @@
 """
 ChemBERTa model loader implementation for sequence classification (regression).
 
-ChemBERTa-5M-MTR is a small RoBERTa-based model trained for multi-task regression
-on molecular properties from SMILES strings.
+ChemBERTa-*-MTR models are small RoBERTa-based models trained for multi-task
+regression on molecular properties from SMILES strings.
 
-Reference: https://huggingface.co/DeepChem/ChemBERTa-5M-MTR
+References:
+- https://huggingface.co/DeepChem/ChemBERTa-5M-MTR
+- https://huggingface.co/DeepChem/ChemBERTa-10M-MTR
 """
 
 from typing import Optional
@@ -31,6 +33,7 @@ class ModelVariant(StrEnum):
     """Available ChemBERTa model variants for sequence classification."""
 
     CHEMBERTA_5M_MTR = "ChemBERTa_5M_MTR"
+    CHEMBERTA_10M_MTR = "ChemBERTa_10M_MTR"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +42,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.CHEMBERTA_5M_MTR: ModelConfig(
             pretrained_model_name="DeepChem/ChemBERTa-5M-MTR",
+        ),
+        ModelVariant.CHEMBERTA_10M_MTR: ModelConfig(
+            pretrained_model_name="DeepChem/ChemBERTa-10M-MTR",
         ),
     }
 
