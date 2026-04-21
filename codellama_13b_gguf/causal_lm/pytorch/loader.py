@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available CodeLlama 13B GGUF model variants for causal language modeling."""
 
-    CODELLAMA_13B_Q4_K_M_GGUF = "CODELLAMA_13B_Q4_K_M_GGUF"
+    CODELLAMA_13B_Q4_K_M_GGUF = "CodeLlama_13B_Q4_K_M_GGUF"
 
 
 class ModelLoader(ForgeModel):
