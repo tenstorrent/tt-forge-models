@@ -17,6 +17,11 @@ from third_party.tt_forge_models.config import (
 )
 from third_party.tt_forge_models.base import ForgeModel
 
+_SAMPLE_TEXTS = {
+    "dbmdz/bert-base-german-uncased": "Die Hauptstadt von Deutschland ist [MASK].",
+    "indobenchmark/indobert-large-p1": "Ibu kota Indonesia adalah [MASK].",
+}
+
 
 class ModelVariant(StrEnum):
     """Available BERT model variants for masked language modeling."""
@@ -32,14 +37,7 @@ class ModelVariant(StrEnum):
     LEGAL_BERT_BASE_UNCASED = "nlpaueb/legal-bert-base-uncased"
     RETROMAE_MSMARCO_DISTILL = "Shitao/RetroMAE_MSMARCO_distill"
     BERT_LARGE_UNCASED_WWM = "Large_Uncased_Whole_Word_Masking"
-    BERT_BASE_DUTCH_CASED = "wietsedv/bert-base-dutch-cased"
-    CHINESE_MACBERT_LARGE = "hfl/chinese-macbert-large"
-
-
-_SAMPLE_TEXTS = {
-    ModelVariant.BERT_BASE_DUTCH_CASED: "Amsterdam is de hoofdstad van [MASK].",
-    ModelVariant.CHINESE_MACBERT_LARGE: "巴黎是[MASK]国的首都。",
-}
+    INDOBERT_LARGE_P1 = "indobenchmark/indobert-large-p1"
 
 
 class ModelLoader(ForgeModel):
@@ -91,12 +89,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bert-large-uncased-whole-word-masking",
             max_length=128,
         ),
-        ModelVariant.BERT_BASE_DUTCH_CASED: LLMModelConfig(
-            pretrained_model_name="wietsedv/bert-base-dutch-cased",
-            max_length=128,
-        ),
-        ModelVariant.CHINESE_MACBERT_LARGE: LLMModelConfig(
-            pretrained_model_name="hfl/chinese-macbert-large",
+        ModelVariant.INDOBERT_LARGE_P1: LLMModelConfig(
+            pretrained_model_name="indobenchmark/indobert-large-p1",
             max_length=128,
         ),
     }
@@ -146,8 +140,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LEGAL_BERT_BASE_UNCASED,
             ModelVariant.RETROMAE_MSMARCO_DISTILL,
             ModelVariant.BERT_LARGE_UNCASED_WWM,
-            ModelVariant.BERT_BASE_DUTCH_CASED,
-            ModelVariant.CHINESE_MACBERT_LARGE,
+            ModelVariant.INDOBERT_LARGE_P1,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
