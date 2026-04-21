@@ -131,7 +131,6 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
         self.config = model.config
-
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -154,14 +153,14 @@ class ModelLoader(ForgeModel):
         # Use chat template for QwQ-32B
         messages = [{"role": "user", "content": self.sample_text}]
         text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True, enable_thinking=True
+            messages, tokenize=False, add_generation_prompt=True
         )
         prompts = [text]
 
         inputs = self.tokenizer(
             prompts,
             return_tensors="pt",
-            padding="max_length",
+            padding=True,
             truncation=True,
             max_length=max_length,
         )
@@ -170,7 +169,6 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
         return inputs
 
     def get_mesh_config(self, num_devices: int):
