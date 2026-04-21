@@ -105,9 +105,7 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        prompt = (
-            "### Instruction:\n" f"{self.sample_text.strip()}\n\n" "### Response:\n"
-        )
+        prompt = f"### Instruction:\n{self.sample_text.strip()}\n\n### Response:\n"
 
         inputs = self.tokenizer(
             prompt,
