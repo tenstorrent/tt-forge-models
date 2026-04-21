@@ -23,6 +23,7 @@ class ModelVariant(StrEnum):
     """Available Flair NER German model variants."""
 
     NER_GERMAN = "NER_German"
+    NER_GERMAN_LEGAL = "NER_German_Legal"
 
 
 class ModelLoader(ForgeModel):
@@ -32,14 +33,30 @@ class ModelLoader(ForgeModel):
         ModelVariant.NER_GERMAN: ModelConfig(
             pretrained_model_name="flair/ner-german",
         ),
+        ModelVariant.NER_GERMAN_LEGAL: ModelConfig(
+            pretrained_model_name="flair/ner-german-legal",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.NER_GERMAN
 
+    _SAMPLE_TEXTS = {
+        ModelVariant.NER_GERMAN: "George Washington ging nach Washington",
+        ModelVariant.NER_GERMAN_LEGAL: "Herr W. verstieß gegen § 36 Abs. 7 IfSG.",
+    }
+
+    # The legal model is trained on pre-tokenized text (see model card),
+    # so disable Flair's tokenizer for that variant.
+    _USE_TOKENIZER = {
+        ModelVariant.NER_GERMAN: True,
+        ModelVariant.NER_GERMAN_LEGAL: False,
+    }
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.model_name = self._variant_config.pretrained_model_name
-        self.sample_text = "George Washington ging nach Washington"
+        self.sample_text = self._SAMPLE_TEXTS[self._variant]
+        self.use_tokenizer = self._USE_TOKENIZER[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -69,13 +86,13 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         from flair.data import Sentence
 
-        sentence = Sentence(self.sample_text)
+        sentence = Sentence(self.sample_text, use_tokenizer=self.use_tokenizer)
         return [sentence]
 
     def decode_output(self, co_out):
         from flair.data import Sentence
 
-        sentence = Sentence(self.sample_text)
+        sentence = Sentence(self.sample_text, use_tokenizer=self.use_tokenizer)
         self.model.predict(sentence)
 
         entities = []
