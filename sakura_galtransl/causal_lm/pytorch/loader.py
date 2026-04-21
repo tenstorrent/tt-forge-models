@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Sakura GalTransl model variants for causal language modeling."""
 
     SAKURA_GALTRANSL_7B_V3_7 = "GalTransl_7B_v3.7"
+    SAKURA_GALTRANSL_V4_4B_2601_GGUF = "GalTransl_v4_4B_2601_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -35,10 +36,19 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="SakuraLLM/Sakura-GalTransl-7B-v3.7",
             max_length=128,
         ),
+        ModelVariant.SAKURA_GALTRANSL_V4_4B_2601_GGUF: LLMModelConfig(
+            pretrained_model_name="SakuraLLM/GalTransl-v4-4B-2601",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.SAKURA_GALTRANSL_7B_V3_7
+
+    # Per-variant GGUF file names for variants distributed as GGUF only.
+    _GGUF_FILES = {
+        ModelVariant.SAKURA_GALTRANSL_V4_4B_2601_GGUF: "Galtransl-v4-4B-2601.gguf",
+    }
 
     # Shared configuration parameters
     sample_text = "Give me a short introduction to large language model."
@@ -90,11 +100,15 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        if self._variant in self._GGUF_FILES:
+            tokenizer_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
@@ -120,9 +134,14 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+        if self._variant in self._GGUF_FILES:
+            model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config_kwargs = {}
+            if self._variant in self._GGUF_FILES:
+                config_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
+            config = AutoConfig.from_pretrained(pretrained_model_name, **config_kwargs)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -209,8 +228,11 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the model.
         """
+        config_kwargs = {}
+        if self._variant in self._GGUF_FILES:
+            config_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
 
         return self.config
