@@ -53,6 +53,7 @@ class ModelVariant(StrEnum):
     QIAW99_QWEN_2_5_7B_INSTRUCT_OPENBOOKQA_DPO_C_NEW = (
         "qiaw99_7B_Instruct_OpenbookQA_DPO_C_new"
     )
+    PRIME_RL_EURUS_2_7B_SFT = "prime_rl_Eurus_2_7B_SFT"
 
 
 class ModelLoader(ForgeModel):
@@ -163,6 +164,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="qiaw99/Qwen2.5-7B-Instruct-OpenbookQA-DPO-C-new",
             max_length=128,
         ),
+        # PRIME-RL SFT fine-tune of Qwen2.5-Math-7B-Base for math/code reasoning
+        ModelVariant.PRIME_RL_EURUS_2_7B_SFT: LLMModelConfig(
+            pretrained_model_name="PRIME-RL/Eurus-2-7B-SFT",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -219,6 +225,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_2_5_1_5B_QUANTIZED_W8A8,
             ModelVariant.UNSLOTH_QWEN_2_5_3B_INSTRUCT,
             ModelVariant.QIAW99_QWEN_2_5_7B_INSTRUCT_OPENBOOKQA_DPO_C_NEW,
+            ModelVariant.PRIME_RL_EURUS_2_7B_SFT,
         ]:
             group = ModelGroup.VULCAN
 
