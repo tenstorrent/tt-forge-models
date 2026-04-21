@@ -13,9 +13,11 @@ Available variants:
 - SEEDVR2_7B_SHARP: Sharper variant (seedvr2_ema_7b_sharp.pth)
 """
 
+import os
+import subprocess
 import sys
+import types
 from typing import Optional
-
 import torch
 from huggingface_hub import snapshot_download
 
@@ -30,36 +32,56 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "ByteDance-Seed/SeedVR2-7B"
+HF_REPO_ID = "ByteDance-Seed/SeedVR2-7B"
+GITHUB_REPO_URL = "https://github.com/ByteDance-Seed/SeedVR.git"
+CACHE_DIR = os.path.join(
+    os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
+    "seedvr2_src",
+)
 
-# NaDiT model input dimensions for testing
-# The model operates in latent space: patch_size [1, 2, 2],
-# VAE compression 4x temporal / 8x spatial, 16 latent channels
 LATENT_CHANNELS = 16
 CONDITION_CHANNELS = 16
 MASK_CHANNELS = 1
 INPUT_CHANNELS = LATENT_CHANNELS + CONDITION_CHANNELS + MASK_CHANNELS  # 33
 LATENT_HEIGHT = 8
 LATENT_WIDTH = 8
-LATENT_DEPTH = 4  # temporal frames in latent space
+LATENT_DEPTH = 4
+
+
+def _ensure_repo_cloned():
+    if not os.path.isdir(os.path.join(CACHE_DIR, ".git")):
+        subprocess.run(
+            ["git", "clone", "--depth", "1", GITHUB_REPO_URL, CACHE_DIR],
+            check=True,
+            capture_output=True,
+        )
+    if CACHE_DIR not in sys.path:
+        sys.path.insert(0, CACHE_DIR)
+
+
+def _flash_attn_varlen_stub(q, k, v, *args, **kwargs):
+    return torch.zeros_like(q)
+
+
+def _mock_flash_attn():
+    if "flash_attn" not in sys.modules:
+        mock = types.ModuleType("flash_attn")
+        mock.flash_attn_varlen_func = _flash_attn_varlen_stub
+        sys.modules["flash_attn"] = mock
 
 
 class ModelVariant(StrEnum):
-    """Available SeedVR2 model variants."""
-
     SEEDVR2_7B = "7B"
     SEEDVR2_7B_SHARP = "7B_Sharp"
 
 
 class ModelLoader(ForgeModel):
-    """ByteDance SeedVR2-7B video restoration model loader."""
-
     _VARIANTS = {
         ModelVariant.SEEDVR2_7B: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name=HF_REPO_ID,
         ),
         ModelVariant.SEEDVR2_7B_SHARP: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name=HF_REPO_ID,
         ),
     }
 
@@ -67,7 +89,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._repo_path = None
+        self._hf_path = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -82,41 +104,36 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _get_repo_path(self):
-        """Download the SeedVR2 repository and return its local path."""
-        if self._repo_path is None:
-            self._repo_path = snapshot_download(repo_id=REPO_ID)
-        return self._repo_path
+    def _get_hf_path(self):
+        if self._hf_path is None:
+            self._hf_path = snapshot_download(repo_id=HF_REPO_ID)
+        return self._hf_path
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SeedVR2-7B NaDiT model.
-
-        Downloads the model repository, imports the custom NaDiT architecture,
-        and loads the pretrained weights.
-
-        Returns:
-            torch.nn.Module: The NaDiT diffusion transformer model.
-        """
         from omegaconf import OmegaConf
 
-        repo_path = self._get_repo_path()
+        _mock_flash_attn()
+        _ensure_repo_cloned()
 
-        # Add repo to path for custom module imports
-        if repo_path not in sys.path:
-            sys.path.insert(0, repo_path)
+        OmegaConf.register_new_resolver("eval", eval, replace=True)
+        config = OmegaConf.load(os.path.join(CACHE_DIR, "configs_7b", "main.yaml"))
+        dit_params = OmegaConf.to_container(config.dit.model, resolve=True)
+        dit_params.pop("__object__", None)
+        # FusedRMSNorm requires NVIDIA Apex (CUDA-only); use diffusers RMSNorm
+        if dit_params.get("norm") == "fusedrms":
+            dit_params["norm"] = "rms"
+        if dit_params.get("qk_norm") == "fusedrms":
+            dit_params["qk_norm"] = "rms"
 
-        from utils.utils import instantiate_from_config
+        from models.dit.nadit import NaDiT
 
-        config = OmegaConf.load(f"{repo_path}/configs_7b/main.yaml")
+        model = NaDiT(**dit_params)
 
-        # Instantiate the NaDiT model from config
-        model = instantiate_from_config(config.model.dit)
-
-        # Load pretrained weights
+        hf_path = self._get_hf_path()
         if self._variant == ModelVariant.SEEDVR2_7B_SHARP:
-            ckpt_path = f"{repo_path}/seedvr2_ema_7b_sharp.pth"
+            ckpt_path = os.path.join(hf_path, "seedvr2_ema_7b_sharp.pth")
         else:
-            ckpt_path = f"{repo_path}/seedvr2_ema_7b.pth"
+            ckpt_path = os.path.join(hf_path, "seedvr2_ema_7b.pth")
 
         state_dict = torch.load(ckpt_path, map_location="cpu", weights_only=True)
         model.load_state_dict(state_dict)
@@ -128,43 +145,26 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Load synthetic latent-space inputs for the SeedVR2 NaDiT model.
-
-        Creates synthetic inputs matching the model's expected format:
-        - x: noised latent tensor [batch, channels, depth, height, width]
-        - timestep: diffusion timestep
-        - context: text conditioning embeddings
-        - y: pooled text embeddings
-
-        Returns:
-            dict: Input tensors for the NaDiT forward pass.
-        """
         dtype = dtype_override if dtype_override is not None else torch.float32
-        repo_path = self._get_repo_path()
+        txt_len = 77
+        txt_dim = 5120
 
-        # Load pre-computed text embeddings
-        pos_emb = torch.load(
-            f"{repo_path}/pos_emb.pt", map_location="cpu", weights_only=True
+        vid = torch.randn(
+            LATENT_DEPTH * LATENT_HEIGHT * LATENT_WIDTH,
+            INPUT_CHANNELS,
+            dtype=dtype,
         )
-
-        # x: concatenated [noise, condition_latents, mask] along channel dim
-        x = torch.randn(
-            1, INPUT_CHANNELS, LATENT_DEPTH, LATENT_HEIGHT, LATENT_WIDTH, dtype=dtype
+        vid_shape = torch.tensor(
+            [[LATENT_DEPTH, LATENT_HEIGHT, LATENT_WIDTH]], dtype=torch.long
         )
-
-        # Single-step diffusion: timestep = 1.0
+        txt = torch.randn(txt_len, txt_dim, dtype=dtype)
+        txt_shape = torch.tensor([[txt_len]], dtype=torch.long)
         timestep = torch.tensor([1.0], dtype=dtype)
 
-        # Text context from pre-computed embeddings (dim 5120)
-        if isinstance(pos_emb, dict):
-            context = pos_emb.get("context", torch.randn(1, 77, 5120, dtype=dtype))
-            y = pos_emb.get("y", torch.randn(1, 5120, dtype=dtype))
-        else:
-            context = pos_emb if pos_emb.dim() == 3 else pos_emb.unsqueeze(0)
-            y = torch.randn(1, 5120, dtype=dtype)
-
-        if dtype_override is not None:
-            context = context.to(dtype=dtype_override)
-            y = y.to(dtype=dtype_override)
-
-        return {"x": x, "timestep": timestep, "context": context, "y": y}
+        return {
+            "vid": vid,
+            "txt": txt,
+            "vid_shape": vid_shape,
+            "txt_shape": txt_shape,
+            "timestep": timestep,
+        }
