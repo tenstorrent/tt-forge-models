@@ -41,6 +41,7 @@ class ModelVariant(StrEnum):
 
     FEMTO_FCMAE_FT_IN1K = "Femto_FCMAE_FT_IN1K"
     NANO_FCMAE_FT_IN22K_IN1K = "Nano_FCMAE_FT_IN22K_IN1K"
+    BASE_FCMAE = "Base_FCMAE"
     BASE_1K_224 = "Base_1K_224"
     LARGE_FOOD101 = "Large_Food101"
     TEST_R160_IN1K = "Test_R160_IN1K"
@@ -56,6 +57,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.NANO_FCMAE_FT_IN22K_IN1K: ConvNeXtV2Config(
             pretrained_model_name="hf_hub:timm/convnextv2_nano.fcmae_ft_in22k_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.BASE_FCMAE: ConvNeXtV2Config(
+            pretrained_model_name="hf_hub:timm/convnextv2_base.fcmae",
             source=ModelSource.TIMM,
         ),
         ModelVariant.BASE_1K_224: ConvNeXtV2Config(
