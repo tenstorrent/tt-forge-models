@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     """Available Cosmos Reason 2 model variants."""
 
     COSMOS_REASON2_2B = "2b"
+    EMBEDL_COSMOS_REASON2_2B_W4A16_EDGE2_FLASHHEAD = "embedl_2b_w4a16_edge2_flashhead"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.COSMOS_REASON2_2B: LLMModelConfig(
             pretrained_model_name="nvidia/Cosmos-Reason2-2B",
+            max_length=128,
+        ),
+        ModelVariant.EMBEDL_COSMOS_REASON2_2B_W4A16_EDGE2_FLASHHEAD: LLMModelConfig(
+            pretrained_model_name="embedl/Cosmos-Reason2-2B-W4A16-Edge2-FlashHead",
             max_length=128,
         ),
     }
