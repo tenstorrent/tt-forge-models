@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3 DFlash model variants for causal language modeling."""
 
     QWEN_3_4B_DFLASH_B16 = "4B_DFlash_b16"
+    QWEN_3_5_35B_A3B_DFLASH = "3_5_35B_A3B_DFlash"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_4B_DFLASH_B16: LLMModelConfig(
             pretrained_model_name="z-lab/Qwen3-4B-DFlash-b16",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_35B_A3B_DFLASH: LLMModelConfig(
+            pretrained_model_name="z-lab/Qwen3.5-35B-A3B-DFlash",
             max_length=128,
         ),
     }
