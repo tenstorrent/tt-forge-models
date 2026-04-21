@@ -32,6 +32,7 @@ class ModelVariant(StrEnum):
 
     QWEN_3_0_6B = "0_6B"
     QWEN_3_0_6B_BASE = "0_6B_Base"
+    QWEN_3_0_6B_GENSYN_SWARM_TALL_TAME_PANTHER = "0_6B_Gensyn_Swarm_tall_tame_panther"
     QWEN_3_1_7B = "1_7B"
     QWEN_3_4B = "4B"
     QWEN_3_4B_BASE = "4B_Base"
@@ -71,6 +72,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_0_6B_BASE: LLMModelConfig(
             pretrained_model_name="unsloth/Qwen3-0.6B-Base",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_0_6B_GENSYN_SWARM_TALL_TAME_PANTHER: LLMModelConfig(
+            pretrained_model_name="0xgr3y/Qwen3-0.6B-Gensyn-Swarm-tall_tame_panther",
             max_length=128,
         ),
         ModelVariant.QWEN_3_1_7B: LLMModelConfig(
@@ -243,6 +248,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_32B_GPTQ_INT4,
             ModelVariant.QWEN_3_32B_UNSLOTH_BNB_4BIT,
             ModelVariant.QWEN_3_235B_A22B_THINKING_2507_FP8,
+            ModelVariant.QWEN_3_0_6B_GENSYN_SWARM_TALL_TAME_PANTHER,
         ):
             group = ModelGroup.VULCAN
         else:
