@@ -35,6 +35,26 @@ def _compute_default_rope_parameters(config, device=None, **kwargs):
 if "default" not in ROPE_INIT_FUNCTIONS:
     ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
 
+
+def _patch_rotary_embedding_init():
+    from transformers import PreTrainedModel
+
+    original_init_weights = PreTrainedModel._init_weights
+
+    def patched_init_weights(self, module):
+        if "RotaryEmbedding" in module.__class__.__name__ and not hasattr(
+            module, "compute_default_rope_parameters"
+        ):
+            module.compute_default_rope_parameters = staticmethod(
+                _compute_default_rope_parameters
+            )
+        return original_init_weights(self, module)
+
+    PreTrainedModel._init_weights = patched_init_weights
+
+
+_patch_rotary_embedding_init()
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
