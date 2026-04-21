@@ -1,11 +1,8 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
 MiniMax-M2 GGUF model loader implementation for causal language modeling.
-
-GGUF-quantized release by lmstudio-community of MiniMaxAI/MiniMax-M2, a
-MiniMax-architecture MoE causal LM. The loader targets the Q4_K_M quantization.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -34,14 +31,14 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.MINIMAX_M2_Q4_K_M: LLMModelConfig(
-            pretrained_model_name="lmstudio-community/MiniMax-M2-GGUF",
+            pretrained_model_name="unsloth/MiniMax-M2-GGUF",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.MINIMAX_M2_Q4_K_M
 
-    GGUF_FILE = "MiniMax-M2-Q4_K_M-00001-of-00004.gguf"
+    GGUF_FILE = "Q4_K_M/MiniMax-M2-Q4_K_M-00001-of-00003.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
