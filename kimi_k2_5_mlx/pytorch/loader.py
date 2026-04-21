@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Kimi K2.5 MLX 3.6-bit quantized model loader implementation.
+Kimi K2.5 MLX quantized model loader implementation.
 
-Loads the inferencerlabs/Kimi-K2.5-MLX-3.6bit quantized variant of the
+Loads the inferencerlabs/Kimi-K2.5-MLX quantized variants of the
 Kimi K2.5 (DeepSeek V3 text backbone) for causal language modeling.
 """
 import os
@@ -90,13 +90,15 @@ class ModelVariant(StrEnum):
     """Available Kimi K2.5 MLX model variants."""
 
     KIMI_K2_5_MLX_3_6BIT = "Kimi-K2.5-MLX-3.6bit"
+    KIMI_K2_5_MLX_4_2BIT = "Kimi-K2.5-MLX-4.2bit"
 
 
 class ModelLoader(ForgeModel):
-    """Kimi K2.5 MLX 3.6-bit quantized model loader implementation."""
+    """Kimi K2.5 MLX quantized model loader implementation."""
 
     _VARIANTS = {
         ModelVariant.KIMI_K2_5_MLX_3_6BIT: None,
+        ModelVariant.KIMI_K2_5_MLX_4_2BIT: None,
     }
 
     DEFAULT_VARIANT = ModelVariant.KIMI_K2_5_MLX_3_6BIT
@@ -107,7 +109,10 @@ class ModelLoader(ForgeModel):
         num_layers: Optional[int] = None,
     ):
         super().__init__(variant)
-        self.model_name = "inferencerlabs/Kimi-K2.5-MLX-3.6bit"
+        if self._variant == ModelVariant.KIMI_K2_5_MLX_4_2BIT:
+            self.model_name = "inferencerlabs/Kimi-K2.5-MLX-4.2bit"
+        else:
+            self.model_name = "inferencerlabs/Kimi-K2.5-MLX-3.6bit"
         self.tokenizer = None
         self.text = "What is machine learning?"
         self.num_layers = num_layers
@@ -115,7 +120,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Kimi-K2.5-MLX-3.6bit",
+            model="Kimi-K2.5-MLX",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
