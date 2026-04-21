@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from opensora.models.stdit.stdit3 import STDiT3
+        from .src.model import STDiT3
 
         dtype = dtype_override if dtype_override is not None else torch.float32
 
