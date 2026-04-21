@@ -49,9 +49,6 @@ class ModelLoader(ForgeModel):
         ModelVariant.BIREFNET_512X512: ModelConfig(
             pretrained_model_name="ZhengPeng7/BiRefNet_512x512",
         ),
-        ModelVariant.BIREFNET_HRSOD: ModelConfig(
-            pretrained_model_name="ZhengPeng7/BiRefNet-HRSOD",
-        ),
     }
 
     # Default variant to use
