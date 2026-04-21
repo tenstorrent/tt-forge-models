@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available GLM-OCR model variants for image-to-text tasks."""
 
     GLM_OCR = "glm_ocr"
+    GLM_OCR_MLX_8BIT = "mlx_8bit"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GLM_OCR: LLMModelConfig(
             pretrained_model_name="zai-org/GLM-OCR",
+        ),
+        ModelVariant.GLM_OCR_MLX_8BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/GLM-OCR-8bit",
         ),
     }
 
