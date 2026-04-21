@@ -1,16 +1,15 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-RETFound_MAE model loader implementation for retinal image feature extraction.
+RETFound MAE model loader implementation for image feature extraction.
 """
-
-import timm
-from timm.data import resolve_data_config
-from timm.data.transforms_factory import create_transform
-from typing import Optional
+import torch
+from transformers import AutoImageProcessor, AutoModel
 from datasets import load_dataset
+from typing import Optional
 
+from ...base import ForgeModel
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -20,25 +19,24 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...base import ForgeModel
 
 
 class ModelVariant(StrEnum):
-    """Available RETFound_MAE model variants."""
+    """Available RETFound MAE model variants."""
 
-    RETFOUND_MAE = "RETFound_MAE"
+    NATURE_OCT = "nature_oct"
 
 
 class ModelLoader(ForgeModel):
-    """RETFound_MAE model loader implementation for retinal image feature extraction."""
+    """RETFound MAE model loader implementation for image feature extraction tasks."""
 
     _VARIANTS = {
-        ModelVariant.RETFOUND_MAE: ModelConfig(
-            pretrained_model_name="hf-hub:bitfount/RETFound_MAE",
+        ModelVariant.NATURE_OCT: ModelConfig(
+            pretrained_model_name="iszt/RETFound_mae_natureOCT",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.RETFOUND_MAE
+    DEFAULT_VARIANT = ModelVariant.NATURE_OCT
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -48,11 +46,11 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
-        self._cached_model = None
+        self.processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Get model information for dashboard and metrics reporting.
+        """Implementation method for getting model info with validated variant.
 
         Args:
             variant: Optional ModelVariant specifying which variant to use.
@@ -65,60 +63,70 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         return ModelInfo(
-            model="RETFound_MAE",
+            model="RETFound-MAE",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.CV_IMAGE_FE,
-            source=ModelSource.TIMM,
+            source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
+    def _load_processor(self):
+        """Load image processor for the current variant.
+
+        Returns:
+            The loaded processor instance
+        """
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        return self.processor
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the RETFound_MAE model instance.
+        """Load and return the RETFound MAE model instance.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            torch.nn.Module: The RETFound_MAE model instance.
+            torch.nn.Module: The RETFound MAE model instance for feature extraction.
         """
-        model_name = self._variant_config.pretrained_model_name
+        pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model = timm.create_model(model_name, pretrained=True)
-        model.eval()
-
+        model_kwargs = {}
         if dtype_override is not None:
-            model = model.to(dtype_override)
+            model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
-        self._cached_model = model
+        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        model.eval()
 
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the RETFound_MAE model.
+        """Load and return sample inputs for the RETFound MAE model.
 
         Args:
-            dtype_override: Optional torch.dtype to override the input dtype.
+            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
             batch_size: Batch size for the inputs.
 
         Returns:
-            torch.Tensor: Preprocessed input tensor.
+            dict: Input tensors that can be fed to the model.
         """
-        dataset = load_dataset("huggingface/cats-image", split="test")
-        image = dataset[0]["image"].convert("RGB")
+        if self.processor is None:
+            self._load_processor()
 
-        if self._cached_model is not None:
-            model_for_config = self._cached_model
-        else:
-            model_for_config = self.load_model(dtype_override=dtype_override)
+        dataset = load_dataset("huggingface/cats-image")["test"]
+        image = dataset[0]["image"]
 
-        data_config = resolve_data_config({}, model=model_for_config)
-        transforms = create_transform(**data_config)
-        inputs = transforms(image).unsqueeze(0)
+        inputs = self.processor(images=image, return_tensors="pt")
 
-        inputs = inputs.repeat_interleave(batch_size, dim=0)
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         if dtype_override is not None:
-            inputs = inputs.to(dtype_override)
+            for key in inputs:
+                if torch.is_tensor(inputs[key]) and inputs[key].dtype.is_floating_point:
+                    inputs[key] = inputs[key].to(dtype_override)
 
         return inputs
