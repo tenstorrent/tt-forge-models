@@ -4,6 +4,7 @@
 """
 SmolLM2 model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -26,6 +27,7 @@ class ModelVariant(StrEnum):
     SMOLLM2_135M = "smollm2_135m"
     SMOLLM2_360M = "smollm2_360m"
     SMOLLM2_360M_INSTRUCT = "smollm2_360m_instruct"
+    CYGNIS_ALPHA_1_7B_V0_1 = "cygnis_alpha_1_7b_v0_1"
 
 
 class ModelLoader(ForgeModel):
@@ -43,6 +45,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.SMOLLM2_360M_INSTRUCT: LLMModelConfig(
             pretrained_model_name="HuggingFaceTB/SmolLM2-360M-Instruct",
+            max_length=128,
+        ),
+        ModelVariant.CYGNIS_ALPHA_1_7B_V0_1: LLMModelConfig(
+            pretrained_model_name="Simonc-44/Cygnis-Alpha-1.7B-v0.1",
             max_length=128,
         ),
     }
