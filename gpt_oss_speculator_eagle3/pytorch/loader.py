@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the GPT-OSS 20B EAGLE3 speculator model.
+        """Load the GPT-OSS EAGLE3 speculator model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
@@ -90,7 +90,7 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         """Load sample inputs for the EAGLE3 speculator model.
 
-        The speculator takes hidden states from the verifier model (gpt-oss-20b)
+        The speculator takes hidden states from the verifier gpt-oss model
         and input token IDs.
 
         Args:
@@ -100,11 +100,12 @@ class ModelLoader(ForgeModel):
             dict: Input tensors containing hidden states and input IDs.
         """
         dtype = dtype_override or torch.bfloat16
-        hidden_size = 2880  # gpt-oss-20b hidden size
+        hidden_size = 2880
+        vocab_size = 201088
         seq_len = 1
 
         torch.manual_seed(42)
         hidden_states = torch.randn(1, seq_len, hidden_size, dtype=dtype)
-        input_ids = torch.randint(0, 201088, (1, seq_len))
+        input_ids = torch.randint(0, vocab_size, (1, seq_len))
 
         return {"hidden_states": hidden_states, "input_ids": input_ids}
