@@ -4,6 +4,11 @@
 """
 PLaMo-2 model loader implementation for causal language modeling.
 """
+
+from . import model_shims
+
+model_shims.install_shims()
+
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -115,12 +120,17 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # Remote model defines _tied_weights_keys as a list which is incompatible
+        # with transformers >=5.x that expects a dict.
+        config.tie_word_embeddings = False
+
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
