@@ -4,7 +4,6 @@
 """
 L3.3 Smog 70B i1 GGUF model loader implementation for causal language modeling.
 """
-
 from typing import Optional
 
 import torch
