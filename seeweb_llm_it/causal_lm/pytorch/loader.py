@@ -38,9 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.SEEWEBLLM_IT
 
-    sample_text = (
-        "### User:\nDescrivi cos' è l'intelligenza artificiale\n\n### Assistant:\n"
-    )
+    sample_text = "Mi chiamo Loreto e mi piace"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
