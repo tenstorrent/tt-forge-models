@@ -8,6 +8,20 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+# gguf lacks __version__ and is absent from transformers' PACKAGE_DISTRIBUTION_MAPPING,
+# causing is_gguf_available() to raise InvalidVersion when gguf is installed at runtime.
+try:
+    from transformers.utils.import_utils import (
+        PACKAGE_DISTRIBUTION_MAPPING,
+        is_gguf_available,
+    )
+
+    if "gguf" not in PACKAGE_DISTRIBUTION_MAPPING:
+        PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+        is_gguf_available.cache_clear()
+except (ImportError, AttributeError):
+    pass
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
