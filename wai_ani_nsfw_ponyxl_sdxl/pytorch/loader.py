@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-WAI ANI NSFW PonyXL v1.40 (John6666/wai-ani-nsfw-ponyxl-v140-sdxl) model loader implementation.
+WAI ANI NSFW PonyXL v140 (John6666/wai-ani-nsfw-ponyxl-v140-sdxl) model loader implementation.
 
 WAI ANI NSFW PonyXL is a Stable Diffusion XL checkpoint fine-tuned on the
 Pony Diffusion base for anime-style text-to-image generation.
@@ -34,7 +34,7 @@ REPO_ID = "John6666/wai-ani-nsfw-ponyxl-v140-sdxl"
 class ModelVariant(StrEnum):
     """Available WAI ANI NSFW PonyXL model variants."""
 
-    WAI_ANI_NSFW_PONYXL_V140 = "WAI_ANI_NSFW_PonyXL_v1.40"
+    WAI_ANI_NSFW_PONYXL_V140 = "WAI_ANI_NSFW_PonyXL_v140"
 
 
 class ModelLoader(ForgeModel):
