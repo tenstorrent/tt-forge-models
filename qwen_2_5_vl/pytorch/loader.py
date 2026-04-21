@@ -36,7 +36,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_VL_7B_INSTRUCT_AWQ = "7B_INSTRUCT_Awq"
     QWEN_2_5_VL_72B_INSTRUCT = "72B_Instruct"
     UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT = "Unsloth_7B_Instruct"
-    SENSENOVA_SI_1_1_QWEN_2_5_VL_7B = "SenseNova_SI_1_1_7B"
+    VIDEO_R1_7B = "Video_R1_7B"
 
 
 class ModelLoader(ForgeModel):
@@ -62,8 +62,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="unsloth/Qwen2.5-VL-7B-Instruct",
         ),
-        ModelVariant.SENSENOVA_SI_1_1_QWEN_2_5_VL_7B: LLMModelConfig(
-            pretrained_model_name="sensenova/SenseNova-SI-1.1-Qwen2.5-VL-7B",
+        ModelVariant.VIDEO_R1_7B: LLMModelConfig(
+            pretrained_model_name="Video-R1/Video-R1-7B",
         ),
     }
 
@@ -125,7 +125,7 @@ class ModelLoader(ForgeModel):
             if variant
             in (
                 ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT,
-                ModelVariant.SENSENOVA_SI_1_1_QWEN_2_5_VL_7B,
+                ModelVariant.VIDEO_R1_7B,
             )
             else ModelGroup.GENERALITY,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
