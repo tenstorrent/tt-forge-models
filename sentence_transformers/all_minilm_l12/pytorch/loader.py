@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available model variants for all-MiniLM-L12-v2."""
 
     ALL_MINILM_L12_V2 = "sentence-transformers/all-MiniLM-L12-v2"
+    XENOVA_ALL_MINILM_L12_V2 = "Xenova/all-MiniLM-L12-v2"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.ALL_MINILM_L12_V2: LLMModelConfig(
             pretrained_model_name="sentence-transformers/all-MiniLM-L12-v2",
+            max_length=256,
+        ),
+        ModelVariant.XENOVA_ALL_MINILM_L12_V2: LLMModelConfig(
+            pretrained_model_name="Xenova/all-MiniLM-L12-v2",
             max_length=256,
         ),
     }
