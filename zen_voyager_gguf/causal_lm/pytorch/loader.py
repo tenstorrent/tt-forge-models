@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Zen Voyager GGUF model variants for causal language modeling."""
 
     ZEN_VOYAGER_33B_I1_GGUF = "33B_I1_GGUF"
+    AIVEDHA_AGNIVEDHA_33B_I1_GGUF = "aivedha_AgniVedhA_33B_I1_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.ZEN_VOYAGER_33B_I1_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/zen-voyager-i1-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.AIVEDHA_AGNIVEDHA_33B_I1_GGUF: LLMModelConfig(
+            pretrained_model_name="aivedha/AgniVedhA",
             max_length=128,
         ),
     }
