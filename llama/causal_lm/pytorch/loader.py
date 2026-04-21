@@ -135,6 +135,9 @@ class ModelVariant(StrEnum):
     # Upstage variants
     UPSTAGE_LLAMA_30B_INSTRUCT = "Upstage_30B_Instruct"
 
+    # NbAiLab variants
+    NB_NOTRAM_LLAMA_3_2_3B_INSTRUCT = "Nb_Notram_3.2_3B_Instruct"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -320,6 +323,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="upstage/llama-30b-instruct",
             max_length=128,
         ),
+        # NbAiLab variants
+        ModelVariant.NB_NOTRAM_LLAMA_3_2_3B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="NbAiLab/nb-notram-llama-3.2-3b-instruct",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -371,6 +379,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4,
             ModelVariant.UPSTAGE_LLAMA_30B_INSTRUCT,
+            ModelVariant.NB_NOTRAM_LLAMA_3_2_3B_INSTRUCT,
         ]:
             group = ModelGroup.VULCAN
         elif (
