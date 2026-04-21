@@ -4,6 +4,7 @@
 """
 DETR model loader implementation for segmentation.
 """
+
 import torch
 from transformers import DetrForSegmentation, DetrImageProcessor
 from typing import Optional
@@ -25,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available DETR model variants for segmentation."""
 
     RESNET_50_PANOPTIC = "ResNet50_Backbone_Panoptic"
+    XENOVA_RESNET_50_PANOPTIC = "Xenova_ResNet50_Backbone_Panoptic"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.RESNET_50_PANOPTIC: ModelConfig(
             pretrained_model_name="facebook/detr-resnet-50-panoptic",
+        ),
+        ModelVariant.XENOVA_RESNET_50_PANOPTIC: ModelConfig(
+            pretrained_model_name="Xenova/detr-resnet-50-panoptic",
         ),
     }
 
@@ -64,7 +69,11 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="DETR",
             variant=variant,
-            group=ModelGroup.GENERALITY,
+            group=(
+                ModelGroup.VULCAN
+                if variant == ModelVariant.XENOVA_RESNET_50_PANOPTIC
+                else ModelGroup.GENERALITY
+            ),
             task=ModelTask.CV_PANOPTIC_SEG,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
