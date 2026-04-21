@@ -34,8 +34,8 @@ class MetricGANPlusModel(torch.nn.Module):
         super().__init__()
         self.enhance_model = enhance_model.mods.enhance_model
 
-    def forward(self, noisy_features):
-        return self.enhance_model(noisy_features)
+    def forward(self, noisy_features, lengths):
+        return self.enhance_model(noisy_features, lengths)
 
 
 class ModelLoader(ForgeModel):
@@ -90,8 +90,10 @@ class ModelLoader(ForgeModel):
         """
         # Approximate shape from 1s of 16kHz audio after STFT: (batch, ~101 frames, 257 freq bins)
         features = torch.randn(1, 101, 257)
+        lengths = torch.tensor([1.0])
 
         if dtype_override is not None:
             features = features.to(dtype_override)
+            lengths = lengths.to(dtype_override)
 
-        return [features]
+        return [features, lengths]
