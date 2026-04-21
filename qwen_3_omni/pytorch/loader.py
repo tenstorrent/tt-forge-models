@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3 Omni MoE model variants."""
 
     QWEN_3_OMNI_30B_A3B_AWQ = "30B-A3B-AWQ-4bit"
+    SAKTSANT_QWEN_3_OMNI_30B_A3B_INSTRUCT_AWQ = "Saktsant-30B-A3B-Instruct-AWQ"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_OMNI_30B_A3B_AWQ: LLMModelConfig(
             pretrained_model_name="cyankiwi/Qwen3-Omni-30B-A3B-Instruct-AWQ-4bit",
+        ),
+        ModelVariant.SAKTSANT_QWEN_3_OMNI_30B_A3B_INSTRUCT_AWQ: LLMModelConfig(
+            pretrained_model_name="Saktsant/Qwen3-Omni-30B-A3B-Instruct-AWQ",
         ),
     }
 
