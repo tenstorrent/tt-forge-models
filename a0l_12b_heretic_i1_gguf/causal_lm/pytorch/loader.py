@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available A0l 12B Heretic i1 GGUF model variants for causal language modeling."""
 
     A0L_12B_HERETIC_I1_GGUF = "12B_heretic_i1_GGUF"
+    A0L_12B_HERETIC_GGUF = "12B_heretic_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -34,11 +35,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/A0l-12B-heretic-i1-GGUF",
             max_length=128,
         ),
+        ModelVariant.A0L_12B_HERETIC_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/A0l-12B-heretic-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.A0L_12B_HERETIC_I1_GGUF
 
-    GGUF_FILE = "A0l-12B-heretic.i1-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.A0L_12B_HERETIC_I1_GGUF: "A0l-12B-heretic.i1-Q4_K_M.gguf",
+        ModelVariant.A0L_12B_HERETIC_GGUF: "A0l-12B-heretic.Q4_K_M.gguf",
+    }
 
     sample_text = "Give me a short introduction to large language models."
 
@@ -49,6 +57,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+        self.gguf_file = self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -65,7 +74,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,11 +94,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.gguf_file
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -155,6 +164,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
