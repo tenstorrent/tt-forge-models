@@ -23,18 +23,23 @@ class ModelVariant(StrEnum):
     """Available Skywork Reward V2 model variants for sequence classification."""
 
     LLAMA_3_2_1B = "Llama_3.2_1B"
+    QWEN3_4B = "Qwen3_4B"
 
 
 class ModelLoader(ForgeModel):
     """Skywork Reward V2 model loader implementation for reward scoring.
 
-    This model uses LlamaForSequenceClassification with num_labels=1 to produce
+    This model uses AutoModelForSequenceClassification with num_labels=1 to produce
     a single scalar reward score for evaluating conversational responses.
     """
 
     _VARIANTS = {
         ModelVariant.LLAMA_3_2_1B: LLMModelConfig(
             pretrained_model_name="Skywork/Skywork-Reward-V2-Llama-3.2-1B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN3_4B: LLMModelConfig(
+            pretrained_model_name="Skywork/Skywork-Reward-V2-Qwen3-4B",
             max_length=128,
         ),
     }
