@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
 
     GPT_OSS_SWALLOW_20B_SFT = "20B_SFT"
     GPT_OSS_SWALLOW_120B_RL = "120B_RL"
+    GPT_OSS_SWALLOW_120B_RL_MXFP4 = "120B_RL_MXFP4"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +38,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GPT_OSS_SWALLOW_120B_RL: LLMModelConfig(
             pretrained_model_name="tokyotech-llm/GPT-OSS-Swallow-120B-RL-v0.1",
+            max_length=256,
+        ),
+        ModelVariant.GPT_OSS_SWALLOW_120B_RL_MXFP4: LLMModelConfig(
+            pretrained_model_name="Sylent/GPT-OSS-Swallow-120B-RL-MXFP4",
             max_length=256,
         ),
     }
