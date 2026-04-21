@@ -3,9 +3,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 InternVL3.5 GGUF model loader implementation for image to text.
-"""
 
-from transformers import AutoModelForImageTextToText, AutoProcessor
+The GGUF checkpoint only contains the text backbone (Qwen3 architecture).
+We load the vision config from the base (non-GGUF) model and combine
+them into a full InternVLConfig, following the same pattern as GLM-OCR GGUF.
+"""
+import importlib.metadata
+
+from transformers import (
+    AutoModelForImageTextToText,
+    AutoProcessor,
+    AutoConfig,
+    InternVLConfig,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +28,17 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _refresh_gguf_detection():
+    """Refresh transformers' gguf package detection if the package was installed after import."""
+    from transformers.utils import import_utils
+
+    if "gguf" not in import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
+        import_utils.is_gguf_available.cache_clear()
 
 
 class ModelVariant(StrEnum):
@@ -48,6 +69,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.INTERN_VL3_5_14B_Q4_K_M
 
+    _BASE_MODEL = "OpenGVLab/InternVL3_5-14B-HF"
+
     sample_image = "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
@@ -67,7 +90,22 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _build_full_config(self):
+        """Build a full InternVLConfig by wrapping the GGUF text config with a vision config."""
+        _refresh_gguf_detection()
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        gguf_file = self._GGUF_FILES[self._variant]
+        text_config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=gguf_file
+        )
+        base_config = AutoConfig.from_pretrained(self._BASE_MODEL)
+        return InternVLConfig(
+            text_config=text_config.to_dict(),
+            vision_config=base_config.vision_config.to_dict(),
+        )
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        _refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
 
@@ -79,9 +117,12 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(
-            "OpenGVLab/InternVL3_5-14B-HF",
+            self._BASE_MODEL,
             trust_remote_code=True,
         )
+
+        config = self._build_full_config()
+        model_kwargs["config"] = config
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
