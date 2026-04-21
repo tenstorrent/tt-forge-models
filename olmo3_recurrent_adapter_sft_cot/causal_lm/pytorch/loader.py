@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.Olmo3_Recurrent_Adapter_SFT_CoT
 
     # The recurrent adapter reuses the OLMo-3-1025-7B base tokenizer.
-    tokenizer_model_name = "allenai/OLMo-3-1025-7B"
+    tokenizer_model_name = "allenai/Olmo-3-1025-7B"
 
     sample_text = "What is 25 * 37?"
 
