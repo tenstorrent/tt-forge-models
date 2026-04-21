@@ -23,6 +23,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available Qwen-Audio model variants."""
 
+    QWEN_AUDIO = "qwen_audio"
     QWEN_AUDIO_CHAT = "qwen_audio_chat"
 
 
@@ -30,15 +31,15 @@ class ModelLoader(ForgeModel):
     """Qwen-Audio model loader implementation for audio-language tasks."""
 
     _VARIANTS = {
+        ModelVariant.QWEN_AUDIO: ModelConfig(
+            pretrained_model_name="Qwen/Qwen-Audio",
+        ),
         ModelVariant.QWEN_AUDIO_CHAT: ModelConfig(
             pretrained_model_name="Qwen/Qwen-Audio-Chat",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.QWEN_AUDIO_CHAT
-
-    sample_audio_url = "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-Audio/1272-128104-0000.flac"
-    sample_text = "what does the person say?"
+    DEFAULT_VARIANT = ModelVariant.QWEN_AUDIO
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -52,7 +53,7 @@ class ModelLoader(ForgeModel):
             model="Qwen-Audio",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.MM_CAUSAL_LM,
+            task=ModelTask.MM_CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -89,10 +90,13 @@ class ModelLoader(ForgeModel):
 
         query = self.tokenizer.from_list_format(
             [
-                {"audio": self.sample_audio_url},
-                {"text": self.sample_text},
+                {
+                    "audio": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-Audio/1272-128104-0000.flac",
+                },
+                {"text": "what does the person say?"},
             ]
         )
 
-        inputs = self.tokenizer(query, return_tensors="pt")
+        audio_info = self.tokenizer.process_audio(query)
+        inputs = self.tokenizer(query, return_tensors="pt", audio_info=audio_info)
         return inputs
