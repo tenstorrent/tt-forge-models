@@ -38,6 +38,7 @@ class ModelVariant(StrEnum):
     GLM_4_5_AIR = "4.5_Air"
     GLM_5_MXFP4_Q8 = "5_MXFP4_Q8"
     GLM_Z1_32B_0414 = "Z1_32B_0414"
+    IMG2 = "img2"
 
 
 class ModelLoader(ForgeModel):
@@ -79,6 +80,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GLM_Z1_32B_0414: LLMModelConfig(
             pretrained_model_name="zai-org/GLM-Z1-32B-0414",
+            max_length=128,
+        ),
+        ModelVariant.IMG2: LLMModelConfig(
+            pretrained_model_name="belztjti/img2",
             max_length=128,
         ),
     }
@@ -123,6 +128,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GLM_4_7_FLASH,
             ModelVariant.GLM_5_MXFP4_Q8,
             ModelVariant.GLM_Z1_32B_0414,
+            ModelVariant.IMG2,
         ):
             group = ModelGroup.VULCAN
         else:
