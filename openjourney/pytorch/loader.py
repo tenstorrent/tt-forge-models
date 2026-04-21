@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Openjourney model variants."""
 
     BASE = "Base"
+    V4 = "v4"
 
 
 class ModelLoader(ForgeModel):
@@ -33,7 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="prompthero/openjourney",
-        )
+        ),
+        ModelVariant.V4: ModelConfig(
+            pretrained_model_name="prompthero/openjourney-v4",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BASE
