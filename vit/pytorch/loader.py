@@ -60,7 +60,7 @@ class ModelVariant(StrEnum):
     VIT_BASE_PATCH16_224_AUGREG_IN21K = "Base_Patch16_224_AugReg_IN21K"
     VIT_BASE_PATCH16_384_AUGREG_IN21K_FT_IN1K = "Base_Patch16_384_AugReg_IN21K_FT_IN1K"
     VIT_BASE_PATCH32_CLIP_224_LAION2B_E16 = "Base_Patch32_CLIP_224_LAION2B_E16"
-    VIT_PE_CORE_LARGE_PATCH14_336_FB = "PE_Core_Large_Patch14_336_FB"
+    VIT_LARGE_PATCH32_224_ORIG_IN21K = "Large_Patch32_224_Orig_IN21K"
 
 
 class ModelLoader(ForgeModel):
@@ -144,8 +144,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="vit_base_patch32_clip_224.laion2b_e16",
             source=ModelSource.TIMM,
         ),
-        ModelVariant.VIT_PE_CORE_LARGE_PATCH14_336_FB: ViTConfig(
-            pretrained_model_name="vit_pe_core_large_patch14_336.fb",
+        ModelVariant.VIT_LARGE_PATCH32_224_ORIG_IN21K: ViTConfig(
+            pretrained_model_name="vit_large_patch32_224.orig_in21k",
             source=ModelSource.TIMM,
         ),
     }
@@ -187,7 +187,7 @@ class ModelLoader(ForgeModel):
         # Determine task based on variant
         if variant in (
             ModelVariant.VIT_BASE_PATCH16_224_AUGREG_IN21K,
-            ModelVariant.VIT_PE_CORE_LARGE_PATCH14_336_FB,
+            ModelVariant.VIT_LARGE_PATCH32_224_ORIG_IN21K,
         ):
             task = ModelTask.CV_IMAGE_FE
         else:
