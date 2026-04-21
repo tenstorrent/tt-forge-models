@@ -8,6 +8,50 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+
+
+def _patch_mistral3_support():
+    """Register mistral3 GGUF architecture as an alias for mistral.
+
+    Ministral-3 models use 'mistral3' as the GGUF architecture name, which
+    transformers 5.x does not yet recognise. The configuration keys are
+    identical to the 'mistral' architecture, so we alias them and then fix
+    the resulting model_type to 'ministral3' so AutoModelForCausalLM
+    resolves to Ministral3ForCausalLM.
+    """
+    if "mistral3" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "mistral" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "mistral3",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"],
+            )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Wrap load_gguf_checkpoint to add mistral3 support and fix model_type."""
+    _patch_mistral3_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "mistral3":
+        result["config"]["model_type"] = "ministral3"
+    return result
+
+
+_patch_mistral3_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
