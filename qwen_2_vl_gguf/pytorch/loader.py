@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 2 VL GGUF model variants for vision-language tasks."""
 
     QWEN_2_VL_2B_INSTRUCT_GGUF = "2B_Instruct_GGUF"
+    QVQ_72B_PREVIEW_GGUF = "QVQ_72B_Preview_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -35,11 +36,23 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_2_VL_2B_INSTRUCT_GGUF: LLMModelConfig(
             pretrained_model_name="bartowski/Qwen2-VL-2B-Instruct-GGUF",
         ),
+        ModelVariant.QVQ_72B_PREVIEW_GGUF: LLMModelConfig(
+            pretrained_model_name="bartowski/QVQ-72B-Preview-GGUF",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN_2_VL_2B_INSTRUCT_GGUF
 
-    GGUF_FILE = "Qwen2-VL-2B-Instruct-Q4_K_M.gguf"
+    _GGUF_FILES = {
+        ModelVariant.QWEN_2_VL_2B_INSTRUCT_GGUF: "Qwen2-VL-2B-Instruct-Q4_K_M.gguf",
+        ModelVariant.QVQ_72B_PREVIEW_GGUF: "QVQ-72B-Preview-Q4_K_M.gguf",
+    }
+
+    # GGUF repos omit processor/tokenizer files, so pull them from the canonical source repo.
+    _PROCESSOR_SOURCES = {
+        ModelVariant.QWEN_2_VL_2B_INSTRUCT_GGUF: "Qwen/Qwen2-VL-2B-Instruct",
+        ModelVariant.QVQ_72B_PREVIEW_GGUF: "Qwen/QVQ-72B-Preview",
+    }
 
     # Shared configuration parameters
     messages = [
@@ -100,10 +113,8 @@ class ModelLoader(ForgeModel):
             "max_pixels": self.max_pixels,
         }
 
-        # Load processor from the canonical (non-GGUF) repo since GGUF repos
-        # do not include processor/tokenizer files.
         self.processor = AutoProcessor.from_pretrained(
-            "Qwen/Qwen2-VL-2B-Instruct", **processor_kwargs
+            self._PROCESSOR_SOURCES[self._variant], **processor_kwargs
         )
 
         return self.processor
@@ -122,7 +133,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {
             "low_cpu_mem_usage": True,
-            "gguf_file": self.GGUF_FILE,
+            "gguf_file": self._GGUF_FILES[self._variant],
         }
 
         if dtype_override is not None:
