@@ -121,9 +121,7 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = gguf_file
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                self._variant_config.pretrained_model_name, gguf_file=gguf_file
-            )
+            config = AutoConfig.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct")
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -169,8 +167,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        gguf_file = self._get_gguf_file()
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=gguf_file
-        )
+        self.config = AutoConfig.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct")
         return self.config
