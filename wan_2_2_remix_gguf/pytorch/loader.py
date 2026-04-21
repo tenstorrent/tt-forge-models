@@ -112,8 +112,9 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            GGUF_REPO,
             quantization_config=quantization_config,
+            filename=gguf_file,
             torch_dtype=compute_dtype,
         )
 
