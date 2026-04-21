@@ -42,6 +42,7 @@ class ModelVariant(StrEnum):
     GEMMA_2_9B_IT = "2_9B_IT"
     GEMMA_2_27B_IT = "2_27B_IT"
     GEMMA_2_2B_IT_MLX_4BIT = "2_2B_IT_MLX_4bit"
+    GEMMA_2_2B_IT_ALPACA_CLEANED_SFT = "2_2B_IT_Alpaca_Cleaned_SFT"
 
     # Gemma 2.x (Efficient-Large-Model)
     ELM_GEMMA_2_2B_IT = "ELM_2_2B_IT"
@@ -100,6 +101,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.GEMMA_2_27B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-2-27b-it",
         ),
+        ModelVariant.GEMMA_2_2B_IT_ALPACA_CLEANED_SFT: LLMModelConfig(
+            pretrained_model_name="vectorzhou/gemma-2-2b-it-alpaca-cleaned-SFT",
+        ),
         ModelVariant.ELM_GEMMA_2_2B_IT: LLMModelConfig(
             pretrained_model_name="Efficient-Large-Model/gemma-2-2b-it",
         ),
@@ -142,8 +146,7 @@ class ModelLoader(ForgeModel):
         if variant in (
             ModelVariant.GEMMA_2B_IT,
             ModelVariant.GEMMA_7B,
-            ModelVariant.VOLARE,
-            ModelVariant.PAWA_GEMMA_SWAHILI_2B,
+            ModelVariant.GEMMA_2_2B_IT_ALPACA_CLEANED_SFT,
         ):
             group = ModelGroup.VULCAN
         elif any(x in variant.value for x in ["IT", "7B", "9B", "27B"]):
@@ -275,6 +278,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_2_2B_IT,
             ModelVariant.GEMMA_2_2B_IT_BNB_4BIT,
             ModelVariant.GEMMA_2_2B_JPN_IT,
+            ModelVariant.GEMMA_2_2B_IT_ALPACA_CLEANED_SFT,
             ModelVariant.ELM_GEMMA_2_2B_IT,
             ModelVariant.NIDUM_GEMMA_2B_UNCENSORED,
         ]:
@@ -293,6 +297,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_2_2B_IT,
             ModelVariant.GEMMA_2_2B_IT_BNB_4BIT,
             ModelVariant.GEMMA_2_2B_JPN_IT,
+            ModelVariant.GEMMA_2_2B_IT_ALPACA_CLEANED_SFT,
             ModelVariant.ELM_GEMMA_2_2B_IT,
             ModelVariant.NIDUM_GEMMA_2B_UNCENSORED,
         ]:
