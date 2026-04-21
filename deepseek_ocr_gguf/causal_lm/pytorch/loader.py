@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available DeepSeek OCR GGUF model variants for causal language modeling."""
 
     DEEPSEEK_OCR_Q4_0 = "Q4_0"
+    DEEPSEEK_OCR_CUDA_Q4_0 = "CUDA_Q4_0"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEEPSEEK_OCR_Q4_0: LLMModelConfig(
             pretrained_model_name="NexaAI/DeepSeek-OCR-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.DEEPSEEK_OCR_CUDA_Q4_0: LLMModelConfig(
+            pretrained_model_name="NexaAI/DeepSeek-OCR-GGUF-CUDA",
             max_length=128,
         ),
     }
