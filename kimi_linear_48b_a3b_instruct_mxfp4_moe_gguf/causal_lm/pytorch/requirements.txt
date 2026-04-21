@@ -1,1 +1,4 @@
 gguf>=0.10.0
+tiktoken
+triton
+fla-core
