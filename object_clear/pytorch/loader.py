@@ -1,14 +1,15 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
 ObjectClear model loader implementation.
 
-ObjectClear is a custom diffusers pipeline based on
-stabilityai/stable-diffusion-xl-base-1.0 that performs complete object
-removal from images via an object-effect attention mechanism.
+ObjectClear is a fine-tuned Stable Diffusion XL inpainting model that performs
+complete object removal via an Object-Effect Attention mechanism.
+Source: https://huggingface.co/jixin0101/ObjectClear
 """
 
+import torch
 from typing import Optional
 
 from ...base import ForgeModel
@@ -22,8 +23,8 @@ from ...config import (
     StrEnum,
 )
 from .src.model_utils import (
-    create_dummy_input_image_and_mask,
     load_object_clear_pipe,
+    create_dummy_input_image_and_mask,
     object_clear_preprocessing,
 )
 
@@ -31,7 +32,7 @@ from .src.model_utils import (
 class ModelVariant(StrEnum):
     """Available ObjectClear model variants."""
 
-    OBJECT_CLEAR = "ObjectClear"
+    OBJECT_CLEAR = "object-clear"
 
 
 class ModelLoader(ForgeModel):
@@ -45,7 +46,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.OBJECT_CLEAR
 
-    prompt = ""
+    prompt = "a clean background"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -65,13 +66,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the ObjectClear pipeline.
+        """Load and return the ObjectClear SDXL inpainting pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            DiffusionPipeline: The custom ObjectClearPipeline instance.
+            StableDiffusionXLInpaintPipeline: The pipeline instance.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -90,7 +91,7 @@ class ModelLoader(ForgeModel):
 
         Returns:
             List: Input tensors for the UNet:
-                - scaled_latent_model_input (torch.Tensor)
+                - scaled_latent_model_input (torch.Tensor): Noise latents concatenated with mask and masked image latents
                 - timestep (torch.Tensor)
                 - prompt_embeds (torch.Tensor)
                 - added_cond_kwargs (dict)

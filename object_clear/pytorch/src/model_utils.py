@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -8,28 +8,26 @@ Helper functions for ObjectClear model loading and processing.
 
 from typing import Optional, Tuple
 
-import numpy as np
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import StableDiffusionXLInpaintPipeline
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
 from PIL import Image
+import numpy as np
 
 
 def load_object_clear_pipe(pretrained_model_name):
-    """Load the ObjectClear custom diffusion pipeline.
+    """Load the ObjectClear SDXL inpainting pipeline.
 
     Args:
-        pretrained_model_name: Model name on HuggingFace.
+        pretrained_model_name: Model name on HuggingFace
 
     Returns:
-        DiffusionPipeline: Loaded ObjectClearPipeline with components in eval mode.
+        StableDiffusionXLInpaintPipeline: Loaded pipeline with components set to eval mode
     """
-    pipe = DiffusionPipeline.from_pretrained(
-        pretrained_model_name,
-        torch_dtype=torch.float32,
-        trust_remote_code=True,
+    pipe = StableDiffusionXLInpaintPipeline.from_pretrained(
+        pretrained_model_name, torch_dtype=torch.float32
     )
 
     pipe.to("cpu")
@@ -45,16 +43,17 @@ def load_object_clear_pipe(pretrained_model_name):
 
 
 def create_dummy_input_image_and_mask(height=1024, width=1024):
-    """Create a dummy input image and mask for object removal.
+    """Create a dummy input image and mask for object removal inpainting.
 
     Args:
-        height: Image height.
-        width: Image width.
+        height: Image height
+        width: Image width
 
     Returns:
-        tuple: (PIL.Image, PIL.Image) - input image and binary mask (white = region to clear).
+        tuple: (PIL.Image, PIL.Image) - input image and binary mask
     """
     image = Image.new("RGB", (width, height), color=(128, 128, 128))
+    # Create a mask with a white rectangle in the center (area to inpaint)
     mask = Image.new("L", (width, height), color=0)
     mask_array = np.array(mask)
     h_start, h_end = height // 4, 3 * height // 4
@@ -87,7 +86,30 @@ def object_clear_preprocessing(
     negative_crops_coords_top_left: Tuple[int, int] = (0, 0),
     strength=1.0,
 ):
-    """Preprocess inputs for the ObjectClear UNet forward pass.
+    """Preprocess inputs for the ObjectClear SDXL inpainting UNet.
+
+    Args:
+        pipe: StableDiffusionXLInpaintPipeline
+        prompt: Text prompt for inpainting
+        image: Input image
+        mask_image: Binary mask image (white = inpaint region)
+        device: Device to run on (default: "cpu")
+        negative_prompt: Negative prompt (optional)
+        guidance_scale: Guidance scale (default: 7.5)
+        num_inference_steps: Number of inference steps (default: 30)
+        timesteps: Custom timesteps (optional)
+        sigmas: Custom sigmas (optional)
+        num_images_per_prompt: Number of images per prompt (default: 1)
+        height: Image height (optional)
+        width: Image width (optional)
+        clip_skip: CLIP skip layers (optional)
+        original_size: Original size tuple (optional)
+        target_size: Target size tuple (optional)
+        crops_coords_top_left: Crop coordinates (default: (0, 0))
+        negative_original_size: Negative original size (optional)
+        negative_target_size: Negative target size (optional)
+        negative_crops_coords_top_left: Negative crop coordinates (default: (0, 0))
+        strength: Inpainting strength (default: 1.0)
 
     Returns:
         tuple: (scaled_latent_model_input, timesteps, prompt_embeds, added_cond_kwargs)
@@ -100,6 +122,7 @@ def object_clear_preprocessing(
 
     do_classifier_free_guidance = True
 
+    # 1. Encode the prompt
     (
         prompt_embeds,
         negative_prompt_embeds,
@@ -114,6 +137,7 @@ def object_clear_preprocessing(
         clip_skip=clip_skip,
     )
 
+    # 2. Prepare timesteps
     timesteps, num_inference_steps = retrieve_timesteps(
         pipe.scheduler,
         num_inference_steps=num_inference_steps,
@@ -125,6 +149,7 @@ def object_clear_preprocessing(
         num_inference_steps, strength, device, denoising_start=None
     )
 
+    # 3. Prepare noise latents
     batch_size = 1 if isinstance(prompt, str) else len(prompt)
     num_channels_latents = pipe.vae.config.latent_channels
     torch.manual_seed(42)
@@ -139,6 +164,7 @@ def object_clear_preprocessing(
     )
     latents = latents * pipe.scheduler.init_noise_sigma
 
+    # 4. Prepare mask and masked image latents
     mask, masked_image_latents = pipe.prepare_mask_latents(
         mask=mask_image,
         masked_image=image,
@@ -150,6 +176,7 @@ def object_clear_preprocessing(
         do_classifier_free_guidance=do_classifier_free_guidance,
     )
 
+    # 5. Prepare additional conditioning
     add_text_embeds = pooled_prompt_embeds
     if pipe.text_encoder_2 is None:
         text_encoder_projection_dim = int(pooled_prompt_embeds.shape[-1])
@@ -186,10 +213,12 @@ def object_clear_preprocessing(
 
     added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
 
+    # 6. Prepare latent model input (doubled for CFG) and concatenate with mask + masked image latents
     latent_model_input = torch.cat([latents] * 2)
     latent_model_input = pipe.scheduler.scale_model_input(
         latent_model_input, timesteps[0]
     )
+    # For inpainting, concat noise latents with mask and masked image latents along channel dim
     scaled_latent_model_input = torch.cat(
         [latent_model_input, mask, masked_image_latents], dim=1
     )
