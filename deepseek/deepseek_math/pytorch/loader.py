@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     """Available DeepSeek Math model variants."""
 
     DEEPSEEK_7B_INSTRUCT = "7B_Instruct"
-    DEEPSEEK_7B_RL = "7B_RL"
+    DEEPSEEK_7B_BASE = "7B_Base"
 
 
 class ModelLoader(ForgeModel):
@@ -36,8 +36,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="deepseek-ai/deepseek-math-7b-instruct",
             max_length=2048,
         ),
-        ModelVariant.DEEPSEEK_7B_RL: LLMModelConfig(
-            pretrained_model_name="deepseek-ai/deepseek-math-7b-rl",
+        ModelVariant.DEEPSEEK_7B_BASE: LLMModelConfig(
+            pretrained_model_name="deepseek-ai/deepseek-math-7b-base",
             max_length=2048,
         ),
     }
@@ -48,6 +48,7 @@ class ModelLoader(ForgeModel):
         "what is the integral of x^2 from 0 to 2?\n"
         "Please reason step by step, and put your final answer within \\boxed{}."
     )
+    base_sample_text = "The integral of x^2 from 0 to 2 is"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with a specified variant."""
@@ -59,14 +60,15 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         """Return model info for the selected variant."""
         variant_groups = {
-            ModelVariant.DEEPSEEK_7B_RL: ModelGroup.VULCAN,
+            ModelVariant.DEEPSEEK_7B_BASE: ModelGroup.VULCAN,
         }
-
         return ModelInfo(
             model="DeepSeek",
             variant=variant,
             group=variant_groups.get(variant, ModelGroup.GENERALITY),
-            task=ModelTask.NLP_QA,
+            task=ModelTask.NLP_CAUSAL_LM
+            if variant == ModelVariant.DEEPSEEK_7B_BASE
+            else ModelTask.NLP_QA,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -107,10 +109,16 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        messages = [{"role": "user", "content": self.sample_text}]
-        input_ids = self.tokenizer.apply_chat_template(
-            messages, add_generation_prompt=True, return_tensors="pt"
-        )
+        if self._variant == ModelVariant.DEEPSEEK_7B_BASE:
+            input_ids = self.tokenizer(
+                self.base_sample_text,
+                return_tensors="pt",
+            ).input_ids
+        else:
+            messages = [{"role": "user", "content": self.sample_text}]
+            input_ids = self.tokenizer.apply_chat_template(
+                messages, add_generation_prompt=True, return_tensors="pt"
+            )
         inputs, seq_len = pad_inputs(input_ids)
         self.seq_len = seq_len
         return inputs
