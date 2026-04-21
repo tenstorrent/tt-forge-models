@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
     AI4PRIVACY_MULTILINGUAL_ANONYMISER = (
         "ai4privacy_multilingual_categorical_anonymiser_openpii"
     )
-    AI4PRIVACY_ENGLISH_ANONYMISER = "ai4privacy_english_anonymiser_openpii"
+    LETTUCEDECT_LARGE_EN_V1 = "lettucedect_large_modernbert_en_v1"
 
 
 class ModelLoader(ForgeModel):
@@ -35,20 +35,32 @@ class ModelLoader(ForgeModel):
         ModelVariant.AI4PRIVACY_MULTILINGUAL_ANONYMISER: ModelConfig(
             pretrained_model_name="ai4privacy/llama-ai4privacy-multilingual-categorical-anonymiser-openpii",
         ),
-        ModelVariant.AI4PRIVACY_ENGLISH_ANONYMISER: ModelConfig(
-            pretrained_model_name="ai4privacy/llama-ai4privacy-english-anonymiser-openpii",
+        ModelVariant.LETTUCEDECT_LARGE_EN_V1: ModelConfig(
+            pretrained_model_name="KRLabsOrg/lettucedect-large-modernbert-en-v1",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.AI4PRIVACY_MULTILINGUAL_ANONYMISER
 
+    _SAMPLE_TEXTS = {
+        ModelVariant.AI4PRIVACY_MULTILINGUAL_ANONYMISER: (
+            "My name is John Smith and my email is john.smith@example.com"
+        ),
+        ModelVariant.LETTUCEDECT_LARGE_EN_V1: (
+            "Context: France is a country in Europe. The capital of France is "
+            "Paris. The population of France is 67 million. "
+            "Question: What is the capital of France? What is the population of "
+            "France? "
+            "Answer: The capital of France is Paris. The population of France "
+            "is 69 million."
+        ),
+    }
+
     def __init__(self, variant=None):
         super().__init__(variant)
         self.tokenizer = None
         self.model = None
-        self.sample_text = (
-            "My name is John Smith and my email is john.smith@example.com"
-        )
+        self.sample_text = self._SAMPLE_TEXTS[self._variant]
         self.max_length = 128
 
     @classmethod
