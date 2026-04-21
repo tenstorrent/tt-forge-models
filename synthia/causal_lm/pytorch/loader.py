@@ -2,9 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Synthia v3.0 11B AWQ model loader implementation for causal language modeling.
+Synthia model loader implementation for causal language modeling.
 
-AWQ-quantized Solar-based 11B model from TheBloke, fine-tuned for chain-of-thought reasoning.
+Covers TheBloke's AWQ-quantized Solar-based 11B checkpoint and migtissera's
+Llama-2-based 70B v1.5 checkpoint, both fine-tuned for chain-of-thought reasoning.
 """
 
 import torch
@@ -28,6 +29,7 @@ class ModelVariant(StrEnum):
     """Available Synthia model variants."""
 
     SYNTHIA_V3_0_11B_AWQ = "Synthia_v3.0_11B_Awq"
+    SYNTHIA_70B_V1_5 = "SynthIA_70B_v1.5"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +38,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SYNTHIA_V3_0_11B_AWQ: LLMModelConfig(
             pretrained_model_name="TheBloke/Synthia-v3.0-11B-AWQ",
+            max_length=128,
+        ),
+        ModelVariant.SYNTHIA_70B_V1_5: LLMModelConfig(
+            pretrained_model_name="migtissera/SynthIA-70B-v1.5",
             max_length=128,
         ),
     }
