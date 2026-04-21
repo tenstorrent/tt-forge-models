@@ -7,11 +7,11 @@ Florence-2 image captioning model loader implementation (PyTorch).
 
 import torch
 from transformers import (
-    AutoProcessor,
-    AutoModelForCausalLM,
+    Florence2ForConditionalGeneration,
+    Florence2Config,
 )
+from transformers.models.bart.configuration_bart import BartConfig
 from typing import Optional
-from PIL import Image
 
 from ....base import ForgeModel
 from ....config import (
@@ -23,7 +23,6 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -35,7 +34,6 @@ class ModelVariant(StrEnum):
     SD3_CAPTIONER = "SD3-Captioner"
 
 
-# Variants that use the <DESCRIPTION> prompt instead of <CAPTION>
 _DESCRIPTION_VARIANTS = {ModelVariant.SD3_CAPTIONER}
 
 
@@ -59,9 +57,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LARGE
 
+    # Number of image feature tokens produced by the vision encoder for 768x768 input
+    _NUM_IMAGE_TOKENS = 577
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -74,47 +74,39 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-        )
-        return self.processor
-
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        model_kwargs = {}
+        text_config = BartConfig(vocab_size=51290)
+        config = Florence2Config(text_config=text_config.to_dict())
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+            config.torch_dtype = dtype_override
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name,
-            trust_remote_code=True,
-            attn_implementation="eager",
-            **model_kwargs,
-        )
+        model = Florence2ForConditionalGeneration(config)
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.processor is None:
-            self._load_processor()
+        image_token_id = 51289
+        bos_id = 0
+        eos_id = 2
 
-        image_path = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
-        image = Image.open(str(image_path)).convert("RGB")
-
-        prompt = (
-            "<DESCRIPTION>" if self._variant in _DESCRIPTION_VARIANTS else "<CAPTION>"
+        input_ids = torch.cat(
+            [
+                torch.tensor([[bos_id]]),
+                torch.full((1, self._NUM_IMAGE_TOKENS), image_token_id),
+                torch.tensor([[eos_id]]),
+            ],
+            dim=1,
         )
-        inputs = self.processor(text=prompt, images=image, return_tensors="pt")
+        pixel_values = torch.randn(1, 3, 768, 768)
+        decoder_input_ids = torch.tensor([[eos_id]], dtype=torch.long)
 
-        # Florence-2 is a seq2seq model that requires decoder_input_ids
-        decoder_start_token_id = self.processor.tokenizer.bos_token_id or 2
-        inputs["decoder_input_ids"] = torch.full(
-            (1, 1), decoder_start_token_id, dtype=torch.long
-        )
+        inputs = {
+            "input_ids": input_ids,
+            "pixel_values": pixel_values,
+            "decoder_input_ids": decoder_input_ids,
+        }
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
@@ -139,9 +131,6 @@ class ModelLoader(ForgeModel):
         if outputs is None:
             return None
 
-        if self.processor is None:
-            self._load_processor()
-
         if isinstance(outputs, torch.Tensor):
             if outputs.dtype in (torch.long, torch.int32, torch.int64):
                 token_ids = outputs
@@ -150,4 +139,4 @@ class ModelLoader(ForgeModel):
         else:
             token_ids = outputs
 
-        return self.processor.decode(token_ids[0], skip_special_tokens=True)
+        return str(token_ids[0].tolist())
