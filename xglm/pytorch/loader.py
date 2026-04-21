@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
 
     XGLM_564M = "564M"
     XGLM_1_7B = "1.7b"
-    FAIRSEQ_DENSE_6_7B = "fairseq-dense-6.7B"
+    FAIRSEQ_DENSE_355M = "fairseq-dense-355M"
 
 
 class ModelLoader(ForgeModel):
@@ -38,8 +38,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.XGLM_1_7B: ModelConfig(
             pretrained_model_name="facebook/xglm-1.7B",
         ),
-        ModelVariant.FAIRSEQ_DENSE_6_7B: ModelConfig(
-            pretrained_model_name="KoboldAI/fairseq-dense-6.7B",
+        ModelVariant.FAIRSEQ_DENSE_355M: ModelConfig(
+            pretrained_model_name="KoboldAI/fairseq-dense-355M",
         ),
     }
 
@@ -56,7 +56,7 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant == ModelVariant.FAIRSEQ_DENSE_6_7B:
+        if variant == ModelVariant.FAIRSEQ_DENSE_355M:
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
