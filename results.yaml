@@ -1,0 +1,5 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[jina_embedding_s_en_v1/embedding_generation/pytorch-jina-embedding-s-en-v1-single_device-inference]"
+  status: "PASS"
+  date: "20260421_194703"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/hf-bringup-15"
