@@ -23,21 +23,19 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Wav2Vec2-BERT PyTorch audio classification model variants."""
 
-    UMUTEAM_W2V_BERT_BETO_MULTIHEAD_EMOTION_EN = (
-        "UMUTeam/w2v-bert-beto-multihead-emotion-en"
-    )
+    UMUTEAM_W2V_BERT_BETO_MEAN_EMOTION_EN = "UMUTeam/w2v-bert-beto-mean-emotion-en"
 
 
 class ModelLoader(ForgeModel):
     """Wav2Vec2-BERT model loader implementation for audio classification (PyTorch)."""
 
     _VARIANTS = {
-        ModelVariant.UMUTEAM_W2V_BERT_BETO_MULTIHEAD_EMOTION_EN: ModelConfig(
-            pretrained_model_name="UMUTeam/w2v-bert-beto-multihead-emotion-en",
+        ModelVariant.UMUTEAM_W2V_BERT_BETO_MEAN_EMOTION_EN: ModelConfig(
+            pretrained_model_name="UMUTeam/w2v-bert-beto-mean-emotion-en",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.UMUTEAM_W2V_BERT_BETO_MULTIHEAD_EMOTION_EN
+    DEFAULT_VARIANT = ModelVariant.UMUTEAM_W2V_BERT_BETO_MEAN_EMOTION_EN
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
