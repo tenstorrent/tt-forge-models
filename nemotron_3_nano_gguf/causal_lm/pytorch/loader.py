@@ -24,8 +24,8 @@ class ModelVariant(StrEnum):
     """Available Nemotron 3 Nano GGUF model variants for causal language modeling."""
 
     NEMOTRON_3_NANO_4B_Q4_K_M_GGUF = "4B_Q4_K_M_GGUF"
-    TATSUYAAAAAAA_NEMOTRON_3_NANO_4B_BF16_Q4_K_M_GGUF = (
-        "tatsuyaaaaaaa_4B_BF16_Q4_K_M_GGUF"
+    MRADERMACHER_NEMOTRON_3_NANO_30B_A3B_BF16_IQ4_XS_GGUF = (
+        "mradermacher_30B_A3B_BF16_IQ4_XS_GGUF"
     )
 
 
@@ -37,8 +37,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="lmstudio-community/NVIDIA-Nemotron-3-Nano-4B-GGUF",
             max_length=128,
         ),
-        ModelVariant.TATSUYAAAAAAA_NEMOTRON_3_NANO_4B_BF16_Q4_K_M_GGUF: LLMModelConfig(
-            pretrained_model_name="tatsuyaaaaaaa/NVIDIA-Nemotron-3-Nano-4B-BF16-gguf",
+        ModelVariant.MRADERMACHER_NEMOTRON_3_NANO_30B_A3B_BF16_IQ4_XS_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16-i1-GGUF",
             max_length=128,
         ),
     }
@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.NEMOTRON_3_NANO_4B_Q4_K_M_GGUF: "NVIDIA-Nemotron-3-Nano-4B-Q4_K_M.gguf",
-        ModelVariant.TATSUYAAAAAAA_NEMOTRON_3_NANO_4B_BF16_Q4_K_M_GGUF: "NVIDIA-Nemotron-3-Nano-4B-BF16_Q4_K_M.gguf",
+        ModelVariant.MRADERMACHER_NEMOTRON_3_NANO_30B_A3B_BF16_IQ4_XS_GGUF: "NVIDIA-Nemotron-3-Nano-30B-A3B-BF16.i1-IQ4_XS.gguf",
     }
 
     sample_text = "Give me a short introduction to large language models."
