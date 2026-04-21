@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     NEMOTRON_3_NANO_4B_BF16 = "3_Nano_4B_BF16"
     NEMOTRON_3_NANO_30B_A3B_FP8 = "3_Nano_30B_A3B_FP8"
     NEMOTRON_3_NANO_30B_A3B_MLX_4BIT = "3_Nano_30B_A3B_MLX_4bit"
+    NEMOTRON_3_SUPER_120B_A12B_MLX_5BIT = "3_Super_120B_A12B_MLX_5bit"
     NEMOTRON_3_SUPER_120B_A12B_NVFP4 = "3_Super_120B_A12B_NVFP4"
     NEMOTRON_NANO_9B_V2_NVFP4 = "Nano_9B_v2_NVFP4"
     UNSLOTH_NEMOTRON_3_SUPER_120B_A12B_FP8 = "unsloth_3_Super_120B_A12B_FP8"
@@ -46,6 +47,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.NEMOTRON_3_NANO_30B_A3B_MLX_4BIT: LLMModelConfig(
             pretrained_model_name="mlx-community/NVIDIA-Nemotron-3-Nano-30B-A3B-4bit",
+            max_length=128,
+        ),
+        ModelVariant.NEMOTRON_3_SUPER_120B_A12B_MLX_5BIT: LLMModelConfig(
+            pretrained_model_name="Thump604/NVIDIA-Nemotron-3-Super-120B-A12B-5bit",
             max_length=128,
         ),
         ModelVariant.NEMOTRON_3_SUPER_120B_A12B_NVFP4: LLMModelConfig(
@@ -123,7 +128,10 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         if self._variant in self._NVFP4_VARIANTS:
             model_kwargs["ignore_mismatched_sizes"] = True
-        if self._variant == ModelVariant.NEMOTRON_3_NANO_30B_A3B_MLX_4BIT:
+        if self._variant in (
+            ModelVariant.NEMOTRON_3_NANO_30B_A3B_MLX_4BIT,
+            ModelVariant.NEMOTRON_3_SUPER_120B_A12B_MLX_5BIT,
+        ):
             model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
 
