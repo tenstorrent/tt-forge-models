@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Sapphira L3.3 70B model variants for causal language modeling."""
 
     SAPPHIRA_L3_3_70B_0_2 = "L3.3_70B_0.2"
+    SAPPHIRA_L3_3_70B_0_1_GGUF_Q4_K_M = "L3.3_70B_0.1_GGUF_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
@@ -35,9 +36,17 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="BruhzWater/Sapphira-L3.3-70b-0.2",
             max_length=128,
         ),
+        ModelVariant.SAPPHIRA_L3_3_70B_0_1_GGUF_Q4_K_M: LLMModelConfig(
+            pretrained_model_name="mradermacher/Sapphira-L3.3-70b-0.1-GGUF",
+            max_length=128,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.SAPPHIRA_L3_3_70B_0_2
+
+    _GGUF_FILES = {
+        ModelVariant.SAPPHIRA_L3_3_70B_0_1_GGUF_Q4_K_M: "Sapphira-L3.3-70b-0.1.Q4_K_M.gguf",
+    }
 
     sample_text = "Give me a short introduction to large language model."
 
@@ -48,6 +57,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+        self.gguf_file = self._GGUF_FILES.get(self._variant)
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -64,6 +74,8 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        if self.gguf_file is not None:
+            tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -83,9 +95,14 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+        if self.gguf_file is not None:
+            model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config_kwargs = {}
+            if self.gguf_file is not None:
+                config_kwargs["gguf_file"] = self.gguf_file
+            config = AutoConfig.from_pretrained(pretrained_model_name, **config_kwargs)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -149,7 +166,10 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        config_kwargs = {}
+        if self.gguf_file is not None:
+            config_kwargs["gguf_file"] = self.gguf_file
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
         return self.config
