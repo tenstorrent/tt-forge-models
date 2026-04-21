@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.MINOTAUR_13B
 
-    sample_text = "USER: Solve for x: 5x = 3x + 10\n" "ASSISTANT:"
+    sample_text = "USER: Solve for x: 5x = 3x + 10\nASSISTANT:"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
