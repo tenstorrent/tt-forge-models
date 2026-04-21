@@ -56,7 +56,7 @@ class ModelVariant(StrEnum):
     QIAW99_QWEN_2_5_7B_INSTRUCT_OPENBOOKQA_DPO_C_NEW = (
         "qiaw99_7B_Instruct_OpenbookQA_DPO_C_new"
     )
-    ZHENGHAIXUE_QWEN_2_5_32B_SIMPLETIR = "zhenghaixue_32B_SimpleTIR"
+    SIMPLESCALING_S1_32B = "simplescaling_s1_32B"
 
 
 class ModelLoader(ForgeModel):
@@ -179,9 +179,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="qiaw99/Qwen2.5-7B-Instruct-OpenbookQA-DPO-C-new",
             max_length=128,
         ),
-        # ZhenghaiXue SimpleTIR fine-tuned variant
-        ModelVariant.ZHENGHAIXUE_QWEN_2_5_32B_SIMPLETIR: LLMModelConfig(
-            pretrained_model_name="ZhenghaiXue/Qwen2.5-32B-SimpleTIR",
+        # simplescaling s1 reasoning fine-tune of Qwen2.5-32B-Instruct
+        ModelVariant.SIMPLESCALING_S1_32B: LLMModelConfig(
+            pretrained_model_name="simplescaling/s1-32B",
             max_length=128,
         ),
     }
@@ -243,7 +243,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.UNSLOTH_QWEN_2_5_3B_INSTRUCT,
             ModelVariant.UNSLOTH_QWEN_2_5_72B_INSTRUCT,
             ModelVariant.QIAW99_QWEN_2_5_7B_INSTRUCT_OPENBOOKQA_DPO_C_NEW,
-            ModelVariant.ZHENGHAIXUE_QWEN_2_5_32B_SIMPLETIR,
+            ModelVariant.SIMPLESCALING_S1_32B,
         ]:
             group = ModelGroup.VULCAN
 
