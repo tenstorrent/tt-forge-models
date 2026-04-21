@@ -105,7 +105,8 @@ class ModelLoader(ForgeModel):
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use bfloat16.
+                           If not provided, the model will use float32 (deform_conv2d
+                           does not support bfloat16).
 
         Returns:
             torch.nn.Module: The RMBG model instance for image segmentation.
@@ -113,7 +114,8 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
+        # deform_conv2d (used in BiRefNet) does not support bfloat16
+        model_kwargs = {"torch_dtype": torch.float32}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -152,8 +154,8 @@ class ModelLoader(ForgeModel):
 
         inputs = self.transform_image(self.image).unsqueeze(0)
 
-        if dtype_override is not None:
-            inputs = inputs.to(dtype_override)
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        inputs = inputs.to(dtype)
 
         # Add batch dimension
         if batch_size > 1:
