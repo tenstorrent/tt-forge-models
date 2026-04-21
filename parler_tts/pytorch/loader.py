@@ -44,6 +44,7 @@ class ModelVariant(StrEnum):
     """Available Parler-TTS model variants."""
 
     MINI_V0_1 = "mini_v0.1"
+    MINI_V1_1 = "mini-v1.1"
 
 
 class ModelLoader(ForgeModel):
@@ -52,6 +53,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MINI_V0_1: ModelConfig(
             pretrained_model_name="parler-tts/parler_tts_mini_v0.1",
+        ),
+        ModelVariant.MINI_V1_1: ModelConfig(
+            pretrained_model_name="parler-tts/parler-tts-mini-v1.1",
         ),
     }
 
