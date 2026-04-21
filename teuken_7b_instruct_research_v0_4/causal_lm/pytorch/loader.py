@@ -113,21 +113,24 @@ class ModelLoader(ForgeModel):
         max_length = self._variant_config.max_length
 
         messages = [{"role": "User", "content": self.sample_text}]
-        prompt_ids = self.tokenizer.apply_chat_template(
+        text = self.tokenizer.apply_chat_template(
             messages,
             chat_template="EN",
-            tokenize=True,
+            tokenize=False,
             add_generation_prompt=True,
-            return_tensors="pt",
         )
+        prompts = [text]
 
-        attention_mask = torch.ones_like(prompt_ids)
-
-        inputs = {"input_ids": prompt_ids, "attention_mask": attention_mask}
+        inputs = self.tokenizer(
+            prompts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=max_length,
+        )
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key][:, :max_length]
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
