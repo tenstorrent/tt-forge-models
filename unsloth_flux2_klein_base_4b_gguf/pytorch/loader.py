@@ -28,6 +28,7 @@ from ...config import (
 )
 
 GGUF_REPO = "unsloth/FLUX.2-klein-base-4B-GGUF"
+CONFIG_REPO = "Runware/BFL-FLUX.2-klein-4B"
 
 
 class ModelVariant(StrEnum):
@@ -95,6 +96,8 @@ class ModelLoader(ForgeModel):
 
         self.transformer = Flux2Transformer2DModel.from_single_file(
             model_path,
+            config=CONFIG_REPO,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
