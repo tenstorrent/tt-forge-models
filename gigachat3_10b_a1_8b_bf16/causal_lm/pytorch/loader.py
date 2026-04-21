@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available GigaChat3 model variants for causal language modeling."""
 
-    GIGACHAT3_10B_A1_8B_BF16 = "GigaChat3-10B-A1.8B-bf16"
+    GIGACHAT3_10B_A1_8B_BF16 = "10B-A1_8B-bf16"
 
 
 class ModelLoader(ForgeModel):
@@ -67,7 +67,7 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="GigaChat3-10B-A1.8B-bf16",
+            model="GigaChat3",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
