@@ -22,6 +22,7 @@ from typing import Any, Optional
 
 import numpy as np
 import torch
+from huggingface_hub import hf_hub_download
 from transformers import Wav2Vec2FeatureExtractor, Wav2Vec2Model
 
 from ...base import ForgeModel
@@ -142,10 +143,14 @@ class ModelLoader(ForgeModel):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _LIGHTWEIGHT_GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(
+            repo_id=LIGHTWEIGHT_GGUF_REPO_ID,
+            filename=gguf_file,
+        )
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self._transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{LIGHTWEIGHT_GGUF_REPO_ID}/resolve/main/{gguf_file}",
+            gguf_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
