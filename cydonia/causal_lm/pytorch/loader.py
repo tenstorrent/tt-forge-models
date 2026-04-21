@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Cydonia model variants."""
 
     CYDONIA_24B_V4 = "Cydonia_24B_v4"
+    CYDONIA_24B_V4_3 = "Cydonia_24B_v4_3"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.CYDONIA_24B_V4: LLMModelConfig(
             pretrained_model_name="TheDrummer/Cydonia-24B-v4",
+            max_length=128,
+        ),
+        ModelVariant.CYDONIA_24B_V4_3: LLMModelConfig(
+            pretrained_model_name="TheDrummer/Cydonia-24B-v4.3",
             max_length=128,
         ),
     }
