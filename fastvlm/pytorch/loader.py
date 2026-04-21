@@ -6,7 +6,7 @@ FastVLM model loader implementation for multimodal visual question answering.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoProcessor, FastVlmForConditionalGeneration
 from PIL import Image
 from typing import Optional
 
@@ -80,10 +80,10 @@ class ModelLoader(ForgeModel):
             "attn_implementation": "eager",
         }
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
+        model = FastVlmForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
