@@ -37,6 +37,7 @@ class ModelVariant(StrEnum):
     """Available NFNet model variants."""
 
     DM_NFNET_F3_DM_IN1K = "dm_nfnet_f3.dm_in1k"
+    TEST_NFNET_R160_IN1K = "test_nfnet.r160_in1k"
 
 
 class ModelLoader(ForgeModel):
@@ -46,6 +47,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DM_NFNET_F3_DM_IN1K: NFNetConfig(
             pretrained_model_name="dm_nfnet_f3.dm_in1k",
+            source=ModelSource.TIMM,
+        ),
+        ModelVariant.TEST_NFNET_R160_IN1K: NFNetConfig(
+            pretrained_model_name="test_nfnet.r160_in1k",
             source=ModelSource.TIMM,
         ),
     }
