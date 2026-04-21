@@ -74,6 +74,8 @@ class ModelLoader(ForgeModel):
         model = VisionEncoderDecoderModel.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
 
         self.processor = ViTImageProcessor.from_pretrained(pretrained_model_name)
@@ -86,6 +88,8 @@ class ModelLoader(ForgeModel):
 
         if self.processor is None:
             self.processor = ViTImageProcessor.from_pretrained(pretrained_model_name)
+        if self.tokenizer is None:
+            self.tokenizer = BertTokenizer.from_pretrained(pretrained_model_name)
 
         image_path = get_file(
             "https://huggingface.co/IAMJB/interpret-cxr-impression-baseline/resolve/main/effusions-bibasal.jpg"
@@ -100,7 +104,12 @@ class ModelLoader(ForgeModel):
         if batch_size > 1:
             pixel_values = pixel_values.repeat(batch_size, 1, 1, 1)
 
-        return {"pixel_values": pixel_values}
+        bos_token_id = self.tokenizer.cls_token_id
+        decoder_input_ids = torch.tensor(
+            [[bos_token_id]] * batch_size, dtype=torch.long
+        )
+
+        return {"pixel_values": pixel_values, "decoder_input_ids": decoder_input_ids}
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
