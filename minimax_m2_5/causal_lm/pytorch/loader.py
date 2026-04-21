@@ -142,10 +142,6 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    # Variants with NVFP4 quantized weights require ignore_mismatched_sizes
-    # because the packed FP4 weight shapes differ from the model definition.
-    _NVFP4_VARIANTS = {ModelVariant.MINIMAX_M2_5_NVFP4}
-
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MiniMax-M2.5 model instance for this instance's variant.
 
