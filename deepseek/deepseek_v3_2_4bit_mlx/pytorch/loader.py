@@ -12,6 +12,10 @@ from typing import Optional
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
+from .src import (
+    model_utils as _model_utils,
+)  # noqa: F401  # registers "deepseek_v32" model type
+
 from ....base import ForgeModel
 from ....config import (
     Framework,
