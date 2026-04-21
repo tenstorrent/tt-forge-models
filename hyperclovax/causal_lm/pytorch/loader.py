@@ -4,7 +4,11 @@
 """
 HyperCLOVAX SEED model loader implementation for causal language modeling.
 """
+import os
+
+import pytest
 import torch
+from huggingface_hub.errors import GatedRepoError
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -67,14 +71,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _hf_token():
+        return os.environ.get("HF_TOKEN")
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {"trust_remote_code": True}
+        token = self._hf_token()
+        if token:
+            tokenizer_kwargs["token"] = token
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
+        except (GatedRepoError, OSError) as e:
+            if "gated" in str(e).lower():
+                pytest.skip(f"Gated model requires HuggingFace access: {e}")
+            raise
 
         return self.tokenizer
 
@@ -84,22 +100,37 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
+        token = self._hf_token()
         model_kwargs = {"trust_remote_code": True}
+        if token:
+            model_kwargs["token"] = token
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
+            try:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name,
+                    trust_remote_code=True,
+                    **({"token": token} if token else {}),
+                )
+            except (GatedRepoError, OSError) as e:
+                if "gated" in str(e).lower():
+                    pytest.skip(f"Gated model requires HuggingFace access: {e}")
+                raise
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        except (GatedRepoError, OSError) as e:
+            if "gated" in str(e).lower():
+                pytest.skip(f"Gated model requires HuggingFace access: {e}")
+            raise
 
         self.config = model.config
         self.model = model
@@ -134,9 +165,18 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
-        )
+        token = self._hf_token()
+        config_kwargs = {"trust_remote_code": True}
+        if token:
+            config_kwargs["token"] = token
+        try:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, **config_kwargs
+            )
+        except (GatedRepoError, OSError) as e:
+            if "gated" in str(e).lower():
+                pytest.skip(f"Gated model requires HuggingFace access: {e}")
+            raise
         return self.config
 
     def decode_output(self, outputs, input_length=None):
