@@ -87,13 +87,19 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # modeling_chatglm.py uses config.max_length but ChatGLMConfig defines seq_length
+        if not hasattr(config, "max_length"):
+            config.max_length = config.seq_length
+        # ChatGLMConfig omits standard PretrainedConfig defaults absent in transformers 5.x
+        if not hasattr(config, "use_cache"):
+            config.use_cache = True
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
             config.num_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
