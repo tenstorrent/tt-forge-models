@@ -4,6 +4,7 @@
 """
 Table Transformer model loader implementation for object detection.
 """
+
 import torch
 from transformers import AutoImageProcessor, TableTransformerForObjectDetection
 from datasets import load_dataset
@@ -26,6 +27,7 @@ class ModelVariant(StrEnum):
 
     DETECTION = "Detection"
     STRUCTURE_RECOGNITION = "Structure_Recognition"
+    PIX2TEXT_TABLE_REC = "Pix2Text_Table_Rec"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +39,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.STRUCTURE_RECOGNITION: ModelConfig(
             pretrained_model_name="microsoft/table-transformer-structure-recognition",
+        ),
+        ModelVariant.PIX2TEXT_TABLE_REC: ModelConfig(
+            pretrained_model_name="breezedeus/pix2text-table-rec",
         ),
     }
 
