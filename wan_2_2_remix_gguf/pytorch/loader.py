@@ -6,8 +6,7 @@
 Wan 2.2 Remix GGUF model loader implementation.
 
 Loads GGUF-quantized Wan 2.2 Remix transformers from
-BigDannyPt/Wan-2.2-Remix-GGUF and builds text-to-video or
-image-to-video pipelines.
+BigDannyPt/Wan-2.2-Remix-GGUF.
 
 The Wan 2.2 Remix is a community fine-tune of the Wan 2.2 14B model
 supporting both text-to-video (T2V) and image-to-video (I2V) generation.
@@ -22,7 +21,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -36,8 +34,11 @@ from ...config import (
 )
 
 GGUF_REPO = "BigDannyPt/Wan-2.2-Remix-GGUF"
-T2V_BASE_PIPELINE = "Wan-AI/Wan2.2-T2V-A14B-Diffusers"
-I2V_BASE_PIPELINE = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
+
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -50,11 +51,6 @@ class ModelVariant(StrEnum):
 _GGUF_FILES = {
     ModelVariant.WAN22_REMIX_T2V_HIGH_V2_Q4_K_M: "T2V/v2.0/High/wan22RemixT2VI2V_t2vHighV20-Q4_K_M.gguf",
     ModelVariant.WAN22_REMIX_I2V_HIGH_V3_Q4_K_M: "I2V/v3.0/High/wan22RemixT2VI2V_i2vHighV30-Q4_K_M.gguf",
-}
-
-_IS_I2V = {
-    ModelVariant.WAN22_REMIX_T2V_HIGH_V2_Q4_K_M: False,
-    ModelVariant.WAN22_REMIX_I2V_HIGH_V3_Q4_K_M: True,
 }
 
 
@@ -73,7 +69,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -94,14 +90,20 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized Wan 2.2 Remix transformer and build the pipeline.
+        """Load the GGUF-quantized Wan 2.2 Remix transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer,
-        then constructs the appropriate pipeline (T2V or I2V) with the base model's
-        VAE in float32 for numerical stability.
+        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
+        Returns the transformer nn.Module directly for compilation testing.
         """
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+
         from diffusers import (
-            AutoencoderKLWan,
             GGUFQuantizationConfig,
             WanTransformer3DModel,
         )
@@ -111,77 +113,37 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+        self._transformer = WanTransformer3DModel.from_single_file(
+            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
 
-        is_i2v = _IS_I2V[self._variant]
-        base_pipeline = I2V_BASE_PIPELINE if is_i2v else T2V_BASE_PIPELINE
-
-        vae = AutoencoderKLWan.from_pretrained(
-            base_pipeline,
-            subfolder="vae",
-            torch_dtype=torch.float32,
-        )
-
-        if is_i2v:
-            from diffusers import WanImageToVideoPipeline
-            from transformers import CLIPVisionModel
-
-            image_encoder = CLIPVisionModel.from_pretrained(
-                base_pipeline,
-                subfolder="image_encoder",
-                torch_dtype=torch.float32,
-            )
-
-            self.pipeline = WanImageToVideoPipeline.from_pretrained(
-                base_pipeline,
-                transformer=transformer,
-                vae=vae,
-                image_encoder=image_encoder,
-                torch_dtype=compute_dtype,
-            )
-        else:
-            from diffusers import WanPipeline
-
-            self.pipeline = WanPipeline.from_pretrained(
-                base_pipeline,
-                transformer=transformer,
-                vae=vae,
-                torch_dtype=compute_dtype,
-            )
-
-        return self.pipeline
+        return self._transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for video generation."""
-        if prompt is None:
-            prompt = (
-                "A cat walking gracefully across a sunlit garden, "
-                "detailed fur texture, cinematic lighting"
-            )
+        """Prepare tensor inputs for the WanTransformer3DModel forward pass."""
+        if self._transformer is None:
+            self.load_model()
 
-        is_i2v = _IS_I2V[self._variant]
-
-        if is_i2v:
-            image = Image.new("RGB", (832, 480), color=(128, 128, 200))
-            return {
-                "prompt": prompt,
-                "image": image,
-                "height": 480,
-                "width": 832,
-                "num_frames": 9,
-                "num_inference_steps": 2,
-                "guidance_scale": 5.0,
-            }
+        dtype = torch.bfloat16
+        config = self._transformer.config
 
         return {
-            "prompt": prompt,
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }
