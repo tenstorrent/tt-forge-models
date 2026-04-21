@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Llama 3 70B Instruct Abliterated model variants for causal language modeling."""
 
     LLAMA_3_70B_INSTRUCT_ABLITERATED = "70B_Instruct_Abliterated"
+    LLAMA_3_70B_INSTRUCT_ABLITERATED_V3 = "70B_Instruct_Abliterated_v3"
 
 
 class ModelLoader(ForgeModel):
@@ -32,6 +33,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.LLAMA_3_70B_INSTRUCT_ABLITERATED: LLMModelConfig(
             pretrained_model_name="failspy/llama-3-70B-Instruct-abliterated",
+            max_length=256,
+        ),
+        ModelVariant.LLAMA_3_70B_INSTRUCT_ABLITERATED_V3: LLMModelConfig(
+            pretrained_model_name="failspy/Llama-3-70B-Instruct-abliterated-v3",
             max_length=256,
         ),
     }
