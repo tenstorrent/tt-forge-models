@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Helsinki-NLP/opus-mt-pt-ca",
         ),
         ModelVariant.OPUS_MT_ES_EN: LLMModelConfig(
-            pretrained_model_name="Xenova/opus-mt-es-en",
+            pretrained_model_name="Helsinki-NLP/opus-mt-es-en",
         ),
     }
 
