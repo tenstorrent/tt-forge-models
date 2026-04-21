@@ -22,6 +22,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available GPT-J model variants."""
 
+    JAVALION = "javalion"
     TINY_RANDOM = "tiny-random"
     HAKUREI_RANDOM_TINIER = "hakurei-random-tinier"
 
@@ -31,6 +32,10 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
+        ModelVariant.JAVALION: LLMModelConfig(
+            pretrained_model_name="digitous/Javalion-GPTJ",
+            max_length=256,
+        ),
         ModelVariant.TINY_RANDOM: LLMModelConfig(
             pretrained_model_name="peft-internal-testing/tiny-random-GPTJForCausalLM",
             max_length=256,
