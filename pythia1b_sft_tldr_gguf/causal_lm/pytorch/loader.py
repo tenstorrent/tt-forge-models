@@ -66,12 +66,8 @@ def _patch_transformers_gptneox_gguf():
     # 4. Patch load_gguf_checkpoint to remap model_type and compute rotary_pct
     _orig_load_gguf_checkpoint = gguf_utils.load_gguf_checkpoint
 
-    def _patched_load_gguf_checkpoint(
-        gguf_path, return_tensors=False, model_to_load=None
-    ):
-        result = _orig_load_gguf_checkpoint(
-            gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
-        )
+    def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+        result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
         config = result.get("config", {})
         if config.get("model_type") == "gptneox":
             config["model_type"] = "gpt_neox"
