@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, batch_size=1):
         """Load and return input tensors for CoTracker3.
 
-        Returns a synthetic video tensor of shape (B, T, C, H, W).
+        Returns kwargs dict with video tensor and grid_size for sparse tracking.
         """
         video = torch.randn(batch_size, 8, 3, 224, 224)
-        return video
+        return {"video": video, "grid_size": 6}
