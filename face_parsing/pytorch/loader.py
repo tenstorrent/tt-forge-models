@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Face Parsing model variants."""
 
     FACE_PARSING = "face_parsing"
+    SEGFORMER_FACE_1038LAB = "1038lab_segformer_face"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.FACE_PARSING: ModelConfig(
             pretrained_model_name="jonathandinu/face-parsing",
+        ),
+        ModelVariant.SEGFORMER_FACE_1038LAB: ModelConfig(
+            pretrained_model_name="1038lab/segformer_face",
         ),
     }
 
