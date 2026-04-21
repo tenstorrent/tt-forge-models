@@ -8,7 +8,10 @@ import importlib.metadata
 from typing import Optional
 
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 from ....base import ForgeModel
 from ....config import (
@@ -20,6 +23,25 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_apertus_gguf_support():
+    """Register apertus architecture in the GGUF loader.
+
+    Apertus uses llama-style config field names but is not yet registered in
+    transformers' GGUF architecture support tables.
+    """
+    if "apertus" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("apertus")
+    llama_config = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].get("llama", {})
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].setdefault(
+        "apertus", llama_config
+    )
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("apertus", GGUF_TO_FAST_CONVERTERS["llama"])
+
+
+_patch_apertus_gguf_support()
 
 
 class ModelVariant(StrEnum):
