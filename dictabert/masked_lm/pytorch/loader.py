@@ -11,8 +11,8 @@ from typing import Optional
 
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 
-from ....base import ForgeModel
-from ....config import (
+from third_party.tt_forge_models.base import ForgeModel
+from third_party.tt_forge_models.config import (
     Framework,
     LLMModelConfig,
     ModelGroup,
