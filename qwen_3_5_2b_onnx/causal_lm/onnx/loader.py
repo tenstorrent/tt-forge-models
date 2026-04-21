@@ -57,8 +57,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.ONNX,
         )
 
-    # The decoder_model_merged.onnx proto references external weight shards that
-    # onnx.load expects to find alongside the graph file.
+    # onnx.load resolves external data relative to the graph file's directory.
     _EXTERNAL_DATA_FILES = (
         "onnx/decoder_model_merged.onnx_data",
         "onnx/decoder_model_merged.onnx_data_1",
