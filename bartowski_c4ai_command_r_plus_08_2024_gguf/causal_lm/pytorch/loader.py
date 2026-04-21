@@ -4,8 +4,8 @@
 """
 bartowski c4ai-command-r-plus-08-2024 GGUF model loader implementation for causal language modeling.
 
-Note: The command-r GGUF architecture is not yet supported by the transformers
-GGUF loader, so we load from the HF-native checkpoint instead.
+Note: The command-r GGUF architecture is not in transformers' default supported
+list, so this loader monkey-patches the GGUF utilities to add support for it.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -23,6 +23,60 @@ from ....config import (
 )
 
 
+def _patch_gguf_command_r_support():
+    """Patch transformers GGUF utilities to support the command-r architecture.
+
+    The command-r architecture (used by CohereForAI c4ai-command-r models) is
+    stored in GGUF files as architecture "command-r", but transformers 5.2.0
+    does not include it in GGUF_SUPPORTED_ARCHITECTURES. The gguf-py library
+    already knows the command-r weight name mapping; we only need to add the
+    config field mapping and fix the model_type string.
+    """
+    import transformers.integrations.ggml as _ggml
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+    if "command-r" in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    _ggml.GGUF_CONFIG_MAPPING["command-r"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_epsilon": "layer_norm_eps",
+        "logit_scale": "logit_scale",
+        "vocab_size": "vocab_size",
+    }
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
+        "command-r"
+    ] = _ggml.GGUF_CONFIG_MAPPING["command-r"]
+    _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES = list(
+        _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].keys()
+    )
+
+    _orig_load_gguf = _gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf(
+        gguf_checkpoint_path, return_tensors=False, model_to_load=None
+    ):
+        result = _orig_load_gguf(
+            gguf_checkpoint_path,
+            return_tensors=return_tensors,
+            model_to_load=model_to_load,
+        )
+        if result.get("config", {}).get("model_type") == "command-r":
+            result["config"]["model_type"] = "cohere"
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf
+
+
+_patch_gguf_command_r_support()
+
+
 class ModelVariant(StrEnum):
     """Available bartowski c4ai-command-r-plus-08-2024 GGUF model variants for causal language modeling."""
 
@@ -30,20 +84,18 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """bartowski c4ai-command-r-plus-08-2024 GGUF model loader implementation for causal language modeling tasks.
-
-    Note: Uses the base model (safetensors) instead of GGUF because the
-    command-r GGUF architecture is not yet supported by transformers.
-    """
+    """bartowski c4ai-command-r-plus-08-2024 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.BARTOWSKI_C4AI_COMMAND_R_PLUS_08_2024_GGUF: LLMModelConfig(
-            pretrained_model_name="CohereForAI/c4ai-command-r-plus-08-2024",
+            pretrained_model_name="bartowski/c4ai-command-r-plus-08-2024-GGUF",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BARTOWSKI_C4AI_COMMAND_R_PLUS_08_2024_GGUF
+
+    GGUF_FILE = "c4ai-command-r-plus-08-2024-Q2_K.gguf"
 
     sample_text = "What is the capital of France?"
 
@@ -70,6 +122,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -89,9 +142,12 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -156,6 +212,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
         return self.config
