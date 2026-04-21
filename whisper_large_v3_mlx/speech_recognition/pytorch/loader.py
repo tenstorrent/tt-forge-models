@@ -10,13 +10,15 @@ loadable by PyTorch, this loader uses the original openai/whisper-large-v3 weigh
 which are numerically identical.
 """
 
+from typing import Optional
+
+import numpy as np
 import torch
 from transformers import (
     WhisperProcessor,
     WhisperForConditionalGeneration,
     WhisperConfig,
 )
-from typing import Optional
 
 from ....config import (
     ModelInfo,
@@ -27,7 +29,6 @@ from ....config import (
     StrEnum,
     ModelConfig,
 )
-from ....tools.utils import get_file
 from ....base import ForgeModel
 
 
@@ -89,25 +90,28 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         """Generate sample inputs for Whisper Large V3 MLX model."""
         if self.model is None or self.processor is None:
-            self.load_model()
+            self.load_model(dtype_override=dtype_override)
 
         model_config = WhisperConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
 
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
-        model_param = next(self.model.parameters())
-        device, dtype = model_param.device, dtype_override or model_param.dtype
-
-        # Preprocess audio
         sampling_rate = 16000
-        processor_output = self.processor(
-            sample_audio, return_tensors="pt", sampling_rate=sampling_rate
+        duration_seconds = 30
+        audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
+            np.float32
         )
-        input_features = processor_output.input_features.to(device=device, dtype=dtype)
+
+        model_param = next(self.model.parameters())
+        device = model_param.device
+        dtype = dtype_override or model_param.dtype
+
+        inputs = self.processor(
+            audio_array,
+            sampling_rate=sampling_rate,
+            return_tensors="pt",
+        )
+        input_features = inputs.input_features.to(device=device, dtype=dtype)
 
         decoder_input_ids = torch.full(
             (1, 2),
