@@ -87,26 +87,14 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
 
-        if self._variant == ModelVariant.DEBERTA_V2_XXLARGE_MNLI:
-            premise = "A man is eating food."
-            hypothesis = "A man is eating a meal."
-            inputs = self.tokenizer(
-                premise,
-                hypothesis,
-                max_length=128,
-                padding="max_length",
-                truncation=True,
-                return_tensors="pt",
-            )
-        else:
-            text = "The weather is nice today."
-            inputs = self.tokenizer(
-                text,
-                max_length=512,
-                padding="max_length",
-                truncation=True,
-                return_tensors="pt",
-            )
+        text = "The weather is nice today."
+        inputs = self.tokenizer(
+            text,
+            max_length=512,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt",
+        )
 
         return inputs
 
