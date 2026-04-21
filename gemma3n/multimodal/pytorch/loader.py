@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     """Available Gemma3n multimodal model variants."""
 
     GEMMA_3N_E2B = "google/gemma-3n-E2B"
+    UNSLOTH_GEMMA_3N_E4B_IT = "unsloth/gemma-3n-E4B-it"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GEMMA_3N_E2B: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3N_E2B),
+        ),
+        ModelVariant.UNSLOTH_GEMMA_3N_E4B_IT: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.UNSLOTH_GEMMA_3N_E4B_IT),
         ),
     }
 
