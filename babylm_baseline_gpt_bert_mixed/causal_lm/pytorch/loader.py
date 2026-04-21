@@ -5,6 +5,8 @@
 BabyLM Baseline GPT-BERT Mixed model loader implementation for causal language modeling.
 """
 
+import json
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
@@ -76,8 +78,6 @@ class ModelLoader(ForgeModel):
         model_kwargs = {
             "trust_remote_code": True,
         }
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
@@ -87,7 +87,18 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        _original_default = json.JSONEncoder.default
+
+        def _dtype_aware_default(self, obj):
+            if isinstance(obj, torch.dtype):
+                return str(obj)
+            return _original_default(self, obj)
+
+        json.JSONEncoder.default = _dtype_aware_default
+        try:
+            model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        finally:
+            json.JSONEncoder.default = _original_default
         model.eval()
 
         if self.tokenizer is None:
