@@ -23,7 +23,7 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available vire-protocol 70b i1 GGUF model variants for causal language modeling."""
 
-    VIRE_PROTOCOL_70B_I1_Q4_K_M_GGUF = "vire-protocol-70b-i1-Q4_K_M-GGUF"
+    VIRE_PROTOCOL_70B_I1_Q4_K_M_GGUF = "vire_protocol_70b_i1_Q4_K_M_GGUF"
 
 
 class ModelLoader(ForgeModel):
