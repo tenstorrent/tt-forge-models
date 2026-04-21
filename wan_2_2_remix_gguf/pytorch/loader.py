@@ -102,6 +102,11 @@ class ModelLoader(ForgeModel):
 
             if importlib.util.find_spec("gguf") is not None:
                 _diffusers_import_utils._gguf_available = True
+                import importlib.metadata
+
+                _diffusers_import_utils._gguf_version = importlib.metadata.version(
+                    "gguf"
+                )
 
         from diffusers import (
             GGUFQuantizationConfig,
@@ -117,6 +122,7 @@ class ModelLoader(ForgeModel):
             f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
+            low_cpu_mem_usage=False,
         )
 
         return self._transformer
