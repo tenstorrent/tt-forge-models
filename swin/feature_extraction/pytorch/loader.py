@@ -53,6 +53,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.TINY_RANDOM_PATCH4_WINDOW7_224: ModelConfig(
             pretrained_model_name="yujiepan/tiny-random-swin-patch4-window7-224",
         ),
+        ModelVariant.TINY_RANDOM_PATCH4_WINDOW7_224: ModelConfig(
+            pretrained_model_name="yujiepan/tiny-random-swin-patch4-window7-224",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.TINY_RANDOM
