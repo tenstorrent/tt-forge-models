@@ -22,6 +22,7 @@ class ModelVariant(StrEnum):
     """Available model variants for Funnel Transformer."""
 
     FUNNEL_RANDOM_TINY = "sgugger/funnel-random-tiny"
+    FUNNEL_KOR_BASE = "kykim/funnel-kor-base"
 
 
 class ModelLoader(ForgeModel):
@@ -30,6 +31,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.FUNNEL_RANDOM_TINY: LLMModelConfig(
             pretrained_model_name="sgugger/funnel-random-tiny",
+            max_length=512,
+        ),
+        ModelVariant.FUNNEL_KOR_BASE: LLMModelConfig(
+            pretrained_model_name="kykim/funnel-kor-base",
             max_length=512,
         ),
     }
