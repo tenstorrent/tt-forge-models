@@ -41,9 +41,11 @@ from ...config import (
 
 REPO_ID = "Anzhc/MS-LC-EQ-D-VR_VAE"
 
-# Base VAE configs used to instantiate the AutoencoderKL architecture
+# Base VAE configs used to instantiate the AutoencoderKL architecture.
+# The FLUX mirror is used instead of black-forest-labs/FLUX.1-dev because
+# the upstream repo is gated and cannot be fetched without a token.
 SDXL_VAE_CONFIG = "stabilityai/sdxl-vae"
-FLUX_VAE_CONFIG_REPO = "black-forest-labs/FLUX.1-dev"
+FLUX_VAE_CONFIG_REPO = "camenduru/FLUX.1-dev-ungated"
 FLUX_VAE_CONFIG_SUBFOLDER = "vae"
 
 # Latent dimensions
