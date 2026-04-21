@@ -6,8 +6,8 @@ React Native ExecuTorch Whisper speech recognition model loader implementation.
 
 Note: The original models (software-mansion/react-native-executorch-whisper-*) are in
 ExecuTorch .pte format intended for mobile inference. Since ExecuTorch format is not
-compatible with PyTorch, this loader uses the base models (openai/whisper-*) via
-WhisperForConditionalGeneration.
+compatible with PyTorch, this loader uses the corresponding base models (openai/whisper-*)
+via WhisperForConditionalGeneration.
 """
 
 import torch
@@ -35,7 +35,7 @@ class ModelVariant(StrEnum):
     """Available React Native ExecuTorch Whisper model variants."""
 
     WHISPER_SMALL = "Small"
-    WHISPER_TINY_EN = "Tiny_En"
+    WHISPER_TINY_QUANTIZED_EN = "Tiny_Quantized_En"
 
 
 class ModelLoader(ForgeModel):
@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.WHISPER_SMALL: ModelConfig(
             pretrained_model_name="openai/whisper-small",
         ),
-        ModelVariant.WHISPER_TINY_EN: ModelConfig(
+        ModelVariant.WHISPER_TINY_QUANTIZED_EN: ModelConfig(
             pretrained_model_name="openai/whisper-tiny.en",
         ),
     }
