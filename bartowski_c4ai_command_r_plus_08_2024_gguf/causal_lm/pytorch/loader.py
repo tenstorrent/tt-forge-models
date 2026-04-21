@@ -30,7 +30,8 @@ def _patch_gguf_command_r_support():
     stored in GGUF files as architecture "command-r", but transformers 5.2.0
     does not include it in GGUF_SUPPORTED_ARCHITECTURES. The gguf-py library
     already knows the command-r weight name mapping; we only need to add the
-    config field mapping and fix the model_type string.
+    config field mapping, fix the model_type string, and register the tokenizer
+    converter (command-r uses a GPT2-style BPE tokenizer).
     """
     import transformers.integrations.ggml as _ggml
     import transformers.modeling_gguf_pytorch_utils as _gguf_utils
@@ -56,6 +57,13 @@ def _patch_gguf_command_r_support():
     _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES = list(
         _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].keys()
     )
+
+    # command-r uses a GPT2-style BPE tokenizer; register under both the
+    # GGUF architecture name and the transformers model_type name.
+    if "command-r" not in _ggml.GGUF_TO_FAST_CONVERTERS:
+        _ggml.GGUF_TO_FAST_CONVERTERS["command-r"] = _ggml.GGUFGPTConverter
+    if "cohere" not in _ggml.GGUF_TO_FAST_CONVERTERS:
+        _ggml.GGUF_TO_FAST_CONVERTERS["cohere"] = _ggml.GGUFGPTConverter
 
     _orig_load_gguf = _gguf_utils.load_gguf_checkpoint
 
