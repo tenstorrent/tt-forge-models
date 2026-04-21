@@ -31,8 +31,8 @@ class ModelVariant(StrEnum):
     )
     TNER_ROBERTA_LARGE_TWEETNER7_ALL = "tner/roberta-large-tweetner7-all"
     SYSSEC_UTD_PY310_PYLINGUAL_V1_SEGMENTER = "syssec-utd/py310-pylingual-v1-segmenter"
-    KTGIAHIEU_ROBERTA_BASE_PM_M3_VOC_DISTILL_ALIGN_NER = (
-        "ktgiahieu/RoBERTa-base-PM-M3-Voc-distill-align-hf-finetuned-ner"
+    KOICHIYASUOKA_ROBERTA_BASE_THAI_SPM_UPOS = (
+        "KoichiYasuoka/roberta-base-thai-spm-upos"
     )
 
 
@@ -42,7 +42,7 @@ _VARIANT_SAMPLE_TEXTS = {
     ModelVariant.PROJECTE_AINA_ROBERTA_BASE_CA_V2_CASED_NER: "En Jordi viu a Barcelona i treballa a la Universitat de Catalunya",
     ModelVariant.TNER_ROBERTA_LARGE_TWEETNER7_ALL: "Jacob Collier is an amazing musician from London",
     ModelVariant.SYSSEC_UTD_PY310_PYLINGUAL_V1_SEGMENTER: "LOAD_FAST 0 LOAD_FAST 1 BINARY_ADD RETURN_VALUE",
-    ModelVariant.KTGIAHIEU_ROBERTA_BASE_PM_M3_VOC_DISTILL_ALIGN_NER: "The patient was diagnosed with acute myocardial infarction and treated with aspirin.",
+    ModelVariant.KOICHIYASUOKA_ROBERTA_BASE_THAI_SPM_UPOS: "หลายหัวดีกว่าหัวเดียว",
 }
 
 
@@ -65,8 +65,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.SYSSEC_UTD_PY310_PYLINGUAL_V1_SEGMENTER: ModelConfig(
             pretrained_model_name="syssec-utd/py310-pylingual-v1-segmenter",
         ),
-        ModelVariant.KTGIAHIEU_ROBERTA_BASE_PM_M3_VOC_DISTILL_ALIGN_NER: ModelConfig(
-            pretrained_model_name="ktgiahieu/RoBERTa-base-PM-M3-Voc-distill-align-hf-finetuned-ner",
+        ModelVariant.KOICHIYASUOKA_ROBERTA_BASE_THAI_SPM_UPOS: ModelConfig(
+            pretrained_model_name="KoichiYasuoka/roberta-base-thai-spm-upos",
         ),
     }
 
