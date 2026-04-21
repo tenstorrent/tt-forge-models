@@ -17,6 +17,11 @@ from third_party.tt_forge_models.config import (
 )
 from third_party.tt_forge_models.base import ForgeModel
 
+_SAMPLE_TEXTS = {
+    "dbmdz/bert-base-german-uncased": "Die Hauptstadt von Deutschland ist [MASK].",
+    "unikei/bert-base-smiles": "CC(=O)OC1=CC=CC=C1C(=O)[MASK]",
+}
+
 
 class ModelVariant(StrEnum):
     """Available BERT model variants for masked language modeling."""
@@ -33,7 +38,7 @@ class ModelVariant(StrEnum):
     LEGAL_BERT_BASE_UNCASED = "nlpaueb/legal-bert-base-uncased"
     RETROMAE_MSMARCO_DISTILL = "Shitao/RetroMAE_MSMARCO_distill"
     BERT_LARGE_UNCASED_WWM = "Large_Uncased_Whole_Word_Masking"
-    SEC_BERT_NUM = "nlpaueb/sec-bert-num"
+    UNIKEI_BERT_BASE_SMILES = "unikei/bert-base-smiles"
 
 
 class ModelLoader(ForgeModel):
@@ -89,8 +94,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="bert-large-uncased-whole-word-masking",
             max_length=128,
         ),
-        ModelVariant.SEC_BERT_NUM: LLMModelConfig(
-            pretrained_model_name="nlpaueb/sec-bert-num",
+        ModelVariant.UNIKEI_BERT_BASE_SMILES: LLMModelConfig(
+            pretrained_model_name="unikei/bert-base-smiles",
             max_length=128,
         ),
     }
@@ -141,7 +146,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LEGAL_BERT_BASE_UNCASED,
             ModelVariant.RETROMAE_MSMARCO_DISTILL,
             ModelVariant.BERT_LARGE_UNCASED_WWM,
-            ModelVariant.SEC_BERT_NUM,
+            ModelVariant.UNIKEI_BERT_BASE_SMILES,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
