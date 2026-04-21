@@ -5,6 +5,7 @@
 CodeT5+ 770M model loader implementation
 """
 
+import json
 import torch
 from transformers import AutoTokenizer, T5ForConditionalGeneration
 from typing import Optional
@@ -84,9 +85,27 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
+        from huggingface_hub import hf_hub_download
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+
+        # Workaround for transformers 5.2.0 + tokenizers 0.22 incompatibility:
+        # special_tokens_map.json stores additional_special_tokens as raw dicts,
+        # but tokenizers.add_tokens() now requires List[Union[str, AddedToken]].
+        # Passing additional_special_tokens as strings bypasses the broken dict path.
+        stm_path = hf_hub_download(
+            self._variant_config.pretrained_model_name, "special_tokens_map.json"
+        )
+        with open(stm_path) as f:
+            stm = json.load(f)
+        additional_special_tokens = [
+            t["content"] if isinstance(t, dict) else t
+            for t in stm.get("additional_special_tokens", [])
+        ]
+        if additional_special_tokens:
+            tokenizer_kwargs["additional_special_tokens"] = additional_special_tokens
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
