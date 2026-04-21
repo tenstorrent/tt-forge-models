@@ -4,7 +4,8 @@
 """
 Qwen2.5-VL Captioner Relaxed model loader implementation for image-text-to-text tasks.
 """
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+import torch
+from transformers import AutoModelForImageTextToText, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -31,7 +32,6 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN2_5_VL_7B_CAPTIONER_RELAXED: LLMModelConfig(
             pretrained_model_name="Ertugrul/Qwen2.5-VL-7B-Captioner-Relaxed",
-            max_length=128,
         ),
     }
 
@@ -41,34 +41,12 @@ class ModelLoader(ForgeModel):
         "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
     )
 
-    def __init__(
-        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
-    ):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-            num_layers: Optional number of hidden layers to use.
-        """
+    def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
-        self.config = None
-        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Implementation method for getting model info with validated variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
-        if variant is None:
-            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
             model="Qwen2.5-VL Captioner Relaxed",
             variant=variant,
@@ -78,46 +56,33 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_processor(self):
+        self.processor = AutoProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+        return self.processor
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Qwen2.5-VL Captioner Relaxed model instance.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            torch.nn.Module: The Qwen2.5-VL Captioner Relaxed model instance for image-text-to-text.
-        """
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if self.processor is None:
+            self._load_processor()
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
-
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
-
-        self.config = model.config
+        )
+        model.eval()
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Qwen2.5-VL Captioner Relaxed model.
+        if self.processor is None:
+            self._load_processor()
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-            batch_size: Batch size for the inputs.
-
-        Returns:
-            dict: Input tensors that can be fed to the model.
-        """
         messages = [
             {
                 "role": "system",
@@ -144,10 +109,9 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
-        return inputs
 
-    def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
-        return self.config
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
+        return inputs
