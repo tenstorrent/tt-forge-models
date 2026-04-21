@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
     """Available Gliese Qwen 3.5 model variants for image to text."""
 
     GLIESE_QWEN3_5_9B_ABLITERATED_CAPTION = "9b_abliterated_caption"
-    GLIESE_QWEN3_5_4B_ABLITERATED_CAPTION = "4b_abliterated_caption"
+    GLIESE_QWEN3_5_2B_ABLITERATED_CAPTION = "2b_abliterated_caption"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="prithivMLmods/Gliese-Qwen3.5-9B-Abliterated-Caption",
             max_length=128,
         ),
-        ModelVariant.GLIESE_QWEN3_5_4B_ABLITERATED_CAPTION: LLMModelConfig(
-            pretrained_model_name="prithivMLmods/Gliese-Qwen3.5-4B-Abliterated-Caption",
+        ModelVariant.GLIESE_QWEN3_5_2B_ABLITERATED_CAPTION: LLMModelConfig(
+            pretrained_model_name="prithivMLmods/Gliese-Qwen3.5-2B-Abliterated-Caption",
             max_length=128,
         ),
     }
