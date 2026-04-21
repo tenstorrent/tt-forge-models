@@ -7,6 +7,7 @@ TF-ID (Table/Figure IDentifier) object detection model loader implementation (Py
 
 import torch
 from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 from PIL import Image
 
@@ -21,6 +22,52 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import get_file
+
+
+def _patch_florence2_remote_code(repo_id):
+    """Patch custom Florence2 classes from HuggingFace hub for transformers 5.x compat."""
+    lang_cfg = get_class_from_dynamic_module(
+        "configuration_florence2.Florence2LanguageConfig", repo_id
+    )
+    lang_cfg.forced_bos_token_id = None
+
+    davit_cls = get_class_from_dynamic_module("modeling_florence2.DaViT", repo_id)
+    if not getattr(davit_cls, "_meta_patched", False):
+        _orig_init = davit_cls.__init__
+
+        def _patched_init(self, *args, _orig=_orig_init, **kwargs):
+            orig_item = torch.Tensor.item
+
+            def safe_item(tensor):
+                if tensor.is_meta:
+                    return 0.0
+                return orig_item(tensor)
+
+            torch.Tensor.item = safe_item
+            try:
+                _orig(self, *args, **kwargs)
+            finally:
+                torch.Tensor.item = orig_item
+
+        davit_cls.__init__ = _patched_init
+        davit_cls._meta_patched = True
+
+    processor_cls = get_class_from_dynamic_module(
+        "processing_florence2.Florence2Processor", repo_id
+    )
+    if not getattr(processor_cls, "_tok_patched", False):
+        _orig_proc_init = processor_cls.__init__
+
+        def _patched_proc_init(self, *args, _orig=_orig_proc_init, **kwargs):
+            for arg in list(args) + list(kwargs.values()):
+                if hasattr(arg, "add_special_tokens") and not hasattr(
+                    arg, "additional_special_tokens"
+                ):
+                    arg.additional_special_tokens = []
+            _orig(self, *args, **kwargs)
+
+        processor_cls.__init__ = _patched_proc_init
+        processor_cls._tok_patched = True
 
 
 class ModelVariant(StrEnum):
@@ -56,14 +103,18 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        _patch_florence2_remote_code(self._variant_config.pretrained_model_name)
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
+            use_fast=False,
         )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        _patch_florence2_remote_code(pretrained_model_name)
 
         model_kwargs = {}
         if dtype_override is not None:
