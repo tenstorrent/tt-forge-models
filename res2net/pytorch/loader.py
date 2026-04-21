@@ -28,19 +28,19 @@ from ...base import ForgeModel
 class ModelVariant(StrEnum):
     """Available Res2Net model variants (timm)."""
 
-    RES2NET101_26W_4S_IN1K = "res2net101_26w_4s.in1k"
+    RES2NET50_26W_8S_IN1K = "res2net50_26w_8s.in1k"
 
 
 class ModelLoader(ForgeModel):
     """Res2Net model loader implementation."""
 
     _VARIANTS = {
-        ModelVariant.RES2NET101_26W_4S_IN1K: ModelConfig(
-            pretrained_model_name="res2net101_26w_4s.in1k",
+        ModelVariant.RES2NET50_26W_8S_IN1K: ModelConfig(
+            pretrained_model_name="res2net50_26w_8s.in1k",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.RES2NET101_26W_4S_IN1K
+    DEFAULT_VARIANT = ModelVariant.RES2NET50_26W_8S_IN1K
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
