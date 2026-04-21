@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Nemotron-Cascade model variants for causal language modeling."""
 
     NEMOTRON_CASCADE_2_30B_A3B = "Cascade_2_30B_A3B"
+    NEMOTRON_CASCADE_2_30B_A3B_MLX_8BIT = "Cascade_2_30B_A3B_mlx_8bit"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.NEMOTRON_CASCADE_2_30B_A3B: LLMModelConfig(
             pretrained_model_name="nvidia/Nemotron-Cascade-2-30B-A3B",
+            max_length=128,
+        ),
+        ModelVariant.NEMOTRON_CASCADE_2_30B_A3B_MLX_8BIT: LLMModelConfig(
+            pretrained_model_name="mlx-community/Nemotron-Cascade-2-30B-A3B-8bit",
             max_length=128,
         ),
     }
