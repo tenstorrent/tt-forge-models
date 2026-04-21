@@ -4,9 +4,38 @@
 """
 Giga-Embeddings-instruct model loader for text embedding generation.
 """
+import functools
+
 import torch
+import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+from transformers.modeling_outputs import BaseModelOutputWithPast
 from typing import Optional
+
+if "default" not in ROPE_INIT_FUNCTIONS:
+
+    def _compute_default_rope_parameters(
+        config=None, device=None, seq_len=None, **kwargs
+    ):
+        base = config.rope_theta
+        partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+        head_dim = getattr(config, "head_dim", None) or (
+            config.hidden_size // config.num_attention_heads
+        )
+        dim = int(head_dim * partial_rotary_factor)
+        inv_freq = 1.0 / (
+            base
+            ** (
+                torch.arange(0, dim, 2, dtype=torch.int64).to(
+                    device=device, dtype=torch.float
+                )
+                / dim
+            )
+        )
+        return inv_freq, 1.0
+
+    ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
 
 from third_party.tt_forge_models.config import (
     ModelInfo,
@@ -18,6 +47,35 @@ from third_party.tt_forge_models.config import (
     LLMModelConfig,
 )
 from third_party.tt_forge_models.base import ForgeModel
+
+
+def _patch_cuda_autocast(model):
+    """Replace the model's forward to avoid torch.autocast('cuda') on non-CUDA systems."""
+    if not torch.cuda.is_available() and hasattr(model, "model"):
+        original_forward = model.forward
+
+        @functools.wraps(original_forward)
+        def _patched_forward(
+            input_ids, attention_mask, return_embeddings=False, **kwargs
+        ):
+            kwargs.pop("token_type_ids", None)
+            outputs = model.model(
+                input_ids=input_ids, attention_mask=attention_mask, **kwargs
+            )
+            last_hidden = model.latent_attention_model(
+                outputs.last_hidden_state, attention_mask
+            )
+            if return_embeddings:
+                last_hidden = last_hidden.masked_fill(
+                    ~attention_mask[..., None].bool(), 0.0
+                )
+                embeddings = (
+                    last_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
+                )
+                return F.normalize(embeddings, p=2, dim=-1)
+            return BaseModelOutputWithPast(last_hidden_state=last_hidden)
+
+        model.forward = _patched_forward
 
 
 class ModelVariant(StrEnum):
@@ -79,6 +137,8 @@ class ModelLoader(ForgeModel):
 
         model = AutoModel.from_pretrained(model_name, **model_kwargs)
         model.eval()
+
+        _patch_cuda_autocast(model)
 
         self.model = model
 
