@@ -77,6 +77,9 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # The model repo has no tokenizer files; use a compatible BeetleLM BPE tokenizer
+    TOKENIZER_NAME = "BeetleLM/bpe_babylm-eng-babylm-deu"
+
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
 
@@ -86,15 +89,8 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            **tokenizer_kwargs,
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(self.TOKENIZER_NAME)
+        self.tokenizer.pad_token = "<PAD>"
 
         return self.tokenizer
 
