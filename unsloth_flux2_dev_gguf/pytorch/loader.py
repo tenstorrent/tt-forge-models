@@ -19,7 +19,7 @@ from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 
-_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
+_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config", "transformer")
 from ...config import (
     Framework,
     ModelConfig,
