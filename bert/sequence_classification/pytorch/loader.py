@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
     JEREMIAHZ_BERT_BASE_UNCASED_SST2 = "JeremiahZ_Bert_Base_Uncased_Sst2"
+    AZEDDINSHR_MARBERT_ARABIC_EOU = "azeddinShr_Marbert_Arabic_Eou"
 
 
 class ModelLoader(ForgeModel):
@@ -70,6 +71,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="JeremiahZ/bert-base-uncased-sst2",
             max_length=128,
         ),
+        ModelVariant.AZEDDINSHR_MARBERT_ARABIC_EOU: LLMModelConfig(
+            pretrained_model_name="azeddinShr/marbert-arabic-eou",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -96,6 +101,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
         ModelVariant.JEREMIAHZ_BERT_BASE_UNCASED_SST2: "the movie was great!",
+        ModelVariant.AZEDDINSHR_MARBERT_ARABIC_EOU: "شكرا جزيلا على المساعدة",
     }
 
     def __init__(self, variant=None):
@@ -135,6 +141,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
             ModelVariant.JEREMIAHZ_BERT_BASE_UNCASED_SST2,
+            ModelVariant.AZEDDINSHR_MARBERT_ARABIC_EOU,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
