@@ -64,36 +64,18 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Kandinsky 2.2 Prior transformer.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            PriorTransformer: The Kandinsky 2.2 Prior transformer instance.
-        """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.pipeline = load_pipe(pretrained_model_name)
 
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+        prior = self.pipeline.prior
 
-        return self.pipeline
+        if dtype_override is not None:
+            prior = prior.to(dtype_override)
+
+        return prior
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the Kandinsky 2.2 Prior model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-
-        Returns:
-            list: Input tensors that can be fed to the model:
-                - hidden_states (torch.Tensor): Noised image embeddings
-                - timestep (torch.Tensor): Timestep tensor
-                - proj_embedding (torch.Tensor): Projected text embeddings
-                - encoder_hidden_states (torch.Tensor): Text encoder hidden states
-        """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
 

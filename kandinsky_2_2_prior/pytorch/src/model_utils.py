@@ -36,7 +36,7 @@ def load_pipe(pretrained_model_name):
     return pipe
 
 
-def kandinsky_prior_preprocessing(pipe, prompt, device="cpu", num_inference_steps=1):
+def kandinsky_prior_preprocessing(pipe, prompt, device="cpu", num_inference_steps=2):
     """Preprocess inputs for the Kandinsky 2.2 Prior transformer model.
 
     Args:
