@@ -86,7 +86,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.DANILOREDDY_QWEN3_5_0_8B_GGUF
 
-    GGUF_FILE = "Q4_K_M.gguf"
+    GGUF_FILE = "Qwen3.5-0.8B_Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
