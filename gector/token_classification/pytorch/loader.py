@@ -91,7 +91,10 @@ class ModelLoader(ForgeModel):
         for p in reversed(site_dirs):
             sys.path.insert(0, p)
         try:
-            GECToR = importlib.import_module("gector.modeling").GECToR
+            gector_modeling = importlib.import_module("gector.modeling")
+            gector_config = importlib.import_module("gector.configuration")
+            GECToR = gector_modeling.GECToR
+            GECToRConfig = gector_config.GECToRConfig
         finally:
             for p in site_dirs:
                 try:
@@ -110,7 +113,10 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = GECToR.from_pretrained(self.model_name, **model_kwargs)
+        # Pass config explicitly so random_weights patching skips AutoConfig
+        # lookup (which fails because GECToRConfig has no standard model_type).
+        config = GECToRConfig.from_pretrained(self.model_name)
+        model = GECToR.from_pretrained(self.model_name, config=config, **model_kwargs)
         model.eval()
         self.model = model
         return model
