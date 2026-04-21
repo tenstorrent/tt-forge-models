@@ -6,7 +6,14 @@ Unsloth Cogito v2 Preview Llama 109B MoE GGUF model loader implementation for ca
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.utils.import_utils import PACKAGE_DISTRIBUTION_MAPPING
 from typing import Optional
+
+# transformers 5.x does not map "gguf" in PACKAGE_DISTRIBUTION_MAPPING, causing
+# is_gguf_available() to fall back to gguf.__version__ which doesn't exist and
+# returns 'N/A', then version.parse('N/A') raises InvalidVersion. Adding the
+# mapping here lets importlib.metadata resolve the correct installed version.
+PACKAGE_DISTRIBUTION_MAPPING.setdefault("gguf", ["gguf"])
 
 from ....base import ForgeModel
 from ....config import (
