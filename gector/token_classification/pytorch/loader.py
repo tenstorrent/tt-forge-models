@@ -71,7 +71,37 @@ class ModelLoader(ForgeModel):
         Requires the `gector` package:
             pip install gector
         """
-        from gector.modeling import GECToR
+        import importlib
+        import os
+        import site
+        import sys
+
+        # The project has a gector/ directory that shadows the installed gector
+        # package. Import GECToR by temporarily clearing the project's gector
+        # modules from sys.modules and prepending site-packages to sys.path.
+        stale_keys = [
+            k for k in sys.modules if k == "gector" or k.startswith("gector.")
+        ]
+        saved_modules = {k: sys.modules.pop(k) for k in stale_keys}
+        site_dirs = [
+            p
+            for p in site.getsitepackages()
+            if os.path.isdir(os.path.join(p, "gector"))
+        ]
+        for p in reversed(site_dirs):
+            sys.path.insert(0, p)
+        try:
+            GECToR = importlib.import_module("gector.modeling").GECToR
+        finally:
+            for p in site_dirs:
+                try:
+                    sys.path.remove(p)
+                except ValueError:
+                    pass
+            for k in list(sys.modules.keys()):
+                if k == "gector" or k.startswith("gector."):
+                    del sys.modules[k]
+            sys.modules.update(saved_modules)
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
