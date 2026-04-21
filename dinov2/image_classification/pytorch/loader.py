@@ -32,7 +32,7 @@ class ModelVariant(StrEnum):
     BASE = "Base"
     LARGE = "Large"
     GIANT = "Giant"
-    LARGE_DINOVDEAU = "Large_DinoVdeau"
+    BASE_SKIN_DISEASE = "Base_SkinDisease"
 
 
 class ModelLoader(ForgeModel):
@@ -52,8 +52,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.GIANT: ModelConfig(
             pretrained_model_name="facebook/dinov2-giant-imagenet1k-1-layer",
         ),
-        ModelVariant.LARGE_DINOVDEAU: ModelConfig(
-            pretrained_model_name="lombardata/DinoVdeau-large-2024_04_03-with_data_aug_batch-size32_epochs150_freeze",
+        ModelVariant.BASE_SKIN_DISEASE: ModelConfig(
+            pretrained_model_name="Jayanth2002/dinov2-base-finetuned-SkinDisease",
         ),
     }
 
@@ -86,7 +86,7 @@ class ModelLoader(ForgeModel):
 
         if variant == ModelVariant.SMALL:
             group = ModelGroup.RED
-        elif variant == ModelVariant.LARGE_DINOVDEAU:
+        elif variant == ModelVariant.BASE_SKIN_DISEASE:
             group = ModelGroup.VULCAN
         else:
             group = ModelGroup.GENERALITY
