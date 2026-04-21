@@ -124,10 +124,6 @@ class ModelLoader(ForgeModel):
             token_embeddings * input_mask_expanded, 1
         ) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
-        sentence_embeddings = torch.nn.functional.normalize(
-            sentence_embeddings, p=2, dim=1
-        )
-
         return sentence_embeddings
 
     def decode_output(self, outputs, inputs=None):
