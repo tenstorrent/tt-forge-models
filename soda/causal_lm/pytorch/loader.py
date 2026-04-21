@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available SODA model variants for causal language modeling."""
 
     SODA_4B_BASE = "4b_base"
+    SODA_135M_BASE = "135m_base"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SODA_4B_BASE: LLMModelConfig(
             pretrained_model_name="soda-research/soda-4b-base",
+            max_length=256,
+        ),
+        ModelVariant.SODA_135M_BASE: LLMModelConfig(
+            pretrained_model_name="soda-research/soda-135m-base",
             max_length=256,
         ),
     }
