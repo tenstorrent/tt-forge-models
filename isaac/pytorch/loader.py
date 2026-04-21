@@ -6,7 +6,7 @@ Isaac model loader implementation for multimodal visual question answering
 """
 
 import torch
-from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers import AutoProcessor, AutoModelForCausalLM, AutoConfig
 from PIL import Image
 from typing import Optional
 from ...tools.utils import get_file, cast_input_to_type
@@ -20,6 +20,36 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+import transformers.cache_utils as _cache_utils
+import transformers.image_processing_utils_fast as _img_fast
+import transformers.tokenization_utils as _tok_utils
+
+if not hasattr(_cache_utils, "SlidingWindowCache"):
+    _cache_utils.SlidingWindowCache = type(
+        "SlidingWindowCache", (_cache_utils.StaticCache,), {}
+    )
+
+if not hasattr(_img_fast, "DefaultFastImageProcessorKwargs"):
+    _img_fast.DefaultFastImageProcessorKwargs = _img_fast.ImagesKwargs
+
+if not hasattr(_tok_utils, "TensorType"):
+    from transformers.utils import TensorType
+
+    _tok_utils.TensorType = TensorType
+
+
+def _fix_rope_parameters(config):
+    """Ensure text_config.rope_parameters contains rope_theta."""
+    text_cfg = getattr(config, "text_config", None)
+    if text_cfg is None:
+        return
+    rope_params = getattr(text_cfg, "rope_parameters", None)
+    if rope_params is not None and "rope_theta" not in rope_params:
+        rope_theta = getattr(config, "rope_theta", None)
+        if rope_theta is None:
+            rope_theta = getattr(text_cfg, "rope_theta", 1000000.0)
+        rope_params["rope_theta"] = rope_theta
 
 
 class ModelVariant(StrEnum):
@@ -70,7 +100,21 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        _fix_rope_parameters(config)
+        config._attn_implementation = "sdpa"
+        if hasattr(config, "text_config") and config.text_config is not None:
+            config.text_config._attn_implementation = "sdpa"
+        if hasattr(config, "vision_config") and config.vision_config is not None:
+            config.vision_config._attn_implementation = "sdpa"
+
+        model_kwargs = {
+            "trust_remote_code": True,
+            "config": config,
+            "attn_implementation": "sdpa",
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -95,10 +139,7 @@ class ModelLoader(ForgeModel):
         conversation = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": "What is shown in this image?"},
-                ],
+                "content": "<image>\nWhat is shown in this image?",
             }
         ]
 

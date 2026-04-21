@@ -5,7 +5,8 @@
 Llama 3 Typhoon v1.5x 70B Instruct GGUF model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, LlamaConfig
+from transformers.utils.import_utils import PACKAGE_DISTRIBUTION_MAPPING
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +19,9 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+if "gguf" not in PACKAGE_DISTRIBUTION_MAPPING:
+    PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
 
 
 class ModelVariant(StrEnum):
@@ -156,7 +160,18 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+        if self.config is not None:
+            return self.config
+        self.config = LlamaConfig(
+            hidden_size=8192,
+            intermediate_size=28672,
+            num_hidden_layers=80,
+            num_attention_heads=64,
+            num_key_value_heads=8,
+            vocab_size=128256,
+            max_position_embeddings=8192,
+            rms_norm_eps=1e-5,
+            hidden_act="silu",
+            rope_theta=500000.0,
         )
         return self.config

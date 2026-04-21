@@ -7,6 +7,8 @@ EuroBERT model loader implementation for token classification (NER).
 
 import torch
 from transformers import AutoTokenizer, AutoModelForTokenClassification
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -17,6 +19,36 @@ from third_party.tt_forge_models.config import (
     LLMModelConfig,
 )
 from third_party.tt_forge_models.base import ForgeModel
+
+
+def _compute_default_rope_parameters(
+    config=None, device=None, seq_len=None, layer_type=None
+):
+    rope_theta = 10000.0
+    if hasattr(config, "rope_scaling") and config.rope_scaling is not None:
+        rope_theta = config.rope_scaling.get("rope_theta", rope_theta)
+    elif hasattr(config, "rope_theta") and config.rope_theta is not None:
+        rope_theta = config.rope_theta
+    partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0) or 1.0
+    head_dim = (
+        getattr(config, "head_dim", None)
+        or config.hidden_size // config.num_attention_heads
+    )
+    dim = int(head_dim * partial_rotary_factor)
+    inv_freq = 1.0 / (
+        rope_theta
+        ** (
+            torch.arange(0, dim, 2, dtype=torch.int64).to(
+                device=device, dtype=torch.float
+            )
+            / dim
+        )
+    )
+    return inv_freq, 1.0
+
+
+if "default" not in ROPE_INIT_FUNCTIONS:
+    ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
 
 
 class ModelVariant(StrEnum):

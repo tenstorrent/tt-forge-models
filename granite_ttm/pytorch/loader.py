@@ -9,6 +9,44 @@ import torch
 from typing import Optional
 from dataclasses import dataclass
 
+import transformers.utils
+
+
+def _patch_transformers_utils():
+    """Patch transformers.utils with stubs for functions removed in transformers 5.x.
+
+    granite-tsfm 0.2.28's tsfm_public.toolkit.processor imports these functions
+    which were removed in transformers 5.x.
+    """
+    tu = transformers.utils
+
+    def _noop_auto_map(auto_map, model_name):
+        for key, value in auto_map.items():
+            if isinstance(value, (tuple, list)):
+                auto_map[key] = [
+                    f"{model_name}--{v}" if "--" not in v else v for v in value
+                ]
+            elif isinstance(value, str):
+                if "--" not in value:
+                    auto_map[key] = f"{model_name}--{value}"
+        return auto_map
+
+    stubs = {
+        "add_model_info_to_auto_map": _noop_auto_map,
+        "add_model_info_to_custom_pipelines": _noop_auto_map,
+        "download_url": lambda url, proxies=None: url,
+        "is_offline_mode": lambda: False,
+        "is_remote_url": lambda url_or_filename: url_or_filename.startswith(
+            ("http://", "https://")
+        ),
+    }
+    for name, fn in stubs.items():
+        if not hasattr(tu, name):
+            setattr(tu, name, fn)
+
+
+_patch_transformers_utils()
+
 from ...config import (
     ModelConfig,
     ModelInfo,

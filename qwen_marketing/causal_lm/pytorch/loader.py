@@ -4,8 +4,11 @@
 """
 Qwen Marketing model loader implementation for causal language modeling.
 """
+
+import os
+
 import torch
-from transformers import AutoTokenizer, AutoConfig, Qwen3ForCausalLM
+from transformers import AutoConfig, AutoTokenizer, Qwen3Config, Qwen3ForCausalLM
 from typing import Optional
 
 from ....base import ForgeModel
@@ -77,6 +80,19 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _get_config(self):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = Qwen3Config()
+        else:
+            config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
+
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
+        return config
+
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
 
@@ -86,6 +102,10 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.tokenizer = None
+            return None
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -105,22 +125,25 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Qwen Marketing model instance for causal language modeling.
         """
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        config = self._get_config()
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            model = Qwen3ForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
             model_kwargs["config"] = config
+            model = Qwen3ForCausalLM.from_pretrained(
+                self._variant_config.pretrained_model_name, **model_kwargs
+            )
 
-        model = Qwen3ForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         return model
@@ -135,10 +158,16 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
+        max_length = self._variant_config.max_length
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            vocab_size = self._get_config().vocab_size
+            input_ids = torch.randint(0, vocab_size, (batch_size, max_length))
+            attention_mask = torch.ones_like(input_ids)
+            return {"input_ids": input_ids, "attention_mask": attention_mask}
+
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
-
-        max_length = self._variant_config.max_length
 
         messages = [{"role": "user", "content": self.sample_text}]
         text = self.tokenizer.apply_chat_template(

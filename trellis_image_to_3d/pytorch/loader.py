@@ -99,12 +99,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the TRELLIS SparseStructureFlowModel.
-
-        Returns:
-            torch.nn.Module: The sparse structure flow model (DiT backbone).
-        """
+    def load_model(self, **kwargs):
         _ensure_trellis_importable()
         from trellis.models.sparse_structure_flow import SparseStructureFlowModel
 
@@ -121,21 +116,14 @@ class ModelLoader(ForgeModel):
 
         model = SparseStructureFlowModel(**args)
         state_dict = load_file(weights_path)
+        state_dict = {k: v.float() for k, v in state_dict.items()}
         model.load_state_dict(state_dict)
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load sample inputs for the SparseStructureFlowModel.
-
-        Returns:
-            dict: Input tensors (x, t, cond) for the model forward pass.
-        """
-        dtype = dtype_override or torch.float32
+    def load_inputs(self, batch_size=1):
+        dtype = torch.float32
 
         # x: noisy 3D volume latent [B, C, D, H, W]
         x = torch.randn(

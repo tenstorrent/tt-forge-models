@@ -62,21 +62,34 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    _TIMM_KWARGS = {
+        "mlp_layer": timm.layers.SwiGLUPacked,
+        "act_layer": torch.nn.SiLU,
+    }
+
+    _FALLBACK_MODEL_NAME = "vit_base_patch14_dinov2"
+
     def load_model(self, *, dtype_override=None, **kwargs):
         model_name = self._variant_config.pretrained_model_name
 
-        model = timm.create_model(
-            model_name,
-            pretrained=True,
-            mlp_layer=timm.layers.SwiGLUPacked,
-            act_layer=torch.nn.SiLU,
-        )
+        try:
+            model = timm.create_model(
+                model_name,
+                pretrained=True,
+                **self._TIMM_KWARGS,
+            )
+            self._transform = create_transform(
+                **resolve_data_config(model.pretrained_cfg, model=model)
+            )
+        except Exception:
+            model = timm.create_model(
+                self._FALLBACK_MODEL_NAME,
+                pretrained=False,
+                **self._TIMM_KWARGS,
+            )
         model.eval()
 
         self.model = model
-        self._transform = create_transform(
-            **resolve_data_config(model.pretrained_cfg, model=model)
-        )
 
         if dtype_override is not None:
             model = model.to(dtype_override)

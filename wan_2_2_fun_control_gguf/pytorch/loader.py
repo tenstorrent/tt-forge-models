@@ -4,9 +4,13 @@
 """
 Wan 2.2 Fun Control GGUF model loader implementation for video generation
 """
+import os
+
 import torch
-from diffusers import WanTransformer3DModel
+from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
 from typing import Optional
+
+_TRANSFORMER_CONFIG = os.path.join(os.path.dirname(__file__), "transformer_config")
 
 from ...base import ForgeModel
 from ...config import (
@@ -26,6 +30,11 @@ class ModelVariant(StrEnum):
     A14B_HIGHNOISE_Q4_K_M = "A14B_HighNoise_Q4_K_M"
 
 
+GGUF_BASE_URL = (
+    "https://huggingface.co/QuantStack/Wan2.2-Fun-A14B-Control-GGUF/blob/main"
+)
+
+
 class ModelLoader(ForgeModel):
     """Wan 2.2 Fun Control GGUF model loader for video generation tasks."""
 
@@ -35,9 +44,11 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.A14B_HIGHNOISE_Q4_K_M
+    _GGUF_FILES = {
+        ModelVariant.A14B_HIGHNOISE_Q4_K_M: "HighNoise/Wan2.2-Fun-A14B-Control_HighNoise-Q4_K_M.gguf",
+    }
 
-    GGUF_FILE = "HighNoise/Wan2.2-Fun-A14B-Control_HighNoise-Q4_K_M.gguf"
+    DEFAULT_VARIANT = ModelVariant.A14B_HIGHNOISE_Q4_K_M
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -58,17 +69,35 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"gguf_file": self.GGUF_FILE}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        from diffusers.quantizers.gguf.utils import GGUFLinear, dequantize_gguf_tensor
 
-        self.transformer = WanTransformer3DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **load_kwargs,
+        gguf_file = self._GGUF_FILES[self._variant]
+        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+
+        self.transformer = WanTransformer3DModel.from_single_file(
+            gguf_url,
+            config=_TRANSFORMER_CONFIG,
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
         )
 
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+        for module in self.transformer.modules():
+            if isinstance(module, GGUFLinear):
+                module.weight = torch.nn.Parameter(
+                    dequantize_gguf_tensor(module.weight).to(compute_dtype),
+                    requires_grad=False,
+                )
+                module.__class__ = torch.nn.Linear
+
+        for param in self.transformer.parameters():
+            if param.dtype != compute_dtype:
+                param.data = param.data.to(compute_dtype)
+        for buf_name, buf in self.transformer.named_buffers():
+            if buf.is_floating_point() and buf.dtype != compute_dtype:
+                buf.data = buf.data.to(compute_dtype)
 
         return self.transformer
 

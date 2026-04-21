@@ -45,6 +45,13 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         config = AutoConfig.from_pretrained(self.model_name)
 
+        # n_group=8 with n_routed_experts=8 gives 1 expert per group, but the
+        # MoE routing uses topk(2) per group which requires at least 2.
+        experts_per_group = config.n_routed_experts // config.n_group
+        if experts_per_group < 2:
+            config.n_group = config.n_routed_experts // 2
+            config.topk_group = min(config.topk_group, config.n_group)
+
         model_kwargs = {
             "attn_implementation": "eager",
         }

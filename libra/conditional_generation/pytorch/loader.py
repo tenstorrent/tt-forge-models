@@ -9,6 +9,10 @@ from typing import Optional
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from .src import (
+    model_utils as _model_utils,
+)  # noqa: F401  # registers "libra" model type
+
 from ....config import (
     LLMModelConfig,
     ModelInfo,
