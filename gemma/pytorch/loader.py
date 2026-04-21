@@ -280,7 +280,6 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_2_2B_JPN_IT,
             ModelVariant.GEMMA_2_2B_IT_ALPACA_CLEANED_SFT,
             ModelVariant.ELM_GEMMA_2_2B_IT,
-            ModelVariant.NIDUM_GEMMA_2B_UNCENSORED,
         ]:
             assert (
                 self.config.num_attention_heads % mesh_shape[1] == 0
@@ -299,7 +298,6 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_2_2B_JPN_IT,
             ModelVariant.GEMMA_2_2B_IT_ALPACA_CLEANED_SFT,
             ModelVariant.ELM_GEMMA_2_2B_IT,
-            ModelVariant.NIDUM_GEMMA_2B_UNCENSORED,
         ]:
             return None
 
