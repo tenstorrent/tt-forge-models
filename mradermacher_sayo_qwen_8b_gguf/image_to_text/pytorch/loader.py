@@ -6,9 +6,11 @@ mradermacher Sayo Qwen 8B GGUF model loader implementation for image to text.
 """
 
 import importlib.metadata
+import os
 from typing import Optional
 
 from transformers import (
+    AutoConfig,
     AutoProcessor,
     Qwen3VLForConditionalGeneration,
 )
@@ -77,24 +79,33 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # Base model for config and processor (GGUF repos do not ship these)
+    BASE_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
+
     def load_model(self, *, dtype_override=None, **kwargs):
         self._refresh_gguf_package_mapping()
-        pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-        model_kwargs |= kwargs
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            # transformers does not support qwen3vl GGUF loading; use the base
+            # model config with random weights for compile-only testing.
+            config = AutoConfig.from_pretrained(self.BASE_MODEL)
+            model = Qwen3VLForConditionalGeneration(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            pretrained_model_name = self._variant_config.pretrained_model_name
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["gguf_file"] = self.GGUF_FILE
+            model_kwargs |= kwargs
+            model = Qwen3VLForConditionalGeneration.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
 
-        model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
         model.eval()
-
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
