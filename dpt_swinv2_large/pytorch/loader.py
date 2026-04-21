@@ -2,43 +2,71 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DPT SwinV2 Large model loader implementation for monocular depth estimation.
+DPT SwinV2 model loader implementation for monocular depth estimation.
 """
 import torch
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 from datasets import load_dataset
+from typing import Optional
 
 from ...config import (
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
 from ...base import ForgeModel
 
 
-class ModelLoader(ForgeModel):
-    """DPT SwinV2 Large model loader implementation."""
+class ModelVariant(StrEnum):
+    """Available DPT SwinV2 model variants."""
 
-    def __init__(self, variant=None):
+    LARGE_384 = "large_384"
+    TINY_256 = "tiny_256"
+
+
+class ModelLoader(ForgeModel):
+    """DPT SwinV2 model loader implementation."""
+
+    _VARIANTS = {
+        ModelVariant.LARGE_384: ModelConfig(
+            pretrained_model_name="Intel/dpt-swinv2-large-384",
+        ),
+        ModelVariant.TINY_256: ModelConfig(
+            pretrained_model_name="Intel/dpt-swinv2-tiny-256",
+        ),
+    }
+
+    DEFAULT_VARIANT = ModelVariant.LARGE_384
+
+    def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.model_name = "Intel/dpt-swinv2-large-384"
         self.processor = None
 
     @classmethod
-    def _get_model_info(cls, variant=None):
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
+
         return ModelInfo(
-            model="DPTSwinV2Large",
-            variant=variant or "base",
+            model="DPTSwinV2",
+            variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.CV_DEPTH_EST,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
+    def _load_processor(self):
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        return self.processor
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        self.processor = AutoImageProcessor.from_pretrained(self.model_name)
+        pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -46,7 +74,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForDepthEstimation.from_pretrained(
-            self.model_name, **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
         model.eval()
 
@@ -54,7 +82,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
-            self.processor = AutoImageProcessor.from_pretrained(self.model_name)
+            self._load_processor()
 
         dataset = load_dataset("huggingface/cats-image")["test"]
         image = dataset[0]["image"]
