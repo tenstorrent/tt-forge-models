@@ -168,12 +168,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["ignore_mismatched_sizes"] = True
 
         if self._variant in (
+            ModelVariant.GEMMA_3_12B_IT_AWQ_INT4,
             ModelVariant.GEMMA_3_27B_IT_QAT_W4A16,
-            ModelVariant.GEMMA_3_27B_IT_QAT_COMPRESSED_TENSORS,
         ):
-            model_kwargs["device_map"] = "cpu"
-
-        if self._variant == ModelVariant.GEMMA_3_12B_IT_AWQ_INT4:
             model_kwargs["device_map"] = "cpu"
 
         model = Gemma3ForConditionalGeneration.from_pretrained(
