@@ -34,15 +34,22 @@ class VADCRDNNModel(torch.nn.Module):
         super().__init__()
         self.compute_features = vad.mods.compute_features
         self.mean_var_norm = vad.mods.mean_var_norm
-        self.crdnn = vad.mods.crdnn
-        self.output_layer = vad.mods.output
+        self.cnn = vad.mods.cnn
+        self.rnn = vad.mods.rnn
+        self.dnn = vad.mods.dnn
 
     def forward(self, wavs, wav_lens):
         feats = self.compute_features(wavs)
         feats = self.mean_var_norm(feats, wav_lens)
-        outputs = self.crdnn(feats)
-        outputs = self.output_layer(outputs)
-        return outputs
+        outputs = self.cnn(feats)
+        outputs = outputs.reshape(
+            outputs.shape[0],
+            outputs.shape[1],
+            outputs.shape[2] * outputs.shape[3],
+        )
+        outputs, _ = self.rnn(outputs)
+        outputs = self.dnn(outputs)
+        return torch.sigmoid(outputs)
 
 
 class ModelLoader(ForgeModel):
@@ -85,18 +92,11 @@ class ModelLoader(ForgeModel):
         model = VADCRDNNModel(vad)
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         return model
 
     def load_inputs(self, dtype_override=None):
         """Generate synthetic 1-second audio waveform at 16kHz."""
         waveform = torch.randn(1, 16000)
         wav_lens = torch.tensor([1.0])
-
-        if dtype_override is not None:
-            waveform = waveform.to(dtype_override)
-            wav_lens = wav_lens.to(dtype_override)
 
         return [waveform, wav_lens]
