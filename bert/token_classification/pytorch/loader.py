@@ -34,9 +34,7 @@ class ModelVariant(StrEnum):
         "CAMeL-Lab/bert-base-arabic-camelbert-msa-ner"
     )
     P208P2002_ZH_WIKI_PUNCTUATION_RESTORE = "p208p2002/zh-wiki-punctuation-restore"
-    QCRI_BERT_BASE_MULTILINGUAL_CASED_POS_ENGLISH = (
-        "QCRI/bert-base-multilingual-cased-pos-english"
-    )
+    RUPUNCT_SMALL = "RUPunct/RUPunct_small"
 
 
 class ModelLoader(ForgeModel):
@@ -68,8 +66,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="p208p2002/zh-wiki-punctuation-restore",
             max_length=128,
         ),
-        ModelVariant.QCRI_BERT_BASE_MULTILINGUAL_CASED_POS_ENGLISH: LLMModelConfig(
-            pretrained_model_name="QCRI/bert-base-multilingual-cased-pos-english",
+        ModelVariant.RUPUNCT_SMALL: LLMModelConfig(
+            pretrained_model_name="RUPunct/RUPunct_small",
             max_length=128,
         ),
     }
@@ -98,11 +96,8 @@ class ModelLoader(ForgeModel):
             )
         elif self._variant == ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE:
             self.sample_text = "在一般情况下句子的结尾要用句号来表示停顿"
-        elif self._variant == ModelVariant.YASHPWR_RESUME_NER_BERT_V2:
-            self.sample_text = (
-                "John Smith is a senior software engineer with 8 years of "
-                "experience at Google. Contact: john.smith@gmail.com"
-            )
+        elif self._variant == ModelVariant.RUPUNCT_SMALL:
+            self.sample_text = "ваш русский текст без пунктуации"
         else:
             self.sample_text = "HuggingFace is a company based in Paris and New York"
         self.max_length = self._variant_config.max_length
@@ -128,7 +123,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.HATMIMOHA_ARABIC_NER,
             ModelVariant.CAMEL_LAB_BERT_BASE_ARABIC_CAMELBERT_MSA_NER,
             ModelVariant.P208P2002_ZH_WIKI_PUNCTUATION_RESTORE,
-            ModelVariant.QCRI_BERT_BASE_MULTILINGUAL_CASED_POS_ENGLISH,
+            ModelVariant.RUPUNCT_SMALL,
         ):
             group = ModelGroup.VULCAN
 
