@@ -53,6 +53,8 @@ def _patch_mistral4_support():
 
     if "llama" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("mistral4", GGUF_TO_FAST_CONVERTERS["llama"])
+        # mistral tokenizer also uses the llama BPE format
+        GGUF_TO_FAST_CONVERTERS.setdefault("mistral", GGUF_TO_FAST_CONVERTERS["llama"])
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
