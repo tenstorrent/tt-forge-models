@@ -110,8 +110,13 @@ class ModelLoader(ForgeModel):
         )
 
         if dtype_override is not None:
-            if "pixel_values" in inputs:
-                inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+            for key in ("pixel_values", "high_res_pixel_values"):
+                if (
+                    key in inputs
+                    and torch.is_tensor(inputs[key])
+                    and inputs[key].is_floating_point()
+                ):
+                    inputs[key] = inputs[key].to(dtype_override)
 
         if batch_size > 1:
             for key, value in inputs.items():
