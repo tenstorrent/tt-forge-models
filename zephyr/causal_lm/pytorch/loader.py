@@ -25,7 +25,7 @@ class ModelVariant(StrEnum):
 
     ZEPHYR_7B_ALPHA = "zephyr-7b-alpha"
     ZEPHYR_7B_SFT_FULL = "zephyr-7b-sft-full"
-    ZEPHYR_7B_R2D2 = "zephyr_7b_r2d2"
+    RANK_ZEPHYR_7B_V1_FULL = "rank_zephyr_7b_v1_full"
 
 
 class ModelLoader(ForgeModel):
@@ -40,8 +40,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="alignment-handbook/zephyr-7b-sft-full",
             max_length=128,
         ),
-        ModelVariant.ZEPHYR_7B_R2D2: LLMModelConfig(
-            pretrained_model_name="cais/zephyr_7b_r2d2",
+        ModelVariant.RANK_ZEPHYR_7B_V1_FULL: LLMModelConfig(
+            pretrained_model_name="castorini/rank_zephyr_7b_v1_full",
             max_length=128,
         ),
     }
