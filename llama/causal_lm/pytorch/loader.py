@@ -141,6 +141,9 @@ class ModelVariant(StrEnum):
     # AllenAI Tulu variants
     LLAMA_3_1_TULU_3_8B = "3.1_Tulu_3_8B"
 
+    # ISTA-DASLab rehosted variants
+    LLAMA_3_8B_INSTRUCT_ISTA_DASLAB = "3.0_8B_Instruct_ISTA_DASLab"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -335,6 +338,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="allenai/Llama-3.1-Tulu-3-8B",
             max_length=128,
         ),
+        # ISTA-DASLab rehosted variants
+        ModelVariant.LLAMA_3_8B_INSTRUCT_ISTA_DASLAB: LLMModelConfig(
+            pretrained_model_name="ISTA-DASLab/Meta-Llama-3-8B-Instruct",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -385,7 +393,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_3B_GPTQ_4BIT,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_AWQ,
             ModelVariant.LLAMA_3_3_70B_INSTRUCT_NVFP4,
-            ModelVariant.LLAMA_3_1_70B_INSTRUCT_FP8_NVIDIA,
+            ModelVariant.LLAMA_3_8B_INSTRUCT_ISTA_DASLAB,
         ]:
             group = ModelGroup.VULCAN
         elif (
