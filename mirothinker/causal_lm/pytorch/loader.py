@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available MiroThinker model variants for causal language modeling."""
 
     MIROTHINKER_1_7 = "1_7"
+    HUIHUI_MIROTHINKER_V1_5_30B_ABLITERATED = "huihui_v1_5_30B_abliterated"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MIROTHINKER_1_7: LLMModelConfig(
             pretrained_model_name="miromind-ai/MiroThinker-1.7",
+            max_length=128,
+        ),
+        ModelVariant.HUIHUI_MIROTHINKER_V1_5_30B_ABLITERATED: LLMModelConfig(
+            pretrained_model_name="huihui-ai/Huihui-MiroThinker-v1.5-30B-abliterated",
             max_length=128,
         ),
     }
