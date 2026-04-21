@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Tiny Random LLaMA-3 model variants for causal language modeling."""
 
     DEFAULT = "default"
+    YUJIEPAN_LLAMA_3_TINY_RANDOM = "yujiepan_llama_3_tiny_random"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEFAULT: LLMModelConfig(
             pretrained_model_name="tiny-random/llama-3",
+            max_length=256,
+        ),
+        ModelVariant.YUJIEPAN_LLAMA_3_TINY_RANDOM: LLMModelConfig(
+            pretrained_model_name="yujiepan/llama-3-tiny-random",
             max_length=256,
         ),
     }
