@@ -27,6 +27,7 @@ class ModelVariant(StrEnum):
     SCHNELL = "Schnell"
     DEV = "Dev"
     SCHNELL_LZYVEGETABLE = "Schnell_lzyvegetable"
+    DEV_CAMENDURU_DIFFUSERS = "Dev_camenduru_diffusers"
 
 
 class ModelLoader(ForgeModel):
@@ -42,6 +43,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.SCHNELL_LZYVEGETABLE: ModelConfig(
             pretrained_model_name="lzyvegetable/FLUX.1-schnell",
+        ),
+        ModelVariant.DEV_CAMENDURU_DIFFUSERS: ModelConfig(
+            pretrained_model_name="camenduru/FLUX.1-dev-diffusers",
         ),
     }
 
@@ -81,6 +85,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SCHNELL: ModelGroup.RED,
             ModelVariant.SCHNELL_LZYVEGETABLE: ModelGroup.VULCAN,
             ModelVariant.DEV: ModelGroup.GENERALITY,
+            ModelVariant.DEV_CAMENDURU_DIFFUSERS: ModelGroup.VULCAN,
         }
 
         return ModelInfo(
