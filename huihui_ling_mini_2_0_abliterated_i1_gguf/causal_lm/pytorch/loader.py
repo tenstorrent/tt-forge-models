@@ -2,7 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Huihui Ling mini 2.0 abliterated i1 GGUF model loader implementation for causal language modeling.
+Huihui Ling mini 2.0 abliterated model loader implementation for causal language modeling.
+
+The GGUF variant's architecture (bailingmoe2) is not natively supported by
+transformers' GGUF loader, so we load from the original BailingMoeV2 model
+with trust_remote_code and apply compatibility patches for transformers 5.x.
 """
 from typing import Optional
 
@@ -20,9 +24,41 @@ from ....config import (
     StrEnum,
 )
 
+_ORIGINAL_REPO = "huihui-ai/Huihui-Ling-mini-2.0-abliterated"
+
+
+def _patch_transformers_compat():
+    """Patch transformers 5.x for BailingMoeV2 remote code compatibility."""
+    import transformers.utils.import_utils as iu
+
+    if not hasattr(iu, "is_torch_fx_available"):
+        iu.is_torch_fx_available = lambda: True
+
+    from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
+    if "default" not in ROPE_INIT_FUNCTIONS:
+
+        def _default_rope_init(config, device, seq_len=None, **kwargs):
+            base = config.rope_theta
+            partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+            head_dim = getattr(
+                config, "head_dim", config.hidden_size // config.num_attention_heads
+            )
+            dim = int(head_dim * partial_rotary_factor)
+            inv_freq = 1.0 / (
+                base
+                ** (torch.arange(0, dim, 2, dtype=torch.int64).float().to(device) / dim)
+            )
+            return inv_freq, 1.0
+
+        ROPE_INIT_FUNCTIONS["default"] = _default_rope_init
+
+
+_patch_transformers_compat()
+
 
 class ModelVariant(StrEnum):
-    """Available Huihui Ling mini 2.0 abliterated i1 GGUF model variants for causal language modeling."""
+    """Available Huihui Ling mini 2.0 abliterated model variants for causal language modeling."""
 
     HUIHUI_LING_MINI_2_0_ABLITERATED_I1_GGUF = (
         "HUIHUI_LING_MINI_2_0_ABLITERATED_I1_GGUF"
@@ -30,18 +66,16 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Huihui Ling mini 2.0 abliterated i1 GGUF model loader implementation for causal language modeling tasks."""
+    """Huihui Ling mini 2.0 abliterated model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.HUIHUI_LING_MINI_2_0_ABLITERATED_I1_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/Huihui-Ling-mini-2.0-abliterated-i1-GGUF",
+            pretrained_model_name=_ORIGINAL_REPO,
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.HUIHUI_LING_MINI_2_0_ABLITERATED_I1_GGUF
-
-    GGUF_FILE = "Huihui-Ling-mini-2.0-abliterated.i1-Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language model."
 
@@ -68,10 +102,11 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+            **tokenizer_kwargs,
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -88,11 +123,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["trust_remote_code"] = True
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, trust_remote_code=True
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -138,31 +173,10 @@ class ModelLoader(ForgeModel):
 
         return inputs
 
-    def get_mesh_config(self, num_devices: int):
-        mesh_shape = (1, num_devices)
-        return mesh_shape, ("batch", "model")
-
-    def load_shard_spec(self, model):
-        shard_specs = {}
-        for layer in model.model.layers:
-            mlp = layer.mlp
-            if hasattr(mlp, "experts"):
-                shard_specs[mlp.experts.gate_up_proj] = (None, "model", "batch")
-                shard_specs[mlp.experts.down_proj] = (None, "batch", "model")
-            if hasattr(mlp, "shared_expert"):
-                shard_specs[mlp.shared_expert.up_proj.weight] = ("model", "batch")
-                shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
-                shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
-            if hasattr(layer, "self_attn"):
-                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
-        return shard_specs
-
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, trust_remote_code=True
         )
+        if self.num_layers is not None:
+            self.config.num_hidden_layers = self.num_layers
         return self.config
