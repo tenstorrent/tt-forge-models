@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
     QWEN_2_VL_7B_INSTRUCT = "7B_Instruct"
     QWEN_2_VL_2B_INSTRUCT_AWQ = "2B_INSTRUCT_Awq"
     QWEN_2_VL_2B_INSTRUCT_GPTQ_INT4 = "2B_INSTRUCT_Gptq_Int4"
+    QWEN_2_VL_OCR_2B_INSTRUCT = "OCR_2B_Instruct"
 
     # mlx-community quantized variants
     QWEN_2_VL_2B_INSTRUCT_4BIT = "2B_Instruct_4bit"
@@ -52,6 +53,9 @@ class ModelLoader(ForgeModel):
         # mlx-community quantized variants
         ModelVariant.QWEN_2_VL_2B_INSTRUCT_4BIT: LLMModelConfig(
             pretrained_model_name="mlx-community/Qwen2-VL-2B-Instruct-4bit",
+        ),
+        ModelVariant.QWEN_2_VL_OCR_2B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="prithivMLmods/Qwen2-VL-OCR-2B-Instruct",
         ),
     }
 
