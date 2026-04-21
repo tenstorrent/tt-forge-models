@@ -5,8 +5,34 @@
 Maya1 GGUF model loader implementation for expressive text-to-speech tasks.
 """
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
 from typing import Optional
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Wrap load_gguf_checkpoint to fix is_gguf_available() when gguf is installed
+    per-model after transformers' PACKAGE_DISTRIBUTION_MAPPING is frozen."""
+    import importlib.metadata
+    import transformers.utils.import_utils as _iu
+
+    if "gguf" not in _iu.PACKAGE_DISTRIBUTION_MAPPING:
+        _iu.PACKAGE_DISTRIBUTION_MAPPING.update(
+            importlib.metadata.packages_distributions()
+        )
+    return _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+
+
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ...base import ForgeModel
 from ...config import (
