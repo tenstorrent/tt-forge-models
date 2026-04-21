@@ -24,23 +24,18 @@ class ModelVariant(StrEnum):
     """Available StationV 24B v1 GGUF model variants for causal language modeling."""
 
     STATIONV_24B_V1_I1_Q4_K_M = "Q4_K_M"
-    STATIONV_24B_V1_GGUF_Q4_K_M = "GGUF_Q4_K_M"
+    STATIONV_24B_V1_Q4_K_M = "GGUF_Q4_K_M"
 
 
 class ModelLoader(ForgeModel):
-    """StationV 24B v1 GGUF model loader implementation for causal language modeling tasks.
-
-    Supports both the static quants (mradermacher/StationV-24B-v1-GGUF) and the
-    weighted/imatrix quants (mradermacher/StationV-24B-v1-i1-GGUF) of the
-    Naphula/StationV-24B-v1 base model.
-    """
+    """StationV 24B v1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.STATIONV_24B_V1_I1_Q4_K_M: LLMModelConfig(
             pretrained_model_name="mradermacher/StationV-24B-v1-i1-GGUF",
             max_length=128,
         ),
-        ModelVariant.STATIONV_24B_V1_GGUF_Q4_K_M: LLMModelConfig(
+        ModelVariant.STATIONV_24B_V1_Q4_K_M: LLMModelConfig(
             pretrained_model_name="mradermacher/StationV-24B-v1-GGUF",
             max_length=128,
         ),
@@ -50,7 +45,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.STATIONV_24B_V1_I1_Q4_K_M: "StationV-24B-v1.i1-Q4_K_M.gguf",
-        ModelVariant.STATIONV_24B_V1_GGUF_Q4_K_M: "StationV-24B-v1.Q4_K_M.gguf",
+        ModelVariant.STATIONV_24B_V1_Q4_K_M: "StationV-24B-v1.Q4_K_M.gguf",
     }
 
     sample_text = "Hey how are you doing today?"
