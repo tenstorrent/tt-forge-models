@@ -4,8 +4,7 @@
 """
 Stable Diffusion v2.1 Turbo GGUF model loader implementation.
 
-Loads GGUF-quantized UNet from gpustack/stable-diffusion-v2-1-turbo-GGUF
-and builds a text-to-image pipeline using the base stabilityai/sd-turbo model.
+Loads GGUF-quantized UNet from gpustack/stable-diffusion-v2-1-turbo-GGUF.
 
 SD-Turbo is a distilled version of Stable Diffusion 2.1, trained using
 Adversarial Diffusion Distillation (ADD) for high-quality single-step
@@ -17,18 +16,19 @@ Available variants:
 - Q8_0: 8-bit quantization (~2.32 GB)
 """
 
+import json
 from typing import Optional
 
 import torch
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -70,7 +70,6 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -91,40 +90,42 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized UNet and build the SD-Turbo pipeline.
+        """Load the GGUF-quantized UNet for SD-Turbo.
 
         Diffusers' GGUF quantizer does not properly handle full SD checkpoint
         GGUF files (which use CompVis key naming and store raw quantized byte
-        data). We work around this by manually dequantizing with the gguf
-        library, then converting from CompVis to diffusers format.
+        data rather than logical float shapes). We work around this by manually
+        dequantizing with the gguf library, then converting from CompVis to
+        diffusers format and loading into an empty UNet.
         """
         import gguf as gguf_lib
-        from diffusers import StableDiffusionPipeline
+        from diffusers import UNet2DConditionModel
         from diffusers.loaders.single_file_utils import convert_ldm_unet_checkpoint
         from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
+        # Fetch the UNet config JSON without downloading full model weights.
+        config_path = hf_hub_download(
+            repo_id=BASE_PIPELINE, subfolder="unet", filename="config.json"
+        )
+        with open(config_path) as f:
+            unet_config = json.load(f)
+
+        unet = UNet2DConditionModel.from_config(unet_config)
+
+        # Download GGUF and dequantize all tensors. The gguf library returns
+        # correct logical shapes (e.g. (320, 1024)) rather than the raw byte
+        # data shapes that diffusers' own GGUF quantizer incorrectly compares.
         gguf_file = _GGUF_FILES[self._variant]
         model_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
-
-        # Load the base pipeline to obtain all non-UNet components and the UNet config.
-        self.pipeline = StableDiffusionPipeline.from_pretrained(
-            BASE_PIPELINE,
-            torch_dtype=compute_dtype,
-        )
-
-        # Dequantize all tensors from the full-checkpoint GGUF using the gguf
-        # library, which handles Q4_0/Q4_1/Q8_0 etc. and returns correct shapes.
         reader = gguf_lib.GGUFReader(model_path)
         checkpoint = {}
         for tensor in reader.tensors:
             data = gguf_lib.dequantize(tensor.data, tensor.tensor_type)
             checkpoint[tensor.name] = torch.from_numpy(data.copy()).float()
 
-        # Convert the extracted CompVis UNet weights (model.diffusion_model.*)
-        # to diffusers parameter names.
-        unet_config = dict(self.pipeline.unet.config)
+        # Convert CompVis UNet weights (model.diffusion_model.*) to diffusers keys.
         converted_unet = convert_ldm_unet_checkpoint(checkpoint, unet_config)
 
         # Older SD checkpoints store proj_in/proj_out as 1x1 convolutions
@@ -135,18 +136,19 @@ class ModelLoader(ForgeModel):
             ].dim() == 4:
                 converted_unet[key] = converted_unet[key].squeeze(-1).squeeze(-1)
 
-        self.pipeline.unet.load_state_dict(converted_unet, strict=False)
-        self.pipeline.unet = self.pipeline.unet.to(compute_dtype)
-
-        return self.pipeline
+        unet.load_state_dict(converted_unet, strict=False)
+        return unet.to(compute_dtype)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for SD-Turbo.
+        """Return synthetic UNet inputs for SD 2.x at 512x512 resolution.
 
-        Returns:
-            list: A list of sample text prompts.
+        SD-Turbo generates 512x512 images → 64x64 latents (8x downscale).
+        Cross-attention dim is 1024 (OpenCLIP ViT-H/14 text encoder).
         """
-        prompt = [
-            "A cinematic shot of a baby racoon wearing an intricate italian priest robe.",
-        ] * batch_size
-        return prompt
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        return {
+            "sample": torch.randn(batch_size, 4, 64, 64, dtype=dtype),
+            "timestep": torch.tensor([999] * batch_size),
+            "encoder_hidden_states": torch.randn(batch_size, 77, 1024, dtype=dtype),
+            "return_dict": False,
+        }
