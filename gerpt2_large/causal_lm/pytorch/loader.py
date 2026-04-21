@@ -2,10 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-GerPT2 Large model loader implementation for causal language modeling.
+GerPT2 model loader implementation for causal language modeling.
 
-GerPT2 Large is a German GPT-2 Large model trained on the CC-100 German corpus.
+GerPT2 is a German GPT-2 model trained on the CC-100 German corpus, available
+in base and large sizes.
 Source: https://huggingface.co/benjamin/gerpt2-large
+        https://huggingface.co/benjamin/gerpt2
 """
 from transformers import GPT2LMHeadModel, AutoTokenizer, GPT2Config
 from typing import Optional
@@ -23,17 +25,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available GerPT2 Large model variants."""
+    """Available GerPT2 model variants."""
 
     GERPT2_LARGE = "Gerpt2_Large"
+    GERPT2 = "Gerpt2"
 
 
 class ModelLoader(ForgeModel):
-    """GerPT2 Large model loader implementation for causal language modeling tasks."""
+    """GerPT2 model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.GERPT2_LARGE: LLMModelConfig(
             pretrained_model_name="benjamin/gerpt2-large",
+            max_length=256,
+        ),
+        ModelVariant.GERPT2: LLMModelConfig(
+            pretrained_model_name="benjamin/gerpt2",
             max_length=256,
         ),
     }
@@ -52,7 +59,7 @@ class ModelLoader(ForgeModel):
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="GerPT2 Large",
+            model="GerPT2",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
