@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     """Available Goedel Prover model variants."""
 
     GOEDEL_PROVER_V2_8B_REVIEWER = "V2_8B_Reviewer"
+    GOEDEL_PROVER_SFT = "SFT"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +35,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GOEDEL_PROVER_V2_8B_REVIEWER: LLMModelConfig(
             pretrained_model_name="LukeBailey181/goedel_prover_v2_8b_reviewer_finetuned_2048_num_samples",
+            max_length=128,
+        ),
+        ModelVariant.GOEDEL_PROVER_SFT: LLMModelConfig(
+            pretrained_model_name="Goedel-LM/Goedel-Prover-SFT",
             max_length=128,
         ),
     }
