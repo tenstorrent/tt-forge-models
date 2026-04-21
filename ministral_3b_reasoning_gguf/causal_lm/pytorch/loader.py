@@ -35,7 +35,7 @@ class ModelVariant(StrEnum):
     """Available Ministral 3B Reasoning GGUF model variants for causal language modeling."""
 
     MINISTRAL_3B_REASONING_GGUF = "3B_Reasoning_GGUF"
-    MINISTRAL_3B_REASONING_2512_BARTOWSKI_GGUF = "3B_Reasoning_2512_Bartowski_GGUF"
+    MINISTRAL_3B_REASONING_2512_JENEY_GGUF = "3B_Reasoning_2512_Jeney_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -46,7 +46,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name=HF_MODEL_NAME,
             max_length=128,
         ),
-        ModelVariant.MINISTRAL_3B_REASONING_2512_BARTOWSKI_GGUF: LLMModelConfig(
+        ModelVariant.MINISTRAL_3B_REASONING_2512_JENEY_GGUF: LLMModelConfig(
             pretrained_model_name=HF_MODEL_NAME,
             max_length=128,
         ),
