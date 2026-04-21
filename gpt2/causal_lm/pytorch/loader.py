@@ -23,7 +23,7 @@ class ModelVariant(StrEnum):
     """Available GPT-2 causal LM model variants."""
 
     TINY_RANDOM = "tiny-random"
-    ANJAJAR_BABY_GOLDFISH_NEW = "anjajar-baby-goldfish-new"
+    GPT2_10M_PARFIND_ENG = "gpt2_10M_parfind_eng"
 
 
 class ModelLoader(ForgeModel):
@@ -35,8 +35,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="peft-internal-testing/tiny-random-GPT2LMHeadModel",
             max_length=256,
         ),
-        ModelVariant.ANJAJAR_BABY_GOLDFISH_NEW: LLMModelConfig(
-            pretrained_model_name="anjajar/baby_goldfish_new",
+        ModelVariant.GPT2_10M_PARFIND_ENG: LLMModelConfig(
+            pretrained_model_name="NeTSlab/gpt2-10M-parfind-eng",
             max_length=256,
         ),
     }
