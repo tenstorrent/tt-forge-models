@@ -2,64 +2,60 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Qwen-Image-Edit-2509 White Film to Rendering LoRA model loader.
+Qwen Image Edit 2509 White Film to Rendering LoRA model loader implementation.
 
-Loads the Qwen-Image-Edit-2509 diffusion pipeline, applies the
-dx8152/Qwen-Image-Edit-2509-White_film_to_rendering LoRA adapter, and
-returns the transformer component for compile-only testing.
-
-Available variants:
-- WHITE_FILM_TO_RENDERING: LoRA that transforms white-film renders into
-  photorealistic material renderings.
+Loads the dx8152/Qwen-Image-Edit-2509-White_film_to_rendering LoRA adapter on
+top of the Qwen/Qwen-Image-Edit-2509 base diffusion pipeline for converting
+white-model (white film) renders into textured/material renderings.
 """
 
-from typing import Any, Optional
-
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import QwenImageEditPlusPipeline
+from PIL import Image
+from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
-    Framework,
     ModelConfig,
-    ModelGroup,
     ModelInfo,
-    ModelSource,
+    ModelGroup,
     ModelTask,
+    ModelSource,
+    Framework,
     StrEnum,
 )
 
-BASE_REPO_ID = "Qwen/Qwen-Image-Edit-2509"
-LORA_REPO_ID = "dx8152/Qwen-Image-Edit-2509-White_film_to_rendering"
-LORA_WEIGHT_NAME = "白膜转材质.safetensors"
-
 
 class ModelVariant(StrEnum):
-    """Available White Film to Rendering LoRA variants."""
+    """Available Qwen Image Edit 2509 White Film to Rendering model variants."""
 
-    WHITE_FILM_TO_RENDERING = "white_film_to_rendering"
+    DEFAULT = "default"
 
 
 class ModelLoader(ForgeModel):
-    """Qwen-Image-Edit-2509 White Film to Rendering LoRA model loader."""
+    """Qwen Image Edit 2509 White Film to Rendering LoRA model loader."""
 
     _VARIANTS = {
-        ModelVariant.WHITE_FILM_TO_RENDERING: ModelConfig(
-            pretrained_model_name=LORA_REPO_ID,
+        ModelVariant.DEFAULT: ModelConfig(
+            pretrained_model_name="dx8152/Qwen-Image-Edit-2509-White_film_to_rendering",
         ),
     }
-    DEFAULT_VARIANT = ModelVariant.WHITE_FILM_TO_RENDERING
+
+    DEFAULT_VARIANT = ModelVariant.DEFAULT
+
+    _BASE_MODEL = "Qwen/Qwen-Image-Edit-2509"
+
+    _LORA_WEIGHT_NAMES = {
+        ModelVariant.DEFAULT: "白膜转材质.safetensors",
+    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._transformer = None
 
     @classmethod
-    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        if variant is None:
-            variant = cls.DEFAULT_VARIANT
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None):
         return ModelInfo(
-            model="QWEN_IMAGE_EDIT_2509_WHITE_FILM_TO_RENDERING",
+            model="Qwen Image Edit 2509 White Film to Rendering",
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.CV_IMG_TO_IMG,
@@ -67,60 +63,25 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load the Qwen-Image-Edit-2509 transformer with LoRA merged.
-
-        Returns:
-            QwenImageTransformer2DModel with LoRA weights fused.
-        """
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
-
-        if self._transformer is None:
-            pipe = DiffusionPipeline.from_pretrained(
-                BASE_REPO_ID,
-                torch_dtype=dtype,
-                low_cpu_mem_usage=False,
-            )
-            pipe.load_lora_weights(LORA_REPO_ID, weight_name=LORA_WEIGHT_NAME)
-            pipe.fuse_lora()
-            self._transformer = pipe.transformer
-            self._transformer.eval()
-            del pipe
-        elif dtype_override is not None:
-            self._transformer = self._transformer.to(dtype=dtype_override)
-
-        return self._transformer
-
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare sample inputs for the diffusion transformer.
-
-        Returns a dict matching QwenImageTransformer2DModel.forward() signature.
-        """
-        dtype = kwargs.get("dtype_override", torch.bfloat16)
-        batch_size = kwargs.get("batch_size", 1)
-
-        # From model config: in_channels=64 (img_in linear input dimension)
-        img_dim = 64
-        # joint_attention_dim from config = 3584
-        text_dim = 3584
-        txt_seq_len = 32
-
-        # img_seq_len must equal frame * height * width for positional encoding
-        frame, height, width = 1, 8, 8
-        img_seq_len = frame * height * width
-
-        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
-        encoder_hidden_states = torch.randn(
-            batch_size, txt_seq_len, text_dim, dtype=dtype
+    def load_model(self, *, dtype_override=None, **kwargs):
+        dtype = dtype_override or torch.bfloat16
+        pipe = QwenImageEditPlusPipeline.from_pretrained(
+            self._BASE_MODEL, torch_dtype=dtype, **kwargs
         )
-        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
-        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
-        img_shapes = [(frame, height, width)] * batch_size
+        pipe.load_lora_weights(
+            self._variant_config.pretrained_model_name,
+            weight_name=self._LORA_WEIGHT_NAMES[self._variant],
+        )
+        return pipe
 
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        image = Image.new("RGB", (512, 512), color=(255, 255, 255))
+        prompt = "白膜转材质"
         return {
-            "hidden_states": hidden_states,
-            "encoder_hidden_states": encoder_hidden_states,
-            "encoder_hidden_states_mask": encoder_hidden_states_mask,
-            "timestep": timestep,
-            "img_shapes": img_shapes,
+            "image": image,
+            "prompt": prompt,
+            "negative_prompt": " ",
+            "num_inference_steps": 40,
+            "guidance_scale": 1.0,
+            "true_cfg_scale": 4.0,
         }
