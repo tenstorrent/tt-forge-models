@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     """Available model variants for causal LM."""
 
     ZAMBA2_7B_INSTRUCT = "Zamba2-7B-Instruct"
-    ZAMBA2_2_7B = "Zamba2-2.7B"
+    ZAMBA2_1_2B = "Zamba2-1.2B"
 
 
 class ModelLoader(ForgeModel):
@@ -42,8 +42,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Zyphra/Zamba2-7B-Instruct",
             max_length=128,
         ),
-        ModelVariant.ZAMBA2_2_7B: LLMModelConfig(
-            pretrained_model_name="Zyphra/Zamba2-2.7B",
+        ModelVariant.ZAMBA2_1_2B: LLMModelConfig(
+            pretrained_model_name="Zyphra/Zamba2-1.2B",
             max_length=128,
         ),
     }
