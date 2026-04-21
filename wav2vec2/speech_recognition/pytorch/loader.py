@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     BASE_100H = "Base_100h"
     BASE_960H = "Base_960h"
     LARGE_XLS_R_1B_CA_LM = "Large_XLS_R_1B_Catalan_LM"
+    LARGE_XLS_R_1B_SWEDISH = "Large_XLS_R_1B_Swedish"
     LARGE_XLS_R_300M_WELSH = "Large_XLS_R_300M_Welsh"
     LARGE_XLSR_53_AMHARIC = "Large_XLSR_53_Amharic"
     LARGE_XLSR_53_SPANISH = "Large_XLSR_53_Spanish"
@@ -50,6 +51,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE_XLS_R_1B_CA_LM: ModelConfig(
             pretrained_model_name="PereLluis13/wav2vec2-xls-r-1b-ca-lm",
+        ),
+        ModelVariant.LARGE_XLS_R_1B_SWEDISH: ModelConfig(
+            pretrained_model_name="kingabzpro/wav2vec2-large-xls-r-1b-Swedish",
         ),
         ModelVariant.LARGE_XLS_R_300M_WELSH: ModelConfig(
             pretrained_model_name="infinitejoy/wav2vec2-large-xls-r-300m-welsh",
