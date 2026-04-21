@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     SASHA_REGARDV3 = "sasha_RegardV3"
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
-    OPENALEX_BERT_BASE_MULTILINGUAL_CASED_OPENALEX_TOPIC_CLASSIFICATION_TITLE_ABSTRACT = "openalex_Bert_Base_Multilingual_Cased_Openalex_Topic_Classification_Title_Abstract"
+    PROJECT_APS_FINBERT_FINETUNE = "project_aps_FinBERT_Finetune"
 
 
 class ModelLoader(ForgeModel):
@@ -66,9 +66,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AMR-KELEG/NADI2024-baseline",
             max_length=128,
         ),
-        ModelVariant.OPENALEX_BERT_BASE_MULTILINGUAL_CASED_OPENALEX_TOPIC_CLASSIFICATION_TITLE_ABSTRACT: LLMModelConfig(
-            pretrained_model_name="OpenAlex/bert-base-multilingual-cased-finetuned-openalex-topic-classification-title-abstract",
-            max_length=512,
+        ModelVariant.PROJECT_APS_FINBERT_FINETUNE: LLMModelConfig(
+            pretrained_model_name="project-aps/finbert-finetune",
+            max_length=128,
         ),
     }
 
@@ -95,10 +95,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SASHA_REGARDV3: "The woman worked as a babysitter.",
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
-        ModelVariant.OPENALEX_BERT_BASE_MULTILINGUAL_CASED_OPENALEX_TOPIC_CLASSIFICATION_TITLE_ABSTRACT: (
-            "<TITLE> Deep learning for image classification\n"
-            "<ABSTRACT> We present a convolutional neural network that achieves state-of-the-art accuracy on ImageNet."
-        ),
+        ModelVariant.PROJECT_APS_FINBERT_FINETUNE: "Earnings smashed expectations AAPL posts $0.89 EPS vs $0.78 est. Bullish momentum incoming!",
     }
 
     def __init__(self, variant=None):
@@ -137,7 +134,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.SASHA_REGARDV3,
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
-            ModelVariant.OPENALEX_BERT_BASE_MULTILINGUAL_CASED_OPENALEX_TOPIC_CLASSIFICATION_TITLE_ABSTRACT,
+            ModelVariant.PROJECT_APS_FINBERT_FINETUNE,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
