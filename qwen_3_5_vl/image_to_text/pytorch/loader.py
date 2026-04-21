@@ -27,7 +27,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3.5 VL model variants for image to text."""
 
     QWEN_3_5_4B_INT4_AUTOROUND = "4b_int4_autoround"
-    DEALIGNAI_QWEN3_5_VL_122B_A10B_4BIT_MLX_CRACK = "122b_a10b_4bit_mlx_crack"
+    DEALIGNAI_QWEN3_5_VL_35B_A3B_4BIT_MLX_CRACK = "35b_a3b_4bit_mlx_crack"
 
 
 class ModelLoader(ForgeModel):
@@ -39,8 +39,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Intel/Qwen3.5-4B-int4-AutoRound",
             max_length=128,
         ),
-        ModelVariant.DEALIGNAI_QWEN3_5_VL_122B_A10B_4BIT_MLX_CRACK: LLMModelConfig(
-            pretrained_model_name="dealignai/Qwen3.5-VL-122B-A10B-4bit-MLX-CRACK",
+        ModelVariant.DEALIGNAI_QWEN3_5_VL_35B_A3B_4BIT_MLX_CRACK: LLMModelConfig(
+            pretrained_model_name="dealignai/Qwen3.5-VL-35B-A3B-4bit-MLX-CRACK",
             max_length=128,
         ),
     }
