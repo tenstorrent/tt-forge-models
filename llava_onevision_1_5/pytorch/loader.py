@@ -5,7 +5,35 @@
 LLaVA-OneVision-1.5 model loader implementation for multimodal conditional generation.
 """
 
-from transformers import AutoModelForCausalLM, AutoProcessor
+import torch
+import transformers.cache_utils as _cache_utils
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
+if not hasattr(_cache_utils, "SlidingWindowCache"):
+
+    class _SlidingWindowCache(_cache_utils.Cache):
+        pass
+
+    _cache_utils.SlidingWindowCache = _SlidingWindowCache
+
+if "default" not in ROPE_INIT_FUNCTIONS:
+
+    def _compute_default_rope_parameters(config, device=None, **kwargs):
+        base = config.rope_theta
+        partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+        head_dim = getattr(
+            config, "head_dim", config.hidden_size // config.num_attention_heads
+        )
+        dim = int(head_dim * partial_rotary_factor)
+        inv_freq = 1.0 / (
+            base
+            ** (torch.arange(0, dim, 2, dtype=torch.int64).float().to(device) / dim)
+        )
+        return inv_freq, 1.0
+
+    ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
+
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 from typing import Optional
 
 from ...base import ForgeModel
@@ -82,7 +110,11 @@ class ModelLoader(ForgeModel):
         """Load and return the LLaVA-OneVision-1.5 model instance."""
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+        if not hasattr(config.text_config, "pad_token_id"):
+            config.text_config.pad_token_id = None
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         else:
