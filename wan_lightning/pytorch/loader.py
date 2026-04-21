@@ -7,16 +7,16 @@ Wan 2.2 I2V Lightning model loader implementation.
 
 Loads the magespace/Wan2.2-I2V-A14B-Lightning-Diffusers pipeline, a distilled
 variant of Wan 2.2 I2V optimized for fast inference with fewer denoising steps.
+Returns the WanTransformer3DModel component for compile-only testing.
 
 Available variants:
 - WAN22_I2V_A14B_LIGHTNING: Wan 2.2 Image-to-Video A14B Lightning
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import torch
-from diffusers import WanImageToVideoPipeline  # type: ignore[import]
-from PIL import Image  # type: ignore[import]
+from diffusers import AutoencoderKLWan, WanImageToVideoPipeline  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -28,6 +28,13 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+REPO_ID = "magespace/Wan2.2-I2V-A14B-Lightning-Diffusers"
+
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -41,7 +48,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.WAN22_I2V_A14B_LIGHTNING: ModelConfig(
-            pretrained_model_name="magespace/Wan2.2-I2V-A14B-Lightning-Diffusers",
+            pretrained_model_name=REPO_ID,
         ),
     }
     DEFAULT_VARIANT = ModelVariant.WAN22_I2V_A14B_LIGHTNING
@@ -63,42 +70,53 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_pipeline(self, dtype: torch.dtype) -> WanImageToVideoPipeline:
+        vae = AutoencoderKLWan.from_pretrained(
+            REPO_ID,
+            subfolder="vae",
+            torch_dtype=torch.float32,
+        )
+        self.pipeline = WanImageToVideoPipeline.from_pretrained(
+            REPO_ID,
+            vae=vae,
+            torch_dtype=dtype,
+        )
+        return self.pipeline
+
     def load_model(
         self,
         *,
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Wan 2.2 I2V Lightning pipeline.
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        if self.pipeline is None:
+            self._load_pipeline(dtype)
+        if dtype_override is not None:
+            self.pipeline = self.pipeline.to(dtype=dtype_override)
+        return self.pipeline.transformer
 
-        Returns:
-            WanImageToVideoPipeline ready for inference.
-        """
-        dtype = dtype_override if dtype_override is not None else torch.float32
-
-        self.pipeline = WanImageToVideoPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-        )
-
-        return self.pipeline
+    def _load_transformer_inputs(self, dtype: torch.dtype) -> Dict[str, Any]:
+        config = self.pipeline.transformer.config
+        return {
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
+        }
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for image-to-video generation.
-
-        Returns:
-            dict with prompt and image keys.
-        """
-        if prompt is None:
-            prompt = (
-                "A cat walking gracefully across a sunlit garden, "
-                "detailed fur texture, cinematic lighting"
-            )
-
-        # Create a small test image (RGB)
-        image = Image.new("RGB", (256, 256), color=(128, 128, 200))
-
-        return {
-            "prompt": prompt,
-            "image": image,
-        }
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        return self._load_transformer_inputs(dtype)
