@@ -31,7 +31,7 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "Qwen/Qwen-Image-2509"
+BASE_MODEL = "Qwen/Qwen-Image-Edit-2509"
 LORA_REPO = "lovis93/next-scene-qwen-image-lora-2509"
 
 # LoRA weight filenames
