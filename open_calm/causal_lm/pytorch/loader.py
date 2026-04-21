@@ -91,7 +91,6 @@ class ModelLoader(ForgeModel):
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            use_fast=False,
             **tokenizer_kwargs,
         )
 
