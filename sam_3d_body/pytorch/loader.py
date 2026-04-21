@@ -9,6 +9,9 @@ feet and hands, from a single image using the Momentum Human Rig (MHR)
 representation.
 """
 
+import os
+import sys
+
 import torch
 from typing import Optional
 
@@ -22,6 +25,26 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+SAM3D_BODY_REPO_PATH = "/tmp/sam_3d_body_repo"
+
+
+def _ensure_sam3d_body_importable():
+    """Ensure the sam-3d-body repo is cloned and importable."""
+    if not os.path.isdir(SAM3D_BODY_REPO_PATH):
+        import subprocess
+
+        subprocess.check_call(
+            [
+                "git",
+                "clone",
+                "--filter=blob:none",
+                "https://github.com/facebookresearch/sam-3d-body.git",
+                SAM3D_BODY_REPO_PATH,
+            ]
+        )
+    if SAM3D_BODY_REPO_PATH not in sys.path:
+        sys.path.insert(0, SAM3D_BODY_REPO_PATH)
 
 
 class ModelVariant(StrEnum):
@@ -59,6 +82,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _ensure_sam3d_body_importable()
         from sam_3d_body import load_sam_3d_body_hf
 
         repo_id = self._variant_config.pretrained_model_name
