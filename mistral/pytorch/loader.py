@@ -16,6 +16,7 @@ from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
+    LLMModelConfig,
     ModelConfig,
     ModelInfo,
     ModelGroup,
@@ -57,6 +58,10 @@ class ModelLoader(ForgeModel):
     _USE_Mistral3ForConditionalGeneration_VARIANTS = {
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506,
     }
+    # Ministral-8B uses sliding window attention and needs StaticCache + overrides.
+    _SLIDING_WINDOW_VARIANTS = {
+        ModelVariant.MINISTRAL_8B,
+    }
 
     # Dictionary of available model variants
     _VARIANTS = {
@@ -69,8 +74,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MINISTRAL_3B: ModelConfig(
             pretrained_model_name="ministral/Ministral-3b-instruct",
         ),
-        ModelVariant.MINISTRAL_8B: ModelConfig(
+        ModelVariant.MINISTRAL_8B: LLMModelConfig(
             pretrained_model_name="mistralai/Ministral-8B-Instruct-2410",
+            max_length=256,
         ),
         ModelVariant.MISTRAL_SMALL_24B_INSTRUCT_2501: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-24B-Instruct-2501",
@@ -112,6 +118,11 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.model = None
         self.num_layers = num_layers
+
+    @property
+    def requires_model_rewrites(self) -> bool:
+        """Sliding-window variants need the TT causal-mask rewrite applied."""
+        return self._variant in self._SLIDING_WINDOW_VARIANTS
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -224,12 +235,7 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, **model_kwargs
             ).eval()
 
-        if self._variant == ModelVariant.MINISTRAL_8B:
-            model.config.layer_types = ["full_attention"] * len(
-                model.config.layer_types
-            )
         self.config = model.config
-
         self.model = model
         return model
 
@@ -322,20 +328,26 @@ class ModelLoader(ForgeModel):
 
         else:
             inputs = self.tokenizer(test_input, return_tensors="pt")
-
-        if (
-            hasattr(self.model.config, "sliding_window")
-            and self.model.config.sliding_window is not None
-        ):
-            # if the model uses sliding window attention, match sliding window value to input size so it
-            # does not go out of bounds when updating the cache
-            self.model.config.sliding_window = inputs["input_ids"].shape[1]
-
         # Add batch dimension
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
+        # Non-sliding variants: return standard tokenizer output
+        if self._variant not in self._SLIDING_WINDOW_VARIANTS:
+            return inputs
+
+        from tt_forge_models.tools.utils import (
+            prepare_inputs_for_sliding_window_attention,
+        )
+
+        inputs = prepare_inputs_for_sliding_window_attention(
+            inputs,
+            batch_size=batch_size,
+            max_cache_len=self._variant_config.max_length,
+            dtype_override=dtype_override,
+            config=self.config,
+        )
         return inputs
 
     # TODO - Verify this function correct (was AI_GENERATED)
