@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
@@ -23,24 +23,24 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available BrownLoafers 70B i1 GGUF model variants for causal language modeling."""
 
-    BROWN_LOAFERS_70B_I1_Q4_K_M_GGUF = "70B_I1_Q4_K_M_GGUF"
+    BROWN_LOAFERS_70B_I1_GGUF = "BrownLoafers_70B_i1_GGUF"
 
 
 class ModelLoader(ForgeModel):
     """BrownLoafers 70B i1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.BROWN_LOAFERS_70B_I1_Q4_K_M_GGUF: LLMModelConfig(
+        ModelVariant.BROWN_LOAFERS_70B_I1_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/BrownLoafers-70B-i1-GGUF",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.BROWN_LOAFERS_70B_I1_Q4_K_M_GGUF
+    DEFAULT_VARIANT = ModelVariant.BROWN_LOAFERS_70B_I1_GGUF
 
     GGUF_FILE = "BrownLoafers-70B.i1-Q4_K_M.gguf"
 
-    sample_text = "What is your favorite city?"
+    sample_text = "Give me a short introduction to large language models."
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
