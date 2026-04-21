@@ -4,7 +4,10 @@
 """
 LLaDA-V model loader implementation for image-text-to-text tasks.
 """
+import pathlib
+import urllib.request
 import torch
+from huggingface_hub import snapshot_download
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 from typing import Optional
 
@@ -63,16 +66,34 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        local_path = self._get_local_model_path(
+            self._variant_config.pretrained_model_name
+        )
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            local_path,
             trust_remote_code=True,
             **tokenizer_kwargs,
         )
 
         return self.tokenizer
 
+    @staticmethod
+    def _get_local_model_path(pretrained_model_name: str) -> str:
+        # GSAI-ML/LLaDA-V is missing modeling_llada.py; download snapshot and inject it.
+        snapshot_path = pathlib.Path(snapshot_download(pretrained_model_name))
+        modeling_dst = snapshot_path / "modeling_llada.py"
+        if not modeling_dst.exists():
+            url = (
+                "https://raw.githubusercontent.com/ML-GSAI/LLaDA-V/main"
+                "/train/llada_v_prepare/files/modeling_llada.py"
+            )
+            urllib.request.urlretrieve(url, modeling_dst)
+        return str(snapshot_path)
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        pretrained_model_name = self._get_local_model_path(
+            self._variant_config.pretrained_model_name
+        )
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -127,8 +148,11 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        local_path = self._get_local_model_path(
+            self._variant_config.pretrained_model_name
+        )
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            local_path,
             trust_remote_code=True,
         )
 
