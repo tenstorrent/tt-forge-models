@@ -97,7 +97,7 @@ class ModelLoader(ForgeModel):
         # DNA_bert_6). Input DNA sequences must be pre-tokenized into
         # space-separated k-mers with one token replaced by [MASK].
         kmer_size = _KMER_SIZES[self._variant]
-        raw_dna = "ACTGACCTGACTTGACTGGACTGAACTGACCTGACTGACTGAACTGACCTGACTTGACTGGACTGA"
+        raw_dna = "ACTGA" * 12
         kmers = [
             raw_dna[i : i + kmer_size] for i in range(len(raw_dna) - kmer_size + 1)
         ]
