@@ -47,7 +47,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_397B_A17B_GGUF = "397B_A17B_GGUF"
     QWEN_3_5_27B_CLAUDE_OPUS_DISTILLED_MLX_6BIT = "27B_Claude_Opus_Distilled_MLX_6bit"
     QWEN_3_5_122B_A10B_MXFP4 = "122B_A10B_MXFP4"
-    TITAN0115_QWEN_3_5_2B_BASE = "titan0115_2B_Base"
+    QWEN_3_5_122B_A10B_HERETIC = "122B_A10B_Heretic"
 
 
 class ModelLoader(ForgeModel):
@@ -143,8 +143,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="olka-fi/Qwen3.5-122B-A10B-MXFP4",
             max_length=128,
         ),
-        ModelVariant.TITAN0115_QWEN_3_5_2B_BASE: LLMModelConfig(
-            pretrained_model_name="titan0115/Qwen3.5-2B-Base",
+        ModelVariant.QWEN_3_5_122B_A10B_HERETIC: LLMModelConfig(
+            pretrained_model_name="trohrbaugh/Qwen3.5-122B-A10B-heretic",
             max_length=128,
         ),
     }
@@ -368,7 +368,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_3_5_35B_A3B_BASE,
             ModelVariant.QWEN_3_5_35B_A3B_FP8,
             ModelVariant.QWEN_3_5_122B_A10B_MXFP4,
-            ModelVariant.QWEN_3_5_122B_UNCENSORED_STXT,
+            ModelVariant.QWEN_3_5_122B_A10B_HERETIC,
             ModelVariant.QWEN_3_5_397B_A17B_GGUF,
         )
 
