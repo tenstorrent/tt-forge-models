@@ -73,10 +73,6 @@ class ModelLoader(ForgeModel):
         )
 
     @property
-    def _is_awq(self) -> bool:
-        return self._variant == ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_INT4_AWQ
-
-    @property
     def _is_quantized(self) -> bool:
         return self._variant in (
             ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_INT4_AWQ,
