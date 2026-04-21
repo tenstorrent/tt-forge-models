@@ -7,7 +7,12 @@ DeepSeek-V3 model loader implementation for causal language modeling.
 
 from typing import Optional
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
+
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+    )
 
 from ....base import ForgeModel
 from ....config import (
