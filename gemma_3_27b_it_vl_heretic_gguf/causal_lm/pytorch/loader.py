@@ -24,8 +24,8 @@ class ModelVariant(StrEnum):
     """Available Gemma 3 27B IT VL Heretic GGUF model variants for causal language modeling."""
 
     GEMMA_3_27B_IT_VL_HERETIC_GGUF = "27B_IT_VL_HERETIC_GGUF"
-    GEMMA_3_27B_IT_VL_GLM_HERETIC_DEEP_REASONING_GGUF = (
-        "27B_IT_VL_GLM_HERETIC_DEEP_REASONING_GGUF"
+    GEMMA_3_27B_IT_ULTRA_UNCENSORED_HERETIC_GGUF = (
+        "27B_IT_ULTRA_UNCENSORED_HERETIC_GGUF"
     )
 
 
@@ -37,8 +37,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mradermacher/Gemma-3-27b-it-vl-GLM-4.7-Flash-HI16-Heretic-Uncensored-Thinking-i1-GGUF",
             max_length=128,
         ),
-        ModelVariant.GEMMA_3_27B_IT_VL_GLM_HERETIC_DEEP_REASONING_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/Gemma3-27B-it-vl-GLM-4.7-Uncensored-Heretic-Deep-Reasoning-GGUF",
+        ModelVariant.GEMMA_3_27B_IT_ULTRA_UNCENSORED_HERETIC_GGUF: LLMModelConfig(
+            pretrained_model_name="llmfan46/gemma-3-27b-it-ultra-uncensored-heretic-GGUF",
             max_length=128,
         ),
     }
@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
 
     _GGUF_FILES = {
         ModelVariant.GEMMA_3_27B_IT_VL_HERETIC_GGUF: "Gemma-3-27b-it-vl-GLM-4.7-Flash-HI16-Heretic-Uncensored-Thinking.i1-Q4_K_M.gguf",
-        ModelVariant.GEMMA_3_27B_IT_VL_GLM_HERETIC_DEEP_REASONING_GGUF: "Gemma3-27B-it-vl-GLM-4.7-Uncensored-Heretic-Deep-Reasoning.Q4_K_M.gguf",
+        ModelVariant.GEMMA_3_27B_IT_ULTRA_UNCENSORED_HERETIC_GGUF: "gemma-3-27b-it-ultra-heretic-Q4_K_M.gguf",
     }
 
     sample_text = "What is your favorite city?"
