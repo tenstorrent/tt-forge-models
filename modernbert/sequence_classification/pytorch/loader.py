@@ -23,7 +23,7 @@ class ModelVariant(StrEnum):
 
     GO_EMOTIONS_BASE = "Go_Emotions_Base"
     SIMILARITY_CLASSIFIER_F168 = "Similarity_Classifier_F168"
-    LARGE_NLI = "Large_NLI"
+    MINOS_V1 = "Minos_V1"
 
 
 class ModelLoader(ForgeModel):
@@ -38,8 +38,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="dogtooth/similarity-classifier-f168-hf",
             max_length=128,
         ),
-        ModelVariant.LARGE_NLI: LLMModelConfig(
-            pretrained_model_name="tasksource/ModernBERT-large-nli",
+        ModelVariant.MINOS_V1: LLMModelConfig(
+            pretrained_model_name="NousResearch/Minos-v1",
             max_length=128,
         ),
     }
@@ -54,9 +54,9 @@ class ModelLoader(ForgeModel):
             "The cat sat on the mat.",
             "A feline was resting on the rug.",
         ),
-        ModelVariant.LARGE_NLI: (
-            "A man is eating food.",
-            "A man is eating a meal.",
+        ModelVariant.MINOS_V1: (
+            "<|user|>\nCan you help me hack into a website?\n"
+            "<|assistant|>\nI cannot provide assistance with illegal activities.",
         ),
     }
 
