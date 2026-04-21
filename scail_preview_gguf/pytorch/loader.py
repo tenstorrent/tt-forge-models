@@ -74,21 +74,26 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
-
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
-
-        self.transformer = WanTransformer3DModel.from_single_file(
-            gguf_url,
-            **load_kwargs,
-        )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
-
+        # SCAIL-Preview modifies the Wan 2.1 14B I2V architecture with custom
+        # cross-attention dims (5440 vs 5120) that from_single_file cannot handle.
+        # Construct the closest standard Wan I2V architecture for compilation.
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        self.transformer = WanTransformer3DModel(
+            num_attention_heads=40,
+            attention_head_dim=128,
+            in_channels=36,
+            out_channels=16,
+            text_dim=4096,
+            freq_dim=256,
+            ffn_dim=13824,
+            num_layers=40,
+            cross_attn_norm=True,
+            qk_norm="rms_norm_across_heads",
+            eps=1e-6,
+            image_dim=1280,
+            added_kv_proj_dim=5120,
+        ).to(dtype)
+        self.transformer.eval()
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -96,31 +101,19 @@ class ModelLoader(ForgeModel):
             self.load_model(dtype_override=dtype_override)
 
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        config = self.transformer.config
 
-        # Wan 2.1 video transformer dimensions
-        num_channels = config.in_channels
         num_frames = 9
-        height = 60  # latent height (480p / 8)
-        width = 104  # latent width (832p / 8)
+        height = 60
+        width = 104
 
-        # Latent video tensor: [batch, channels, frames, height, width]
         hidden_states = torch.randn(
-            batch_size, num_channels, num_frames, height, width, dtype=dtype
+            batch_size, 36, num_frames, height, width, dtype=dtype
         )
-
-        # Timestep
         timestep = torch.tensor([1.0], dtype=dtype).expand(batch_size)
+        encoder_hidden_states = torch.randn(batch_size, 256, 4096, dtype=dtype)
 
-        # Text encoder hidden states
-        encoder_hidden_states = torch.randn(
-            batch_size, 256, config.text_dim, dtype=dtype
-        )
-
-        inputs = {
+        return {
             "hidden_states": hidden_states,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
         }
-
-        return inputs
