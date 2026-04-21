@@ -30,7 +30,7 @@ class ModelVariant(StrEnum):
     INDICWAV2VEC_HINDI = "IndicWav2Vec_Hindi"
     LARGE_XLS_R_300M_WELSH = "Large_XLS_R_300M_Welsh"
     LARGE_XLSR_53_AMHARIC = "Large_XLSR_53_Amharic"
-    LARGE_XLSR_53_SWEDISH = "Large_XLSR_53_Swedish"
+    LARGE_XLSR_53_TH_CV8_NEWMM = "Large_XLSR_53_TH_CV8_Newmm"
     NB_WAV2VEC2_300M_BOKMAAL_V2 = "NB_Wav2Vec2_300M_Bokmaal_v2"
     TINY_WAV2VEC2_STABLE_LN = "Tiny_Wav2Vec2_Stable_LN"
 
@@ -57,8 +57,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.LARGE_XLSR_53_AMHARIC: ModelConfig(
             pretrained_model_name="agkphysics/wav2vec2-large-xlsr-53-amharic",
         ),
-        ModelVariant.LARGE_XLSR_53_SWEDISH: ModelConfig(
-            pretrained_model_name="KBLab/wav2vec2-large-xlsr-53-swedish",
+        ModelVariant.LARGE_XLSR_53_TH_CV8_NEWMM: ModelConfig(
+            pretrained_model_name="wannaphong/wav2vec2-large-xlsr-53-th-cv8-newmm",
         ),
         ModelVariant.NB_WAV2VEC2_300M_BOKMAAL_V2: ModelConfig(
             pretrained_model_name="NbAiLab/nb-wav2vec2-300m-bokmaal-v2",
