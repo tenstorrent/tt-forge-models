@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     PHILSCHMID_TINY_BERT_SST2_DISTILLED = "philschmid_Tiny_Bert_Sst2_Distilled"
     AMR_KELEG_NADI2024_BASELINE = "AMR_KELEG_NADI2024_Baseline"
     TEXTATTACK_BERT_BASE_UNCASED_SNLI = "textattack_Bert_Base_Uncased_Snli"
+    FOLLOWSCI_BERT_AI_TEXT_DETECTOR = "followsci_Bert_Ai_Text_Detector"
 
 
 class ModelLoader(ForgeModel):
@@ -70,6 +71,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="textattack/bert-base-uncased-snli",
             max_length=128,
         ),
+        ModelVariant.FOLLOWSCI_BERT_AI_TEXT_DETECTOR: LLMModelConfig(
+            pretrained_model_name="followsci/bert-ai-text-detector",
+            max_length=512,
+        ),
     }
 
     # Default variant to use
@@ -96,6 +101,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED: "the movie was great!",
         ModelVariant.AMR_KELEG_NADI2024_BASELINE: "مرحبا كيف حالك اليوم",
         ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SNLI: "A soccer game with multiple males playing. Some men are playing a sport.",
+        ModelVariant.FOLLOWSCI_BERT_AI_TEXT_DETECTOR: "Recent advances in deep learning have demonstrated significant potential for natural language understanding across diverse academic disciplines.",
     }
 
     def __init__(self, variant=None):
@@ -135,6 +141,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.PHILSCHMID_TINY_BERT_SST2_DISTILLED,
             ModelVariant.AMR_KELEG_NADI2024_BASELINE,
             ModelVariant.TEXTATTACK_BERT_BASE_UNCASED_SNLI,
+            ModelVariant.FOLLOWSCI_BERT_AI_TEXT_DETECTOR,
         ):
             group = ModelGroup.VULCAN
         return ModelInfo(
