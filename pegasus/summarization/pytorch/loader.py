@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
 
     FINANCIAL = "Financial"
     LARGE = "Large"
+    ARXIV = "Arxiv"
 
 
 class ModelLoader(ForgeModel):
@@ -35,6 +36,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LARGE: LLMModelConfig(
             pretrained_model_name="google/pegasus-large",
+        ),
+        ModelVariant.ARXIV: LLMModelConfig(
+            pretrained_model_name="google/pegasus-arxiv",
         ),
     }
 
