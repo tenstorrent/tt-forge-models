@@ -5,6 +5,8 @@
 TraDo Causal LM model loader implementation
 """
 
+import sys
+import types
 import torch
 from unittest.mock import patch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
@@ -17,6 +19,50 @@ def _fixed_get_imports(filename) -> list[str]:
     if not torch.cuda.is_available() and "flash_attn" in imports:
         imports.remove("flash_attn")
     return imports
+
+
+def _rms_norm_fn(
+    x,
+    weight,
+    bias=None,
+    residual=None,
+    x1=None,
+    weight1=None,
+    bias1=None,
+    eps=1e-6,
+    dropout_p=0.0,
+    rowscale=None,
+    prenorm=False,
+    residual_in_fp32=False,
+    is_rms_norm=True,
+    num_groups=1,
+    norm_before_gate=True,
+    gate=None,
+):
+    variance = x.float().pow(2).mean(-1, keepdim=True)
+    x = x * torch.rsqrt(variance + eps)
+    out = weight * x.to(weight.dtype)
+    if bias is not None:
+        out = out + bias
+    if prenorm:
+        return out, residual if residual is not None else x
+    return out
+
+
+def _inject_flash_attn_mock():
+    if "flash_attn" not in sys.modules:
+        flash_attn = types.ModuleType("flash_attn")
+        ops = types.ModuleType("flash_attn.ops")
+        triton = types.ModuleType("flash_attn.ops.triton")
+        layer_norm = types.ModuleType("flash_attn.ops.triton.layer_norm")
+        layer_norm.rms_norm_fn = _rms_norm_fn
+        flash_attn.ops = ops
+        ops.triton = triton
+        triton.layer_norm = layer_norm
+        sys.modules["flash_attn"] = flash_attn
+        sys.modules["flash_attn.ops"] = ops
+        sys.modules["flash_attn.ops.triton"] = triton
+        sys.modules["flash_attn.ops.triton.layer_norm"] = layer_norm
 
 
 from ....base import ForgeModel
@@ -132,6 +178,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
+        _inject_flash_attn_mock()
         with patch("transformers.dynamic_module_utils.get_imports", _fixed_get_imports):
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
@@ -177,6 +224,7 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the TraDo model.
         """
+        _inject_flash_attn_mock()
         with patch("transformers.dynamic_module_utils.get_imports", _fixed_get_imports):
             self.config = AutoConfig.from_pretrained(
                 self._variant_config.pretrained_model_name,
