@@ -1,2 +1,3 @@
 fugashi
 ipadic
+unidic-lite
