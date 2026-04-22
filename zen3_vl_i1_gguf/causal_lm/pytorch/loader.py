@@ -9,6 +9,61 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
+
+
+def _patch_transformers_qwen3vl_gguf():
+    """Monkey-patch transformers to add qwen3vl GGUF architecture support.
+
+    The zen3-vl model uses the 'qwen3vl' architecture identifier in its GGUF
+    metadata. Transformers 5.x lacks GGUF loading support for qwen3vl.
+    We bridge the gap by registering the config mapping and remapping
+    model_type to qwen3 (the text backbone).
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "qwen3vl" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUFQwen2Converter
+
+    _orig_load_gguf_checkpoint = gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = _orig_load_gguf_checkpoint(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "qwen3vl":
+            config["model_type"] = "qwen3"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_patch_transformers_qwen3vl_gguf()
 from ....config import (
     LLMModelConfig,
     ModelInfo,
