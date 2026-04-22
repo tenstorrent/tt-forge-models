@@ -90,20 +90,53 @@ def _patch_transformers_nemotron_h_moe_gguf():
 
     gguf_utils.TENSOR_PROCESSORS["nemotron_h_moe"] = NemotronHMoeTensorProcessor
 
-    _orig_load_gguf_checkpoint = gguf_utils.load_gguf_checkpoint
+    _chain_fn = gguf_utils.load_gguf_checkpoint
+
+    def _get_real_load_gguf_checkpoint(fn):
+        """Walk the _patched closure chain to find the real transformers function."""
+        seen = set()
+        current = fn
+        while True:
+            if not callable(current) or current.__name__ == "load_gguf_checkpoint":
+                return current
+            fn_id = id(current)
+            if fn_id in seen or not hasattr(current, "__code__"):
+                return current
+            seen.add(fn_id)
+            freevars = current.__code__.co_freevars
+            cells = current.__closure__ or ()
+            next_fn = None
+            for i, varname in enumerate(freevars):
+                if i >= len(cells):
+                    break
+                if "load_gguf_checkpoint" in varname:
+                    try:
+                        v = cells[i].cell_contents
+                        if callable(v):
+                            next_fn = v
+                            break
+                    except ValueError:
+                        pass
+            if next_fn is None:
+                return current
+            current = next_fn
+
+    _real_load_gguf_checkpoint = _get_real_load_gguf_checkpoint(_chain_fn)
 
     def _patched_load_gguf_checkpoint(
         gguf_checkpoint_path, return_tensors=False, model_to_load=None, torch_dtype=None
     ):
-        result = _orig_load_gguf_checkpoint(
-            gguf_checkpoint_path,
-            return_tensors=return_tensors,
-            model_to_load=model_to_load,
-            torch_dtype=torch_dtype,
-        )
         if return_tensors:
-            return result
+            # Bypass the old-API patch chain; call real transformers function directly
+            return _real_load_gguf_checkpoint(
+                gguf_checkpoint_path,
+                return_tensors=True,
+                model_to_load=model_to_load,
+                torch_dtype=torch_dtype,
+            )
 
+        # Config loading: call chain with 2-param API (compatible with older patches)
+        result = _chain_fn(gguf_checkpoint_path, return_tensors=False)
         config = result.get("config", {})
         if config.get("model_type") != "nemotron_h_moe":
             return result
