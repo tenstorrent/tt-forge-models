@@ -80,9 +80,11 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
-        # max_length is no longer a default attribute in transformers>=5.0
+        # Several attributes were removed from PretrainedConfig defaults in transformers>=5.0
         if not hasattr(config, "max_length"):
             config.max_length = config.seq_length
+        if not hasattr(config, "use_cache"):
+            config.use_cache = True
 
         model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
