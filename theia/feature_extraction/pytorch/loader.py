@@ -9,7 +9,8 @@ Theia feature extraction model loader implementation for PyTorch.
 from typing import Optional
 
 import torch
-from transformers import AutoModel, AutoImageProcessor
+import numpy as np
+from transformers import AutoModel
 from datasets import load_dataset
 
 from ....base import ForgeModel
@@ -53,7 +54,6 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
-        self._processor = None
         self._model_name = self._variant_config.pretrained_model_name
 
     @classmethod
@@ -104,31 +104,19 @@ class ModelLoader(ForgeModel):
         """Load and return sample inputs for the model.
 
         Args:
-            dtype_override: Optional torch.dtype override.
+            dtype_override: Optional torch.dtype override (unused; Theia uses uint8 input).
             batch_size: Batch size (default: 1).
-            image: Optional input image. If None, loads from HuggingFace datasets.
+            image: Optional input PIL image. If None, loads from HuggingFace datasets.
 
         Returns:
-            dict: Preprocessed inputs with pixel_values tensor.
+            dict: Raw uint8 image tensor as {"x": tensor} with shape [B, H, W, C].
         """
-        if self._processor is None:
-            self._processor = AutoImageProcessor.from_pretrained(
-                self._model_name, trust_remote_code=True
-            )
-
         if image is None:
             dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            image = dataset[0]["image"].resize((224, 224))
 
-        inputs = self._processor(image, return_tensors="pt")
+        # Theia forward() expects raw uint8 images [B, H, W, C] in range [0, 255]
+        x = torch.from_numpy(np.array(image, dtype=np.uint8)).unsqueeze(0)
+        x = x.repeat(batch_size, 1, 1, 1)
 
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
-        if dtype_override is not None:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]) and inputs[key].dtype.is_floating_point:
-                    inputs[key] = inputs[key].to(dtype_override)
-
-        return inputs
+        return {"x": x}
