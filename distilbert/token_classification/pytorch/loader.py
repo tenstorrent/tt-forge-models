@@ -81,7 +81,7 @@ class ModelLoader(ForgeModel):
         self.max_length = self._variant_config.max_length
         self.tokenizer = None
         self.sample_text = _VARIANT_SAMPLE_TEXTS.get(
-            self._variant_name,
+            self._variant,
             "HuggingFace is a company based in Paris and New York",
         )
 
