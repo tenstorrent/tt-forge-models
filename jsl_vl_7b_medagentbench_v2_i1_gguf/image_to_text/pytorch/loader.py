@@ -115,12 +115,39 @@ def _make_patched(true_orig):
     return _patched_load_gguf_checkpoint
 
 
-_patch_qwen2vl_support()
-_patched = _make_patched(_find_true_load_gguf_checkpoint())
-_gguf_utils.load_gguf_checkpoint = _patched
-_config_utils.load_gguf_checkpoint = _patched
-_auto_tokenizer.load_gguf_checkpoint = _patched
-_tok_utils.load_gguf_checkpoint = _patched
+def _apply_patches():
+    """Install all monkey-patches into the transformers GGUF utils module."""
+    _patch_qwen2vl_support()
+
+    # Patch load_gguf_checkpoint to bypass broken intermediate wrappers.
+    fresh = _make_patched(_find_true_load_gguf_checkpoint())
+    _gguf_utils.load_gguf_checkpoint = fresh
+    _config_utils.load_gguf_checkpoint = fresh
+    _auto_tokenizer.load_gguf_checkpoint = fresh
+    _tok_utils.load_gguf_checkpoint = fresh
+
+    # Patch get_gguf_hf_weights_map to handle Qwen2.5-VL configs.
+    # Qwen2_5_VLConfig stores num_hidden_layers in text_config, not at the top
+    # level, and the GGUF arch name is 'qwen2vl', not 'qwen2_5_vl'.
+    _orig_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        cfg = getattr(hf_model, "config", None)
+        if cfg is not None and getattr(cfg, "model_type", None) == "qwen2_5_vl":
+            if model_type is None:
+                model_type = "qwen2vl"
+            if num_layers is None:
+                text_cfg = getattr(cfg, "text_config", None)
+                if text_cfg is not None:
+                    num_layers = getattr(text_cfg, "num_hidden_layers", None)
+        return _orig_weights_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_apply_patches()
 
 
 class ModelVariant(StrEnum):
@@ -183,16 +210,9 @@ class ModelLoader(ForgeModel):
             "Qwen/Qwen2.5-VL-7B-Instruct",
         )
 
-        # Re-apply patch before loading so it's active when from_pretrained
-        # calls load_gguf_checkpoint.  Build a fresh patched wrapper each time
-        # so that _find_true_load_gguf_checkpoint() resolves against whatever
-        # is currently in the module (another loader may have overwritten it).
-        _patch_qwen2vl_support()
-        _fresh_patched = _make_patched(_find_true_load_gguf_checkpoint())
-        _gguf_utils.load_gguf_checkpoint = _fresh_patched
-        _config_utils.load_gguf_checkpoint = _fresh_patched
-        _auto_tokenizer.load_gguf_checkpoint = _fresh_patched
-        _tok_utils.load_gguf_checkpoint = _fresh_patched
+        # Re-apply all patches before loading so they're active when
+        # from_pretrained calls load_gguf_checkpoint / get_gguf_hf_weights_map.
+        _apply_patches()
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
