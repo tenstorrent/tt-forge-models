@@ -5,7 +5,6 @@
 Nomic Embed Multimodal model loader implementation for visual document retrieval.
 """
 import torch
-from colpali_engine.models import BiQwen2_5, BiQwen2_5_Processor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -59,6 +58,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        from colpali_engine.models import BiQwen2_5_Processor
+
         self.processor = BiQwen2_5_Processor.from_pretrained(
             self._variant_config.pretrained_model_name,
         )
@@ -76,6 +77,8 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["torch_dtype"] = torch.bfloat16
         model_kwargs |= kwargs
+
+        from colpali_engine.models import BiQwen2_5
 
         model = BiQwen2_5.from_pretrained(
             pretrained_model_name,
