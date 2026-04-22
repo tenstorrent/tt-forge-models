@@ -97,16 +97,18 @@ class ModelLoader(ForgeModel):
         Uses diffusers GGUFQuantizationConfig to load the quantized UNet,
         then constructs the StableDiffusionPipeline with the base model's
         other components.
+
+        Returns:
+            torch.nn.Module: The UNet component for denoising.
         """
         from diffusers import (
             GGUFQuantizationConfig,
             StableDiffusionPipeline,
             UNet2DConditionModel,
         )
+        from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
-
-        from huggingface_hub import hf_hub_download
 
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
@@ -126,15 +128,48 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
         )
 
-        return self.pipeline
+        return self.pipeline.unet
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for SD-Turbo.
+    def load_inputs(self, dtype_override=None, **kwargs):
+        """Load and return preprocessed UNet inputs for SD-Turbo.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments for the UNet forward method.
         """
-        prompt = [
-            "A cinematic shot of a baby racoon wearing an intricate italian priest robe.",
-        ] * batch_size
-        return prompt
+        import torch
+
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        prompt = "A cinematic shot of a baby racoon wearing an intricate italian priest robe."
+
+        text_inputs = self.pipeline.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            encoder_hidden_states = self.pipeline.text_encoder(text_inputs.input_ids)[
+                0
+            ].to(compute_dtype)
+
+        unet = self.pipeline.unet
+        latents = torch.randn(
+            1,
+            unet.config.in_channels,
+            unet.config.sample_size,
+            unet.config.sample_size,
+            dtype=compute_dtype,
+        )
+
+        self.pipeline.scheduler.set_timesteps(1)
+        timestep = self.pipeline.scheduler.timesteps[0:1]
+
+        return {
+            "sample": latents,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+        }
