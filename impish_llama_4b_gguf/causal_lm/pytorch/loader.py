@@ -6,9 +6,23 @@ Impish LLAMA 4B GGUF model loader implementation for causal language modeling.
 
 Based on Llama architecture, quantized from SicariusSicariiStuff/Impish_LLAMA_4B.
 """
+import inspect
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+# Some GGUF loaders patch load_gguf_checkpoint with a signature that omits
+# model_to_load, which transformers 5.x now passes. Wrap it so this loader is
+# not affected.
+_prev_gguf_load = _gguf_utils.load_gguf_checkpoint
+if "model_to_load" not in inspect.signature(_prev_gguf_load).parameters:
+
+    def _compat_gguf_load(path, return_tensors=False, model_to_load=None):
+        return _prev_gguf_load(path, return_tensors=return_tensors)
+
+    _gguf_utils.load_gguf_checkpoint = _compat_gguf_load
+del _prev_gguf_load
 
 from ....base import ForgeModel
 from ....config import (
