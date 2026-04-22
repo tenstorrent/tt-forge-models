@@ -15,7 +15,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import Zero123Pipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -64,8 +63,10 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype: torch.dtype = torch.float32) -> Zero123Pipeline:
+    def _load_pipeline(self, dtype: torch.dtype = torch.float32):
         """Load the Zero123-XL pipeline."""
+        from diffusers import Zero123Pipeline
+
         self._pipe = Zero123Pipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
