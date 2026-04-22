@@ -92,13 +92,19 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The FLUX.2-dev transformer model instance.
         """
         # diffusers caches gguf availability at import time; since gguf is installed
-        # via requirements.txt after diffusers is already imported, patch the cache.
+        # via requirements.txt after diffusers is already imported, patch the cache
+        # and reload the quantizer module so its conditional imports run.
+        import importlib
         import importlib.metadata
 
         import diffusers.utils.import_utils as _dutils
 
         _dutils._gguf_available = True
         _dutils._gguf_version = importlib.metadata.version("gguf")
+
+        import diffusers.quantizers.gguf.gguf_quantizer as _gguf_q
+
+        importlib.reload(_gguf_q)
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         gguf_file = _GGUF_FILES[self._variant]
