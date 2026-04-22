@@ -210,13 +210,32 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        # The model's __init__ calls .item() on intermediate tensors (e.g. to
-        # build drop-path schedules).  When the TT XLA default device is active
-        # that triggers the meta-tensor path, which forbids .item().  Force CPU
-        # as the default device for the duration of from_pretrained so all ops
-        # during model construction materialise on CPU.
-        with torch.device("cpu"):
-            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # transformers' PreTrainedModel.get_init_context() always appends
+        # torch.device("meta") to the init context stack, even when
+        # low_cpu_mem_usage=False.  InternVideo2's __init__ calls .item() on
+        # tensors built during construction (e.g. linspace for drop-path
+        # schedules), which is forbidden on meta tensors.  Temporarily replace
+        # get_init_context so it strips the meta-device entry; our outer
+        # torch.device("cpu") context then becomes the effective device.
+        from transformers.modeling_utils import PreTrainedModel
+
+        _orig_gic = PreTrainedModel.get_init_context.__func__
+
+        @classmethod  # type: ignore[misc]
+        def _gic_no_meta(cls, dtype, is_quantized, _is_ds_init_called):
+            return [
+                c
+                for c in _orig_gic(cls, dtype, is_quantized, _is_ds_init_called)
+                if not (isinstance(c, torch.device) and str(c) == "meta")
+            ]
+
+        try:
+            PreTrainedModel.get_init_context = _gic_no_meta
+            with torch.device("cpu"):
+                model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            PreTrainedModel.get_init_context = classmethod(_orig_gic)
+
         model.eval()
 
         return model
