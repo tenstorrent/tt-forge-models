@@ -11,6 +11,7 @@ from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
+    ModelConfig,
     LLMModelConfig,
     ModelInfo,
     ModelGroup,
