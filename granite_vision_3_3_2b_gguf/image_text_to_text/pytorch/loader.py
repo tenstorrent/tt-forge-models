@@ -9,6 +9,27 @@ from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
 from transformers.image_utils import load_image
 from typing import Optional
 
+# transformers does not yet include granite in its GGUF architecture registry; patch it in
+# so that load_gguf_checkpoint can parse the config fields from the GGUF file.
+from transformers.integrations import GGUF_CONFIG_MAPPING
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+if "granite" not in GGUF_CONFIG_MAPPING:
+    GGUF_CONFIG_MAPPING["granite"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": "head_dim",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+    if "granite" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("granite")
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
