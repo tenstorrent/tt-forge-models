@@ -184,10 +184,18 @@ class ModelLoader(ForgeModel):
         gguf_filename = _GGUF_FILES[self._variant]
         gguf_path = hf_hub_download(repo_id=REPO_ID, filename=gguf_filename)
 
+        # Architecture differs from the default 2B Lumina2: hidden_size=3840,
+        # 30 layers, 30 attention heads, Gemma-3-4B text encoder (cap_feat_dim=2560).
         self._transformer = Lumina2Transformer2DModel.from_single_file(
             gguf_path,
             quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
+            hidden_size=3840,
+            num_layers=30,
+            num_attention_heads=30,
+            num_kv_heads=30,
+            cap_feat_dim=2560,
+            ffn_dim_multiplier=2.0 / 3.0,
         )
         self._transformer.eval()
         return self._transformer
