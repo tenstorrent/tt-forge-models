@@ -87,6 +87,18 @@ _VARIANT_FILENAMES = {
 }
 
 _FLUX_VARIANTS = {ModelVariant.FLUX, ModelVariant.PAD_FLUX_EQ_V2_B1}
+_DECODER_ONLY_VARIANTS = {ModelVariant.PAD_EQB7_DECODER_ONLY}
+
+
+class _DecoderOnlyWrapper(torch.nn.Module):
+    """Wraps an AutoencoderKL so forward() calls decode() directly."""
+
+    def __init__(self, vae: AutoencoderKL):
+        super().__init__()
+        self.vae = vae
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        return self.vae.decode(z).sample
 
 
 class ModelLoader(ForgeModel):
@@ -145,6 +157,8 @@ class ModelLoader(ForgeModel):
             self._vae.eval()
         elif dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
+        if self._variant in _DECODER_ONLY_VARIANTS:
+            return _DecoderOnlyWrapper(self._vae)
         return self._vae
 
     def load_inputs(
