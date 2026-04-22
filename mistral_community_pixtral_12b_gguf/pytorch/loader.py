@@ -114,7 +114,7 @@ class ModelLoader(ForgeModel):
         )
 
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
-        image = Image.open(image_file)
+        image = Image.open(image_file).resize((336, 336))
 
         inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
 
