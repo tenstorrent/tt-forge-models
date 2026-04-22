@@ -97,6 +97,17 @@ class ModelLoader(ForgeModel):
 
         repo_id = self._variant_config.pretrained_model_name
         model = Fast3R.from_pretrained(repo_id)
+
+        # The HuggingFace config sets attn_implementation="flash_attention" which
+        # hardcodes torch.autocast("cuda", ...) and fails on non-CUDA devices.
+        # Override to pytorch_naive for CPU/TT compatibility.
+        for module in model.modules():
+            if (
+                hasattr(module, "attn_implementation")
+                and module.attn_implementation != "pytorch_naive"
+            ):
+                module.attn_implementation = "pytorch_naive"
+
         model.eval()
 
         if dtype_override is not None:
