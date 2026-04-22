@@ -8,9 +8,30 @@ GGUF-quantized release by mradermacher of sh0ck0r/Skyfall-31B-v4.1-heretic2, a
 Mistral-architecture 31B causal language model. The loader targets the Q4_K_M
 quantization.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import importlib.metadata
+import importlib.util
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+
+def _patched_is_gguf_available(min_version: str = "0.10.0") -> bool:
+    if importlib.util.find_spec("gguf") is None:
+        return False
+    try:
+        from packaging import version
+
+        return version.parse(importlib.metadata.version("gguf")) >= version.parse(
+            min_version
+        )
+    except Exception:
+        return False
+
+
+_gguf_utils.is_gguf_available = _patched_is_gguf_available
 
 from ....base import ForgeModel
 from ....config import (
