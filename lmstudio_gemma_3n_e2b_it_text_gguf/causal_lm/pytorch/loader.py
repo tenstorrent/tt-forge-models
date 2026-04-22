@@ -6,6 +6,7 @@ lmstudio-community/gemma-3n-E2B-it-text-GGUF model loader implementation for cau
 """
 import torch
 import transformers.configuration_utils as _config_utils
+import transformers.integrations.ggml as _ggml
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
@@ -31,6 +32,10 @@ def _patch_gemma3n_support():
                 "gemma3n",
                 _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gemma3"],
             )
+    # Register tokenizer converter for gemma3n_text using the gemma3_text converter
+    _ggml.GGUF_TO_FAST_CONVERTERS.setdefault(
+        "gemma3n_text", _ggml.GGUF_TO_FAST_CONVERTERS["gemma3_text"]
+    )
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
