@@ -17,6 +17,9 @@ WAN21_TRANSFORMER_IN_CHANNELS = 36
 # with 52 input channels: 16 (latent) + 16 (control latent) + 16 (ref) + 4 (mask).
 WAN22_TRANSFORMER_IN_CHANNELS = 52
 
+# Wan2.1-Fun-1.3B-Control uses 48 input channels per its HuggingFace config.
+WAN_1_3B_IN_CHANNELS = 48
+
 # Small test dimensions
 LATENT_HEIGHT = 4
 LATENT_WIDTH = 4
@@ -94,7 +97,7 @@ def load_transformer_1_3b(pretrained_model_name: str, dtype: torch.dtype):
         ckpt_path,
         config=WAN_1_3B_CONFIG_REPO,
         subfolder="transformer",
-        in_channels=TRANSFORMER_IN_CHANNELS_1_3B,
+        in_channels=WAN_1_3B_IN_CHANNELS,
         torch_dtype=dtype,
     )
     transformer.eval()
@@ -133,19 +136,10 @@ def load_transformer_inputs(
     }
 
 
-def load_transformer_inputs(dtype: torch.dtype = torch.bfloat16) -> dict:
-    """
-    Prepare synthetic inputs for the 14B control transformer forward pass.
-
-    The 14B control variant uses 36 input channels (16 latent + 20 control/mask).
-    """
-    return _make_transformer_inputs(TRANSFORMER_IN_CHANNELS_14B, dtype)
-
-
 def load_transformer_inputs_1_3b(dtype: torch.dtype = torch.bfloat16) -> dict:
     """
     Prepare synthetic inputs for the 1.3B control transformer forward pass.
 
     The 1.3B control variant uses 48 input channels per its HuggingFace config.
     """
-    return _make_transformer_inputs(TRANSFORMER_IN_CHANNELS_1_3B, dtype)
+    return load_transformer_inputs(dtype, in_channels=WAN_1_3B_IN_CHANNELS)
