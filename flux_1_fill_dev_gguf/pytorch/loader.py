@@ -4,16 +4,21 @@
 """
 FLUX.1-Fill-dev GGUF model loader implementation for image inpainting.
 
-This loader uses GGUF-quantized variants of the FLUX.1-Fill-dev model from
-YarvixPA/FLUX.1-Fill-dev-GGUF. The GGUF transformer is loaded via diffusers'
-FluxTransformer2DModel.from_single_file and plugged into a FluxFillPipeline
-built from the original black-forest-labs/FLUX.1-Fill-dev repository.
+This loader uses GGUF-quantized variants of the FLUX.1-Fill-dev transformer from
+YarvixPA/FLUX.1-Fill-dev-GGUF. The transformer is loaded via diffusers'
+FluxTransformer2DModel.from_single_file with a locally constructed config to avoid
+requiring access to the gated black-forest-labs/FLUX.1-Fill-dev repository.
 """
 
+import json
+import os
+import shutil
+import tempfile
 from typing import Optional
 
 import torch
-from diffusers import FluxFillPipeline, FluxTransformer2DModel, GGUFQuantizationConfig
+from diffusers import FluxTransformer2DModel, GGUFQuantizationConfig
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -27,7 +32,23 @@ from ...config import (
 )
 
 GGUF_REPO = "YarvixPA/FLUX.1-Fill-dev-GGUF"
-BASE_REPO = "black-forest-labs/FLUX.1-Fill-dev"
+
+# FLUX.1-Fill-dev transformer config (in_channels=384: 64 latent + 64 masked + 256 mask)
+_TRANSFORMER_CONFIG = {
+    "_class_name": "FluxTransformer2DModel",
+    "attention_head_dim": 128,
+    "guidance_embeds": True,
+    "in_channels": 384,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 24,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "out_channels": 64,
+    "patch_size": 2,
+    "pooled_projection_dim": 768,
+}
+
+_VAE_SCALE_FACTOR = 16
 
 
 class ModelVariant(StrEnum):
@@ -68,7 +89,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipe = None
+        self.transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -83,25 +104,28 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16):
-        """Load the FluxFillPipeline with a GGUF-quantized transformer."""
+    def _load_transformer(self, dtype: torch.dtype = torch.bfloat16):
+        """Load the FLUX Fill transformer from a GGUF file."""
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
 
-        transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=dtype,
-        )
+        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
 
-        self.pipe = FluxFillPipeline.from_pretrained(
-            BASE_REPO,
-            transformer=transformer,
-            torch_dtype=dtype,
-            use_safetensors=True,
-        )
+        # Write a local config so from_single_file doesn't need the gated BFL repo
+        config_dir = tempfile.mkdtemp()
+        try:
+            config_path = os.path.join(config_dir, "config.json")
+            with open(config_path, "w") as f:
+                json.dump(_TRANSFORMER_CONFIG, f)
 
-        return self.pipe
+            self.transformer = FluxTransformer2DModel.from_single_file(
+                gguf_path,
+                config=config_dir,
+                quantization_config=quantization_config,
+                torch_dtype=dtype,
+            )
+        finally:
+            shutil.rmtree(config_dir, ignore_errors=True)
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the GGUF-quantized FLUX Fill transformer.
@@ -110,11 +134,11 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The FLUX Fill transformer model instance.
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        if self.pipe is None:
-            self._load_pipeline(dtype)
+        if self.transformer is None:
+            self._load_transformer(dtype)
         elif dtype_override is not None:
-            self.pipe.transformer = self.pipe.transformer.to(dtype=dtype_override)
-        return self.pipe.transformer
+            self.transformer = self.transformer.to(dtype=dtype_override)
+        return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Prepare sample inputs for the FLUX Fill transformer.
@@ -128,79 +152,21 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        if self.pipe is None:
-            self._load_pipeline(dtype)
+        if self.transformer is None:
+            self._load_transformer(dtype)
 
-        max_sequence_length = 256
-        prompt = "A cat sitting on a windowsill"
+        config = self.transformer.config
+
         height = 128
         width = 128
-        num_images_per_prompt = 1
-
-        # CLIP text encoding
-        text_inputs_clip = self.pipe.tokenizer(
-            prompt,
-            padding="max_length",
-            max_length=self.pipe.tokenizer_max_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-        pooled_prompt_embeds = self.pipe.text_encoder(
-            text_inputs_clip.input_ids, output_hidden_states=False
-        ).pooler_output
-        pooled_prompt_embeds = pooled_prompt_embeds.to(dtype=dtype)
-        pooled_prompt_embeds = pooled_prompt_embeds.repeat(
-            batch_size, num_images_per_prompt
-        )
-        pooled_prompt_embeds = pooled_prompt_embeds.view(
-            batch_size * num_images_per_prompt, -1
-        )
-
-        # T5 text encoding
-        text_inputs_t5 = self.pipe.tokenizer_2(
-            prompt,
-            padding="max_length",
-            max_length=max_sequence_length,
-            truncation=True,
-            return_length=False,
-            return_overflowing_tokens=False,
-            return_tensors="pt",
-        )
-        prompt_embeds = self.pipe.text_encoder_2(
-            text_inputs_t5.input_ids, output_hidden_states=False
-        )[0]
-        prompt_embeds = prompt_embeds.to(dtype=dtype)
-        _, seq_len_t5, _ = prompt_embeds.shape
-        prompt_embeds = prompt_embeds.repeat(batch_size, num_images_per_prompt, 1)
-        prompt_embeds = prompt_embeds.view(
-            batch_size * num_images_per_prompt, seq_len_t5, -1
-        )
-
-        text_ids = torch.zeros(prompt_embeds.shape[1], 3).to(dtype=dtype)
-
-        # Latent dimensions
-        height_latent = 2 * (int(height) // (self.pipe.vae_scale_factor * 2))
-        width_latent = 2 * (int(width) // (self.pipe.vae_scale_factor * 2))
+        height_latent = 2 * (height // (_VAE_SCALE_FACTOR * 2))
+        width_latent = 2 * (width // (_VAE_SCALE_FACTOR * 2))
         seq_len = (height_latent // 2) * (width_latent // 2)
 
-        # Noisy latents (packed format)
-        noise_channels = 64
-        latents = torch.randn(
-            batch_size * num_images_per_prompt, seq_len, noise_channels, dtype=dtype
+        # FLUX.1-Fill-dev hidden_states: noisy latents + masked image + packed mask
+        hidden_states = torch.randn(
+            batch_size, seq_len, config.in_channels, dtype=dtype
         )
-
-        # Masked image latents (VAE-encoded masked image + packed mask)
-        masked_image_channels = 64
-        mask_channels = 256
-        masked_image_latents = torch.randn(
-            batch_size * num_images_per_prompt,
-            seq_len,
-            masked_image_channels + mask_channels,
-            dtype=dtype,
-        )
-
-        # Concatenate noisy latents with masked image latents along channel dim
-        hidden_states = torch.cat((latents, masked_image_latents), dim=2)
 
         # Latent image IDs
         latent_image_ids = torch.zeros(height_latent // 2, width_latent // 2, 3)
@@ -211,6 +177,17 @@ class ModelLoader(ForgeModel):
             latent_image_ids[..., 2] + torch.arange(width_latent // 2)[None, :]
         )
         latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
+
+        max_sequence_length = 256
+
+        # Synthetic text embeddings (avoids loading gated text encoder models)
+        prompt_embeds = torch.randn(
+            batch_size, max_sequence_length, config.joint_attention_dim, dtype=dtype
+        )
+        pooled_prompt_embeds = torch.randn(
+            batch_size, config.pooled_projection_dim, dtype=dtype
+        )
+        text_ids = torch.zeros(max_sequence_length, 3, dtype=dtype)
 
         # FLUX.1-Fill-dev uses classifier-free guidance
         guidance = torch.tensor([3.5], dtype=dtype)
