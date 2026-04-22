@@ -126,26 +126,17 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
         )
         self._controlnet = self._controlnet.to(dtype)
-
-        # diffusers' Timesteps (time_proj) computes sinusoidal embeddings in
-        # float32 regardless of model dtype. Cast the output so it matches the
-        # model's dtype before it enters time_embedding.
-        _dtype = dtype
-
-        def _cast_time_proj_output(module, args, output):
-            return output.to(_dtype)
-
-        self._controlnet.time_proj.register_forward_hook(_cast_time_proj_output)
-
         self._controlnet.eval()
         return self._controlnet
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare sample inputs for the SDXL ControlNet.
 
         Returns a dict matching ControlNetModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = dtype_override if dtype_override is not None else torch.float32
         batch_size = kwargs.get("batch_size", 1)
 
         sample = torch.randn(
