@@ -112,7 +112,15 @@ class ModelLoader(ForgeModel):
         messages = [
             {
                 "role": "user",
-                "content": self.sample_text,
+                "content": [
+                    {
+                        "type": "text",
+                        "source_lang_code": "en",
+                        "target_lang_code": "it",
+                        "text": self.sample_text,
+                        "image": None,
+                    }
+                ],
             }
         ]
         text = self.tokenizer.apply_chat_template(
