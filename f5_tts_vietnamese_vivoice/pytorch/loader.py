@@ -9,8 +9,10 @@ F5-TTS_Base on ~1,000 hours of Vietnamese speech (Vi-Voice + VLSP 2021/2022/2023
 It uses the F5-TTS Conditional Flow Matching architecture with a DiT transformer
 backbone and the vocos vocoder for audio synthesis.
 """
+import sys
 import torch
 import torch.nn as nn
+from pathlib import Path
 from typing import Optional
 
 from ...base import ForgeModel
@@ -73,9 +75,24 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from f5_tts.model.backbones.dit import DiT
-        from f5_tts.infer.utils_infer import load_model
-        from huggingface_hub import hf_hub_download
+        # The worktree root is on sys.path, causing the local 'encodec' model
+        # directory to shadow the pip-installed encodec package needed by vocos.
+        # Temporarily remove the worktree root and clear any cached worktree
+        # encodec module so f5_tts can import the correct pip package.
+        models_root = str(Path(__file__).parent.parent.parent)
+        removed_idx = None
+        if models_root in sys.path:
+            removed_idx = sys.path.index(models_root)
+            sys.path.pop(removed_idx)
+        stale_mods = {k: sys.modules.pop(k) for k in list(sys.modules) if k == "encodec" or k.startswith("encodec.")}
+        try:
+            from f5_tts.model.backbones.dit import DiT
+            from f5_tts.infer.utils_infer import load_model
+            from huggingface_hub import hf_hub_download
+        finally:
+            if removed_idx is not None:
+                sys.path.insert(removed_idx, models_root)
+            sys.modules.update(stale_mods)
 
         repo_id = self._variant_config.pretrained_model_name
 
@@ -98,6 +115,8 @@ class ModelLoader(ForgeModel):
 
         model = F5TTSDiTWrapper(cfm_model.transformer)
         model.eval()
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         return model
 
     def load_inputs(self, dtype_override=None):
