@@ -67,11 +67,27 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
+    @staticmethod
+    def _patch_tied_weights_keys(pretrained_model_name):
+        # transformers 5.x requires _tied_weights_keys to be a dict, not a list.
+        # Some models with custom remote code still use the old list format.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        try:
+            model_cls = AutoModelForImageTextToText._model_mapping[type(config)]
+            if isinstance(getattr(model_cls, "_tied_weights_keys", None), list):
+                model_cls._tied_weights_keys = None
+        except Exception:
+            pass
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
+
+        self._patch_tied_weights_keys(pretrained_model_name)
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
