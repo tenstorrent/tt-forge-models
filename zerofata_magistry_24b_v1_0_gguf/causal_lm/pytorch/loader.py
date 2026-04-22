@@ -32,6 +32,27 @@ class ModelLoader(ForgeModel):
     """Zerofata Magistry 24B v1.0 GGUF model loader implementation for causal language modeling tasks."""
 
     @staticmethod
+    def _fix_self_attn_return_count(model):
+        """Wrap each decoder layer's self_attn to return the 2-tuple expected by transformers 5.x.
+
+        deepseek_vl2 patches LlamaAttention at import time with a 4.x-compat class
+        that returns (attn_output, attn_weights, past_key_value). LlamaDecoderLayer.forward
+        in transformers 5.x unpacks exactly 2 values, so the extra element causes
+        'ValueError: too many values to unpack (expected 2)'.
+        """
+        for layer in model.model.layers:
+            orig = layer.self_attn.forward
+
+            def _wrap(f):
+                def _fwd(*args, **kwargs):
+                    result = f(*args, **kwargs)
+                    return result[0], result[1]
+
+                return _fwd
+
+            layer.self_attn.forward = _wrap(orig)
+
+    @staticmethod
     def _fix_gguf_version_detection():
         """Fix gguf version detection when installed at runtime by RequirementsManager.
 
@@ -127,6 +148,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        self._fix_self_attn_return_count(model)
         self.config = model.config
         self.model = model
         return model
