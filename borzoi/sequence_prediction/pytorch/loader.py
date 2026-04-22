@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         # Borzoi expects one-hot encoded DNA sequences of shape
-        # (batch_size, seq_len, 4) where 4 channels represent A, C, G, T.
+        # (batch_size, 4, seq_len) where 4 channels represent A, C, G, T.
         # The model's expected input length is 524288 bp.
         seq_len = 524288
 
@@ -86,11 +86,13 @@ class ModelLoader(ForgeModel):
         random_indices = torch.randint(0, 4, (1, seq_len))
         one_hot = torch.zeros(1, seq_len, 4)
         one_hot.scatter_(2, random_indices.unsqueeze(-1), 1.0)
+        # Transpose to (batch, 4, seq_len) for Conv1d
+        one_hot = one_hot.permute(0, 2, 1)
 
         if dtype_override is not None:
             one_hot = one_hot.to(dtype=dtype_override)
 
-        return {"sequence": one_hot}
+        return one_hot
 
     def decode_output(self, outputs, inputs=None):
         if isinstance(outputs, (tuple, list)):
