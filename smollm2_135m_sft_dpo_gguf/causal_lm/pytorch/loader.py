@@ -8,6 +8,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import gc
+
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
@@ -15,29 +17,20 @@ import transformers.tokenization_utils_tokenizers as _tok_utils
 
 
 def _find_true_orig_load_gguf_checkpoint():
-    """Walk the __globals__ chain to find the original transformers load_gguf_checkpoint.
+    """Find the original transformers load_gguf_checkpoint via gc object scan.
 
-    Other GGUF loaders monkey-patch load_gguf_checkpoint and capture the previous
-    version via module-level `from X import Y as _orig_load_gguf_checkpoint`, which
-    lands in __globals__, not __closure__. Walk that chain until we find the function
-    whose __module__ is the real transformers utils module.
+    Other GGUF loaders monkey-patch load_gguf_checkpoint with stripped signatures
+    that drop model_to_load. The original function object is still alive in memory
+    (held by early loaders' globals), so we scan gc to find it by module and qualname.
     """
-    func = _gguf_utils.load_gguf_checkpoint
-    seen = set()
-    while True:
-        if id(func) in seen:
-            break
-        seen.add(id(func))
+    for obj in gc.get_objects():
         if (
-            getattr(func, "__module__", "")
+            callable(obj)
+            and getattr(obj, "__module__", "")
             == "transformers.modeling_gguf_pytorch_utils"
-            and getattr(func, "__name__", "") == "load_gguf_checkpoint"
+            and getattr(obj, "__qualname__", "") == "load_gguf_checkpoint"
         ):
-            return func
-        next_func = getattr(func, "__globals__", {}).get("_orig_load_gguf_checkpoint")
-        if next_func is None or not callable(next_func):
-            break
-        func = next_func
+            return obj
     return _gguf_utils.load_gguf_checkpoint
 
 
