@@ -16,6 +16,7 @@ from unittest.mock import patch
 import torch
 import transformers.cache_utils
 import transformers.dynamic_module_utils
+import transformers.modeling_rope_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.dynamic_module_utils import (
     TRANSFORMERS_DYNAMIC_MODULE_NAME,
@@ -32,6 +33,27 @@ if not hasattr(transformers.cache_utils, "SlidingWindowCache"):
     sys.modules[
         "transformers.cache_utils"
     ].SlidingWindowCache = transformers.cache_utils.SlidingWindowCache
+
+
+def _default_rope_init(config, device=None, seq_len=None, **kwargs):
+    head_dim = getattr(config, "head_dim", None) or (
+        config.hidden_size // config.num_attention_heads
+    )
+    base = getattr(config, "rope_theta", 10000.0)
+    inv_freq = 1.0 / (
+        base
+        ** (
+            torch.arange(0, head_dim, 2, dtype=torch.int64).to(
+                device=device, dtype=torch.float
+            )
+            / head_dim
+        )
+    )
+    return inv_freq, 1.0
+
+
+if "default" not in transformers.modeling_rope_utils.ROPE_INIT_FUNCTIONS:
+    transformers.modeling_rope_utils.ROPE_INIT_FUNCTIONS["default"] = _default_rope_init
 
 
 def _rms_norm_fn_stub(x, weight, bias=None, eps=1e-6, **kwargs):
