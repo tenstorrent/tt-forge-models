@@ -125,16 +125,22 @@ class ModelLoader(ForgeModel):
             config=_CONFIGS[version],
             torch_dtype=dtype,
         )
+        self._controlnet.to(dtype)
         self._controlnet.eval()
         return self._controlnet
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self,
+        *,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+        **kwargs,
+    ) -> Any:
         """Prepare sample inputs for the SDXL ControlNet.
 
         Returns a dict matching ControlNetModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        batch_size = kwargs.get("batch_size", 1)
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         sample = torch.randn(
             batch_size, IN_CHANNELS, LATENT_SIZE, LATENT_SIZE, dtype=dtype
