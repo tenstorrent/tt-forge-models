@@ -3,12 +3,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 NVIDIA Nemotron 3 Super 120B A12B BF16 Heretic GGUF model loader implementation for causal language modeling.
+
+Note: The nemotron_h_moe architecture is not supported in GGUF format by transformers,
+so this loader uses the base safetensors model from nvidia instead.
+The nemotron_h model requires mamba-ssm (CUDA-only), so we install a pure PyTorch
+stub when the real package is unavailable.
 """
-import importlib.metadata
+import sys
+import types
+import importlib
+import importlib.machinery
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
 from ....base import ForgeModel
 from ....config import (
@@ -22,6 +30,72 @@ from ....config import (
 )
 
 
+def _ensure_mamba_ssm_available():
+    """Install a pure PyTorch stub for mamba_ssm if the real package is unavailable.
+
+    The nemotron_h model requires mamba_ssm.ops.triton.layernorm_gated.rmsnorm_fn at
+    import time. The real mamba-ssm package requires CUDA to install, so in CPU-only
+    environments we provide a pure PyTorch fallback.
+    """
+    try:
+        importlib.import_module("mamba_ssm.ops.triton.layernorm_gated")
+        return
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+    def _rmsnorm_fn(
+        x, weight, bias=None, z=None, eps=1e-6, group_size=None, norm_before_gate=False
+    ):
+        dtype = x.dtype
+        x = x.float()
+        if group_size is not None:
+            orig_shape = x.shape
+            x = x.view(*x.shape[:-1], -1, group_size)
+            variance = x.pow(2).mean(-1, keepdim=True)
+            x = x * torch.rsqrt(variance + eps)
+            x = x.view(orig_shape)
+        else:
+            variance = x.pow(2).mean(-1, keepdim=True)
+            x = x * torch.rsqrt(variance + eps)
+        x = x.to(dtype) * weight
+        if bias is not None:
+            x = x + bias
+        if z is not None:
+            z = torch.nn.functional.silu(z)
+            x = x * z
+        return x
+
+    mamba_ssm = types.ModuleType("mamba_ssm")
+    mamba_ssm.__version__ = "0.0.0"
+    mamba_ssm.__spec__ = importlib.machinery.ModuleSpec("mamba_ssm", None)
+    mamba_ssm.ops = types.ModuleType("mamba_ssm.ops")
+    mamba_ssm.ops.triton = types.ModuleType("mamba_ssm.ops.triton")
+
+    layernorm_gated = types.ModuleType("mamba_ssm.ops.triton.layernorm_gated")
+    layernorm_gated.rmsnorm_fn = _rmsnorm_fn
+
+    selective_state = types.ModuleType("mamba_ssm.ops.triton.selective_state_update")
+    selective_state.selective_state_update = None
+
+    ssd_combined = types.ModuleType("mamba_ssm.ops.triton.ssd_combined")
+    ssd_combined.mamba_chunk_scan_combined = None
+    ssd_combined.mamba_split_conv1d_scan_combined = None
+
+    mamba_ssm.ops.triton.layernorm_gated = layernorm_gated
+    mamba_ssm.ops.triton.selective_state_update = selective_state
+    mamba_ssm.ops.triton.ssd_combined = ssd_combined
+
+    sys.modules["mamba_ssm"] = mamba_ssm
+    sys.modules["mamba_ssm.ops"] = mamba_ssm.ops
+    sys.modules["mamba_ssm.ops.triton"] = mamba_ssm.ops.triton
+    sys.modules["mamba_ssm.ops.triton.layernorm_gated"] = layernorm_gated
+    sys.modules["mamba_ssm.ops.triton.selective_state_update"] = selective_state
+    sys.modules["mamba_ssm.ops.triton.ssd_combined"] = ssd_combined
+
+
+_ensure_mamba_ssm_available()
+
+
 class ModelVariant(StrEnum):
     """Available NVIDIA Nemotron 3 Super 120B A12B BF16 Heretic GGUF model variants for causal language modeling."""
 
@@ -33,34 +107,14 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.NEMOTRON_3_SUPER_120B_A12B_BF16_HERETIC_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/NVIDIA-Nemotron-3-Super-120B-A12B-BF16-heretic-GGUF",
+            pretrained_model_name="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.NEMOTRON_3_SUPER_120B_A12B_BF16_HERETIC_GGUF
 
-    GGUF_FILE = "NVIDIA-Nemotron-3-Super-120B-A12B-BF16-heretic.Q4_K_M.gguf"
-
     sample_text = "Give me a short introduction to large language model."
-
-    @staticmethod
-    def _fix_gguf_version_detection():
-        """Fix gguf version detection when installed at runtime by RequirementsManager.
-
-        transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
-        is installed later, the mapping is stale and version detection falls back to
-        gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
-        """
-        import transformers.utils.import_utils as _import_utils
-
-        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
-            try:
-                importlib.metadata.version("gguf")
-                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
-                _import_utils.is_gguf_available.cache_clear()
-            except importlib.metadata.PackageNotFoundError:
-                pass
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -82,11 +136,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        self._fix_gguf_version_detection()
-        tokenizer_kwargs = {}
+        tokenizer_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -102,17 +154,16 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, trust_remote_code=True
             )
-            config.num_hidden_layers = self.num_layers
+            config.layers_block_type = config.layers_block_type[: self.num_layers]
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
@@ -161,8 +212,7 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_config(self):
-        self._fix_gguf_version_detection()
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, trust_remote_code=True
         )
         return self.config
