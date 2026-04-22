@@ -94,8 +94,7 @@ class ModelLoader(ForgeModel):
         Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
         Returns the transformer nn.Module directly for compilation testing.
         """
-        from diffusers import WanTransformer3DModel  # type: ignore[import]
-        from diffusers.quantizers import GGUFQuantizationConfig  # type: ignore[import]
+        from diffusers import GGUFQuantizationConfig, WanTransformer3DModel  # type: ignore[import]
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
