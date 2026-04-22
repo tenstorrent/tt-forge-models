@@ -15,6 +15,8 @@ Available variants:
 
 from typing import Optional
 
+import torch
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -27,7 +29,7 @@ from ...config import (
 )
 from .src.model_utils import (
     create_dummy_control_image,
-    load_controlnet_state_dict,
+    load_controlnet_model,
 )
 
 
@@ -61,7 +63,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._state_dict = None
+        self._model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -77,23 +79,18 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the ControlNet Union state dict.
+        """Load and return the ControlNet Union model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            dict: The ControlNet state dict containing model weights.
+            torch.nn.Module: The ControlNet model instance.
         """
         filename = _VARIANT_FILENAMES[self._variant]
-        self._state_dict = load_controlnet_state_dict(filename)
-
-        if dtype_override is not None:
-            self._state_dict = {
-                k: v.to(dtype_override) for k, v in self._state_dict.items()
-            }
-
-        return self._state_dict
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        self._model = load_controlnet_model(filename, dtype=dtype)
+        return self._model
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the ControlNet Union model.
