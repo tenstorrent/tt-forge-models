@@ -67,7 +67,32 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _ensure_gguf_detected():
+        """Refresh transformers' package mapping if gguf was installed after import.
+
+        transformers captures PACKAGE_DISTRIBUTION_MAPPING once at module import
+        time. When gguf is installed dynamically (via requirements manager), the
+        mapping is stale and is_gguf_available() crashes with InvalidVersion: 'N/A'
+        because gguf has no __version__ attribute.
+        """
+        import importlib.metadata
+        import importlib.util
+        import transformers.utils.import_utils as _import_utils
+
+        if importlib.util.find_spec("gguf") is not None:
+            if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+                try:
+                    fresh = importlib.metadata.packages_distributions()
+                    if "gguf" in fresh:
+                        _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = fresh[
+                            "gguf"
+                        ]
+                except Exception:
+                    pass
+
     def _load_tokenizer(self, dtype_override=None):
+        self._ensure_gguf_detected()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -160,6 +185,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._ensure_gguf_detected()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
