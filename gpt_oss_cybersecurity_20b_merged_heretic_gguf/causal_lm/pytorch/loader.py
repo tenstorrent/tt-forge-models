@@ -3,21 +3,36 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 GPT-OSS Cybersecurity 20B Merged Heretic GGUF model loader implementation for causal language modeling.
+
+The GGUF file uses the gpt-oss architecture (openai/gpt-oss-20b), a 20B MoE model
+with 32 experts (4 selected per token) and 24 transformer blocks.  When
+TT_RANDOM_WEIGHTS is set the loader avoids the multi-GB GGUF download by
+instantiating GptOssForCausalLM directly from the compact openai/gpt-oss-20b
+config.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import os
 from typing import Optional
+
+import torch
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    GptOssForCausalLM,
+)
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+_BASE_MODEL = "openai/gpt-oss-20b"
 
 
 class ModelVariant(StrEnum):
@@ -64,49 +79,70 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.tokenizer = AutoTokenizer.from_pretrained(_BASE_MODEL)
+        else:
+            tokenizer_kwargs = {}
+            if dtype_override is not None:
+                tokenizer_kwargs["torch_dtype"] = dtype_override
+            tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[
-                        : self.num_layers
-                    ]
-            else:
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(_BASE_MODEL)
+            if self.num_layers is not None:
                 config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+                if hasattr(config, "layer_types"):
+                    config.layer_types = config.layer_types[: self.num_layers]
+            if dtype_override is not None:
+                old_default = torch.get_default_dtype()
+                torch.set_default_dtype(dtype_override)
+                try:
+                    model = GptOssForCausalLM(config)
+                finally:
+                    torch.set_default_dtype(old_default)
+            else:
+                model = GptOssForCausalLM(config)
+        else:
+            pretrained_model_name = self._variant_config.pretrained_model_name
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+                if hasattr(config, "text_config"):
+                    config.text_config.num_hidden_layers = self.num_layers
+                    if hasattr(config.text_config, "layer_types"):
+                        config.text_config.layer_types = config.text_config.layer_types[
+                            : self.num_layers
+                        ]
+                else:
+                    config.num_hidden_layers = self.num_layers
+                    if hasattr(config, "layer_types"):
+                        config.layer_types = config.layer_types[: self.num_layers]
+                model_kwargs["config"] = config
 
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+
+        model = model.eval()
         self.config = model.config
         self.model = model
         return model
@@ -153,7 +189,10 @@ class ModelLoader(ForgeModel):
         return decoded[0] if len(decoded) == 1 else decoded
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.config = AutoConfig.from_pretrained(_BASE_MODEL)
+        else:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
