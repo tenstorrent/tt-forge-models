@@ -44,6 +44,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "nvidia_Llama-3_3-Nemotron-Super-49B-v1-Q4_K_M.gguf"
 
+    # Base non-GGUF model used for config/tokenizer when TT_RANDOM_WEIGHTS=1
+    BASE_MODEL_NAME = "nvidia/Llama-3.3-Nemotron-Super-49B-v1"
+
     sample_text = "Give me a short introduction to large language model."
 
     def __init__(
@@ -66,15 +69,22 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        if not os.environ.get("TT_RANDOM_WEIGHTS"):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            tokenizer_kwargs = {}
+            if dtype_override is not None:
+                tokenizer_kwargs["torch_dtype"] = dtype_override
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.BASE_MODEL_NAME, **tokenizer_kwargs
+            )
+        else:
+            tokenizer_kwargs = {}
+            if dtype_override is not None:
+                tokenizer_kwargs["torch_dtype"] = dtype_override
             tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -87,7 +97,7 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
             if self.num_layers is not None:
                 config.num_hidden_layers = self.num_layers
             model = AutoModelForCausalLM.from_config(config)
@@ -170,7 +180,7 @@ class ModelLoader(ForgeModel):
     def load_config(self):
         pretrained_model_name = self._variant_config.pretrained_model_name
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            self.config = AutoConfig.from_pretrained(pretrained_model_name)
+            self.config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
         else:
             self.config = AutoConfig.from_pretrained(
                 pretrained_model_name, gguf_file=self.GGUF_FILE
