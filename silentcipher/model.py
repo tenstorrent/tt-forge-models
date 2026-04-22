@@ -10,10 +10,20 @@ class Layer(nn.Module):
     def __init__(self, dim_in, dim_out, kernel_size, stride, padding):
         super().__init__()
         self.conv = nn.Conv2d(
-            dim_in, dim_out, kernel_size=kernel_size, stride=stride, padding=padding, bias=True
+            dim_in,
+            dim_out,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            bias=True,
         )
         self.gate = nn.Conv2d(
-            dim_in, dim_out, kernel_size=kernel_size, stride=stride, padding=padding, bias=True
+            dim_in,
+            dim_out,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            bias=True,
         )
         self.bn = nn.BatchNorm2d(dim_out)
 
@@ -22,7 +32,9 @@ class Layer(nn.Module):
 
 
 class MsgDecoder(nn.Module):
-    def __init__(self, message_dim=0, message_band_size=None, channel_dim=128, num_layers=10):
+    def __init__(
+        self, message_dim=0, message_band_size=None, channel_dim=128, num_layers=10
+    ):
         super().__init__()
         assert message_band_size is not None
         self.message_band_size = message_band_size
@@ -34,11 +46,23 @@ class MsgDecoder(nn.Module):
         for _ in range(num_layers - 2):
             main += [
                 nn.Dropout(0),
-                Layer(dim_in=channel_dim, dim_out=channel_dim, kernel_size=3, stride=1, padding=1),
+                Layer(
+                    dim_in=channel_dim,
+                    dim_out=channel_dim,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                ),
             ]
         main += [
             nn.Dropout(0),
-            Layer(dim_in=channel_dim, dim_out=message_dim, kernel_size=3, stride=1, padding=1),
+            Layer(
+                dim_in=channel_dim,
+                dim_out=message_dim,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+            ),
         ]
         self.main = nn.Sequential(*main)
         self.linear = nn.Linear(self.message_band_size, 1)

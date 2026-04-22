@@ -26,6 +26,10 @@ class STFT(torch.nn.Module):
         real_part, imag_part = fft.real, fft.imag
         squared = real_part**2 + imag_part**2
         additive_epsilon = torch.ones_like(squared) * (squared == 0).float() * 1e-24
-        magnitude = torch.sqrt(squared + additive_epsilon) - torch.sqrt(additive_epsilon)
-        phase = torch.autograd.Variable(torch.atan2(imag_part.data, real_part.data)).float()
+        magnitude = torch.sqrt(squared + additive_epsilon) - torch.sqrt(
+            additive_epsilon
+        )
+        phase = torch.autograd.Variable(
+            torch.atan2(imag_part.data, real_part.data)
+        ).float()
         return magnitude, phase
