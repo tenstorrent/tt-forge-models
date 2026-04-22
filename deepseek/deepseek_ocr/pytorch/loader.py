@@ -197,8 +197,13 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # Load the sample image
-        image_file = get_file("test_images/doc.png")
+        # Load the sample image; fall back to a public URL if LF cache is unavailable.
+        try:
+            image_file = get_file("test_images/doc.png")
+        except (ValueError, RuntimeError):
+            image_file = get_file(
+                "http://images.cocodataset.org/val2017/000000039769.jpg"
+            )
 
         # Process the image and prompt using the preprocess function
         inputs = preprocess(
