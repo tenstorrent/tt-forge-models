@@ -5,6 +5,8 @@
 Ovis1.6 model loader implementation for multimodal conditional generation.
 """
 
+import types
+
 import torch
 from PIL import Image
 from transformers import AutoModelForCausalLM
@@ -79,6 +81,24 @@ class ModelLoader(ForgeModel):
 
         self.text_tokenizer = model.get_text_tokenizer()
         self.visual_tokenizer = model.get_visual_tokenizer()
+
+        # Ovis.forward() is training-only; patch it for inference use.
+        def _inference_forward(
+            self, input_ids, attention_mask, pixel_values=None, **kwargs
+        ):
+            if pixel_values is None:
+                pixel_values = [None] * input_ids.shape[0]
+            _, inputs_embeds, _, attn_mask = self.merge_multimodal(
+                text_input_ids=input_ids,
+                text_attention_masks=attention_mask,
+                text_labels=None,
+                pixel_values=pixel_values,
+            )
+            return self.llm(
+                inputs_embeds=inputs_embeds, attention_mask=attn_mask, **kwargs
+            )
+
+        model.forward = types.MethodType(_inference_forward, model)
 
         return model
 
