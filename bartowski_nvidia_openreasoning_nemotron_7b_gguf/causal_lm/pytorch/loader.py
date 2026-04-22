@@ -87,8 +87,21 @@ class ModelLoader(ForgeModel):
             importlib.metadata.packages_distributions()
         )
 
+        _CHAIN_NAMES = {
+            "_orig_load_gguf_checkpoint",
+            "orig_load",
+            "_inner",
+            "_fn",
+            "_real",
+        }
+
         def _find_real_fn(fn):
-            """Walk closure/defaults chain to the original transformers function."""
+            """Walk the patch chain to find the original transformers function.
+
+            Each wrapper stores the previous function in a module global
+            (e.g. _orig_load_gguf_checkpoint) rather than a closure, so we
+            inspect __globals__ as well as __closure__ and __defaults__.
+            """
             visited = set()
             queue = [fn]
             while queue:
@@ -99,13 +112,19 @@ class ModelLoader(ForgeModel):
                 code = getattr(cur, "__code__", None)
                 if code and "modeling_gguf_pytorch_utils" in code.co_filename:
                     return cur
+                globs = getattr(cur, "__globals__", {})
+                for name in _CHAIN_NAMES:
+                    val = globs.get(name)
+                    if callable(val):
+                        queue.append(val)
                 for cell in getattr(cur, "__closure__", None) or ():
                     try:
                         queue.append(cell.cell_contents)
                     except ValueError:
                         pass
                 for val in getattr(cur, "__defaults__", None) or ():
-                    queue.append(val)
+                    if callable(val):
+                        queue.append(val)
             return None
 
         real_fn = _find_real_fn(_gguf_utils.load_gguf_checkpoint)
