@@ -5,7 +5,7 @@
 Devstral Small 2 MLX 8-bit model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForConditionalGeneration, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -88,7 +88,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
+        model = AutoModelForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
 
