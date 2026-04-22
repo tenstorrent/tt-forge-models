@@ -117,4 +117,7 @@ class ModelLoader(ForgeModel):
             (1, 1), whisper_config.decoder_start_token_id, dtype=torch.long
         )
 
+        if dtype_override is not None:
+            inputs["input_features"] = inputs["input_features"].to(dtype_override)
+
         return inputs
