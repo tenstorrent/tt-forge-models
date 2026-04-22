@@ -4,9 +4,39 @@
 """
 Qwen3-4B GGUF (bartowski) model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+import packaging.version as _pkg_version
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.utils.import_utils as _import_utils
+
+
+def _fix_is_gguf_available():
+    """Fix is_gguf_available for dynamically-installed gguf.
+
+    When gguf is installed after transformers is imported, PACKAGE_DISTRIBUTION_MAPPING
+    is stale and does not include 'gguf'. The fallback to gguf.__version__ returns 'N/A'
+    since the gguf package has no __version__ attribute, causing version.parse('N/A') to
+    raise InvalidVersion. Patch is_gguf_available to use importlib.metadata directly.
+    """
+    _GGUF_MIN_VERSION = _import_utils.GGUF_MIN_VERSION
+
+    def _is_gguf_available(min_version=None):
+        if min_version is None:
+            min_version = _GGUF_MIN_VERSION
+        try:
+            v = importlib.metadata.version("gguf")
+            return _pkg_version.Version(v) >= _pkg_version.Version(min_version)
+        except Exception:
+            return False
+
+    _import_utils.is_gguf_available = _is_gguf_available
+    _gguf_utils.is_gguf_available = _is_gguf_available
+
+
+_fix_is_gguf_available()
 
 from ....base import ForgeModel
 from ....config import (
