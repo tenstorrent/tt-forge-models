@@ -4,8 +4,16 @@
 """
 Qwen3-Reranker GGUF model loader implementation for passage ranking.
 """
+import importlib.metadata
+import os
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    Qwen3ForCausalLM,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -46,6 +54,12 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_3_RERANKER_8B_Q4_K_M: "Qwen3-Reranker-8B.Q4_K_M.gguf",
     }
 
+    # Base model names for config/tokenizer (non-GGUF) used in random-weights mode
+    _BASE_MODELS = {
+        ModelVariant.QWEN_3_RERANKER_0_6B_Q8_0: "Qwen/Qwen3-Reranker-0.6B",
+        ModelVariant.QWEN_3_RERANKER_8B_Q4_K_M: "Qwen/Qwen3-Reranker-8B",
+    }
+
     # System prompt for the reranker
     _SYSTEM_PROMPT = (
         "Judge whether the Document meets the requirements based on the Query "
@@ -74,6 +88,26 @@ class ModelLoader(ForgeModel):
         """Get the GGUF filename for the current variant."""
         return self._GGUF_FILES[self._variant]
 
+    @property
+    def _base_model(self):
+        """Get the base (non-GGUF) model name for the current variant."""
+        return self._BASE_MODELS[self._variant]
+
+    @staticmethod
+    def _refresh_gguf_package_mapping():
+        # transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time; gguf
+        # is installed later by RequirementsManager so the cache misses it,
+        # causing version.parse('N/A') to raise InvalidVersion in is_gguf_available().
+        try:
+            import transformers.utils.import_utils as _tfu
+
+            if "gguf" not in _tfu.PACKAGE_DISTRIBUTION_MAPPING:
+                _tfu.PACKAGE_DISTRIBUTION_MAPPING = (
+                    importlib.metadata.packages_distributions()
+                )
+        except Exception:
+            pass
+
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
@@ -93,31 +127,43 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self._gguf_file
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            source = self._base_model
+        else:
+            tokenizer_kwargs["gguf_file"] = self._gguf_file
+            source = self._variant_config.pretrained_model_name
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            source,
             padding_side="left",
             **tokenizer_kwargs,
         )
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        self._refresh_gguf_package_mapping()
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self._gguf_file
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(self._base_model)
+            model = Qwen3ForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            pretrained_model_name = self._variant_config.pretrained_model_name
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self._gguf_file
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
-
+        model.eval()
         return model
 
     def load_inputs(self, dtype_override=None):
