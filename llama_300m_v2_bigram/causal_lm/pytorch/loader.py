@@ -21,6 +21,26 @@ from ....config import (
 class ModelLoader(ForgeModel):
     """deqing/llama-300M-v2-bigram model loader for causal language modeling."""
 
+    @staticmethod
+    def _fix_self_attn_return_count(model):
+        """Wrap each decoder layer's self_attn to return the 2-tuple expected by transformers 5.x.
+
+        Some model loaders install a 4.x-compat LlamaAttention that returns
+        (attn_output, attn_weights, past_key_value). LlamaDecoderLayer.forward in
+        transformers 5.x unpacks exactly 2 values, causing 'too many values to unpack'.
+        """
+        for layer in model.model.layers:
+            orig = layer.self_attn.forward
+
+            def _wrap(f):
+                def _fwd(*args, **kwargs):
+                    result = f(*args, **kwargs)
+                    return result[0], result[1]
+
+                return _fwd
+
+            layer.self_attn.forward = _wrap(orig)
+
     _VARIANTS = {
         "base": LLMModelConfig(
             pretrained_model_name="deqing/llama-300M-v2-bigram",
@@ -80,6 +100,7 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
+        self._fix_self_attn_return_count(model)
         return model
 
     def load_inputs(self, dtype_override=None):
