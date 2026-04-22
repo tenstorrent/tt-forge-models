@@ -10,8 +10,6 @@ using a UNet3D diffusion architecture.
 
 Repositories:
 - https://huggingface.co/ali-vilab/text-to-video-ms-1.7b
-- https://huggingface.co/ckpt/ModelScope (fp16 mirror of
-  damo-vilab/modelscope-damo-text-to-video-synthesis)
 
 Available subfolders:
 - unet: UNet3DConditionModel
@@ -60,7 +58,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="ali-vilab/text-to-video-ms-1.7b",
         ),
         ModelVariant.CKPT_MODELSCOPE: ModelConfig(
-            pretrained_model_name="ckpt/ModelScope",
+            pretrained_model_name="ali-vilab/text-to-video-ms-1.7b",
         ),
     }
 
