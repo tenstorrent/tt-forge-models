@@ -74,7 +74,7 @@ class ModelLoader(ForgeModel):
             self._vae = AutoencoderKL.from_pretrained(
                 self._variant_config.pretrained_model_name,
                 torch_dtype=dtype,
-            )
+            ).to(dtype)
             self._vae.eval()
         elif dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
