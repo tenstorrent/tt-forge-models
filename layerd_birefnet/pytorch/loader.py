@@ -72,10 +72,8 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
-        model_kwargs["dtype"] = (
-            dtype_override if dtype_override is not None else torch.float32
-        )
+        # kornia's deformable_im2col does not support BFloat16 on CPU, so always load in float32
+        model_kwargs = {"dtype": torch.float32}
         model_kwargs |= kwargs
 
         model = AutoModelForImageSegmentation.from_pretrained(
@@ -97,9 +95,6 @@ class ModelLoader(ForgeModel):
         self.image = dataset[0]["image"]
 
         inputs = self.transform_image(self.image).unsqueeze(0)
-
-        if dtype_override is not None:
-            inputs = inputs.to(dtype_override)
 
         if batch_size > 1:
             inputs = inputs.repeat(batch_size, 1, 1, 1)
