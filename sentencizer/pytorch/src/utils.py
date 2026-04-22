@@ -45,7 +45,7 @@ from huggingface_hub.utils import (
 from requests.exceptions import HTTPError
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from transformers.utils import http_user_agent, is_remote_url
+from transformers.utils import http_user_agent
 
 __version__ = "1.2.0"
 # Define regex patterns locally to avoid circular imports
@@ -1310,6 +1310,15 @@ def download_cached(
     if isinstance(url, Path):
         url = str(url)
 
+    try:
+        from transformers.utils import is_remote_url
+    except ImportError:
+        from urllib.parse import urlparse
+
+        def is_remote_url(url_or_path):
+            parsed = urlparse(url_or_path)
+            return parsed.scheme in ("http", "https", "ftp")
+
     if is_remote_url(url):
         output_path = get_from_cache(url, cache_dir=cache_dir, **kwargs)
     else:
@@ -1652,6 +1661,15 @@ def resolve_adapter_path(
         str: The local path from where the adapter module can be loaded.
     """
     # url of a folder containing pretrained adapters -> try to load from this url
+    try:
+        from transformers.utils import is_remote_url
+    except ImportError:
+        from urllib.parse import urlparse
+
+        def is_remote_url(url_or_path):
+            parsed = urlparse(url_or_path)
+            return parsed.scheme in ("http", "https", "ftp")
+
     if is_remote_url(adapter_name_or_path):
         resolved_folder = download_cached(adapter_name_or_path, **kwargs)
         if not resolved_folder:
