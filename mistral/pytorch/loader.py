@@ -56,6 +56,10 @@ class ModelVariant(StrEnum):
     MISTRAL_FT_OPTIMIZED_1227 = "ft_optimized_1227"
     MISTRAL_SMALL_INSTRUCT_2409_ABLITERATED = "Small_Instruct_2409_abliterated"
     HERMES_2_PRO_MISTRAL_7B_BNB_4BIT = "Hermes_2_Pro_Mistral_7B_bnb_4bit"
+    MINISTRAL_3B_INSTRUCT_2512_BF16 = "Ministral_3B_Instruct_2512_BF16"
+    MINISTRAL_3_14B_REASONING_AWQ_4BIT = "Ministral_3.14B_Reasoning_AWQ_4bit"
+    MISTRAL_7B_UTTERANCE = "7B_Utterance"
+    MISTRAL_SMALL_22B_INSTRUCT_2409 = "Small_22B_INSTRUCT_2409"
 
 
 class ModelLoader(ForgeModel):
@@ -163,6 +167,12 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.HERMES_2_PRO_MISTRAL_7B_BNB_4BIT: ModelConfig(
             pretrained_model_name="unsloth/Hermes-2-Pro-Mistral-7B-bnb-4bit",
+        ),
+        ModelVariant.MINISTRAL_3_14B_REASONING_AWQ_4BIT: ModelConfig(
+            pretrained_model_name="cyankiwi/Ministral-3-14B-Reasoning-2512-AWQ-4bit",
+        ),
+        ModelVariant.MISTRAL_SMALL_22B_INSTRUCT_2409: ModelConfig(
+            pretrained_model_name="mistralai/Mistral-Small-Instruct-2409",
         ),
     }
 
