@@ -5,7 +5,6 @@
 BLEURT model loader implementation for text classification (text quality scoring).
 """
 import torch
-from bleurt_pytorch import BleurtForSequenceClassification, BleurtTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -83,6 +82,8 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
+        from bleurt_pytorch import BleurtTokenizer
+
         self.tokenizer = BleurtTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
         )
@@ -105,6 +106,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        from bleurt_pytorch import BleurtForSequenceClassification
 
         model = BleurtForSequenceClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
