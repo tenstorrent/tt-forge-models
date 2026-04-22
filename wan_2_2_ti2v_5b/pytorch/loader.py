@@ -92,7 +92,8 @@ class ModelLoader(ForgeModel):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         transformer = WanTransformer3DModel.from_pretrained(
-            NATIVE_REPO,
+            BASE_PIPELINE,
+            subfolder="transformer",
             torch_dtype=compute_dtype,
         )
 
