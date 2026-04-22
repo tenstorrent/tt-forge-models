@@ -276,9 +276,9 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Generate a synthetic video tensor matching the expected input format.
 
-        encode_vision() expects ``[B, T, C, H, W]`` (8 frames at 224×224).
+        encode_vision() expects ``[B, T, C, H, W]`` (4 frames at 224×224).
         """
-        num_frames = 8
+        num_frames = 4
         image_size = 224
         channels = 3
 
