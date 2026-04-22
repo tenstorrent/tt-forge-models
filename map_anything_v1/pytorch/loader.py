@@ -67,7 +67,8 @@ class MapAnythingWrapper(torch.nn.Module):
     def forward(self, pixel_values):
         # pixel_values is [B, 3, H, W], already DINOv2-normalized
         views = [{"img": pixel_values, "data_norm_type": ["dinov2"]}]
-        predictions = self.model.infer(views)
+        # Disable AMP as CPU autocast with bfloat16 is not supported
+        predictions = self.model.infer(views, use_amp=False)
         return predictions[0]["pts3d"]
 
 
