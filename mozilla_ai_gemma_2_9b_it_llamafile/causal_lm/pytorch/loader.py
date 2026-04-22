@@ -4,8 +4,62 @@
 """
 Mozilla-AI gemma-2-9b-it-llamafile model loader implementation for causal language modeling.
 """
+import struct
+import zipfile
+import torch
+import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
+
+# Llamafile is a polyglot ZIP+shell-script executable. The actual GGUF data is
+# stored uncompressed inside the ZIP. Patch GGUFReader to seek past the shell
+# script header so transformers can load weights directly from the llamafile.
+try:
+    from gguf import GGUFReader as _GGUFReader
+
+    def _get_llamafile_gguf_offset(path):
+        """Return byte offset of the uncompressed GGUF entry inside a llamafile ZIP."""
+        try:
+            with zipfile.ZipFile(path) as zf:
+                for name in zf.namelist():
+                    if name.endswith(".gguf"):
+                        info = zf.getinfo(name)
+                        if info.compress_type == 0:
+                            with open(path, "rb") as f:
+                                f.seek(info.header_offset + 26)
+                                fname_len = struct.unpack("<H", f.read(2))[0]
+                                extra_len = struct.unpack("<H", f.read(2))[0]
+                            return info.header_offset + 30 + fname_len + extra_len
+        except Exception:
+            pass
+        return 0
+
+    _orig_gguf_reader_init = _GGUFReader.__init__
+
+    def _patched_gguf_reader_init(self, path, mode="r"):
+        with open(path, "rb") as f:
+            magic = f.read(4)
+        if magic != b"GGUF":
+            offset = _get_llamafile_gguf_offset(path)
+            if offset:
+                _orig_np_memmap = np.memmap
+
+                def _memmap_with_offset(filename, *args, **kwargs):
+                    if str(filename) == str(path):
+                        kwargs["offset"] = offset
+                    return _orig_np_memmap(filename, *args, **kwargs)
+
+                np.memmap = _memmap_with_offset
+                try:
+                    _orig_gguf_reader_init(self, path, mode)
+                finally:
+                    np.memmap = _orig_np_memmap
+                return
+        _orig_gguf_reader_init(self, path, mode)
+
+    _GGUFReader.__init__ = _patched_gguf_reader_init
+except ImportError:
+    pass  # gguf not yet installed; RequirementsManager will install it before use
 
 from ....base import ForgeModel
 from ....config import (
@@ -36,6 +90,8 @@ class ModelLoader(ForgeModel):
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_2_9B_IT_LLAMAFILE
+
+    GGUF_FILE = "gemma-2-9b-it.Q4_K_M.llamafile"
 
     sample_text = "What is the capital of France?"
 
@@ -74,21 +130,10 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        """Load tokenizer for the current variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
-
-        Returns:
-            The loaded tokenizer instance
-        """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
+        """Load tokenizer for the current variant."""
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            **tokenizer_kwargs,
+            gguf_file=self.GGUF_FILE,
         )
 
         if self.tokenizer.pad_token is None:
@@ -113,11 +158,14 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
+        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
