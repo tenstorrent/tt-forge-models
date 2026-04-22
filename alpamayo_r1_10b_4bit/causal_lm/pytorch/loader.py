@@ -59,13 +59,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # The model uses Qwen3-VL-8B-Instruct as its VLM backbone and does not
+    # include a tokenizer — load from the VLM backbone instead.
+    _TOKENIZER_NAME = "Qwen/Qwen3-VL-8B-Instruct"
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            self._TOKENIZER_NAME,
             trust_remote_code=True,
             **tokenizer_kwargs,
         )
