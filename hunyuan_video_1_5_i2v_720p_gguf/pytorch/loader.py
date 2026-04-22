@@ -125,15 +125,18 @@ class ModelLoader(ForgeModel):
 
         # HunyuanVideo15Transformer3DModel is not registered in diffusers'
         # SINGLE_FILE_LOADABLE_CLASSES, so patch the registry before calling
-        # from_single_file.
+        # from_single_file. Use a pass-through converter because the GGUF
+        # library already maps keys to diffusers names; applying the HunyuanVideo
+        # base converter would produce dimension mismatches for the cfg_distilled
+        # variant (2048 vs 3072 attention dim).
         from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
-        from diffusers.loaders.single_file_utils import (
-            convert_hunyuan_video_transformer_to_diffusers,
-        )
+
+        def _passthrough_converter(checkpoint, **kwargs):
+            return checkpoint
 
         if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
             SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
-                "checkpoint_mapping_fn": convert_hunyuan_video_transformer_to_diffusers,
+                "checkpoint_mapping_fn": _passthrough_converter,
                 "default_subfolder": "transformer",
             }
 
