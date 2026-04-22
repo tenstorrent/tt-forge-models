@@ -8,7 +8,7 @@ Repository:
 - https://huggingface.co/mradermacher/UI-TARS-1.5-7B-GGUF
 """
 import torch
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
 
@@ -113,7 +113,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # transformers does not support qwen2vl GGUF loading; load from base model
-        model = Qwen2VLForConditionalGeneration.from_pretrained(
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             self._PROCESSOR_MODEL, **model_kwargs
         )
         model.eval()
