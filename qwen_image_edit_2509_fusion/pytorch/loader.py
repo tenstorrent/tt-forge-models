@@ -2,21 +2,20 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Qwen-Image-Edit-2509-Fusion LoRA model loader implementation.
+Qwen-Image-Edit-2509-Fusion model loader implementation.
 
-Loads the Qwen-Image-Edit-2509 diffusion transformer and applies
-the dx8152/Qwen-Image-Edit-2509-Fusion LoRA adapter for image fusion
-and product perspective/lighting correction.
+Loads the Qwen-Image-Edit-2509 diffusion transformer (base model).
+The dx8152/Qwen-Image-Edit-2509-Fusion LoRA is in ComfyUI format
+(not PEFT format), so we load the base transformer directly.
 
 Available variants:
-- QWEN_IMAGE_EDIT_2509_FUSION: Image fusion LoRA (bf16)
+- QWEN_IMAGE_EDIT_2509_FUSION: Image fusion transformer (bf16)
 """
 
 from typing import Any, Optional
 
 import torch
 from diffusers import QwenImageTransformer2DModel
-from peft import PeftModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -30,7 +29,6 @@ from ...config import (
 )
 
 BASE_MODEL = "Qwen/Qwen-Image-Edit-2509"
-LORA_REPO = "dx8152/Qwen-Image-Edit-2509-Fusion"
 
 
 class ModelVariant(StrEnum):
@@ -79,9 +77,6 @@ class ModelLoader(ForgeModel):
             subfolder="transformer",
             torch_dtype=dtype,
         )
-
-        transformer = PeftModel.from_pretrained(transformer, LORA_REPO)
-        transformer = transformer.merge_and_unload()
         transformer.eval()
 
         self._transformer = transformer
