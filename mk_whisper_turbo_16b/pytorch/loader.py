@@ -8,6 +8,7 @@ zodiuxus/mk-whisper-turbo-16b is a fine-tuned Whisper Large V3 Turbo model
 for English automatic speech recognition, trained with Unsloth and TRL.
 """
 
+import numpy as np
 import torch
 from transformers import (
     WhisperProcessor,
@@ -26,7 +27,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -92,14 +92,11 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
 
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
-        # Preprocess audio
+        # Generate synthetic audio for input processing
+        sample_audio = np.random.randn(16000 * 3).astype(np.float32)
         sampling_rate = 16000
         processed = self.processor(
             sample_audio, return_tensors="pt", sampling_rate=sampling_rate
