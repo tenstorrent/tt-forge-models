@@ -4,17 +4,60 @@
 """
 Mozilla-AI Phi-3-mini-4k-instruct-llamafile model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import shutil
+import zipfile
+from pathlib import Path
 from typing import Optional
 
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 import transformers.utils.import_utils as _import_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
 
 # transformers 5.2+ omits 'gguf' from PACKAGE_DISTRIBUTION_MAPPING, causing
 # is_gguf_available() to crash with InvalidVersion when the gguf package is
 # installed but lacks a __version__ attribute.
 if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
     _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ("gguf",)
+
+_GGUF_MAGIC = b"GGUF"
+
+
+def _extract_gguf_if_llamafile(path: str) -> str:
+    """Return path to a raw GGUF file, extracting from a llamafile zip if needed."""
+    with open(path, "rb") as f:
+        magic = f.read(4)
+    if magic == _GGUF_MAGIC:
+        return path
+    gguf_path = Path(path).parent / (Path(path).name + ".gguf")
+    if not gguf_path.exists():
+        with zipfile.ZipFile(path) as zf:
+            for info in zf.infolist():
+                if info.filename.endswith(".gguf"):
+                    with zf.open(info) as src, open(gguf_path, "wb") as dst:
+                        shutil.copyfileobj(src, dst, length=32 * 1024 * 1024)
+                    break
+            else:
+                raise ValueError(f"No .gguf file found inside {path}")
+    return str(gguf_path)
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    gguf_path = _extract_gguf_if_llamafile(gguf_path)
+    return _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+
+
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
