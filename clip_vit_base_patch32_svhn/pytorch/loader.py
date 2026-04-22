@@ -4,9 +4,11 @@
 """
 CLIP ViT-Base/32 SVHN model loader implementation for image feature extraction.
 """
+import requests
 import torch
+from io import BytesIO
+from PIL import Image
 from transformers import CLIPImageProcessor, CLIPVisionModel
-from datasets import load_dataset
 from typing import Optional
 
 from ...base import ForgeModel
@@ -97,8 +99,8 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+        image = Image.open(BytesIO(requests.get(url, timeout=30).content))
 
         inputs = self.processor(images=image, return_tensors="pt")
 
