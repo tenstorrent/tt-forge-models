@@ -9,7 +9,6 @@ It uses pre-computed token embeddings with mean pooling instead of a transformer
 """
 import torch
 import torch.nn.functional as F
-from model2vec import StaticModel
 from transformers import AutoTokenizer
 from typing import Optional
 
@@ -105,6 +104,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from model2vec import StaticModel
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         static_model = StaticModel.from_pretrained(pretrained_model_name)
