@@ -55,9 +55,9 @@ def _find_orig_load_fn():
     the actual transformers original (identified by its __module__).
 
     Several other model loaders replace _gguf_utils.load_gguf_checkpoint with
-    restricted-signature wrappers. We follow their _orig_load_gguf_checkpoint
-    globals references until we reach the function defined in
-    'transformers.modeling_gguf_pytorch_utils'.
+    restricted-signature wrappers. We follow globals (named
+    _orig_load_gguf_checkpoint) and closure variables until we reach the
+    function defined in 'transformers.modeling_gguf_pytorch_utils'.
     """
     fn = _gguf_utils.load_gguf_checkpoint
     seen = set()
@@ -71,12 +71,25 @@ def _find_orig_load_fn():
             == "transformers.modeling_gguf_pytorch_utils"
         ):
             return fn
-        # Follow the _orig_load_gguf_checkpoint pointer stored in the function's globals
-        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
-        if orig is not None and id(orig) != fn_id:
-            fn = orig
-        else:
-            break
+        # Follow globals reference (most common pattern)
+        nxt = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if nxt is not None and callable(nxt) and id(nxt) != fn_id:
+            fn = nxt
+            continue
+        # Follow closure variables (e.g. `orig_load = gguf_utils.load_gguf_checkpoint`)
+        if fn.__closure__:
+            for name, cell in zip(fn.__code__.co_freevars, fn.__closure__):
+                try:
+                    val = cell.cell_contents
+                except ValueError:
+                    continue
+                if callable(val) and id(val) != fn_id and id(val) not in seen:
+                    fn = val
+                    break
+            else:
+                break
+            continue
+        break
     return fn
 
 
