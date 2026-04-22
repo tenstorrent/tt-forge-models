@@ -72,6 +72,7 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the NorT5 model instance."""
         from transformers import AutoModelForSeq2SeqLM
+        from transformers.modeling_utils import PreTrainedModel
 
         if self._tokenizer is None:
             self._load_tokenizer(dtype_override)
@@ -81,7 +82,26 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForSeq2SeqLM.from_pretrained(self._model_name, **model_kwargs)
+        # NorT5's custom __init__ doesn't call post_init(), which is required in
+        # transformers v5.x to set all_tied_weights_keys. Patch the method to initialize
+        # the attribute if missing before it's accessed during model loading.
+        _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+        def _patched_adjust(self, *args, **kwargs):
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.all_tied_weights_keys = self.get_expanded_tied_weights_keys(
+                    all_submodels=False
+                )
+            return _orig_adjust(self, *args, **kwargs)
+
+        PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
+        try:
+            model = AutoModelForSeq2SeqLM.from_pretrained(
+                self._model_name, **model_kwargs
+            )
+        finally:
+            PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust
+
         model.eval()
         self._model = model
 
