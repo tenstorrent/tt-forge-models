@@ -4,7 +4,11 @@
 """
 BioStatExtract GGUF model loader implementation for causal language modeling.
 """
+import os
+import tempfile
+
 import torch
+from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -100,9 +104,20 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # This repo contains adapter_config.json pointing to its base model, which
+        # causes PEFT detection in AutoModelForCausalLM to redirect to the wrong repo.
+        # Download the GGUF file and load from a local directory to bypass PEFT detection.
+        gguf_path = hf_hub_download(
+            repo_id=pretrained_model_name, filename=self.GGUF_FILE
+        )
+        tmpdir = tempfile.mkdtemp()
+        gguf_link = os.path.join(tmpdir, self.GGUF_FILE)
+        os.symlink(os.path.abspath(gguf_path), gguf_link)
+        try:
+            model = AutoModelForCausalLM.from_pretrained(tmpdir, **model_kwargs).eval()
+        finally:
+            os.unlink(gguf_link)
+            os.rmdir(tmpdir)
 
         self.config = model.config
         self.model = model
