@@ -7,6 +7,8 @@ Wav2Vec2 model loader for voice detection (fake vs real classification).
 
 from typing import Optional
 
+import torch
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -88,6 +90,8 @@ class ModelLoader(ForgeModel):
         model.eval()
         if dtype_override is not None:
             model.to(dtype_override)
+            # Conv1d in feature_extractor requires float32
+            model.wav2vec2.feature_extractor.to(torch.float32)
 
         return model
 
