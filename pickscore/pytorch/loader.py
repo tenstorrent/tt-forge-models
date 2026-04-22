@@ -13,8 +13,8 @@ architecture is a standard transformers CLIPModel, which we load from the
 canonical yuvalkirstain/PickScore_v1 repository for compatibility.
 """
 import torch
+from PIL import Image
 from transformers import AutoProcessor, CLIPModel
-from datasets import load_dataset
 from typing import Optional
 
 from ...base import ForgeModel
@@ -84,8 +84,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (224, 224), color=(128, 128, 128))
 
         self.text_prompts = ["a photo of a cat", "a photo of a dog"]
 
