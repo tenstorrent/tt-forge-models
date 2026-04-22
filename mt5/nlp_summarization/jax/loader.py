@@ -5,7 +5,6 @@
 """MT5 model loader implementation for NLP summarization."""
 
 from typing import Optional
-from transformers.models.mt5.modeling_flax_mt5 import shift_tokens_right
 
 from ....base import ForgeModel
 from ....config import (
@@ -144,6 +143,7 @@ class ModelLoader(ForgeModel):
             inputs: The loaded inputs
         """
         from transformers import MT5Config
+        from transformers.models.mt5.modeling_flax_mt5 import shift_tokens_right
 
         # Ensure tokenizer is loaded
         if self._tokenizer is None:
