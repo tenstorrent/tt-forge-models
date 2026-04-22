@@ -6,7 +6,9 @@ LightOnOCR-2-1B GGUF model loader implementation for image-to-text OCR tasks.
 
 The GGUF checkpoint only contains the text backbone (qwen3 architecture).
 We load the vision config from the base (non-GGUF) model and combine
-them into a full LightOnOcrConfig.
+them into a full LightOnOcrConfig. Because the GGUF metadata reports the
+architecture as 'qwen3', we patch load_gguf_checkpoint to map 'lighton_ocr'
+→ 'qwen3' and pull num_hidden_layers from text_config.
 """
 
 import importlib.metadata
@@ -41,6 +43,54 @@ def _refresh_gguf_detection():
             importlib.metadata.packages_distributions()
         )
         import_utils.is_gguf_available.cache_clear()
+
+
+def _patch_lighton_ocr_gguf_loading():
+    """Patch load_gguf_checkpoint to handle the lighton_ocr model type.
+
+    The GGUF file has 'qwen3' architecture metadata, but AutoModelForImageTextToText
+    rejects Qwen3Config. We override config to LightOnOcrConfig (with vision info from
+    the base model). load_gguf_checkpoint then hits 'lighton_ocr' as model_type and
+    fails to find num_hidden_layers. This patch redirects to 'qwen3' so the tensor
+    mapping proceeds; mismatched keys are silently skipped by from_pretrained.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if getattr(gguf_utils, "_lighton_ocr_patched", False):
+        return
+
+    _orig = gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        hf_model = kwargs.get("model_to_load")
+        if hf_model is not None:
+            cfg = hf_model.config
+            if getattr(cfg, "model_type", None) == "lighton_ocr":
+                # Temporarily patch the config so load_gguf_checkpoint sees
+                # 'qwen3' architecture and a flat num_hidden_layers value.
+                orig_model_type = cfg.__class__.model_type
+                num_hidden_layers = cfg.text_config.num_hidden_layers
+                cfg.__class__.model_type = "qwen3"
+                cfg.num_hidden_layers = num_hidden_layers
+                try:
+                    return _orig(*args, **kwargs)
+                finally:
+                    cfg.__class__.model_type = orig_model_type
+                    del cfg.num_hidden_layers
+        return _orig(*args, **kwargs)
+
+    gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    gguf_utils._lighton_ocr_patched = True
+
+    import transformers.modeling_utils as modeling_utils
+    import transformers.configuration_utils as config_utils
+
+    for mod in (modeling_utils, config_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_patch_lighton_ocr_gguf_loading()
 
 
 class ModelVariant(StrEnum):
