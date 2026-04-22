@@ -8,7 +8,7 @@ Granite Vision model loader implementation for multimodal conditional generation
 from typing import Optional
 
 from PIL import Image
-from transformers import AutoModelForVision2Seq, AutoProcessor
+from transformers import AutoProcessor
 
 from ...base import ForgeModel
 from ...config import (
@@ -72,6 +72,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Granite Vision model instance."""
+        from transformers import AutoModelForVision2Seq
+
         model_name = self._variant_config.pretrained_model_name
         model = AutoModelForVision2Seq.from_pretrained(str(model_name), **kwargs)
         model.eval()
