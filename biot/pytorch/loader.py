@@ -89,9 +89,9 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         cfg = self._variant_config
-        dtype = dtype_override or torch.float32
 
         torch.manual_seed(42)
-        inputs = torch.randn(1, cfg.n_chans, cfg.n_times, dtype=dtype)
+        # torch.stft used internally requires float32; ignore dtype_override
+        inputs = torch.randn(1, cfg.n_chans, cfg.n_times, dtype=torch.float32)
 
         return inputs
