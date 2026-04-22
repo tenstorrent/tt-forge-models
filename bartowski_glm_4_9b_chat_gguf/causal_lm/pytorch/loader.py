@@ -99,8 +99,11 @@ def _patch_transformers_chatglm_gguf():
             )
             return tokenizer
 
-    if "chatglm" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["chatglm"] = GGUFChatGLMConverter
+    # Register for both "chatglm" (raw GGUF arch key) and "glm4" (remapped model_type).
+    # tokenization_utils_tokenizers.py may see model_type="glm4" after load_gguf_checkpoint
+    # remapping, so both keys must point to the merge-fixing converter.
+    GGUF_TO_FAST_CONVERTERS["chatglm"] = GGUFChatGLMConverter
+    GGUF_TO_FAST_CONVERTERS["glm4"] = GGUFChatGLMConverter
 
     # 4. Patch load_gguf_checkpoint to remap model_type and compute partial_rotary_factor
     orig_load = gguf_utils.load_gguf_checkpoint
