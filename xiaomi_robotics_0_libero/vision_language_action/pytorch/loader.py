@@ -135,6 +135,21 @@ class ModelLoader(ForgeModel):
 
         modeling_utils.PreTrainedModel._init_weights = _patched_init_weights
 
+        # transformers>=5.0 changed _tied_weights_keys from a list to a
+        # {target: source} dict.  Custom code still uses the 4.x list form,
+        # causing get_expanded_tied_weights_keys to fail with AttributeError.
+        # Return empty dict for any model whose tied_keys is a plain list.
+        _orig_get_tied = modeling_utils.PreTrainedModel.get_expanded_tied_weights_keys
+
+        def _patched_get_tied(self, **kw):
+            if isinstance(self._tied_weights_keys, list):
+                return {}
+            return _orig_get_tied(self, **kw)
+
+        modeling_utils.PreTrainedModel.get_expanded_tied_weights_keys = (
+            _patched_get_tied
+        )
+
     def load_model(self, *, dtype_override=None, **kwargs):
         self._patch_rope_init_functions()
 
