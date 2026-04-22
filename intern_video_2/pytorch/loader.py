@@ -205,15 +205,18 @@ class ModelLoader(ForgeModel):
 
         BertTokenizer.from_pretrained("bert-large-uncased")
 
-        # low_cpu_mem_usage=False: the model's __init__ calls .item() on tensors
-        # (to build drop-path schedules), which fails on meta tensors. Disabling
-        # meta-device loading keeps everything on CPU during instantiation.
         model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # The model's __init__ calls .item() on intermediate tensors (e.g. to
+        # build drop-path schedules).  When the TT XLA default device is active
+        # that triggers the meta-tensor path, which forbids .item().  Force CPU
+        # as the default device for the duration of from_pretrained so all ops
+        # during model construction materialise on CPU.
+        with torch.device("cpu"):
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         return model
