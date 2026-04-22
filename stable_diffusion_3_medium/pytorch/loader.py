@@ -100,11 +100,11 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            list: Input tensors for the transformer:
-                - latent_model_input (torch.Tensor)
-                - timestep (torch.Tensor)
-                - prompt_embeds (torch.Tensor)
-                - pooled_prompt_embeds (torch.Tensor)
+            list: Input tensors for SD3Transformer2DModel.forward:
+                - latent_model_input (torch.Tensor): hidden_states
+                - prompt_embeds (torch.Tensor): encoder_hidden_states
+                - pooled_prompt_embeds (torch.Tensor): pooled_projections
+                - timestep (torch.Tensor): timestep
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -122,4 +122,6 @@ class ModelLoader(ForgeModel):
             prompt_embeds = prompt_embeds.to(dtype_override)
             pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+        # Order matches SD3Transformer2DModel.forward(hidden_states, encoder_hidden_states,
+        # pooled_projections, timestep)
+        return [latent_model_input, prompt_embeds, pooled_prompt_embeds, timestep]
