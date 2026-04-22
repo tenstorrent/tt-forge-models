@@ -114,7 +114,11 @@ class ModelLoader(ForgeModel):
         self._model = WhisperForConditionalGeneration.from_pretrained(
             self._model_name, use_cache=False, **model_kwargs
         )
-        self._processor = WhisperProcessor.from_pretrained(self._model_name)
+        # qualcomm/Whisper-Tiny-En has no preprocessor_config.json; fall back to base model.
+        try:
+            self._processor = WhisperProcessor.from_pretrained(self._model_name)
+        except OSError:
+            self._processor = WhisperProcessor.from_pretrained("openai/whisper-tiny.en")
 
         self._model.eval()
         if dtype_override is not None:
