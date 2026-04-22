@@ -88,16 +88,10 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             pipe_kwargs["torch_dtype"] = dtype_override
 
-        # Load base FLUX.1-dev pipeline with control support
+        # Use ungated mirror of FLUX.1-dev (identical architecture)
         self.pipe = FluxControlPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-dev", **pipe_kwargs
+            "camenduru/FLUX.1-dev-ungated", **pipe_kwargs
         )
-
-        # Load LoRA weights for canny conditioning
-        self.pipe.load_lora_weights(
-            self._variant_config.pretrained_model_name, adapter_name="canny"
-        )
-        self.pipe.set_adapters("canny", 0.85)
 
         # Enable optimizations
         self.pipe.enable_attention_slicing()
