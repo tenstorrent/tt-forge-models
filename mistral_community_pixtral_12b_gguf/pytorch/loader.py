@@ -44,7 +44,7 @@ def _patched_get_gguf_hf_weights_map(
         cfg = hf_model.config
         text_cfg = getattr(cfg, "text_config", cfg)
         model_type = getattr(text_cfg, "model_type", getattr(cfg, "model_type", None))
-        model_type = _GGUF_HF_TYPE_ALIASES.get(model_type, model_type)
+    model_type = _GGUF_HF_TYPE_ALIASES.get(model_type, model_type)
     if num_layers is None:
         cfg = hf_model.config
         text_cfg = getattr(cfg, "text_config", cfg)
