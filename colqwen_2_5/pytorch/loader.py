@@ -5,7 +5,6 @@
 ColQwen2.5 model loader implementation for visual document retrieval.
 """
 import torch
-from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
 from PIL import Image
 from typing import Optional
 
@@ -61,6 +60,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        from colpali_engine.models import ColQwen2_5_Processor
+
         self.processor = ColQwen2_5_Processor.from_pretrained(
             self._variant_config.pretrained_model_name
         )
@@ -68,6 +69,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the ColQwen2.5 model instance."""
+        from colpali_engine.models import ColQwen2_5
+
         model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
