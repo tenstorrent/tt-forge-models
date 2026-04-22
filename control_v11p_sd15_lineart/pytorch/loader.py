@@ -89,12 +89,7 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            List: Input tensors for the UNet with ControlNet residuals:
-                - latent_model_input (torch.Tensor)
-                - timestep (torch.Tensor)
-                - prompt_embeds (torch.Tensor)
-                - down_block_additional_residuals (tuple of torch.Tensor)
-                - mid_block_additional_residual (torch.Tensor)
+            Dict: Input tensors for the UNet with ControlNet residuals.
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -116,10 +111,10 @@ class ModelLoader(ForgeModel):
             timesteps = timesteps.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [
-            latent_model_input,
-            timesteps,
-            prompt_embeds,
-            down_block_additional_residuals,
-            mid_block_additional_residual,
-        ]
+        return {
+            "sample": latent_model_input,
+            "timestep": timesteps,
+            "encoder_hidden_states": prompt_embeds,
+            "down_block_additional_residuals": down_block_additional_residuals,
+            "mid_block_additional_residual": mid_block_additional_residual,
+        }
