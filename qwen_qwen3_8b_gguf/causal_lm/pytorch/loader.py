@@ -5,10 +5,57 @@
 Qwen3-8B GGUF (bartowski) model loader implementation for causal language modeling.
 """
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
+
+
+def _get_real_load_gguf_checkpoint(fn):
+    """Traverse __globals__ patch chain to recover the original transformers function.
+
+    Other GGUF loaders replace load_gguf_checkpoint with wrappers that lack the
+    model_to_load parameter added in transformers 5.x. Their architecture-registration
+    side effects are already applied at module import, so we can safely bypass the
+    function wrappers and call the real function directly.
+    """
+    visited = set()
+    while True:
+        fn_id = id(fn)
+        if fn_id in visited:
+            break
+        visited.add(fn_id)
+        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if orig is None or not callable(orig) or id(orig) in visited:
+            break
+        fn = orig
+    return fn
+
+
+_real_load_gguf_checkpoint = _get_real_load_gguf_checkpoint(
+    _gguf_utils.load_gguf_checkpoint
+)
+
+
+def _compat_load_gguf_checkpoint(
+    gguf_checkpoint_path, return_tensors=False, model_to_load=None, **kwargs
+):
+    return _real_load_gguf_checkpoint(
+        gguf_checkpoint_path,
+        return_tensors=return_tensors,
+        model_to_load=model_to_load,
+        **kwargs,
+    )
+
+
+_gguf_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _compat_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
 from ....config import (
     LLMModelConfig,
     ModelInfo,
