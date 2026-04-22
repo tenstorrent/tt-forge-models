@@ -125,6 +125,7 @@ class ModelLoader(ForgeModel):
 
         if self._is_gguf_variant():
             model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
+            model_kwargs["ignore_mismatched_sizes"] = True
 
         model_kwargs |= kwargs
 
