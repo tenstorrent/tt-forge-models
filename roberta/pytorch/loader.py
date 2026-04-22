@@ -29,6 +29,10 @@ class ModelVariant(StrEnum):
     ROBERTA_BASE_OFFENSIVE = "Base_Offensive"
     ROBERTA_LARGE_MNLI = "Large_MNLI"
     MANHTEKY123_COMMENT_CLASSIFICATION = "manhteky123_Comment_Classification"
+    GARAK_ROBERTA_TOXICITY = "Garak_Roberta_Toxicity"
+    ROBERTA_BASE_SUICIDE_PREDICTION = "Base_Suicide_Prediction"
+    ROBERTA_BASE_DIANPING_CHINESE = "Base_Dianping_Chinese"
+    ROBERTA_BASE_MNLI = "Base_MNLI"
 
 
 class ModelLoader(ForgeModel):
@@ -49,6 +53,18 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MANHTEKY123_COMMENT_CLASSIFICATION: ModelConfig(
             pretrained_model_name="manhteky123/comment-classification",
+        ),
+        ModelVariant.GARAK_ROBERTA_TOXICITY: ModelConfig(
+            pretrained_model_name="garak-llm/roberta_toxicity_classifier",
+        ),
+        ModelVariant.ROBERTA_BASE_SUICIDE_PREDICTION: ModelConfig(
+            pretrained_model_name="vibhorag101/roberta-base-suicide-prediction-phr",
+        ),
+        ModelVariant.ROBERTA_BASE_DIANPING_CHINESE: ModelConfig(
+            pretrained_model_name="uer/roberta-base-finetuned-dianping-chinese",
+        ),
+        ModelVariant.ROBERTA_BASE_MNLI: ModelConfig(
+            pretrained_model_name="textattack/roberta-base-MNLI",
         ),
     }
 
