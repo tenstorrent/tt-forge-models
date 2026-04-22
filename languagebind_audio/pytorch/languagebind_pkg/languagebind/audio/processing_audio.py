@@ -153,6 +153,7 @@ class LanguageBindAudioProcessor(ProcessorMixin):
         super().__init__(tokenizer, **kwargs)
         self.config = config
         self.transform = get_audio_transform(config)
+        self.image_processor = load_and_transform_audio
 
     def __call__(
         self, images=None, text=None, context_length=77, return_tensors=None, **kwargs
