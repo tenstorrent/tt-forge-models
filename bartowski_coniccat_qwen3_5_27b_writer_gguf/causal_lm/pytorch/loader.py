@@ -30,16 +30,17 @@ def _patch_qwen35_support():
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
         section_map = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]
-        if "qwen3" not in section_map or "qwen35" in section_map:
+        if "qwen3" not in section_map:
             continue
         if section == "config":
-            # qwen35 uses a different head_dim than qwen3; include attention.key_length
-            # so the GGUF head_dim value is propagated to the model config.
+            # Always overwrite: other loaders may have already set qwen35 without
+            # attention.key_length. qwen35 uses head_dim=256 vs qwen3's default 128;
+            # without this key the model is built with the wrong weight shapes.
             qwen35_cfg = dict(section_map["qwen3"])
             qwen35_cfg["attention.key_length"] = "head_dim"
             section_map["qwen35"] = qwen35_cfg
         else:
-            section_map["qwen35"] = section_map["qwen3"]
+            section_map.setdefault("qwen35", section_map["qwen3"])
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
         GGUF_TO_FAST_CONVERTERS.setdefault(
