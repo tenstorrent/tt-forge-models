@@ -1,0 +1,2 @@
+# Mistral Nemo Base 2407 BnB 4-bit Inference Requirements
+bitsandbytes>=0.46.1
