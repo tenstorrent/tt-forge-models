@@ -5,6 +5,7 @@
 HELM-BERT model loader implementation for masked language modeling.
 """
 
+import torch
 from transformers import AutoTokenizer, AutoModelForMaskedLM, AutoConfig
 from third_party.tt_forge_models.config import (
     ModelInfo,
@@ -95,6 +96,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForMaskedLM.from_pretrained(self.model_name, **model_kwargs)
+        model = model.to(torch.float32)
         model.eval()
         return model
 
