@@ -12,8 +12,6 @@ Available variants:
 - KOLORS: Kwai-Kolors/Kolors-diffusers text-to-image generation
 """
 
-import sys
-from pathlib import Path
 from typing import Optional
 
 import torch
@@ -72,20 +70,12 @@ class ModelLoader(ForgeModel):
         """Register ChatGLM classes with AutoConfig so trust_remote_code is not required.
 
         AutoConfig checks CONFIG_MAPPING to determine has_local_code. Registering
-        ChatGLMConfig makes has_local_code=True, which bypasses the trust_remote_code
-        prompt when loading the Kolors text encoder in non-interactive environments.
+        ChatGLMConfig (from diffusers) as "chatglm" makes has_local_code=True, which
+        bypasses the trust_remote_code prompt when loading the Kolors text encoder in
+        non-interactive environments.
         """
-        from huggingface_hub import snapshot_download
+        from diffusers.pipelines.kolors.text_encoder import ChatGLMConfig
         from transformers import AutoConfig
-
-        model_path = Path(
-            snapshot_download(REPO_ID, ignore_patterns=["*.safetensors", "*.bin"])
-        )
-        text_encoder_path = model_path / "text_encoder"
-        if str(text_encoder_path) not in sys.path:
-            sys.path.insert(0, str(text_encoder_path))
-
-        from configuration_chatglm import ChatGLMConfig  # noqa: PLC0415
 
         try:
             AutoConfig.register("chatglm", ChatGLMConfig)
@@ -93,27 +83,88 @@ class ModelLoader(ForgeModel):
             pass  # already registered
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Kolors pipeline.
+        """Load the Kolors pipeline and return the UNet submodule.
 
         Returns:
-            KolorsPipeline: The Kolors pipeline instance.
+            torch.nn.Module: The UNet model for text-to-image generation.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         self._register_chatglm_classes()
         self.pipeline = KolorsPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
             variant="fp16",
-            **kwargs,
         )
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the Kolors model.
+        """Load sample inputs for the Kolors UNet.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Input tensors matching the UNet forward() signature.
         """
-        return [
-            "A photo of a ladybug, macro, zoom, high quality, cinematic"
-        ] * batch_size
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        prompt = "A photo of a ladybug, macro, zoom, high quality, cinematic"
+        height, width = 512, 512
+
+        # Encode text with ChatGLM
+        text_inputs = self.pipeline.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        text_output = self.pipeline.text_encoder(
+            text_inputs.input_ids,
+            output_hidden_states=True,
+        )
+        # Kolors uses hidden_states[-2] as encoder_hidden_states (seq, batch, dim -> batch, seq, dim)
+        prompt_embeds = text_output.hidden_states[-2].permute(1, 0, 2).to(dtype)
+        # Pooled embed for add_text_embeds (last token of last layer)
+        pooled_prompt_embeds = text_output.hidden_states[-1][-1, :, :].to(dtype)
+
+        # Repeat for batch size
+        prompt_embeds = prompt_embeds.repeat(batch_size, 1, 1)
+        pooled_prompt_embeds = pooled_prompt_embeds.repeat(batch_size, 1)
+
+        # Build add_time_ids: original_size + crops_coords + target_size
+        original_size = (height, width)
+        crops_coords_top_left = (0, 0)
+        target_size = (height, width)
+        add_time_ids = self.pipeline._get_add_time_ids(
+            original_size,
+            crops_coords_top_left,
+            target_size,
+            dtype=dtype,
+            text_encoder_projection_dim=self.pipeline.text_encoder.config.hidden_size,
+        )
+        add_time_ids = add_time_ids.repeat(batch_size, 1)
+
+        # Random latents
+        vae_scale_factor = 2 ** (len(self.pipeline.vae.config.block_out_channels) - 1)
+        latent_h = height // vae_scale_factor
+        latent_w = width // vae_scale_factor
+        latents = torch.randn(
+            batch_size,
+            self.pipeline.unet.config.in_channels,
+            latent_h,
+            latent_w,
+            dtype=dtype,
+        )
+
+        # Scale latents for the scheduler
+        self.pipeline.scheduler.set_timesteps(1)
+        timestep = self.pipeline.scheduler.timesteps[0]
+        latents = latents * self.pipeline.scheduler.init_noise_sigma
+
+        return {
+            "sample": latents,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": {
+                "text_embeds": pooled_prompt_embeds,
+                "time_ids": add_time_ids,
+            },
+            "return_dict": False,
+        }
