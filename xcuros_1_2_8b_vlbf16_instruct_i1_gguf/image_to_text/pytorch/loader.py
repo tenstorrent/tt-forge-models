@@ -3,6 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 XCurOS 1.2 8B VLBF16 Instruct i1 GGUF model loader implementation for image to text.
+
+Note: The GGUF quantized variant (mradermacher/XCurOS-1.2-8B-VLBF16-Instruct-i1-GGUF) uses
+the qwen3vl architecture which is not yet supported by transformers' GGUF loader,
+so the base float model is used instead.
 """
 
 from transformers import (
@@ -34,14 +38,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.XCUROS_1_2_8B_VLBF16_INSTRUCT_I1_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/XCurOS-1.2-8B-VLBF16-Instruct-i1-GGUF",
+            pretrained_model_name="XCurOS/XCurOS-1.2-8B-VLBF16-Instruct",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.XCUROS_1_2_8B_VLBF16_INSTRUCT_I1_GGUF
-
-    GGUF_FILE = "XCurOS-1.2-8B-VLBF16-Instruct.i1-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -64,13 +66,9 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained(
-            "XCurOS/XCurOS-1.2-8B-VLBF16-Instruct"
-        )
+        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
