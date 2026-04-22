@@ -1,2 +1,2 @@
-languagebind @ git+https://github.com/PKU-YuanGroup/LanguageBind.git
+languagebind @ file:languagebind_audio/pytorch/languagebind_pkg
 soundfile
