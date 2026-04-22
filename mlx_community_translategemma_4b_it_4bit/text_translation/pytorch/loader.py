@@ -88,10 +88,12 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        # MLX quantization format is incompatible with transformers; clear it so
-        # the model loads with standard (dequantized) weight shapes.
+        # MLX quantization format is incompatible with transformers; remove the
+        # attribute entirely so hasattr() returns False and loading proceeds
+        # without quantization.
         config = AutoConfig.from_pretrained(pretrained_model_name)
-        config.quantization_config = None
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
 
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs
