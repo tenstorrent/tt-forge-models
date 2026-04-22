@@ -4,11 +4,41 @@
 """
 Nxcode-CQ-7B-orpo GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+import importlib.util
+
 import torch
+from packaging import version as _packaging_version
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.utils.import_utils as _import_utils
 from typing import Optional
 
 from ....base import ForgeModel
+
+
+def _safe_is_gguf_available(min_version=_import_utils.GGUF_MIN_VERSION):
+    """Replacement for is_gguf_available that handles runtime gguf installation.
+
+    transformers computes PACKAGE_DISTRIBUTION_MAPPING at import time, so gguf
+    installed at runtime is invisible to it. We bypass that by calling
+    importlib.metadata.version() directly, which reads dist-info from disk.
+    """
+    if importlib.util.find_spec("gguf") is None:
+        return False
+    try:
+        gguf_version = importlib.metadata.version("gguf")
+    except importlib.metadata.PackageNotFoundError:
+        return False
+    try:
+        return _packaging_version.parse(gguf_version) >= _packaging_version.parse(
+            min_version
+        )
+    except _packaging_version.InvalidVersion:
+        return False
+
+
+_gguf_utils.is_gguf_available = _safe_is_gguf_available
 from ....config import (
     LLMModelConfig,
     ModelInfo,
