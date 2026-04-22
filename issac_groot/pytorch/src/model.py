@@ -309,6 +309,7 @@ class GR00T_N1_5(PreTrainedModel):
                 "input_embedding_dim": getattr(config, "input_embedding_dim", 1536),
                 "action_horizon": getattr(config, "action_horizon", None),
                 "action_dim": getattr(config, "max_action_dim", None),
+                "max_state_dim": getattr(config, "max_state_dim", 128),
                 "max_num_embodiments": getattr(config, "max_num_embodiments", 32),
                 "num_inference_timesteps": getattr(
                     config, "num_inference_timesteps", None
@@ -319,7 +320,12 @@ class GR00T_N1_5(PreTrainedModel):
                 "noise_s": getattr(config, "noise_s", 0.999),
                 "diffusion_model_cfg": getattr(config, "diffusion_model_cfg", None),
                 "use_vlln": getattr(config, "use_vlln", True),
+                "vl_self_attention_cfg": getattr(config, "vl_self_attention_cfg", {}),
                 "max_seq_len": getattr(config, "max_seq_len", 1024),
+                "add_pos_embed": getattr(config, "add_pos_embed", True),
+                "model_dtype": getattr(config, "model_dtype", "float32"),
+                "tune_projector": getattr(config, "tune_projector", True),
+                "tune_diffusion_model": getattr(config, "tune_diffusion_model", True),
             }
 
         super().__init__(config)
