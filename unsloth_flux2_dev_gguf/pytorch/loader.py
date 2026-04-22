@@ -16,7 +16,6 @@ import tempfile
 from pathlib import Path
 
 import torch
-import gguf  # noqa: F401 - keep in sys.modules so pip teardown can't evict it
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import Flux2Transformer2DModel
 from huggingface_hub import hf_hub_download
