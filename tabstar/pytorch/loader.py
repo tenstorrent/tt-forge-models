@@ -153,6 +153,10 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The wrapped TabSTAR model instance.
         """
         from tabstar.arch.arch import TabStarModel
+        from tabstar.arch.config import TabStarConfig
+        from transformers import AutoConfig
+
+        AutoConfig.register("tabstar", TabStarConfig, exist_ok=True)
 
         model_kwargs = {}
         if dtype_override is not None:
