@@ -99,9 +99,39 @@ class ModelLoader(ForgeModel):
         model = AutoModel.from_pretrained(model_name, **model_kwargs)
         model.eval()
 
+        self._patch_autocast(model)
+
         self.model = model
 
         return model
+
+    @staticmethod
+    def _patch_autocast(model):
+        # The model's forward hardcodes torch.autocast('cuda', ...) which fails without a CUDA device.
+        # Patch it to use the input tensor's device type instead.
+        from transformers.modeling_outputs import BaseModelOutputWithPast
+
+        original_forward = model.forward
+
+        def _forward(input_ids, attention_mask, return_embeddings=False, **kw):
+            kw.pop("token_type_ids", None)
+            device_type = input_ids.device.type
+            if device_type not in ("cpu", "cuda", "mps", "xpu"):
+                device_type = "cpu"
+            with torch.autocast(
+                device_type, dtype=torch.bfloat16, enabled=device_type == "cuda"
+            ):
+                outputs = model.model(
+                    input_ids=input_ids, attention_mask=attention_mask, **kw
+                )
+                last_hidden = model.latent_attention_model(
+                    outputs.last_hidden_state, attention_mask
+                )
+            if return_embeddings:
+                return model.mean_pool(last_hidden, attention_mask)
+            return BaseModelOutputWithPast(last_hidden_state=last_hidden)
+
+        model.forward = _forward
 
     def load_inputs(self, dtype_override=None, sentence=None):
         if self.tokenizer is None:
