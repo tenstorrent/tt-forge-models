@@ -272,16 +272,19 @@ class ModelLoader(ForgeModel):
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "system",
-                "content": "You are Qwen, created by TT Cloud. You are a helpful assistant.",
-            },
-            {"role": "user", "content": self.sample_text},
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
+        if self.tokenizer.chat_template is not None:
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are Qwen, created by TT Cloud. You are a helpful assistant.",
+                },
+                {"role": "user", "content": self.sample_text},
+            ]
+            text = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        else:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
