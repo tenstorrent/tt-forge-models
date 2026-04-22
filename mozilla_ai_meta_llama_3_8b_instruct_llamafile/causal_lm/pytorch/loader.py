@@ -4,6 +4,7 @@
 """
 Mozilla-AI Meta-Llama-3-8B-Instruct-llamafile model loader implementation for causal language modeling.
 """
+import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
@@ -28,16 +29,27 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Mozilla-AI Meta-Llama-3-8B-Instruct-llamafile model loader implementation for causal language modeling tasks."""
 
+    # The mozilla-ai/Meta-Llama-3-8B-Instruct-llamafile HuggingFace repository contains only
+    # llamafile executables (GGUF + bootstrap shell script), not HF-native model files.
+    # We load the equivalent GGUF from QuantFactory which has matching quantizations.
     _VARIANTS = {
         ModelVariant.META_LLAMA_3_8B_INSTRUCT_LLAMAFILE: LLMModelConfig(
-            pretrained_model_name="mozilla-ai/Meta-Llama-3-8B-Instruct-llamafile",
+            pretrained_model_name="QuantFactory/Meta-Llama-3-8B-Instruct-GGUF",
             max_length=256,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.META_LLAMA_3_8B_INSTRUCT_LLAMAFILE
 
+    _GGUF_FILES = {
+        ModelVariant.META_LLAMA_3_8B_INSTRUCT_LLAMAFILE: "Meta-Llama-3-8B-Instruct.Q4_K_M.gguf",
+    }
+
     sample_text = "What is the capital of France?"
+
+    @property
+    def gguf_file(self):
+        return self._GGUF_FILES[self._variant]
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -82,13 +94,9 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            **tokenizer_kwargs,
+            gguf_file=self.gguf_file,
         )
 
         if self.tokenizer.pad_token is None:
@@ -114,10 +122,13 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs["gguf_file"] = self.gguf_file
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, gguf_file=self.gguf_file
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -163,3 +174,8 @@ class ModelLoader(ForgeModel):
         )
 
         return inputs
+
+    def load_config(self):
+        return AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
+        )
