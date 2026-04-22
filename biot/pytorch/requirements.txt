@@ -1,1 +1,2 @@
+torchaudio @ https://download.pytorch.org/whl/cpu/torchaudio-2.9.1%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl
 braindecode
