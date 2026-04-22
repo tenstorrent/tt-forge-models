@@ -20,13 +20,22 @@ from ....config import (
 )
 
 
+_arcee_orig_load = None
+
+
 def _patch_transformers_arcee_gguf():
     """Monkey-patch transformers to add arcee GGUF architecture support.
 
     The AFM-4.5B model uses the 'arcee' architecture identifier in its GGUF
     metadata. Transformers lacks GGUF loading support for the arcee architecture.
     The model is Qwen2.5-based, so we map it to the qwen2 model type.
+
+    Multiple GGUF loaders in this repo patch load_gguf_checkpoint by wrapping it.
+    Many of those wrappers drop the model_to_load keyword argument, which breaks
+    tensor loading. We save the original function so load_model() can bypass the
+    broken wrapper chain for the return_tensors=True call.
     """
+    global _arcee_orig_load
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
@@ -35,6 +44,9 @@ def _patch_transformers_arcee_gguf():
 
     if "arcee" in GGUF_SUPPORTED_ARCHITECTURES:
         return  # Already patched
+
+    # Save the original before any patches are applied (we are imported first).
+    _arcee_orig_load = gguf_utils.load_gguf_checkpoint
 
     GGUF_SUPPORTED_ARCHITECTURES.append("arcee")
 
@@ -61,10 +73,8 @@ def _patch_transformers_arcee_gguf():
     if "arcee" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["arcee"] = GGUFQwen2Converter
 
-    orig_load = gguf_utils.load_gguf_checkpoint
-
-    def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
-        result = orig_load(gguf_path, return_tensors=return_tensors, **kwargs)
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = _arcee_orig_load(*args, **kwargs)
         config = result.get("config", {})
         if config.get("model_type") == "arcee":
             config["model_type"] = "qwen2"
@@ -74,9 +84,8 @@ def _patch_transformers_arcee_gguf():
 
     import transformers.models.auto.tokenization_auto as tok_auto
     import transformers.configuration_utils as config_utils
-    import transformers.modeling_utils as modeling_utils
 
-    for mod in (tok_auto, config_utils, modeling_utils):
+    for mod in (tok_auto, config_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
@@ -158,9 +167,26 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Other GGUF loaders wrap gguf_utils.load_gguf_checkpoint but drop the
+        # model_to_load keyword, breaking AutoModelForCausalLM.from_pretrained.
+        # Temporarily replace it with a direct call to the original so tensor
+        # loading (return_tensors=True, model_to_load=...) works correctly.
+        import transformers.modeling_gguf_pytorch_utils as _mu
+
+        _outer = _mu.load_gguf_checkpoint
+
+        def _arcee_direct_wrapper(gguf_path, return_tensors=False, model_to_load=None):
+            return _arcee_orig_load(
+                gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+            )
+
+        _mu.load_gguf_checkpoint = _arcee_direct_wrapper
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _mu.load_gguf_checkpoint = _outer
 
         self.config = model.config
         self.model = model
