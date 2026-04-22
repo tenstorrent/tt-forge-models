@@ -12,7 +12,6 @@ from typing import Optional
 
 from datasets import load_dataset
 from torchvision import transforms
-from ultralytics import YOLO
 
 from ...config import (
     Framework,
@@ -60,6 +59,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from ultralytics import YOLO
         pretrained_name = self._variant_config.pretrained_model_name
         yolo_model = YOLO(pretrained_name)
         model = yolo_model.model
