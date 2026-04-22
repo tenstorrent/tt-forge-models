@@ -92,6 +92,8 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return input tensors for Molmo."""
+        import torch
+
         if self.processor is None:
             self._load_processor()
 
@@ -106,5 +108,11 @@ class ModelLoader(ForgeModel):
 
         # Add batch dimension
         inputs = {k: v.unsqueeze(0) for k, v in inputs.items()}
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if v.is_floating_point() else v
+                for k, v in inputs.items()
+            }
 
         return inputs
