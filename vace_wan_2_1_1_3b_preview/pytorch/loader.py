@@ -98,11 +98,12 @@ class ModelLoader(ForgeModel):
 
         prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
 
-        # Encode text prompt using the pipeline's tokenizer and text encoder
+        # Encode text prompt using the pipeline's tokenizer and text encoder.
+        # UMT5 tokenizer has model_max_length=~1e30; use the Wan2.1 default of 226.
         text_inputs = self.pipeline.tokenizer(
             prompt_value,
             padding="max_length",
-            max_length=self.pipeline.tokenizer.model_max_length,
+            max_length=226,
             truncation=True,
             return_tensors="pt",
         )
