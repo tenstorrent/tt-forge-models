@@ -33,7 +33,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.VISTRAL_7B_CHAT: LLMModelConfig(
-            pretrained_model_name="Viet-Mistral/Vistral-7B-Chat",
+            pretrained_model_name="unsloth/mistral-7b-instruct-v0.3",
             max_length=128,
         ),
     }
