@@ -112,7 +112,20 @@ def _patch_transformers_qwen35moe_gguf():
             model_type = hf_model.config.model_type
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
             model_type = "qwen35moe"
-        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        if model_type == "qwen35moe":
+            # Some GGUF files store separate ffn_gate_exps/ffn_up_exps instead of
+            # the fused ffn_gate_up_exps. Add aliases so both formats load correctly.
+            extra = {}
+            for key, value in result.items():
+                if key.endswith("ffn_gate_up_exps"):
+                    base = key[: -len("ffn_gate_up_exps")]
+                    if base + "ffn_gate_exps" not in result:
+                        extra[base + "ffn_gate_exps"] = value
+                    if base + "ffn_up_exps" not in result:
+                        extra[base + "ffn_up_exps"] = value
+            result.update(extra)
+        return result
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
