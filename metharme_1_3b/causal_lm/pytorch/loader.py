@@ -74,12 +74,12 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant."""
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
+        # extra_special_tokens=[] prevents transformers 5.x from passing raw dicts
+        # (from special_tokens_map.json) to the tokenizers backend, which requires
+        # List[Union[str, AddedToken]]. The tokens are already in tokenizer.json.
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name,
+            extra_special_tokens=[],
         )
 
         if self.tokenizer.pad_token is None:
