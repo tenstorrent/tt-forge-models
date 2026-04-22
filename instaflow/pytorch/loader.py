@@ -67,10 +67,10 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the InstaFlow pipeline.
+        """Load the InstaFlow pipeline and return its UNet component.
 
         Returns:
-            StableDiffusionPipeline: The InstaFlow pipeline instance.
+            UNet2DConditionModel: The UNet module from the InstaFlow pipeline.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
         self.pipeline = StableDiffusionPipeline.from_pretrained(
@@ -78,14 +78,41 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
             **kwargs,
         )
-        return self.pipeline
+        self.in_channels = self.pipeline.unet.in_channels
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the InstaFlow model.
+        """Load and return sample inputs for the InstaFlow UNet model.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Dictionary containing sample, timestep, and encoder_hidden_states.
         """
-        return [
-            "a photo of an astronaut riding a horse on mars",
-        ] * batch_size
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
+        prompt = ["a photo of an astronaut riding a horse on mars"] * batch_size
+        text_input = self.pipeline.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            text_embeddings = self.pipeline.text_encoder(text_input.input_ids)[0]
+
+        height, width = 512, 512
+        latents = torch.randn(
+            (batch_size, self.in_channels, height // 8, width // 8), dtype=dtype
+        )
+
+        scheduler = self.pipeline.scheduler
+        num_inference_steps = 1
+        scheduler.set_timesteps(num_inference_steps)
+        latents = latents * scheduler.init_noise_sigma
+        latent_model_input = scheduler.scale_model_input(latents, 0)
+
+        return {
+            "sample": latent_model_input.to(dtype),
+            "timestep": torch.tensor(0),
+            "encoder_hidden_states": text_embeddings.to(dtype),
+        }
