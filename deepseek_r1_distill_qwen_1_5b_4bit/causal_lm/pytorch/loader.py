@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.DEEPSEEK_R1_DISTILL_QWEN_1_5B_4BIT: LLMModelConfig(
-            pretrained_model_name="mlx-community/DeepSeek-R1-Distill-Qwen-1.5B-4bit",
+            pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
             max_length=128,
         ),
     }
