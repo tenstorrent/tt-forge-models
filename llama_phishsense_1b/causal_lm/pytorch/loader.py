@@ -4,8 +4,10 @@
 """
 Llama-Phishsense-1B model loader implementation for causal language modeling.
 """
+import os
+
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig
 from peft import PeftModel
 from typing import Optional
 
@@ -39,6 +41,25 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.LLAMA_PHISHSENSE_1B
 
     BASE_MODEL_NAME = "meta-llama/Llama-Guard-3-1B"
+
+    # Fallback tokenizer for environments where the gated base model is inaccessible.
+    # Llama-Guard-3-1B uses the same tokenizer as Llama-3.2-1B (ungated).
+    FALLBACK_TOKENIZER_NAME = "unsloth/Llama-3.2-1B"
+
+    # Llama-Guard-3-1B architecture parameters (same as Llama-3.2-1B).
+    _LLAMA_GUARD_3_1B_CONFIG = dict(
+        vocab_size=128256,
+        hidden_size=2048,
+        intermediate_size=8192,
+        num_hidden_layers=16,
+        num_attention_heads=32,
+        num_key_value_heads=8,
+        max_position_embeddings=131072,
+        rms_norm_eps=1e-05,
+        rope_theta=500000.0,
+        bos_token_id=128000,
+        eos_token_id=128009,
+    )
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -85,13 +106,34 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        # Load tokenizer from base model since the adapter repo is gated
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.BASE_MODEL_NAME, **tokenizer_kwargs
-        )
+        # Load tokenizer from base model since the adapter repo is gated.
+        # Fall back to an ungated compatible tokenizer when the gated model is
+        # inaccessible (e.g. in compile-only environments with TT_RANDOM_WEIGHTS).
+        for model_name in (self.BASE_MODEL_NAME, self.FALLBACK_TOKENIZER_NAME):
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    model_name, **tokenizer_kwargs
+                )
+                break
+            except OSError:
+                continue
+
+        if self.tokenizer is None:
+            raise RuntimeError(
+                f"Could not load tokenizer from {self.BASE_MODEL_NAME} or "
+                f"{self.FALLBACK_TOKENIZER_NAME}"
+            )
+
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
+
+    def _build_config(self):
+        """Build LlamaConfig from known Llama-Guard-3-1B architecture parameters."""
+        cfg = dict(self._LLAMA_GUARD_3_1B_CONFIG)
+        if self.num_layers is not None:
+            cfg["num_hidden_layers"] = self.num_layers
+        return LlamaConfig(**cfg)
 
     def load_model(self, *, dtype_override=None, **kwargs):
         if self.tokenizer is None:
@@ -102,18 +144,23 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        random_weights = os.environ.get("TT_RANDOM_WEIGHTS", "") == "1"
+
+        if random_weights or self.num_layers is not None:
+            # Use hardcoded config to avoid downloading from gated repos.
+            model_kwargs.setdefault("config", self._build_config())
 
         base_model = AutoModelForCausalLM.from_pretrained(
             self.BASE_MODEL_NAME, **model_kwargs
         )
 
-        adapter_name = self._variant_config.pretrained_model_name
-        model = PeftModel.from_pretrained(base_model, adapter_name)
-        model = model.merge_and_unload()
+        if not random_weights:
+            # Only load PEFT adapter when real weights are available.
+            adapter_name = self._variant_config.pretrained_model_name
+            model = PeftModel.from_pretrained(base_model, adapter_name)
+            model = model.merge_and_unload()
+        else:
+            model = base_model
 
         self._fix_self_attn_return_count(model)
 
