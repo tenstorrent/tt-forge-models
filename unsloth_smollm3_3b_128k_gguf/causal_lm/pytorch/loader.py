@@ -6,13 +6,18 @@ Unsloth SmolLM3 3B 128K GGUF model loader implementation for causal language mod
 """
 import importlib.metadata
 
+import numpy as np
 import torch
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
+from tokenizers import AddedToken
+from tokenizers.models import BPE
+from tokenizers import Tokenizer
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.integrations import ggml as _ggml
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
 from transformers.modeling_gguf_pytorch_utils import (
     GGUF_SUPPORTED_ARCHITECTURES,
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
@@ -31,11 +36,88 @@ from ....config import (
 )
 
 
+def _fixed_llama_converter_tokenizer(self, proto):
+    """GGUFLlamaConverter.tokenizer with line-413 typo fixed.
+
+    transformers 5.2.0 has a typo: line 413 uses bos_token_id to look up the
+    eos token instead of eos_token_id. This causes an AttributeError for GGUF
+    files (like SmolLM3) that have eos_token_id but no bos_token_id.
+    """
+    vocab_scores = self.vocab(self.proto)
+    merges = self.merges(self.proto)
+    bpe_vocab = {word: i for i, (word, _score) in enumerate(vocab_scores)}
+
+    unk_token = (
+        proto.tokens[proto.unk_token_id] if proto.unk_token_id is not None else None
+    )
+    bos_token = (
+        proto.tokens[proto.bos_token_id]
+        if getattr(proto, "bos_token_id", None) is not None
+        else None
+    )
+    eos_token = (
+        proto.tokens[proto.eos_token_id]
+        if getattr(proto, "eos_token_id", None) is not None
+        else None
+    )
+
+    tokenizer = Tokenizer(
+        BPE(
+            bpe_vocab,
+            merges,
+            unk_token=unk_token,
+            fuse_unk=True,
+            byte_fallback=True,
+        )
+    )
+
+    special_tokens = []
+
+    if not hasattr(self.proto, "token_type"):
+        if unk_token is not None:
+            special_tokens.append(AddedToken(unk_token, normalized=False, special=True))
+        if bos_token is not None:
+            special_tokens.append(AddedToken(bos_token, normalized=False, special=True))
+        if eos_token is not None:
+            special_tokens.append(AddedToken(eos_token, normalized=False, special=True))
+    else:
+        special_tokens_idx = np.where(np.array(self.proto.token_type) == 3)[0]
+        for idx in special_tokens_idx:
+            special_tokens.append(
+                AddedToken(self.proto.tokens[idx], normalized=False, special=True)
+            )
+
+    if len(special_tokens) != 0:
+        tokenizer.add_special_tokens(special_tokens)
+
+    if len(self.proto.added_tokens) != 0:
+        tokenizer.add_tokens(
+            [
+                AddedToken(added_token, normalized=False, special=False)
+                for added_token in self.proto.added_tokens
+            ]
+        )
+
+    self.additional_kwargs["unk_token"] = unk_token
+    self.additional_kwargs["eos_token"] = bos_token
+    self.additional_kwargs["bos_token"] = eos_token
+
+    if self.is_llama_3_tokenizer:
+        self.additional_kwargs["add_prefix_space"] = None
+        self.additional_kwargs["clean_up_tokenization_spaces"] = True
+        self.additional_kwargs["legacy"] = False
+        self.original_tokenizer.legacy = False
+
+    return tokenizer
+
+
 def _patch_smollm3_support():
     """Register smollm3 architecture as a llama alias for GGUF loading.
 
     SmolLM3 uses a LLaMA-based architecture but declares 'smollm3' in GGUF
     metadata, which transformers 5.x does not yet recognise for GGUF loading.
+    Also fixes a transformers 5.2.0 bug in GGUFLlamaConverter.tokenizer where
+    line 413 uses bos_token_id instead of eos_token_id for the eos lookup.
     """
     if "smollm3" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("smollm3")
@@ -47,6 +129,7 @@ def _patch_smollm3_support():
             )
     if "llama" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("smollm3", GGUF_TO_FAST_CONVERTERS["llama"])
+    _ggml.GGUFLlamaConverter.tokenizer = _fixed_llama_converter_tokenizer
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
