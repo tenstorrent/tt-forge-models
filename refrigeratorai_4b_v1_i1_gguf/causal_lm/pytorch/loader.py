@@ -76,6 +76,25 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import inspect
+        import transformers.configuration_utils as _config_utils
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        import transformers.models.auto.tokenization_auto as _auto_tokenizer
+        import transformers.tokenization_utils_tokenizers as _tok_utils
+
+        _current = _gguf_utils.load_gguf_checkpoint
+        if "model_to_load" not in inspect.signature(_current).parameters:
+
+            def _compat_load_gguf_checkpoint(
+                gguf_path, return_tensors=False, model_to_load=None
+            ):
+                return _current(gguf_path, return_tensors=return_tensors)
+
+            _gguf_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
+            _config_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
+            _auto_tokenizer.load_gguf_checkpoint = _compat_load_gguf_checkpoint
+            _tok_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
