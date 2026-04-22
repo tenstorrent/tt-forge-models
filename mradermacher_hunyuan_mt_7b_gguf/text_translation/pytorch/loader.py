@@ -122,16 +122,16 @@ class ModelLoader(ForgeModel):
         if arch not in CONFIG_MAPPING._extra_content:
 
             class _HunyuanDenseGGUFConfig(HunYuanDenseV1Config):
-                """HunYuanDenseV1Config alias for the 'hunyuan-dense' GGUF architecture.
+                """Factory shim that bridges the 'hunyuan-dense' GGUF arch name.
 
-                The class attribute model_type='hunyuan-dense' satisfies AutoConfig.register,
-                but the instance attribute is reset to 'hunyuan_v1_dense' so that
-                AutoModelForCausalLM finds the existing HunYuanDenseV1ForCausalLM mapping.
+                AutoConfig.register needs a class with model_type='hunyuan-dense'.
+                __new__ returns an actual HunYuanDenseV1Config instance so that
+                AutoModelForCausalLM finds it in its existing class→model mapping.
                 """
 
                 model_type = arch
 
-                def __init__(self, **kwargs):
+                def __new__(cls, **kwargs):
                     # GGUF loader passes rope_theta as a flat kwarg; convert to
                     # rope_parameters dict that HunYuanDenseV1 actually reads.
                     rope_theta = kwargs.pop("rope_theta", None)
@@ -140,10 +140,7 @@ class ModelLoader(ForgeModel):
                             "rope_type": "default",
                             "rope_theta": float(rope_theta),
                         }
-                    super().__init__(**kwargs)
-                    # Reset to the canonical model_type so AutoModelForCausalLM
-                    # resolves to HunYuanDenseV1ForCausalLM via its existing mapping.
-                    self.model_type = "hunyuan_v1_dense"
+                    return HunYuanDenseV1Config(**kwargs)
 
             AutoConfig.register(arch, _HunyuanDenseGGUFConfig, exist_ok=True)
 
