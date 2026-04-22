@@ -30,7 +30,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.MEDITRON3_8B: LLMModelConfig(
-            pretrained_model_name="OpenMeditron/Meditron3-8B",
+            pretrained_model_name="akjindal53244/Llama-3.1-Storm-8B",
             max_length=128,
         ),
     }
