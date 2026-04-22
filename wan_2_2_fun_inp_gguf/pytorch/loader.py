@@ -79,6 +79,28 @@ class ModelLoader(ForgeModel):
                 except importlib.metadata.PackageNotFoundError:
                     pass
 
+                # gguf_quantizer.py was imported at collection time before gguf
+                # was installed, so its module-level conditional imports were
+                # skipped. Inject the missing symbols now.
+                import diffusers.quantizers.gguf.gguf_quantizer as _gguf_q
+
+                if not hasattr(_gguf_q, "_replace_with_gguf_linear"):
+                    from diffusers.quantizers.gguf.utils import (
+                        GGML_QUANT_SIZES,
+                        GGUFParameter,
+                        _dequantize_gguf_and_restore_linear,
+                        _quant_shape_from_byte_shape,
+                        _replace_with_gguf_linear,
+                    )
+
+                    _gguf_q.GGML_QUANT_SIZES = GGML_QUANT_SIZES
+                    _gguf_q.GGUFParameter = GGUFParameter
+                    _gguf_q._dequantize_gguf_and_restore_linear = (
+                        _dequantize_gguf_and_restore_linear
+                    )
+                    _gguf_q._quant_shape_from_byte_shape = _quant_shape_from_byte_shape
+                    _gguf_q._replace_with_gguf_linear = _replace_with_gguf_linear
+
         from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
