@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
             config=CONFIG_REPO,
             subfolder="transformer",
             torch_dtype=dtype,
-        )
+        ).to(dtype)
         self._transformer.eval()
         return self._transformer
 
