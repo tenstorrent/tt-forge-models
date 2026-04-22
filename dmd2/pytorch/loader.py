@@ -95,14 +95,14 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the DMD2 pipeline for this instance's variant.
+        """Load and return the DMD2 UNet model for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            DiffusionPipeline: The DMD2 pipeline instance with distilled UNet.
+            UNet2DConditionModel: The DMD2 distilled UNet model.
         """
         repo_name = self._variant_config.pretrained_model_name
         ckpt_name = self._CKPT_NAMES[self._variant]
@@ -112,9 +112,9 @@ class ModelLoader(ForgeModel):
 
         # Apply dtype conversion if specified
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the DMD2 model.
