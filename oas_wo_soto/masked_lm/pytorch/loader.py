@@ -11,7 +11,10 @@ et al. excluded from the training set.
 
 Reference: https://huggingface.co/WionaGlaenzer/OAS-wo-Soto
 """
-from transformers import AutoTokenizer, AutoModelForMaskedLM
+import json
+
+from huggingface_hub import hf_hub_download
+from transformers import RobertaTokenizer, AutoModelForMaskedLM
 from typing import Optional
 
 from ....base import ForgeModel
@@ -61,9 +64,16 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self):
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+        # This model has vocab.json but no merges.txt (character-level amino acid
+        # tokenizer). In transformers 5.x + tokenizers 0.21+, RobertaTokenizer
+        # fails when vocab is a filepath but merges is empty (type mismatch).
+        # Load vocab as a dict so both vocab and merges are in-memory.
+        vocab_path = hf_hub_download(
+            self._variant_config.pretrained_model_name, "vocab.json"
         )
+        with open(vocab_path) as f:
+            vocab = json.load(f)
+        self.tokenizer = RobertaTokenizer(vocab=vocab, merges=[])
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
