@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.HERMES_3_LLAMA_3_2_3B_Q4F16_1_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/Hermes-3-Llama-3.2-3B-q4f16_1-MLC",
+            pretrained_model_name="NousResearch/Hermes-3-Llama-3.2-3B",
             max_length=128,
         ),
     }
