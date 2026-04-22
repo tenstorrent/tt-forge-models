@@ -13,7 +13,7 @@ trust_remote_code.
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, Qwen2Tokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -69,12 +69,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        self.tokenizer = Qwen2Tokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
