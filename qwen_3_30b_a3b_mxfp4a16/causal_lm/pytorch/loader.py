@@ -70,32 +70,53 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _patch_mxfp4_decompressor():
+        """Patch MXFP4 decompressor to return bfloat16 zeros instead of raising.
+
+        compressed-tensors does not implement CPU MXFP4 decompression. This patch
+        returns zero weights of the correct decompressed shape so the model can
+        forward-pass on CPU for compile-only tracing.
+        """
+        try:
+            from compressed_tensors.compressors.mxfp4.base import MXFP4PackedCompressor
+
+            def _decompress_zeros(cls, state_dict, scheme):
+                packed = state_dict["weight_packed"]
+                m, n = packed.shape
+                return {"weight": torch.zeros(m, n * 2, dtype=torch.bfloat16)}
+
+            MXFP4PackedCompressor.decompress = classmethod(_decompress_zeros)
+        except ImportError:
+            pass
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        config = AutoConfig.from_pretrained(pretrained_model_name)
-
-        if self.num_layers is not None:
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-            else:
-                config.num_hidden_layers = self.num_layers
-
-        # MXFP4 CPU decompression is not supported by compressed-tensors; strip
-        # quantization so the model initialises with standard bfloat16 weights
-        # (sufficient for compile-only tracing).
-        config.quantization_config = None
-
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            if hasattr(config, "text_config"):
+                config.text_config.num_hidden_layers = self.num_layers
+            else:
+                config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
+
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_config(config, **model_kwargs).eval()
+        # MXFP4 CPU decompression is not supported; patch the decompressor to
+        # return bfloat16 zeros so the first forward pass can complete on CPU.
+        self._patch_mxfp4_decompressor()
+
+        model = AutoModelForCausalLM.from_pretrained(
+            pretrained_model_name, **model_kwargs
+        ).eval()
 
         self.config = model.config
         self.model = model
