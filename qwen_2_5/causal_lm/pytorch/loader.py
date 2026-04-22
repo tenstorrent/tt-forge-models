@@ -10,6 +10,11 @@ import torch
 from transformers import AutoTokenizer, Qwen2ForCausalLM, AutoConfig
 from typing import Optional
 
+try:
+    import gptqmodel  # noqa: F401
+except ImportError:
+    pass
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
