@@ -7,7 +7,6 @@ Tiny WhisperForConditionalGeneration LoRA model loader implementation for speech
 
 import torch
 from transformers import (
-    WhisperProcessor,
     WhisperForConditionalGeneration,
     WhisperConfig,
 )
@@ -24,7 +23,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -44,11 +42,10 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.TINY_WHISPER_LORA
 
-    BASE_MODEL_NAME = "openai/whisper-tiny"
+    BASE_MODEL_NAME = "hf-internal-testing/tiny-random-WhisperForConditionalGeneration"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
         self.model = None
 
     @classmethod
@@ -71,8 +68,6 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        self.processor = WhisperProcessor.from_pretrained(self.BASE_MODEL_NAME)
-
         base_model = WhisperForConditionalGeneration.from_pretrained(
             self.BASE_MODEL_NAME, use_cache=False, **model_kwargs
         )
@@ -89,25 +84,20 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Generate sample inputs for the model."""
-        if self.model is None or self.processor is None:
+        """Generate synthetic sample inputs for the model."""
+        if self.model is None:
             self.load_model()
 
         model_config = WhisperConfig.from_pretrained(self.BASE_MODEL_NAME)
-
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
         model_param = next(self.model.parameters())
-        device, dtype = model_param.device, dtype_override or model_param.dtype
+        device = model_param.device
+        dtype = dtype_override or model_param.dtype
 
-        # Preprocess audio
-        sampling_rate = 16000
-        processed = self.processor(
-            sample_audio, return_tensors="pt", sampling_rate=sampling_rate
+        # Synthetic mel-spectrogram: (batch, num_mel_bins, 2 * max_source_positions)
+        seq_len = 2 * model_config.max_source_positions
+        input_features = torch.zeros(
+            (1, model_config.num_mel_bins, seq_len), dtype=dtype, device=device
         )
-        input_features = processed.input_features.to(device=device, dtype=dtype)
 
         decoder_input_ids = torch.full(
             (1, 2),
@@ -115,4 +105,7 @@ class ModelLoader(ForgeModel):
             dtype=torch.long,
             device=device,
         )
-        return [input_features, decoder_input_ids]
+        return {
+            "input_features": input_features,
+            "decoder_input_ids": decoder_input_ids,
+        }
