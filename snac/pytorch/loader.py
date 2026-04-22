@@ -7,7 +7,6 @@ SNAC (Multi-Scale Neural Audio Codec) model loader implementation.
 
 import torch
 import numpy as np
-from snac import SNAC
 from typing import Optional
 
 from ...base import ForgeModel
@@ -52,6 +51,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SNAC model instance."""
+        from snac import SNAC
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model = SNAC.from_pretrained(pretrained_model_name)
