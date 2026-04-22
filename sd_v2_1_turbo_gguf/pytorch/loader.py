@@ -37,6 +37,38 @@ GGUF_REPO = "gpustack/stable-diffusion-v2-1-turbo-GGUF"
 BASE_PIPELINE = "stabilityai/sd-turbo"
 
 
+def _dequantize_non_linear_gguf_params(module, dtype):
+    """Dequantize GGUFParameter weights in non-GGUFLinear modules.
+
+    GGUFLinear handles its own dequantization on forward, but other modules
+    (e.g. GroupNorm) store raw quantized bytes and need explicit dequantization.
+    """
+    try:
+        from diffusers.quantizers.gguf.utils import (
+            GGUFLinear,
+            GGUFParameter,
+            dequantize_gguf_tensor,
+        )
+    except ImportError:
+        return
+
+    if isinstance(module, GGUFLinear):
+        return
+
+    for name, param in list(module._parameters.items()):
+        if isinstance(param, GGUFParameter):
+            with torch.no_grad():
+                dequantized = dequantize_gguf_tensor(param).to(dtype)
+            module._parameters[name] = torch.nn.Parameter(dequantized)
+
+    for name, buf in list(module._buffers.items()):
+        if buf is not None and isinstance(buf, GGUFParameter):
+            module._buffers[name] = dequantize_gguf_tensor(buf).to(dtype)
+
+    for child in module.children():
+        _dequantize_non_linear_gguf_params(child, dtype)
+
+
 class ModelVariant(StrEnum):
     """Available Stable Diffusion v2.1 Turbo GGUF variants."""
 
@@ -128,6 +160,7 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
         )
 
+        _dequantize_non_linear_gguf_params(self.pipeline.unet, compute_dtype)
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, **kwargs):
