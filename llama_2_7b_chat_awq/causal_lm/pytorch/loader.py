@@ -71,6 +71,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import gptqmodel  # noqa: F401 — pre-import to avoid meta-device import at AWQ init
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -79,7 +81,6 @@ class ModelLoader(ForgeModel):
         model_kwargs = {
             "trust_remote_code": True,
             "device_map": "cpu",
-            "low_cpu_mem_usage": False,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -99,17 +100,15 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if self.tokenizer.chat_template is not None:
+            messages = [{"role": "user", "content": self.sample_text}]
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = self.sample_text
 
         inputs = self.tokenizer(
             text,
