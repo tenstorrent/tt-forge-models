@@ -4,6 +4,7 @@
 """
 MN-VelvetCafe-RP-12B-V2 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -61,7 +62,23 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_gguf_package_mapping():
+        # transformers caches packages_distributions() at import time; if gguf
+        # is installed later (by RequirementsManager), the 'gguf' key is absent,
+        # causing is_gguf_available() to fall back to gguf.__version__ (N/A) and
+        # raise InvalidVersion. Inject the mapping entry when gguf is available.
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+            except importlib.metadata.PackageNotFoundError:
+                pass
+
     def _load_tokenizer(self, dtype_override=None):
+        self._patch_gguf_package_mapping()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
