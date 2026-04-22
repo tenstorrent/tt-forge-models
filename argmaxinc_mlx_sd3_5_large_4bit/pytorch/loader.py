@@ -12,6 +12,8 @@ Available variants:
 - 4BIT: sd3.5_large_4bit_quantized.safetensors
 """
 
+import os
+from pathlib import Path
 from typing import Any, Optional
 
 import torch
@@ -32,9 +34,10 @@ from ...config import (
 REPO_ID = "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized"
 CHECKPOINT_FILENAME = "sd3.5_large_4bit_quantized.safetensors"
 
-# SD3.5 Large transformer config source
-TRANSFORMER_CONFIG = "stabilityai/stable-diffusion-3.5-large"
-TRANSFORMER_SUBFOLDER = "transformer"
+# Local bundled transformer config to avoid the gated stabilityai/stable-diffusion-3.5-large repo
+_LOADER_DIR = Path(__file__).parent
+TRANSFORMER_CONFIG = str(_LOADER_DIR / "transformer_config")
+TRANSFORMER_SUBFOLDER = None
 
 # SD3.5 Large transformer input dimensions
 LATENT_CHANNELS = 16
@@ -90,7 +93,6 @@ class ModelLoader(ForgeModel):
             self._transformer = SD3Transformer2DModel.from_single_file(
                 checkpoint_path,
                 config=TRANSFORMER_CONFIG,
-                subfolder=TRANSFORMER_SUBFOLDER,
                 torch_dtype=dtype,
             )
             self._transformer.eval()
