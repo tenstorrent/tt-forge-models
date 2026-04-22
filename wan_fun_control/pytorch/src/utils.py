@@ -41,6 +41,28 @@ WAN_1_3B_CONFIG_REPO = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
 # ============================================================================
 
 
+def _materialize_meta_tensors(model: torch.nn.Module, dtype: torch.dtype) -> None:
+    """Replace meta tensors with empty CPU tensors (for compile-only testing)."""
+    for module in model.modules():
+        for name, param in list(module.named_parameters(recurse=False)):
+            if param.is_meta:
+                setattr(
+                    module,
+                    name,
+                    torch.nn.Parameter(
+                        torch.empty(param.shape, dtype=dtype, device="cpu"),
+                        requires_grad=False,
+                    ),
+                )
+        for name, buf in list(module.named_buffers(recurse=False)):
+            if buf.is_meta:
+                setattr(
+                    module,
+                    name,
+                    torch.empty(buf.shape, dtype=buf.dtype, device="cpu"),
+                )
+
+
 def load_transformer(
     pretrained_model_name: str,
     dtype: torch.dtype,
@@ -68,6 +90,7 @@ def load_transformer(
         pretrained_model_name,
         **load_kwargs,
     )
+    _materialize_meta_tensors(transformer, dtype)
     transformer.eval()
     return transformer
 
@@ -116,17 +139,20 @@ def load_transformer_inputs(
     """
     Prepare synthetic inputs for WanTransformer3DModel forward pass.
 
+    WanTransformer3DModel.forward expects hidden_states as a 5D video tensor
+    (batch, channels, frames, height, width) which it patches internally.
     Wan2.1-Fun Control expects 36 input channels; Wan2.2-Fun-A14B-Control
     expects 52 (the extra 16 come from the reference-conv latent).
     """
     batch_size = 1
-    seq_len = LATENT_DEPTH * LATENT_HEIGHT * LATENT_WIDTH
 
-    hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
+    hidden_states = torch.randn(
+        batch_size, in_channels, LATENT_DEPTH, LATENT_HEIGHT, LATENT_WIDTH, dtype=dtype
+    )
     encoder_hidden_states = torch.randn(
         batch_size, TEXT_SEQ_LEN, TEXT_HIDDEN_DIM, dtype=dtype
     )
-    timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+    timestep = torch.tensor([500.0], dtype=dtype).expand(batch_size)
 
     return {
         "hidden_states": hidden_states,
