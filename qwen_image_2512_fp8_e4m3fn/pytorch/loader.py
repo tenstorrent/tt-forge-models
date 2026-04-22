@@ -71,9 +71,11 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # low_cpu_mem_usage=False avoids meta-tensor dispatch which fails for FP8 checkpoints
         load_kwargs = {
             "config": UPSTREAM_REPO,
             "subfolder": "transformer",
+            "low_cpu_mem_usage": False,
         }
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
