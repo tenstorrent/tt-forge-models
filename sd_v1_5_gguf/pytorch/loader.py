@@ -88,27 +88,43 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _dequantize_non_linear_gguf_params(module, compute_dtype):
+        """Dequantize GGUFParameter weights in non-linear modules (e.g., GroupNorm).
+
+        Diffusers places raw GGUFParameter (quantized bytes) into ALL module
+        parameters, but only GGUFLinear knows how to dequantize on the fly.
+        Non-linear layers like GroupNorm need plain float tensors.
+        """
+        from diffusers.quantizers.gguf.utils import (
+            GGUFLinear,
+            GGUFParameter,
+            dequantize_gguf_tensor,
+        )
+
+        for child in module.modules():
+            if isinstance(child, GGUFLinear):
+                continue
+            for name, param in list(child.named_parameters(recurse=False)):
+                if isinstance(param, GGUFParameter):
+                    dequantized = dequantize_gguf_tensor(param).to(compute_dtype)
+                    child._parameters[name] = torch.nn.Parameter(dequantized)
+
     def load_model(
         self,
         *,
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized UNet and build the SD v1.5 pipeline.
-
-        Uses diffusers GGUFQuantizationConfig to load the quantized UNet,
-        then constructs the StableDiffusionPipeline with the base model's
-        other components.
-        """
+        """Load the GGUF-quantized UNet and build the SD v1.5 pipeline."""
         from diffusers import (
             GGUFQuantizationConfig,
             StableDiffusionPipeline,
             UNet2DConditionModel,
         )
+        from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
-
-        from huggingface_hub import hf_hub_download
 
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
@@ -120,21 +136,36 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
         )
 
+        self._dequantize_non_linear_gguf_params(unet, compute_dtype)
+
         self.pipeline = StableDiffusionPipeline.from_pretrained(
             BASE_PIPELINE,
             unet=unet,
             torch_dtype=compute_dtype,
         )
 
-        return self.pipeline
+        return self.pipeline.unet
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for Stable Diffusion v1.5.
+    def load_inputs(self, dtype_override=None, batch_size=1, **kwargs):
+        """Load and return sample inputs for the SD v1.5 UNet.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments for the UNet forward method.
         """
-        prompt = [
-            "A cinematic shot of a baby racoon wearing an intricate italian priest robe.",
-        ] * batch_size
-        return prompt
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        in_channels = 4
+        height, width = 64, 64
+        cross_attention_dim = 768
+
+        sample = torch.randn((batch_size, in_channels, height, width), dtype=dtype)
+        timestep = torch.randint(0, 1000, (1,))
+        encoder_hidden_states = torch.randn(
+            (batch_size, 77, cross_attention_dim), dtype=dtype
+        )
+
+        return {
+            "sample": sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+        }
