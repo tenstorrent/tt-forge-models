@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
 
         self.pipeline.load_lora_weights(LORA_REPO)
 
-        return self.pipeline.unet
+        return self.pipeline.unet.to(dtype)
 
     def load_inputs(self, **kwargs) -> Any:
         """Prepare synthetic UNet inputs for tilt-down motion inference.
