@@ -22,6 +22,51 @@ from ....config import (
 )
 
 
+def _patch_transformers_mistral3_gguf():
+    """Add mistral3 GGUF architecture support by aliasing it to mistral.
+
+    llama.cpp uses 'mistral3' as the architecture name for Ministral-3 models,
+    but transformers only knows 'mistral'. This patch registers the alias so
+    GGUF loading works, then remaps model_type back to 'mistral' so that
+    AutoModelForCausalLM can find MistralForCausalLM.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "mistral3" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral3"] = dict(
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral"]
+    )
+    GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "mistral3":
+            config["model_type"] = "mistral"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_mistral3_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available bartowski mistralai Ministral-3-14B-Reasoning-2512 GGUF model variants for causal language modeling."""
 
