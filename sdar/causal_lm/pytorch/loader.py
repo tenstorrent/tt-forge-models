@@ -10,12 +10,14 @@ import sys
 import textwrap
 import types
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TypedDict
 from unittest.mock import patch
 
 import torch
 import transformers.cache_utils
 import transformers.dynamic_module_utils
+import transformers.modeling_rope_utils
+import transformers.utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.dynamic_module_utils import (
     TRANSFORMERS_DYNAMIC_MODULE_NAME,
@@ -32,6 +34,66 @@ if not hasattr(transformers.cache_utils, "SlidingWindowCache"):
     sys.modules[
         "transformers.cache_utils"
     ].SlidingWindowCache = transformers.cache_utils.SlidingWindowCache
+
+# transformers 5.2.0 dropped LossKwargs; inject a stub so the model's remote code loads.
+if not hasattr(transformers.utils, "LossKwargs"):
+
+    class LossKwargs(TypedDict, total=False):
+        num_items_in_batch: int | None
+
+    transformers.utils.LossKwargs = LossKwargs
+
+
+def _default_rope_init(config, device=None, seq_len=None, **kwargs):
+    head_dim = getattr(config, "head_dim", None) or (
+        config.hidden_size // config.num_attention_heads
+    )
+    base = getattr(config, "rope_theta", 10000.0)
+    inv_freq = 1.0 / (
+        base
+        ** (
+            torch.arange(0, head_dim, 2, dtype=torch.int64).to(
+                device=device, dtype=torch.float
+            )
+            / head_dim
+        )
+    )
+    return inv_freq, 1.0
+
+
+if "default" not in transformers.modeling_rope_utils.ROPE_INIT_FUNCTIONS:
+    transformers.modeling_rope_utils.ROPE_INIT_FUNCTIONS["default"] = _default_rope_init
+
+
+def _eager_flex_attention(
+    query, key, value, attention_mask=None, scale=1.0, enable_gqa=False, **kwargs
+):
+    """Eager fallback replacing fused_flex_attention for non-CUDA environments."""
+    num_kv_groups = query.shape[1] // key.shape[1]
+    if num_kv_groups > 1:
+        key = key.repeat_interleave(num_kv_groups, dim=1)
+        value = value.repeat_interleave(num_kv_groups, dim=1)
+
+    attn_weights = torch.matmul(query, key.transpose(2, 3)) * scale
+    if attention_mask is not None and isinstance(attention_mask, torch.Tensor):
+        # Only apply if it's a 4D causal mask; 2D padding masks are not added directly.
+        if attention_mask.dim() == 4:
+            causal_mask = attention_mask[:, :, :, : key.shape[-2]]
+            attn_weights = attn_weights + causal_mask
+
+    attn_weights = torch.nn.functional.softmax(
+        attn_weights, dim=-1, dtype=torch.float32
+    ).to(query.dtype)
+    # Keep output in (batch, num_heads, seq_len, head_dim) to match flex_attention output format.
+    attn_output = torch.matmul(attn_weights, value)
+    return attn_output, None
+
+
+def _patch_sdar_module_flex_attention():
+    for key, mod in sys.modules.items():
+        if "modeling_sdar" in key and hasattr(mod, "fused_flex_attention"):
+            mod.fused_flex_attention = _eager_flex_attention
+            break
 
 
 def _rms_norm_fn_stub(x, weight, bias=None, eps=1e-6, **kwargs):
@@ -185,12 +247,20 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
+        with patch(
+            "transformers.dynamic_module_utils.get_imports", _fixed_get_imports
+        ), patch(
+            "transformers.dynamic_module_utils.get_cached_module_file",
+            _patched_get_cached_module_file,
+        ):
             config = AutoConfig.from_pretrained(
                 pretrained_model_name, trust_remote_code=True
             )
+        if not hasattr(config, "pad_token_id"):
+            config.pad_token_id = None
+        if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         with patch(
             "transformers.dynamic_module_utils.get_imports", _fixed_get_imports
@@ -205,6 +275,7 @@ class ModelLoader(ForgeModel):
                 **model_kwargs,
             ).eval()
 
+        _patch_sdar_module_flex_attention()
         self.config = model.config
         self.model = model
         return model
