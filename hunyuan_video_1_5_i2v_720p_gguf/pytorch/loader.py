@@ -122,6 +122,18 @@ class ModelLoader(ForgeModel):
             GGUFQuantizationConfig,
             HunyuanVideo15Transformer3DModel,
         )
+        from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
+        from diffusers.loaders.single_file_utils import (
+            convert_hunyuan_video_transformer_to_diffusers,
+        )
+
+        # HunyuanVideo15Transformer3DModel is not registered in diffusers'
+        # SINGLE_FILE_LOADABLE_CLASSES, so patch it in before loading.
+        if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
+            SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
+                "checkpoint_mapping_fn": convert_hunyuan_video_transformer_to_diffusers,
+                "default_subfolder": "transformer",
+            }
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
@@ -129,7 +141,7 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
