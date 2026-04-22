@@ -17,7 +17,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from medvae import MVAE  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -92,6 +91,8 @@ class ModelLoader(ForgeModel):
         Returns:
             MVAE instance for medical image encoding/decoding.
         """
+        from medvae import MVAE  # type: ignore[import]
+
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._model is None:
             self._model = MVAE(
