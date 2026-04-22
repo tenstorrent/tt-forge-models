@@ -15,18 +15,18 @@ import transformers.tokenization_utils_tokenizers as _tok_utils
 
 
 def _find_true_orig_load_gguf_checkpoint():
-    """Traverse closure chain to find the original transformers load_gguf_checkpoint.
+    """Walk the __globals__ chain to find the original transformers load_gguf_checkpoint.
 
-    Other GGUF loaders monkey-patch load_gguf_checkpoint with a fixed signature that
-    drops model_to_load. This traverses the closure chain to find the true original
-    so we can restore model_to_load support.
+    Other GGUF loaders monkey-patch load_gguf_checkpoint and capture the previous
+    version via module-level `from X import Y as _orig_load_gguf_checkpoint`, which
+    lands in __globals__, not __closure__. Walk that chain until we find the function
+    whose __module__ is the real transformers utils module.
     """
+    func = _gguf_utils.load_gguf_checkpoint
     seen = set()
-    queue = [_gguf_utils.load_gguf_checkpoint]
-    while queue:
-        func = queue.pop(0)
+    while True:
         if id(func) in seen:
-            continue
+            break
         seen.add(id(func))
         if (
             getattr(func, "__module__", "")
@@ -34,33 +34,46 @@ def _find_true_orig_load_gguf_checkpoint():
             and getattr(func, "__name__", "") == "load_gguf_checkpoint"
         ):
             return func
-        if hasattr(func, "__closure__") and func.__closure__:
-            for cell in func.__closure__:
-                try:
-                    val = cell.cell_contents
-                    if callable(val):
-                        queue.append(val)
-                except ValueError:
-                    pass
+        next_func = getattr(func, "__globals__", {}).get("_orig_load_gguf_checkpoint")
+        if next_func is None or not callable(next_func):
+            break
+        func = next_func
     return _gguf_utils.load_gguf_checkpoint
 
 
 _true_orig_load_gguf_checkpoint = _find_true_orig_load_gguf_checkpoint()
 
 
-def _patched_load_gguf_checkpoint(
-    gguf_checkpoint_path, return_tensors=False, model_to_load=None
-):
-    """Restore model_to_load support broken by other GGUF loader patches."""
-    return _true_orig_load_gguf_checkpoint(
-        gguf_checkpoint_path, return_tensors=return_tensors, model_to_load=model_to_load
-    )
+def _install_model_to_load_patch():
+    """Install a patch that restores model_to_load support at the top of the chain."""
+
+    def _patched(gguf_checkpoint_path, return_tensors=False, model_to_load=None):
+        return _true_orig_load_gguf_checkpoint(
+            gguf_checkpoint_path,
+            return_tensors=return_tensors,
+            model_to_load=model_to_load,
+        )
+
+    prev = {
+        "gguf": _gguf_utils.load_gguf_checkpoint,
+        "config": _config_utils.load_gguf_checkpoint,
+        "auto_tok": _auto_tokenizer.load_gguf_checkpoint,
+        "tok": _tok_utils.load_gguf_checkpoint,
+    }
+    _gguf_utils.load_gguf_checkpoint = _patched
+    _config_utils.load_gguf_checkpoint = _patched
+    _auto_tokenizer.load_gguf_checkpoint = _patched
+    _tok_utils.load_gguf_checkpoint = _patched
+    return prev
 
 
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+def _restore_patch(prev):
+    """Restore the previous top-of-chain patch."""
+    _gguf_utils.load_gguf_checkpoint = prev["gguf"]
+    _config_utils.load_gguf_checkpoint = prev["config"]
+    _auto_tokenizer.load_gguf_checkpoint = prev["auto_tok"]
+    _tok_utils.load_gguf_checkpoint = prev["tok"]
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -121,9 +134,14 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        prev = _install_model_to_load_patch()
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
+        finally:
+            _restore_patch(prev)
+
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -148,9 +166,13 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        prev = _install_model_to_load_patch()
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _restore_patch(prev)
 
         self.config = model.config
         self.model = model
