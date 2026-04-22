@@ -9,7 +9,6 @@ from typing import Optional
 from dataclasses import dataclass
 
 import timm
-from transformers import MobileViTv2ForImageClassification
 from datasets import load_dataset
 
 from ...config import (
@@ -84,6 +83,8 @@ class ModelLoader(ForgeModel):
         if source == ModelSource.TIMM:
             model = timm.create_model(model_name, pretrained=True)
         else:
+            from transformers import MobileViTv2ForImageClassification
+
             model = MobileViTv2ForImageClassification.from_pretrained(
                 model_name, **kwargs
             )
