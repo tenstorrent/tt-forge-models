@@ -159,4 +159,7 @@ class ModelLoader(ForgeModel):
             dtype=torch.long,
         )
 
-        return [input_features, decoder_input_ids]
+        return {
+            "input_features": input_features,
+            "decoder_input_ids": decoder_input_ids,
+        }
