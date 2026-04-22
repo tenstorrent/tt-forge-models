@@ -12,11 +12,10 @@ Available variants:
 - QIE_2509_OBJECT_REMOVER_BBOX_V3: Object Remover (Bbox) LoRA
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import torch
 from diffusers import DiffusionPipeline
-from diffusers.utils import load_image
 
 from ...base import ForgeModel
 from ...config import (
@@ -51,7 +50,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -70,25 +69,50 @@ class ModelLoader(ForgeModel):
         """Load the Qwen-Image-Edit-2509 pipeline with Object Remover Bbox LoRA weights.
 
         Returns:
-            DiffusionPipeline: The pipeline with LoRA adapter applied.
+            QwenImageTransformer2DModel with LoRA weights fused.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
-        self.pipeline = DiffusionPipeline.from_pretrained(
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        pipe = DiffusionPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
-            **kwargs,
         )
-        self.pipeline.load_lora_weights(LORA_REPO_ID)
-        return self.pipeline
+        pipe.load_lora_weights(LORA_REPO_ID)
+        pipe.fuse_lora()
+        self._transformer = pipe.transformer
+        self._transformer.eval()
+        del pipe
+        return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Load sample inputs for the image editing pipeline.
+    def load_inputs(self, **kwargs) -> Dict[str, Any]:
+        """Prepare synthetic tensor inputs for the QwenImageTransformer2DModel.
 
         Returns:
-            dict: A dict with 'image' and 'prompt' keys.
+            dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        image = load_image(
-            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png"
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        batch_size = kwargs.get("batch_size", 1)
+
+        # From Qwen-Image-Edit-2509 transformer config: in_channels=64, joint_attention_dim=3584
+        img_dim = 64
+        text_dim = 3584
+        txt_seq_len = 32
+
+        # img_seq_len must equal frame * height * width for positional encoding
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
         )
-        prompt = "Remove the red highlighted object from the scene."
-        return {"image": image, "prompt": prompt}
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_shapes = [(frame, height, width)] * batch_size
+
+        return {
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
+        }
