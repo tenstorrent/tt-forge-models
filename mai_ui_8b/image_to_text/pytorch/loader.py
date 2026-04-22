@@ -73,8 +73,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         else:
-            model_kwargs["torch_dtype"] = torch.bfloat16
-        model_kwargs["device_map"] = "auto"
+            model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
@@ -107,9 +106,5 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
-
-        target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        if "pixel_values" in inputs:
-            inputs["pixel_values"] = inputs["pixel_values"].to(target_dtype)
 
         return inputs
