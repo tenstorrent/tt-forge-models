@@ -6,8 +6,7 @@ LightOnOCR-2-1B ocr-soup GGUF model loader implementation for image-to-text OCR 
 """
 
 import torch
-import transformers.modeling_gguf_pytorch_utils as _gguf_utils
-from transformers import AutoProcessor, AutoConfig, LightOnOcrForConditionalGeneration
+from transformers import AutoProcessor, LightOnOcrForConditionalGeneration
 from typing import Optional
 
 from ....base import ForgeModel
@@ -39,7 +38,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LIGHTON_OCR_2_1B_OCR_SOUP_GGUF
 
-    GGUF_FILE = "LightOnOCR-2-1B-ocr-soup-Q4_K_M.gguf"
+    # The GGUF repo only contains the Qwen3 language backbone; the full
+    # multimodal model (with vision encoder) must be loaded from the base repo.
+    BASE_MODEL_NAME = "lightonai/LightOnOCR-2-1B-ocr-soup"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -57,50 +58,21 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
-        # GGUF repos do not ship a processor; use the base model
-        kwargs = {}
-        if dtype_override is not None:
-            kwargs["torch_dtype"] = dtype_override
-
-        self.processor = AutoProcessor.from_pretrained(
-            "lightonai/LightOnOCR-2-1B-ocr-soup", **kwargs
-        )
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL_NAME)
         return self.processor
 
-    BASE_MODEL_NAME = "lightonai/LightOnOCR-2-1B-ocr-soup"
-
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF stores qwen3 architecture; pass explicit config from the base
-        # multimodal model so the correct LightOnOcrConfig is used.
-        config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
-
-        # Some GGUF loaders patch _gguf_utils.load_gguf_checkpoint with a
-        # wrapper that doesn't accept the model_to_load kwarg added in newer
-        # transformers. Wrap the current function to absorb that kwarg.
-        _saved_fn = _gguf_utils.load_gguf_checkpoint
-
-        def _compat(gguf_path, return_tensors=False, **_kw):
-            return _saved_fn(gguf_path, return_tensors=return_tensors)
-
-        _gguf_utils.load_gguf_checkpoint = _compat
-        try:
-            model = LightOnOcrForConditionalGeneration.from_pretrained(
-                pretrained_model_name, config=config, **model_kwargs
-            )
-        finally:
-            _gguf_utils.load_gguf_checkpoint = _saved_fn
-
+        model = LightOnOcrForConditionalGeneration.from_pretrained(
+            self.BASE_MODEL_NAME, **model_kwargs
+        )
         model.eval()
         return model
 
