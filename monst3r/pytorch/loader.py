@@ -33,6 +33,8 @@ MONST3R_REPO_PATH = "/tmp/monst3r_repo"
 
 def _ensure_monst3r_importable():
     """Ensure the monst3r repo is cloned and importable."""
+    import site
+
     if not os.path.isdir(MONST3R_REPO_PATH):
         import subprocess
 
@@ -49,6 +51,26 @@ def _ensure_monst3r_importable():
 
     if MONST3R_REPO_PATH not in sys.path:
         sys.path.insert(0, MONST3R_REPO_PATH)
+
+    # The project has its own `evo/` model directory that shadows the pip-installed
+    # evo trajectory-evaluation package required by dust3r. Pre-load the real evo
+    # from site-packages so dust3r's `import evo.main_ape` resolves via sys.modules.
+    site_pkgs = site.getsitepackages()
+    real_evo_loaded = "evo" in sys.modules and any(
+        sp in (getattr(sys.modules["evo"], "__file__", "") or "") for sp in site_pkgs
+    )
+    if not real_evo_loaded:
+        for sp in site_pkgs:
+            if os.path.isdir(os.path.join(sp, "evo")):
+                for key in list(sys.modules.keys()):
+                    if key == "evo" or key.startswith("evo."):
+                        del sys.modules[key]
+                sys.path.insert(0, sp)
+                try:
+                    import evo.main_ape  # noqa: F401
+                finally:
+                    sys.path.remove(sp)
+                break
 
 
 class ModelVariant(StrEnum):
