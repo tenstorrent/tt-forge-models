@@ -5,10 +5,8 @@
 """
 VACE-Wan2.1-1.3B-Preview model loader implementation.
 
-Loads the ali-vilab/VACE-Wan2.1-1.3B-Preview all-in-one video creation and
-editing model and constructs a WanVACEPipeline for reference-to-video
-generation. The preview repo packages the original Wan2.1-T2V-1.3B weights
-fine-tuned with the VACE adapter.
+Loads the Wan-AI/Wan2.1-VACE-1.3B-diffusers model and constructs a
+WanVACEPipeline for reference-to-video generation.
 """
 
 from typing import Any, Optional
@@ -39,7 +37,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.VACE_WAN_2_1_1_3B_PREVIEW: ModelConfig(
-            pretrained_model_name="ali-vilab/VACE-Wan2.1-1.3B-Preview",
+            pretrained_model_name="Wan-AI/Wan2.1-VACE-1.3B-diffusers",
         ),
     }
 
@@ -74,19 +72,13 @@ class ModelLoader(ForgeModel):
         **kwargs,
     ):
         """Load the VACE-Wan2.1-1.3B-Preview pipeline."""
-        from diffusers import AutoencoderKLWan, WanVACEPipeline
+        from diffusers import WanVACEPipeline
 
         dtype = dtype_override if dtype_override is not None else torch.float32
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        vae = AutoencoderKLWan.from_pretrained(
-            pretrained_model_name,
-            subfolder="vae",
-            torch_dtype=torch.float32,
-        )
         self.pipeline = WanVACEPipeline.from_pretrained(
             pretrained_model_name,
-            vae=vae,
             torch_dtype=dtype,
         )
         return self.pipeline
