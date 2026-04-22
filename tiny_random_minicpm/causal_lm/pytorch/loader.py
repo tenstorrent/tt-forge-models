@@ -82,6 +82,15 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    def _patch_config(self, config):
+        # Transformers 5.x injects a new-style rope_scaling dict (with rope_type key)
+        # but this model's custom code only handles None or {"type", "factor"} format.
+        if (
+            isinstance(getattr(config, "rope_scaling", None), dict)
+            and "type" not in config.rope_scaling
+        ):
+            config.rope_scaling = None
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -93,12 +102,13 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        self._patch_config(config)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
@@ -138,4 +148,5 @@ class ModelLoader(ForgeModel):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
+        self._patch_config(self.config)
         return self.config
