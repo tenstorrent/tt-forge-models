@@ -135,9 +135,10 @@ class ModelLoader(ForgeModel):
             num_frames, dim=0
         )
 
-        # UNetMotionModel expects (batch, num_frames, channels, height, width)
+        # UNetMotionModel.forward internally uses sample.shape[2] as num_frames,
+        # so the expected shape is (batch, channels, num_frames, height, width).
         sample = torch.randn(
-            1, num_frames, in_channels, sample_size, sample_size, dtype=dtype
+            1, in_channels, num_frames, sample_size, sample_size, dtype=dtype
         )
         timestep = torch.tensor([1.0], dtype=dtype)
 
