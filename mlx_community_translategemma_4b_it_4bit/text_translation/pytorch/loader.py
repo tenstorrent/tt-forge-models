@@ -8,7 +8,7 @@ A 4-bit MLX-quantized variant of google/translategemma-4b-it, a Gemma3
 conditional generation model fine-tuned for multilingual translation.
 """
 import torch
-from transformers import AutoModelForImageTextToText, AutoTokenizer
+from transformers import AutoConfig, AutoModelForImageTextToText, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -83,14 +83,14 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {"return_dict": False, "ignore_mismatched_sizes": True}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        # Strip MLX quantization config — it uses a format without `quant_method`
+        # that is incompatible with HuggingFace's standard PyTorch quantizers.
+        config.quantization_config = None
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        model = AutoModelForImageTextToText.from_config(config)
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
         self.model = model
         self.config = model.config
