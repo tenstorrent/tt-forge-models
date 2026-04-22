@@ -18,7 +18,14 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from diffusers import VersatileDiffusionTextToImagePipeline
+from diffusers import AutoencoderKL, DDIMScheduler, UNet2DConditionModel
+from diffusers.pipelines.deprecated.versatile_diffusion.modeling_text_unet import (
+    UNetFlatConditionModel,
+)
+from diffusers.pipelines.deprecated.versatile_diffusion.pipeline_versatile_diffusion_text_to_image import (
+    VersatileDiffusionTextToImagePipeline,
+)
+from transformers import CLIPTextModelWithProjection, CLIPTokenizer
 
 
 class ModelVariant(StrEnum):
@@ -73,6 +80,10 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Versatile Diffusion text-to-image pipeline from Hugging Face.
 
+        Loads each component individually to work around a diffusers compatibility
+        issue where newer diffusers versions no longer recognize the 'versatile_diffusion'
+        module reference in model_index.json during from_pretrained validation.
+
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use torch.bfloat16.
@@ -81,8 +92,30 @@ class ModelLoader(ForgeModel):
             VersatileDiffusionTextToImagePipeline: The pre-trained Versatile Diffusion pipeline object.
         """
         dtype = dtype_override or torch.bfloat16
-        pipe = VersatileDiffusionTextToImagePipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
+        model_name = self._variant_config.pretrained_model_name
+
+        tokenizer = CLIPTokenizer.from_pretrained(model_name, subfolder="tokenizer")
+        text_encoder = CLIPTextModelWithProjection.from_pretrained(
+            model_name, subfolder="text_encoder", torch_dtype=dtype
+        )
+        image_unet = UNet2DConditionModel.from_pretrained(
+            model_name, subfolder="image_unet", torch_dtype=dtype
+        )
+        text_unet = UNetFlatConditionModel.from_pretrained(
+            model_name, subfolder="text_unet", torch_dtype=dtype
+        )
+        vae = AutoencoderKL.from_pretrained(
+            model_name, subfolder="vae", torch_dtype=dtype
+        )
+        scheduler = DDIMScheduler.from_pretrained(model_name, subfolder="scheduler")
+
+        pipe = VersatileDiffusionTextToImagePipeline(
+            tokenizer=tokenizer,
+            text_encoder=text_encoder,
+            image_unet=image_unet,
+            text_unet=text_unet,
+            vae=vae,
+            scheduler=scheduler,
         )
         return pipe
 
