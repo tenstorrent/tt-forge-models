@@ -114,7 +114,7 @@ class ModelLoader(ForgeModel):
         loads its ``generator_ema`` state dict into the pipeline's transformer.
 
         Returns:
-            WanPipeline with Self-Forcing transformer weights.
+            WanTransformer3DModel with Self-Forcing generator_ema weights.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -137,19 +137,34 @@ class ModelLoader(ForgeModel):
         generator_state = state_dict.get("generator_ema", state_dict)
         self.pipeline.transformer.load_state_dict(generator_state, strict=False)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation.
+        """Prepare inputs for the WanTransformer3DModel forward pass.
 
         Returns:
-            dict with prompt plus small test-friendly resolution/frame settings.
+            dict with hidden_states, timestep, and encoder_hidden_states tensors.
         """
+        if self.pipeline is None:
+            self.load_model(**kwargs)
+
+        transformer = self.pipeline.transformer
+        in_channels = transformer.config.in_channels
+        text_dim = transformer.config.text_dim
+        p_t, p_h, p_w = transformer.config.patch_size
+
+        # Small test-friendly latent: 1 frame, 8x8 spatial (divisible by patch_size)
+        num_frames = p_t
+        height = p_h * 4
+        width = p_w * 4
+
+        hidden_states = torch.randn(1, in_channels, num_frames, height, width)
+        timestep = torch.randint(0, 1000, (1,), dtype=torch.long)
+        encoder_hidden_states = torch.randn(1, 16, text_dim)
+
         return {
-            "prompt": prompt if prompt is not None else self.DEFAULT_PROMPT,
-            "height": 480,
-            "width": 832,
-            "num_frames": 21,
-            "num_inference_steps": 4,
-            "guidance_scale": 1.0,
+            "hidden_states": hidden_states,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+            "return_dict": False,
         }
