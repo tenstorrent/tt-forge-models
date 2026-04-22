@@ -33,22 +33,20 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Megamind VL model loader implementation for image to text tasks."""
 
+    _BASE_MODEL = "digitranslab/Megamind-v2-VL-high"
+
     _VARIANTS = {
         ModelVariant.MEGAMIND_V2_VL_HIGH: LLMModelConfig(
             pretrained_model_name="digitranslab/Megamind-v2-VL-high",
             max_length=128,
         ),
         ModelVariant.MEGAMIND_V2_VL_HIGH_GGUF: LLMModelConfig(
-            pretrained_model_name="digitranslab/Megamind-v2-VL-high-gguf",
+            pretrained_model_name="digitranslab/Megamind-v2-VL-high",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.MEGAMIND_V2_VL_HIGH
-
-    _GGUF_FILES = {
-        ModelVariant.MEGAMIND_V2_VL_HIGH_GGUF: "Megamind-v2-VL-high-Q4_K_M.gguf",
-    }
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -68,9 +66,6 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _is_gguf_variant(self):
-        return self._variant in self._GGUF_FILES
-
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -81,18 +76,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["dtype"] = "auto"
             model_kwargs["device_map"] = "auto"
 
-        if self._is_gguf_variant():
-            model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
-
         model_kwargs |= kwargs
 
-        if self._is_gguf_variant():
-            # GGUF repos do not ship a processor; use the base model
-            self.processor = AutoProcessor.from_pretrained(
-                "digitranslab/Megamind-v2-VL-high"
-            )
-        else:
-            self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
