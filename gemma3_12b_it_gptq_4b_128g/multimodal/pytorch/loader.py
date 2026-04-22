@@ -95,9 +95,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # compressed_tensors uses re.match (anchors to start) for ignore patterns,
-        # but Gemma3's named_modules() prefixes all paths with "model.".
-        # Extend ignore patterns to include the "model." prefix so vision_tower
-        # and multi_modal_projector are correctly excluded from quantization.
+        # but Gemma3ForConditionalGeneration nests modules under "model." and has
+        # lm_head directly at the root (not under "language_model.").
+        # Extend ignore patterns with "model." prefix and bare basename variants
+        # so vision_tower, multi_modal_projector, and lm_head are correctly excluded.
         config = AutoConfig.from_pretrained(pretrained_model_name)
         if isinstance(getattr(config, "quantization_config", None), dict):
             qconf = config.quantization_config
@@ -108,6 +109,11 @@ class ModelLoader(ForgeModel):
                     extended.append("re:model." + pattern[3:])
                 else:
                     extended.append("model." + pattern)
+                    # Also add the last path component to handle architecture
+                    # differences (e.g., "language_model.lm_head" → "lm_head")
+                    basename = pattern.rsplit(".", 1)[-1]
+                    if basename != pattern:
+                        extended.append(basename)
             qconf["ignore"] = extended
             model_kwargs["config"] = config
 
