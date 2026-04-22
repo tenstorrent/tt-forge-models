@@ -11,7 +11,7 @@ Available variants:
 - ROBIN_7B_V2_DELTA: OptimalScale/robin-7b-v2-delta
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoConfig, LlamaTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -67,13 +67,13 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        # tokenizer_config.json has empty strings for special tokens; pass them
+        # explicitly so the fast tokenizer's post-processor can find their IDs
+        self.tokenizer = LlamaTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            **tokenizer_kwargs,
+            bos_token="<s>",
+            eos_token="</s>",
+            unk_token="<unk>",
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
