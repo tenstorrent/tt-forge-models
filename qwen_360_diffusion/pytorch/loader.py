@@ -135,8 +135,8 @@ class ModelLoader(ForgeModel):
 
         # From Qwen-Image transformer config: in_channels=64
         img_dim = 64
-        # joint_attention_dim from config = 4096
-        text_dim = 4096
+        # joint_attention_dim from config = 3584
+        text_dim = 3584
         txt_seq_len = 32
 
         # img_seq_len must equal frame * height * width for positional encoding
