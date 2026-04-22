@@ -89,13 +89,14 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
-        if (
-            config.rope_scaling is not None
-            and isinstance(config.rope_scaling, dict)
-            and "type" not in config.rope_scaling
-            and "rope_type" in config.rope_scaling
-        ):
-            config.rope_scaling["type"] = config.rope_scaling["rope_type"]
+        if isinstance(config.rope_scaling, dict):
+            rope_type = config.rope_scaling.get(
+                "type", config.rope_scaling.get("rope_type", "default")
+            )
+            if rope_type == "default":
+                config.rope_scaling = None
+            elif "type" not in config.rope_scaling:
+                config.rope_scaling["type"] = rope_type
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
