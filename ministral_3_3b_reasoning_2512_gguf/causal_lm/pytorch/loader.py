@@ -40,14 +40,11 @@ def _patch_mistral3_support():
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
-    """Wrap load_gguf_checkpoint to add mistral3 support and fix model_type."""
+    """Wrap load_gguf_checkpoint to add mistral3 support."""
     _patch_mistral3_support()
-    result = _orig_load_gguf_checkpoint(
+    return _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, **kwargs
     )
-    if result.get("config", {}).get("model_type") == "mistral3":
-        result["config"]["model_type"] = "mistral"
-    return result
 
 
 _patch_mistral3_support()
