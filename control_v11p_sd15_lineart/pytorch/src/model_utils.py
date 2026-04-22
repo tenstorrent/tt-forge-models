@@ -144,6 +144,7 @@ def controlnet_sd15_lineart_preprocessing(
             width // pipe.vae_scale_factor,
         ),
         device=device,
+        dtype=pipe.unet.dtype,
     )
     latents = latents * pipe.scheduler.init_noise_sigma
 
