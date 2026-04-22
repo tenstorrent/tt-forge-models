@@ -8,6 +8,7 @@ RoboBrain2.5-4B i1 GGUF model loader implementation for image to text.
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
+    AutoConfig,
 )
 from typing import Optional
 
@@ -71,6 +72,9 @@ class ModelLoader(ForgeModel):
 
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("BAAI/RoboBrain2.5-4B")
+
+        # The GGUF repo config has wrong vision out_hidden_size; use the base model config
+        model_kwargs["config"] = AutoConfig.from_pretrained("BAAI/RoboBrain2.5-4B")
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
