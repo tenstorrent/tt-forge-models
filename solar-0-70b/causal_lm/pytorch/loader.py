@@ -5,6 +5,8 @@
 SOLAR-0-70B causal LM model loader implementation.
 """
 
+import os
+
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
@@ -111,9 +113,18 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.num_hidden_layers = 4
+            config.hidden_size = 1024
+            config.num_attention_heads = 16
+            config.num_key_value_heads = 2
+            config.intermediate_size = 4096
+            model = AutoModelForCausalLM.from_config(config, **model_kwargs)
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
         model.eval()
         self.config = model.config
         self.model = model
@@ -178,7 +189,12 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         """Load and return the configuration for the model variant."""
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config.num_hidden_layers = 4
+            config.hidden_size = 1024
+            config.num_attention_heads = 16
+            config.num_key_value_heads = 2
+            config.intermediate_size = 4096
+        self.config = config
         return self.config
