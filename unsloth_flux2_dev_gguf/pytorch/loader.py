@@ -9,12 +9,16 @@ unsloth/FLUX.2-dev-GGUF. The GGUF transformer is loaded via diffusers'
 Flux2Transformer2DModel.from_single_file.
 """
 
+from pathlib import Path
 from typing import Optional
 
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import Flux2Transformer2DModel
 from huggingface_hub import hf_hub_download
+
+_HERE = Path(__file__).parent
+_TRANSFORMER_CONFIG_DIR = str(_HERE / "transformer_config")
 
 from ...base import ForgeModel
 from ...config import (
@@ -94,6 +98,7 @@ class ModelLoader(ForgeModel):
         local_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
         self.transformer = Flux2Transformer2DModel.from_single_file(
             local_path,
+            config=_TRANSFORMER_CONFIG_DIR,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
