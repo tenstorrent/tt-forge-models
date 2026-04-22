@@ -10,7 +10,6 @@ regressors. Like TabPFN it performs in-context learning: training samples and
 test samples are passed through the transformer together in a single forward
 pass.
 """
-import json
 from typing import Optional
 
 import torch
@@ -58,7 +57,7 @@ class TabPFNMixWrapper(nn.Module):
         Returns:
             Tensor: Regression predictions for each test sample.
         """
-        return self.model(x_src=self.x_src, y_src=self.y_src, x_tgt=x_tgt)
+        return self.model(self.x_src, self.y_src, x_tgt)
 
 
 class ModelLoader(ForgeModel):
@@ -93,60 +92,37 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load TabPFNMix regressor weights from HuggingFace and wrap for tracing.
 
         Returns:
             torch.nn.Module: The wrapped TabPFNMix regressor model instance.
         """
-        from autogluon.tabular.models.tabpfnmix._internal.core.tabpfn_model.tabpfn import (
-            TabPFN,
+        from autogluon.tabular.models.tabpfnmix._internal.models.foundation.foundation_transformer import (
+            FoundationTransformer,
         )
-        from huggingface_hub import hf_hub_download
-        from safetensors.torch import load_file
 
         repo_id = self._variant_config.pretrained_model_name
-        config_path = hf_hub_download(repo_id=repo_id, filename="config.json")
-        weights_path = hf_hub_download(repo_id=repo_id, filename="model.safetensors")
-
-        with open(config_path) as f:
-            config = json.load(f)
-
-        model = TabPFN(
-            n_features=config["n_features"],
-            n_classes=config["n_classes"],
-            dim=config["dim"],
-            n_layers=config["n_layers"],
-            n_heads=config["n_heads"],
-            attn_dropout=config["attn_dropout"],
-            task=config["task"],
-            y_as_float_embedding=config["y_as_float_embedding"],
-        )
-        model.load_state_dict(load_file(weights_path))
+        model = FoundationTransformer.from_pretrained(repo_id)
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
-        # Generate deterministic in-context training data
+        # Generate deterministic in-context training data; FoundationTransformer
+        # expects a batch dimension: (batch, n_samples, n_features).
+        # dtype_override is intentionally not supported: autogluon's
+        # FoundationEmbeddingYFloat hard-codes float32 internally.
         torch.manual_seed(42)
-        dtype = dtype_override if dtype_override is not None else torch.float32
-        x_src = torch.randn(self._N_TRAIN, self._N_FEATURES, dtype=dtype)
-        y_src = torch.randn(self._N_TRAIN, dtype=dtype)
+        x_src = torch.randn(1, self._N_TRAIN, self._N_FEATURES)
+        y_src = torch.randn(1, self._N_TRAIN)
 
         wrapper = TabPFNMixWrapper(model, x_src, y_src)
         wrapper.eval()
         return wrapper
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         """Prepare sample test inputs for the TabPFNMix regressor.
 
         Returns:
-            torch.Tensor: Test features tensor (n_test_samples, n_features).
+            torch.Tensor: Test features tensor (batch, n_test_samples, n_features).
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
-
         torch.manual_seed(123)
-        x_tgt = torch.randn(self._N_TEST, self._N_FEATURES, dtype=dtype)
-
-        return x_tgt
+        return torch.randn(1, self._N_TEST, self._N_FEATURES)
