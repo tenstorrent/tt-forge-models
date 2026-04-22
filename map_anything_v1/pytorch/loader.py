@@ -65,9 +65,11 @@ class MapAnythingWrapper(torch.nn.Module):
         self.model = model
 
     def forward(self, pixel_values):
-        # pixel_values is [B, 3, H, W], already DINOv2-normalized
-        views = [{"img": pixel_values, "data_norm_type": ["dinov2"]}]
-        # Disable AMP as CPU autocast with bfloat16 is not supported
+        # pixel_values is [B, 3, H, W], already DINOv2-normalized.
+        # Cast to float32: the model has internal float32 tensor creation
+        # (from integer+float arithmetic) incompatible with bfloat16 without AMP,
+        # and CPU bfloat16 AMP conflicts with the TT XLA torch function override.
+        views = [{"img": pixel_values.float(), "data_norm_type": ["dinov2"]}]
         predictions = self.model.infer(views, use_amp=False)
         return predictions[0]["pts3d"]
 
@@ -112,8 +114,9 @@ class ModelLoader(ForgeModel):
         model = MapAnything.from_pretrained(repo_id)
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        # Keep model in float32: it creates float32 tensors internally (from
+        # integer+float arithmetic in pose normalization) that are incompatible
+        # with bfloat16 model weights without AMP.
 
         return MapAnythingWrapper(model)
 
