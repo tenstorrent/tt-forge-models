@@ -142,6 +142,23 @@ class ModelLoader(ForgeModel):
             PreTrainedModel.get_init_context = _orig_get_init_ctx
             PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust
 
+        # Re-register non-persistent BERT buffers that may remain on meta device
+        # after checkpoint loading (they are not saved in the checkpoint).
+        for module in model.modules():
+            if hasattr(module, "position_ids"):
+                seq_len = module.position_ids.shape[-1]
+                module.register_buffer(
+                    "position_ids",
+                    torch.arange(seq_len).expand((1, -1)),
+                    persistent=False,
+                )
+            if hasattr(module, "token_type_ids"):
+                module.register_buffer(
+                    "token_type_ids",
+                    torch.zeros(module.position_ids.size(), dtype=torch.long),
+                    persistent=False,
+                )
+
         if dtype_override is not None:
             model = model.to(dtype_override)
         model.eval()
