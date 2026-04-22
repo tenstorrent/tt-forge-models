@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import torch
-from diffusers import QwenImageTransformer2DModel
+from diffusers import GGUFQuantizationConfig, QwenImageTransformer2DModel
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -97,9 +97,11 @@ class ModelLoader(ForgeModel):
         )
 
         config_dir = str(_LOADER_DIR / "transformer_config")
+        quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
         self._transformer = QwenImageTransformer2DModel.from_single_file(
             model_path,
             config=config_dir,
+            quantization_config=quantization_config,
             torch_dtype=dtype,
         )
         self._transformer.eval()
@@ -119,8 +121,8 @@ class ModelLoader(ForgeModel):
         dtype = kwargs.get("dtype_override", torch.float32)
         batch_size = kwargs.get("batch_size", 1)
 
-        # From model config: in_channels=128 (img_in linear input dimension)
-        img_dim = 128
+        # From model config: in_channels=64 (img_in linear input dimension)
+        img_dim = 64
         # joint_attention_dim from config = 3584
         text_dim = 3584
         txt_seq_len = 32
