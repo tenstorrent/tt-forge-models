@@ -8,9 +8,11 @@ Supports distilled variants of DeepSeek-R1 that are compatible with
 HuggingFace Transformers (the full 671B MoE model is not).
 """
 
+import os
 from typing import Optional
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -150,6 +152,19 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if os.environ.get("TT_RANDOM_WEIGHTS") and self._variant in (
+            ModelVariant.DISTILL_LLAMA_70B,
+            ModelVariant.DISTILL_LLAMA_70B_BNB_4BIT,
+        ):
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            model = AutoModelForCausalLM.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+            self.config = config
+            return model.eval()
+
         model_kwargs = {
             "trust_remote_code": True,
         }
@@ -167,7 +182,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["device_map"] = "cpu"
 
         model = AutoModelForCausalLM.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
 
         if self.tokenizer is None:
@@ -176,6 +191,19 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        max_length = self._variant_config.max_length
+
+        if os.environ.get("TT_RANDOM_WEIGHTS") and self._variant in (
+            ModelVariant.DISTILL_LLAMA_70B,
+            ModelVariant.DISTILL_LLAMA_70B_BNB_4BIT,
+        ):
+            vocab_size = (
+                getattr(self.config, "vocab_size", 128256) if self.config else 128256
+            )
+            input_ids = torch.randint(0, vocab_size, (batch_size, max_length))
+            attention_mask = torch.ones(batch_size, max_length, dtype=torch.long)
+            return {"input_ids": input_ids, "attention_mask": attention_mask}
+
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
@@ -189,3 +217,19 @@ class ModelLoader(ForgeModel):
             inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
+
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        return shard_specs
