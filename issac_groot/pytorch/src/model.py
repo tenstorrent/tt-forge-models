@@ -2057,18 +2057,25 @@ def build_eagle_processor() -> ProcessorMixin:
     """
     Build Eagle processor directly without AutoProcessor.
     Loads tokenizer and image processor from configs manually - only necessary files.
+    Falls back to HuggingFace downloads when the LF cache is unavailable.
     """
     from transformers import Qwen2TokenizerFast
 
-    # Compute base path for eagle model files
-    # Path to local eagle model files (relative to this file)
+    # Load tokenizer files — fall back to public Qwen2 tokenizer if LF cache unavailable
+    try:
+        vocab_file = get_file("test_files/pytorch/Issac_groot/vocab.json")
+        merges_file = get_file("test_files/pytorch/Issac_groot/merges.txt")
+        tokenizer_config_file = get_file(
+            "test_files/pytorch/Issac_groot/tokenizer_config.json"
+        )
+    except (ValueError, FileNotFoundError, RuntimeError):
+        from huggingface_hub import hf_hub_download
 
-    # Load tokenizer with specific file paths (not directory)
-    vocab_file = get_file("test_files/pytorch/Issac_groot/vocab.json")
-    merges_file = get_file("test_files/pytorch/Issac_groot/merges.txt")
-    tokenizer_config_file = get_file(
-        "test_files/pytorch/Issac_groot/tokenizer_config.json"
-    )
+        vocab_file = hf_hub_download("Qwen/Qwen2.5-0.5B", "vocab.json")
+        merges_file = hf_hub_download("Qwen/Qwen2.5-0.5B", "merges.txt")
+        tokenizer_config_file = hf_hub_download(
+            "Qwen/Qwen2.5-0.5B", "tokenizer_config.json"
+        )
 
     tokenizer = Qwen2TokenizerFast(vocab_file=vocab_file, merges_file=merges_file)
     tokenizer.padding_side = "left"
@@ -2083,32 +2090,42 @@ def build_eagle_processor() -> ProcessorMixin:
     tokenizer.image_token = "<IMG_CONTEXT>"
     tokenizer.video_token = "<IMG_CONTEXT>"
 
-    # Load chat template if exists
+    # Load chat template if available
     chat_template = None
-    chat_template_file = get_file("test_files/pytorch/Issac_groot/chat_template.json")
-    if os.path.exists(chat_template_file):
-        with open(chat_template_file, "r") as f:
-            chat_data = json.load(f)
-            chat_template = chat_data.get("chat_template")
-            if chat_template:
-                tokenizer.chat_template = chat_template
+    try:
+        chat_template_file = get_file(
+            "test_files/pytorch/Issac_groot/chat_template.json"
+        )
+        if os.path.exists(chat_template_file):
+            with open(chat_template_file, "r") as f:
+                chat_data = json.load(f)
+                chat_template = chat_data.get("chat_template")
+                if chat_template:
+                    tokenizer.chat_template = chat_template
+    except (ValueError, FileNotFoundError, RuntimeError):
+        pass
 
-    # Load processor config
-    processor_config_file = get_file(
-        "test_files/pytorch/Issac_groot/processor_config.json"
-    )
-    with open(processor_config_file, "r") as f:
-        processor_config = json.load(f)
+    # Load processor config (all keys have defaults in Eagle2_5_VLProcessor)
+    processor_config = {}
+    try:
+        processor_config_file = get_file(
+            "test_files/pytorch/Issac_groot/processor_config.json"
+        )
+        with open(processor_config_file, "r") as f:
+            processor_config = json.load(f)
+    except (ValueError, FileNotFoundError, RuntimeError):
+        pass
 
-    # Load image processor config
-    image_processor_config_file = get_file(
-        "test_files/pytorch/Issac_groot/preprocessor_config.json"
-    )
-    with open(image_processor_config_file, "r") as f:
-        image_processor_config = json.load(f)
-
-    # Create image processor directly
-    image_processor = Eagle2_5_VLImageProcessorFast(**image_processor_config)
+    # Load image processor config; fall back to class-level defaults
+    try:
+        image_processor_config_file = get_file(
+            "test_files/pytorch/Issac_groot/preprocessor_config.json"
+        )
+        with open(image_processor_config_file, "r") as f:
+            image_processor_config = json.load(f)
+        image_processor = Eagle2_5_VLImageProcessorFast(**image_processor_config)
+    except (ValueError, FileNotFoundError, RuntimeError):
+        image_processor = Eagle2_5_VLImageProcessorFast()
 
     # Create Eagle processor directly
     eagle_processor = Eagle2_5_VLProcessor(
