@@ -30,12 +30,12 @@ from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -142,18 +142,19 @@ class ModelLoader(ForgeModel):
                     torch_dtype=dtype,
                     low_cpu_mem_usage=False,
                 )
+            self._vae = self._vae.to(dtype=dtype)
             self._vae.eval()
         elif dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
         return self._vae
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(self, dtype_override=None, vae_type="encoder") -> Any:
         """Prepare inputs for the VAE.
 
-        Pass vae_type="decoder" (default) or vae_type="encoder".
+        Pass vae_type="encoder" (default) for image input to AutoencoderKL.forward,
+        or vae_type="decoder" for latent input to AutoencoderKL.decode.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        vae_type = kwargs.get("vae_type", "decoder")
+        dtype = dtype_override if dtype_override is not None else torch.float32
         latent_channels = self._latent_channels()
 
         if vae_type == "decoder":
