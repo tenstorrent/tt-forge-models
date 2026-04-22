@@ -109,4 +109,12 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype=dtype_override)
+                if hasattr(v, "is_floating_point") and v.is_floating_point()
+                else v
+                for k, v in inputs.items()
+            }
+
         return inputs
