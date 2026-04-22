@@ -92,6 +92,12 @@ class ModelLoader(ForgeModel):
             subfolder="transformer",
             torch_dtype=dtype,
         )
+        # patch_embedding is in _skip_layerwise_casting_patterns so .to() won't convert it;
+        # explicitly cast all parameters and buffers to ensure dtype consistency
+        for param in self._transformer.parameters():
+            param.data = param.data.to(dtype)
+        for buf in self._transformer.buffers():
+            buf.data = buf.data.to(dtype)
         self._transformer.eval()
         return self._transformer
 
@@ -104,9 +110,11 @@ class ModelLoader(ForgeModel):
             self._transformer = self._transformer.to(dtype=dtype_override)
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare sample inputs for the Wan T2V diffusion transformer."""
-        dtype = kwargs.get("dtype_override", torch.float16)
+        dtype = dtype_override if dtype_override is not None else torch.float16
         batch_size = kwargs.get("batch_size", 1)
 
         # Wan T2V 14B transformer config dimensions
@@ -116,9 +124,10 @@ class ModelLoader(ForgeModel):
 
         # Spatial/temporal latent dimensions
         frame, height, width = 2, 8, 8
-        seq_len = frame * height * width
 
-        hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
+        hidden_states = torch.randn(
+            batch_size, in_channels, frame, height, width, dtype=dtype
+        )
         encoder_hidden_states = torch.randn(
             batch_size, txt_seq_len, text_dim, dtype=dtype
         )
