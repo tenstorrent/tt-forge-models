@@ -9,7 +9,7 @@ Vision Transformer vision encoder and a BERT language encoder, trained
 contrastively on the M3D-Cap dataset.
 """
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, BertModel, BertConfig
 from typing import Optional
 
 from ...base import ForgeModel
@@ -89,7 +89,23 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"trust_remote_code": True}
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # transformers 5.x always initializes models inside a meta device context.
+        # M3D-CLIP's __init__ calls BertModel.from_pretrained() internally, which
+        # fails inside that context. Patch it to use BertModel(config) instead;
+        # the M3D-CLIP checkpoint contains all fine-tuned BERT weights so no
+        # pretrained BERT weights are lost.
+        _orig = BertModel.from_pretrained
+
+        @classmethod
+        def _bert_from_config(cls, name_or_path, *args, **kwargs):
+            return cls(BertConfig.from_pretrained(name_or_path))
+
+        BertModel.from_pretrained = _bert_from_config
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            BertModel.from_pretrained = _orig
+
         if dtype_override is not None:
             model = model.to(dtype_override)
         model.eval()
