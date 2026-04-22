@@ -6,8 +6,18 @@ TraDo Causal LM model loader implementation
 """
 
 import torch
+from unittest.mock import patch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers.dynamic_module_utils import get_imports
 from typing import Optional
+
+
+def _fixed_get_imports(filename) -> list[str]:
+    imports = get_imports(filename)
+    if not torch.cuda.is_available() and "flash_attn" in imports:
+        imports.remove("flash_attn")
+    return imports
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -122,9 +132,10 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        with patch("transformers.dynamic_module_utils.get_imports", _fixed_get_imports):
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
         model.eval()
 
         self.config = model.config
@@ -166,9 +177,10 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the TraDo model.
         """
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-        )
+        with patch("transformers.dynamic_module_utils.get_imports", _fixed_get_imports):
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                trust_remote_code=True,
+            )
 
         return self.config
