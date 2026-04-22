@@ -48,10 +48,6 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.JSL_VL_7B_MEDAGENTBENCH_V2_I1_Q4_K_M_GGUF
 
-    sample_image = (
-        "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
-    )
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
@@ -88,13 +84,16 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        from PIL import Image
+
+        image = Image.new("RGB", (224, 224), color=(128, 128, 128))
         messages = [
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "image",
-                        "image": self.sample_image,
+                        "image": image,
                     },
                     {"type": "text", "text": "Describe this image."},
                 ],
