@@ -69,9 +69,7 @@ def _patch_nemotron_h_moe_support():
         )
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
-    _patch_nemotron_h_moe_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+def _fix_nemotron_h_moe_config(result):
     if result.get("config", {}).get("model_type") == "nemotron_h_moe":
         result["config"]["model_type"] = "nemotron_h"
         num_kv = result["config"].get("num_key_value_heads")
@@ -86,6 +84,22 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
             "intermediate_size", result["config"].get("moe_intermediate_size", 2688)
         )
     return result
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    _patch_nemotron_h_moe_support()
+    if return_tensors:
+        # When the GGUF has no tensors (header-only cache), skip the weight
+        # loading chain to avoid get_gguf_hf_weights_map(None) crashes.
+        import gguf as _gguf_lib
+
+        reader = _gguf_lib.GGUFReader(gguf_path)
+        if reader.tensor_count == 0:
+            result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=False)
+            result.setdefault("tensors", {})
+            return _fix_nemotron_h_moe_config(result)
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    return _fix_nemotron_h_moe_config(result)
 
 
 _patch_nemotron_h_moe_support()
