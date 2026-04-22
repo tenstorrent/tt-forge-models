@@ -8,9 +8,17 @@ import os
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.cache_utils import DynamicCache
 from transformers.dynamic_module_utils import get_imports
 from typing import Optional
 from unittest.mock import patch
+
+# transformers 5.x removed DynamicCache.get_usable_length; add it back for
+# model code generated against transformers 4.46.x
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+    )
 
 from ...base import ForgeModel
 from ...config import (
