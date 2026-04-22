@@ -41,6 +41,9 @@ def _patch_mistral3_support():
     if "llama" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("mistral", GGUF_TO_FAST_CONVERTERS["llama"])
         GGUF_TO_FAST_CONVERTERS.setdefault("mistral3", GGUF_TO_FAST_CONVERTERS["llama"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "ministral3", GGUF_TO_FAST_CONVERTERS["llama"]
+        )
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
