@@ -92,13 +92,15 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         # The cached modeling_phi3.py reads rope_scaling["type"] but newer configs use "rope_type".
-        if (
-            hasattr(config, "rope_scaling")
-            and config.rope_scaling
-            and "type" not in config.rope_scaling
-            and "rope_type" in config.rope_scaling
-        ):
-            config.rope_scaling["type"] = config.rope_scaling["rope_type"]
+        # "default" rope_type means standard RoPE (no scaling), equivalent to rope_scaling=None.
+        if hasattr(config, "rope_scaling") and config.rope_scaling:
+            rope_type = config.rope_scaling.get(
+                "rope_type", config.rope_scaling.get("type")
+            )
+            if rope_type == "default" or rope_type is None:
+                config.rope_scaling = None
+            elif "type" not in config.rope_scaling:
+                config.rope_scaling["type"] = rope_type
         # The custom Phi3 model code doesn't accept use_cache as a constructor arg.
         config.use_cache = False
         model_kwargs["config"] = config
