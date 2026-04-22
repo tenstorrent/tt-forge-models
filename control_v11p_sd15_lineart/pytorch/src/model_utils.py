@@ -185,7 +185,7 @@ def controlnet_sd15_lineart_preprocessing(
 
     return (
         latent_model_input,
-        timesteps,
+        timesteps[0:1],
         prompt_embeds,
         down_block_additional_residuals,
         mid_block_additional_residual,
