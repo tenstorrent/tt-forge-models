@@ -114,6 +114,8 @@ class ModelLoader(ForgeModel):
                 "config"
             ] = _ggml.GGUF_CONFIG_MAPPING
             _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append(arch)
+            # hunyuan-dense uses BPE (gpt2) tokenizer — reuse the GPT converter.
+            _ggml.GGUF_TO_FAST_CONVERTERS[arch] = _ggml.GGUFGPTConverter
 
         from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
