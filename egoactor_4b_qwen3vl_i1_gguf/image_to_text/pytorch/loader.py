@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 EgoActor 4B Qwen3VL i1 GGUF model loader implementation for image to text.
+
+Note: The qwen3vl GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the HF-native base checkpoint instead.
 """
 
 from transformers import (
@@ -34,14 +37,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.EGOACTOR_4B_QWEN3VL_I1_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/EgoActor-4b-Qwen3VL-i1-GGUF",
+            pretrained_model_name="Qwen/Qwen3-VL-4B-Instruct",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.EGOACTOR_4B_QWEN3VL_I1_GGUF
-
-    GGUF_FILE = "EgoActor-4b-Qwen3VL.i1-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -66,11 +67,9 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
+        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
