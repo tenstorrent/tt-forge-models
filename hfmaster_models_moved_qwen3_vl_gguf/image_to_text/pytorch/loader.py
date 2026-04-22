@@ -10,6 +10,7 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_base as _tok_utils
 from transformers import (
+    AutoConfig,
     AutoProcessor,
     Qwen3VLForConditionalGeneration,
 )
@@ -100,6 +101,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.QWEN3_VL_8B_INSTRUCT_ABLITERATED_V2_Q4_K_M_GGUF
 
     GGUF_FILE = "qwen3vl/Qwen3-VL-8B-Instruct-abliterated-v2.0.Q4_K_M.gguf"
+    BASE_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -127,11 +129,13 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
+        # Use base model config so vision_config and special token IDs are correct;
+        # hfmaster/models-moved does not carry a Qwen3-VL config.json.
+        config = AutoConfig.from_pretrained(self.BASE_MODEL)
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
