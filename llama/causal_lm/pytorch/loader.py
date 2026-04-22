@@ -80,7 +80,7 @@ class ModelVariant(StrEnum):
     LLAMA_3_1_70B_INSTRUCT_AWQ_INT4 = "3.1_70B_Instruct_Awq_Int4"
 
     # NVIDIA NVFP4 quantized variants
-    LLAMA_3_1_8B_INSTRUCT_NVFP4 = "3.1_8B_Instruct_Nvfp4"
+    LLAMA_3_1_8B_INSTRUCT_NVFP4_NVIDIA = "3.1_8B_Instruct_Nvfp4_Nvidia"
 
     # Unsloth variants
     LLAMA_3_1_8B_INSTRUCT_UNSLOTH_BNB_4BIT = "3.1_8B_Instruct_Unsloth_Bnb_4bit"
@@ -108,8 +108,8 @@ class ModelVariant(StrEnum):
     # mlx-community quantized variants
     LLAMA_3_1_8B_INSTRUCT_MLX_8BIT = "3.1_8B_Instruct_Mlx_8bit"
 
-    # unsloth BnB 4-bit quantized variants
-    LLAMA_3_1_8B_INSTRUCT_BNB_4BIT = "3.1_8B_Instruct_bnb_4bit"
+    # unsloth BnB 4-bit quantized variants (v2)
+    LLAMA_3_1_8B_INSTRUCT_BNB_4BIT_V2 = "3.1_8B_Instruct_bnb_4bit_v2"
 
     # HuggingFace community variants
     HUGGYLLAMA_7B = "Huggyllama_7B"
@@ -254,6 +254,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="RedHatAI/Llama-3.1-8B-Instruct-NVFP4",
             max_length=128,
         ),
+        # NVIDIA NVFP4 quantized variants
+        ModelVariant.LLAMA_3_1_8B_INSTRUCT_NVFP4_NVIDIA: LLMModelConfig(
+            pretrained_model_name="nvidia/Llama-3.1-8B-Instruct-NVFP4",
+            max_length=128,
+        ),
         # hugging-quants AWQ INT4 quantized variants
         ModelVariant.LLAMA_3_1_8B_INSTRUCT_AWQ_INT4: LLMModelConfig(
             pretrained_model_name="hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
@@ -266,6 +271,10 @@ class ModelLoader(ForgeModel):
         ),
         # unsloth BnB 4-bit quantized variants
         ModelVariant.LLAMA_3_1_8B_INSTRUCT_BNB_4BIT: LLMModelConfig(
+            pretrained_model_name="unsloth/Llama-3.1-8B-Instruct-bnb-4bit",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_1_8B_INSTRUCT_BNB_4BIT_V2: LLMModelConfig(
             pretrained_model_name="unsloth/Llama-3.1-8B-Instruct-bnb-4bit",
             max_length=128,
         ),
