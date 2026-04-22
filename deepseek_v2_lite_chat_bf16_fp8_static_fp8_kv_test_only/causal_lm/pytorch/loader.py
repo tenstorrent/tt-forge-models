@@ -9,7 +9,16 @@ which applies BF16 weights with FP8 static activation quantization and FP8 KV ca
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.cache_utils import DynamicCache
 from typing import Optional
+
+# transformers 5.x removed get_usable_length; patch it back as an alias for get_seq_length
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length: int, layer_idx: int = 0) -> int:
+        return self.get_seq_length(layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
 
 from ....base import ForgeModel
 from ....config import (
