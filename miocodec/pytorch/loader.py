@@ -7,7 +7,6 @@ MioCodec neural audio codec model loader implementation.
 
 import torch
 import numpy as np
-from miocodec import MioCodecModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -62,6 +61,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MioCodec model instance."""
+        from miocodec import MioCodecModel
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model = MioCodecModel.from_pretrained(pretrained_model_name)
