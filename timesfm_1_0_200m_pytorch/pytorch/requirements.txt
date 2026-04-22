@@ -1,1 +1,1 @@
-timesfm[torch]
+huggingface_hub>=0.23.0
