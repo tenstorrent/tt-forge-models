@@ -77,6 +77,8 @@ def _patch_transformers_nemotron_h_moe_gguf():
 
     if "nemotron_h_moe" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["nemotron_h_moe"] = GGUFGPTConverter
+    if "nemotron_h" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["nemotron_h"] = GGUFGPTConverter
 
     class NemotronHMoeTensorProcessor(TensorProcessor):
         def process(self, weights, name, **kwargs):
