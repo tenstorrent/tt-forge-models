@@ -19,6 +19,64 @@ from ....config import (
     StrEnum,
 )
 
+# VibeVoice base LM is Qwen2.5-1.5B (per microsoft/VibeVoice-1.5B preprocessor_config.json)
+_VIBEVOICE_LM_BASE = "Qwen/Qwen2.5-1.5B"
+
+
+def _patch_vibevoice_pig_gguf():
+    """Patch transformers to handle the 'pig' GGUF architecture (VibeVoice TTS).
+
+    The VibeVoice GGUF file uses 'pig' as its architecture name but contains
+    no config metadata fields. We inject Qwen2-1.5B config values which match
+    the LM backbone (hidden_size=1536, intermediate_size=8960, 28 layers).
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "pig" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("pig")
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["pig"] = {}
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(gguf_path, *args, **kwargs):
+        result = orig_load(gguf_path, *args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "pig":
+            config.update(
+                {
+                    "model_type": "qwen2",
+                    "hidden_size": 1536,
+                    "intermediate_size": 8960,
+                    "num_attention_heads": 12,
+                    "num_key_value_heads": 2,
+                    "num_hidden_layers": 28,
+                    "vocab_size": 151936,
+                    "rms_norm_eps": 1e-6,
+                    "rope_theta": 1000000.0,
+                    "max_position_embeddings": 131072,
+                }
+            )
+        return result
+
+    gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_patch_vibevoice_pig_gguf()
+
 
 class ModelVariant(StrEnum):
     """Available VibeVoice 1.5B GGUF model variants for text-to-speech."""
@@ -65,13 +123,13 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        # The VibeVoice GGUF contains no tokenizer data; load from the LM base instead.
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            _VIBEVOICE_LM_BASE, **tokenizer_kwargs
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
