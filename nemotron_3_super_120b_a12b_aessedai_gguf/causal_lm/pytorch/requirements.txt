@@ -1,1 +1,2 @@
-gguf>=0.10.0
+gguf>=0.18.0
+transformers>=5.6.0
