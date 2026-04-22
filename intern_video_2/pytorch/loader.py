@@ -107,8 +107,11 @@ def _inject_flash_attn_stub():
     if "flash_attn" in sys.modules:
         return
 
+    import importlib.machinery
+
     def _make_module(name):
         m = types.ModuleType(name)
+        m.__spec__ = importlib.machinery.ModuleSpec(name, None)
         sys.modules[name] = m
         return m
 
@@ -195,11 +198,12 @@ class ModelLoader(ForgeModel):
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # The model's remote __init__ loads bert-base-uncased with local_files_only=True,
-        # so we must pre-cache it before invoking from_pretrained.
+        # The model's remote __init__ loads bert-large-uncased (from config.json's
+        # model.text_encoder.pretrained) with local_files_only=True, so we must
+        # pre-cache it before invoking from_pretrained.
         from transformers import BertTokenizer
 
-        BertTokenizer.from_pretrained("bert-base-uncased")
+        BertTokenizer.from_pretrained("bert-large-uncased")
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
