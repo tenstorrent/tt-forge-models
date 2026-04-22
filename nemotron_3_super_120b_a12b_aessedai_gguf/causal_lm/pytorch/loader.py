@@ -182,9 +182,19 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Re-install our patch immediately before from_pretrained so that
+        # modeling_utils.py's lazy `from .modeling_gguf_pytorch_utils import
+        # load_gguf_checkpoint` gets a version that accepts model_to_load.
+        # Other GGUF loaders may have overwritten _gguf_utils.load_gguf_checkpoint
+        # after our module-level patch with signatures that drop model_to_load.
+        _prev_gguf_load = _gguf_utils.load_gguf_checkpoint
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _prev_gguf_load
 
         self.config = model.config
         self.model = model
