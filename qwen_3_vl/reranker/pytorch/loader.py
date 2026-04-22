@@ -6,7 +6,7 @@ Qwen 3 VL Reranker model loader implementation for multimodal reranking tasks.
 """
 
 import torch
-from transformers import AutoProcessor, Qwen3VLForSequenceClassification
+from transformers import AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -75,6 +75,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        from transformers import Qwen3VLForSequenceClassification
 
         model = Qwen3VLForSequenceClassification.from_pretrained(
             pretrained_model_name,
