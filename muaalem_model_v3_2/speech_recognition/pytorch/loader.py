@@ -65,12 +65,19 @@ class ModelLoader(ForgeModel):
         return self._processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import Wav2Vec2BertForCTC
+        from transformers import Wav2Vec2BertConfig, Wav2Vec2BertForCTC
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        # Pre-load with the specific config class to avoid AutoConfig failing on
+        # the custom "multi_level_ctc" model_type in this checkpoint.
+        if "config" not in model_kwargs:
+            model_kwargs["config"] = Wav2Vec2BertConfig.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
 
         model = Wav2Vec2BertForCTC.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
