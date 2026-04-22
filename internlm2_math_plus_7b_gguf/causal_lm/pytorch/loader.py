@@ -9,6 +9,56 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    LlamaTensorProcessor,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    TENSOR_PROCESSORS,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_internlm2_support():
+    """Register internlm2 architecture as an alias for llama.
+
+    InternLM2 uses the same transformer architecture as LLaMA but the GGUF
+    file declares architecture as 'internlm2' which transformers does not
+    recognise.
+    """
+    if "internlm2" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("internlm2")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "llama" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["internlm2"] = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["llama"]
+            )
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["internlm2"] = GGUF_TO_FAST_CONVERTERS["llama"]
+    TENSOR_PROCESSORS["internlm2"] = LlamaTensorProcessor
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+    """Wrap load_gguf_checkpoint to add internlm2 support and fix model_type."""
+    _patch_internlm2_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
+    if result.get("config", {}).get("model_type") == "internlm2":
+        result["config"]["model_type"] = "llama"
+    return result
+
+
+_patch_internlm2_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -63,10 +113,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {"trust_remote_code": True}
+        tokenizer_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -82,17 +131,15 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
                 pretrained_model_name,
                 gguf_file=self.GGUF_FILE,
-                trust_remote_code=True,
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -129,6 +176,5 @@ class ModelLoader(ForgeModel):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name,
             gguf_file=self.GGUF_FILE,
-            trust_remote_code=True,
         )
         return self.config
