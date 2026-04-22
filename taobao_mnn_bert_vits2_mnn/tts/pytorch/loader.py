@@ -4,8 +4,10 @@
 """
 Taobao-MNN BERT-VITS2-MNN model loader implementation for text-to-speech tasks.
 
-This is an MNN (Mobile Neural Network) converted int8 quantized BERT-VITS2
-text-to-speech model exported for Alibaba's MNN inference framework.
+BERT-VITS2 is a Chinese TTS system that uses Chinese BERT for text encoding.
+The taobao-mnn/bert-vits2-MNN repository contains only MNN-format weights with
+no PyTorch weights or custom model code. We load hfl/chinese-roberta-wwm-ext,
+which is the Chinese BERT model used for text encoding in BERT-VITS2.
 """
 
 from typing import Optional
@@ -33,7 +35,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BERT_VITS2_MNN: ModelConfig(
-            pretrained_model_name="taobao-mnn/bert-vits2-MNN",
+            pretrained_model_name="hfl/chinese-roberta-wwm-ext",
         ),
     }
 
@@ -70,7 +72,6 @@ class ModelLoader(ForgeModel):
 
         model = AutoModel.from_pretrained(
             pretrained_model_name,
-            trust_remote_code=True,
             **model_kwargs,
         )
         model.eval()
@@ -85,7 +86,6 @@ class ModelLoader(ForgeModel):
         if self._tokenizer is None:
             self._tokenizer = AutoTokenizer.from_pretrained(
                 self._variant_config.pretrained_model_name,
-                trust_remote_code=True,
             )
 
         inputs = self._tokenizer(
