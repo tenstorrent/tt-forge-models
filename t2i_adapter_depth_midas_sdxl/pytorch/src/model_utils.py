@@ -42,7 +42,6 @@ def load_t2i_adapter_depth_midas_sdxl_pipe(adapter_model_name, base_model_name):
         pipe.vae,
     ]
     for module in modules:
-        module.float()
         module.eval()
         for param in module.parameters():
             if param.requires_grad:
