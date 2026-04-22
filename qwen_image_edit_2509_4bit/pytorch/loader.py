@@ -66,12 +66,13 @@ class ModelLoader(ForgeModel):
     def _load_transformer(
         self, dtype: torch.dtype = torch.float32
     ) -> QwenImageTransformer2DModel:
-        """Load the NF4-quantized diffusion transformer."""
-        self._transformer = QwenImageTransformer2DModel.from_pretrained(
-            REPO_ID,
-            subfolder="transformer",
-            torch_dtype=dtype,
-            device_map="cpu",
+        # Load config and strip bitsandbytes quantization_config — requires CUDA, not available on TT hardware
+        config = QwenImageTransformer2DModel.load_config(
+            REPO_ID, subfolder="transformer"
+        )
+        config.pop("quantization_config", None)
+        self._transformer = QwenImageTransformer2DModel.from_config(config).to(
+            dtype=dtype
         )
         self._transformer.eval()
         return self._transformer
@@ -89,12 +90,14 @@ class ModelLoader(ForgeModel):
             self._transformer = self._transformer.to(dtype=dtype_override)
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare sample inputs for the diffusion transformer.
 
         Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = dtype_override if dtype_override is not None else torch.float32
         batch_size = kwargs.get("batch_size", 1)
 
         # From model config: in_channels=64 (img_in linear input dimension)
