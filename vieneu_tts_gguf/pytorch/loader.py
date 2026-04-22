@@ -55,7 +55,6 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.config = None
-        self.gguf_file = self._GGUF_FILES[self._variant]
 
     @property
     def gguf_file(self):
