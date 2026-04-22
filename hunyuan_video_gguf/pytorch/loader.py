@@ -76,6 +76,19 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # diffusers caches gguf availability at module import time, before the
+        # test runner installs gguf from requirements.txt. Refresh the flag so
+        # from_single_file can detect the now-installed package.
+        try:
+            import gguf as _gguf
+            import diffusers.utils.import_utils as _diu
+
+            if not _diu._gguf_available:
+                _diu._gguf_available = True
+                _diu._gguf_version = getattr(_gguf, "__version__", "N/A")
+        except ImportError:
+            pass
+
         gguf_file = self._GGUF_FILES[self._variant]
         gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
 
