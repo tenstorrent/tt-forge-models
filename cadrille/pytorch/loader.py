@@ -72,6 +72,10 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # Cadrille is a Qwen2-VL fine-tune but doesn't ship a preprocessor_config.json,
+    # so load the processor from the base model instead.
+    _BASE_PROCESSOR_NAME = "Qwen/Qwen2-VL-2B-Instruct"
+
     def _load_processor(self):
         processor_kwargs = {
             "min_pixels": self.min_pixels,
@@ -79,7 +83,7 @@ class ModelLoader(ForgeModel):
         }
 
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
+            self._BASE_PROCESSOR_NAME, **processor_kwargs
         )
 
         return self.processor
