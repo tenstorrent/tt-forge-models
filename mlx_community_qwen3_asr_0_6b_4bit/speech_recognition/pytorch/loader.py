@@ -123,9 +123,10 @@ class ModelLoader(ForgeModel):
             text=[text], audio=[audio], return_tensors="pt", padding=True
         )
 
+        dtype = dtype_override if dtype_override is not None else torch.float32
         return [
             inputs["input_ids"],
             inputs["attention_mask"],
-            inputs["input_features"],
+            inputs["input_features"].to(dtype),
             inputs["feature_attention_mask"],
         ]
