@@ -5,6 +5,8 @@
 Mistral Community Pixtral 12B GGUF model loader implementation for multimodal visual QA.
 """
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
 from PIL import Image
 from transformers import LlavaForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
@@ -20,6 +22,45 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import cast_input_to_type, get_file
+
+# Transformers' GGUF loader doesn't handle LlavaConfig natively: it expects
+# config.num_hidden_layers and a model_type recognized by gguf-py.  Pixtral
+# stores those under config.text_config and uses model_type "mistral" which
+# maps to the "llama" architecture in gguf-py.  Patch the mapper so that the
+# LLM weights load correctly; vision-tower weights not covered by the llama
+# name-map are skipped and left with random initialisation (acceptable for
+# compile-only tests).
+_GGUF_HF_TYPE_ALIASES = {
+    "mistral": "llama",
+    "llava": "llama",
+}
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None:
+        cfg = hf_model.config
+        text_cfg = getattr(cfg, "text_config", cfg)
+        model_type = getattr(text_cfg, "model_type", getattr(cfg, "model_type", None))
+        model_type = _GGUF_HF_TYPE_ALIASES.get(model_type, model_type)
+    if num_layers is None:
+        cfg = hf_model.config
+        text_cfg = getattr(cfg, "text_config", cfg)
+        num_layers = getattr(
+            text_cfg, "num_hidden_layers", getattr(cfg, "num_hidden_layers", None)
+        )
+    return _orig_get_gguf_hf_weights_map(
+        hf_model,
+        processor,
+        model_type=model_type,
+        num_layers=num_layers,
+        qual_name=qual_name,
+    )
+
+
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 class ModelVariant(StrEnum):
