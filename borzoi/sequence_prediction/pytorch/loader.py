@@ -11,11 +11,18 @@ and outputs predicted gene expression tracks.
 import torch
 from borzoi_pytorch import Borzoi
 from borzoi_pytorch.config_borzoi import BorzoiConfig
+from borzoi_pytorch.pytorch_borzoi_utils import TargetLengthCrop
 from transformers import AutoConfig, AutoModel
 from typing import Optional
 
 AutoConfig.register("borzoi", BorzoiConfig, exist_ok=True)
 AutoModel.register(BorzoiConfig, Borzoi, exist_ok=True)
+
+# Reduced bin count and sequence length for feasible CPU inference in tests.
+# Full 524288 bp input with 6144 bins requires minutes of CPU time due to O(n^2)
+# attention over 4096 positions. With 192 bins the transformer sees only 48 positions.
+_TEST_BINS = 192
+_TEST_SEQ_LEN = _TEST_BINS * 32  # 6144 bp — minimum input for _TEST_BINS
 
 from third_party.tt_forge_models.config import (
     ModelInfo,
@@ -72,6 +79,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = Borzoi.from_pretrained(model_name, **model_kwargs)
+        model.crop = TargetLengthCrop(_TEST_BINS)
         model.eval()
 
         return model
@@ -79,12 +87,8 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         # Borzoi expects one-hot encoded DNA sequences of shape
         # (batch_size, 4, seq_len) where 4 channels represent A, C, G, T.
-        # The model's expected input length is 524288 bp.
-        seq_len = 524288
-
-        # Generate a random one-hot encoded DNA sequence
-        random_indices = torch.randint(0, 4, (1, seq_len))
-        one_hot = torch.zeros(1, seq_len, 4)
+        random_indices = torch.randint(0, 4, (1, _TEST_SEQ_LEN))
+        one_hot = torch.zeros(1, _TEST_SEQ_LEN, 4)
         one_hot.scatter_(2, random_indices.unsqueeze(-1), 1.0)
         # Transpose to (batch, 4, seq_len) for Conv1d
         one_hot = one_hot.permute(0, 2, 1)
