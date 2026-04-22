@@ -7,7 +7,6 @@ LongT5 model loader implementation for Conditional Generation.
 """
 
 from typing import Optional
-from transformers.models.longt5.modeling_flax_longt5 import shift_tokens_right
 
 from ....base import ForgeModel
 from ....config import (
@@ -140,6 +139,7 @@ class ModelLoader(ForgeModel):
             inputs: The loaded inputs
         """
         from transformers import LongT5Config
+        from transformers.models.longt5.modeling_flax_longt5 import shift_tokens_right
 
         # Ensure tokenizer is loaded
         if self._tokenizer is None:
