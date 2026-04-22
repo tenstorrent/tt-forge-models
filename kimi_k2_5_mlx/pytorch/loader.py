@@ -139,7 +139,7 @@ class ModelLoader(ForgeModel):
             config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
 
             # Use the text backbone config (DeepSeek V3 architecture)
-            text_config = config.text_config
+            text_config = config.get_text_config()
             if self.num_layers is not None:
                 text_config.num_hidden_layers = self.num_layers
             else:
