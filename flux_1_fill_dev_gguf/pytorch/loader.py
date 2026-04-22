@@ -14,6 +14,7 @@ from typing import Optional
 
 import torch
 from diffusers import FluxFillPipeline, FluxTransformer2DModel, GGUFQuantizationConfig
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -86,10 +87,11 @@ class ModelLoader(ForgeModel):
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16):
         """Load the FluxFillPipeline with a GGUF-quantized transformer."""
         gguf_file = _GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(GGUF_REPO, filename=gguf_file)
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
 
         transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            gguf_path,
             quantization_config=quantization_config,
             torch_dtype=dtype,
         )
