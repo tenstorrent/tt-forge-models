@@ -5,7 +5,16 @@
 Granite 4.0 350m GGUF model loader implementation for causal language modeling.
 """
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +27,40 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_granite_support():
+    """Register granite architecture as an alias for llama.
+
+    Granite 4.0 350m GGUF file declares architecture as 'granite', which
+    transformers does not yet support for GGUF loading. The weight layout
+    follows the same structure as llama (separate q/k/v, GQA, no attention
+    bias), so we alias it here while keeping model_type as granite so that
+    GraniteForCausalLM is used.
+    """
+    if "granite" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("granite")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "llama" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "granite",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["llama"],
+            )
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("granite", GGUF_TO_FAST_CONVERTERS["llama"])
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    _patch_granite_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    return result
+
+
+_patch_granite_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
