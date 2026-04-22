@@ -6,10 +6,20 @@ Qwen 2.5 Omni model loader implementation for multimodal tasks.
 """
 import torch
 from transformers import (
+    AutoConfig,
     AwqConfig,
     Qwen2_5OmniThinkerForConditionalGeneration,
     Qwen2_5OmniProcessor,
 )
+from transformers.models.qwen2_5_omni import Qwen2_5OmniThinkerConfig
+
+# qwen2_5_omni_thinker is not registered in AutoConfig in transformers 5.x;
+# register it so AutoConfig.from_pretrained works with random-weight loading.
+try:
+    AutoConfig.register("qwen2_5_omni_thinker", Qwen2_5OmniThinkerConfig)
+except ValueError:
+    pass  # already registered
+
 from typing import Optional
 
 from ...base import ForgeModel
