@@ -84,6 +84,17 @@ class ModelLoader(ForgeModel):
         """
         cfg = self._variant_config
 
+        # tsfm_public imports helpers removed in transformers>=5; stub them out
+        import urllib.parse
+        import transformers.utils as _tu
+
+        if not hasattr(_tu, "download_url"):
+            _tu.download_url = lambda url, **kw: url
+        if not hasattr(_tu, "is_offline_mode"):
+            _tu.is_offline_mode = lambda: False
+        if not hasattr(_tu, "is_remote_url"):
+            _tu.is_remote_url = lambda url: bool(urllib.parse.urlparse(url).scheme)
+
         from tsfm_public.toolkit.get_model import get_model
 
         model = get_model(
