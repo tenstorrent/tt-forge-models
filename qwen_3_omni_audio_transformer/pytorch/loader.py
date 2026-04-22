@@ -41,8 +41,8 @@ class Qwen3OmniAudioEncoderWrapper(torch.nn.Module):
         super().__init__()
         self.model = model
 
-    def forward(self, input_features):
-        return self.model(input_features)
+    def forward(self, input_features, feature_lens):
+        return self.model(input_features, feature_lens=feature_lens)
 
 
 class ModelLoader(ForgeModel):
@@ -138,4 +138,7 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        return [inputs["input_features"]]
+        feature_len = (sampling_rate * duration_seconds) // self._processor.hop_length
+        feature_lens = torch.tensor([feature_len], dtype=torch.long)
+
+        return [inputs["input_features"], feature_lens]
