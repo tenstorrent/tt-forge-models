@@ -6,7 +6,7 @@
 BART model loader implementation for causal language modeling.
 """
 
-from transformers import AutoTokenizer, FlaxBartForCausalLM
+from transformers import AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -124,6 +124,8 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # Load the model
+        from transformers import FlaxBartForCausalLM
+
         model = FlaxBartForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
