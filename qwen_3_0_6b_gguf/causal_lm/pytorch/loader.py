@@ -4,6 +4,7 @@
 """
 Qwen 3 0.6B GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -18,6 +19,33 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_gguf_version_detection():
+    """Patch transformers to handle gguf version detection when installed dynamically.
+
+    transformers caches packages_distributions() at module import time. When gguf is
+    installed dynamically per-test, the stale cache causes a KeyError fallback to
+    gguf.__version__ which doesn't exist in gguf>=0.18.0, raising InvalidVersion('N/A').
+    """
+    import transformers.utils.import_utils as _import_utils
+    from packaging import version as _version
+
+    _orig = _import_utils.is_gguf_available
+
+    def _patched(min_version=None):
+        if min_version is None:
+            min_version = _import_utils.GGUF_MIN_VERSION
+        try:
+            v = importlib.metadata.version("gguf")
+            return _version.parse(v) >= _version.parse(min_version)
+        except importlib.metadata.PackageNotFoundError:
+            return False
+
+    _import_utils.is_gguf_available = _patched
+
+
+_patch_gguf_version_detection()
 
 
 class ModelVariant(StrEnum):
