@@ -132,14 +132,14 @@ class EagleBackbone(nn.Module):
             not reproject_vision
         ), "Reproject vision is not implemented here, set to False"
 
-        # Load config from JSON directly (no AutoConfig)
-        # Path to local eagle model config files (relative to this file)
-        config_path = get_file("test_files/pytorch/Issac_groot/config.json")
-        with open(config_path, "r") as f:
-            config_dict = json.load(f)
-
-        # Create config object explicitly
-        config = Eagle2_5_VLConfig(**config_dict)
+        # Load config from LF cache; fall back to Eagle2_5_VLConfig defaults
+        try:
+            config_path = get_file("test_files/pytorch/Issac_groot/config.json")
+            with open(config_path, "r") as f:
+                config_dict = json.load(f)
+            config = Eagle2_5_VLConfig(**config_dict)
+        except (ValueError, FileNotFoundError, RuntimeError):
+            config = Eagle2_5_VLConfig()
 
         # Disable flash attention if not available or not requested
         config._attn_implementation = "eager"
@@ -284,10 +284,43 @@ class GR00T_N1_5(PreTrainedModel):
     def __init__(
         self,
         config: GR00T_N1_5_Config,
-        local_model_path: str,
+        local_model_path: str = None,
+        **kwargs,
     ):
-        assert isinstance(config.backbone_cfg, dict)
-        assert isinstance(config.action_head_cfg, dict)
+        # N1.6 models store backbone/action-head params as top-level config fields
+        # rather than nested dicts; build the dicts when they are absent.
+        if not isinstance(config.backbone_cfg, dict):
+            config.backbone_cfg = {
+                "eagle_path": getattr(config, "model_name", None),
+                "tune_llm": getattr(config, "tune_llm", False),
+                "tune_visual": getattr(config, "tune_visual", False),
+                "select_layer": getattr(config, "select_layer", -1),
+                "reproject_vision": getattr(config, "reproject_vision", False),
+                "use_flash_attention": getattr(config, "use_flash_attention", False),
+                "load_bf16": getattr(config, "load_bf16", False),
+                "project_to_dim": getattr(config, "input_embedding_dim", 1536),
+            }
+        if not isinstance(config.action_head_cfg, dict):
+            config.action_head_cfg = {
+                "backbone_embedding_dim": getattr(
+                    config, "backbone_embedding_dim", 1536
+                ),
+                "hidden_size": getattr(config, "hidden_size", 1024),
+                "input_embedding_dim": getattr(config, "input_embedding_dim", 1536),
+                "action_horizon": getattr(config, "action_horizon", None),
+                "action_dim": getattr(config, "max_action_dim", None),
+                "max_num_embodiments": getattr(config, "max_num_embodiments", 32),
+                "num_inference_timesteps": getattr(
+                    config, "num_inference_timesteps", None
+                ),
+                "num_timestep_buckets": getattr(config, "num_timestep_buckets", 1000),
+                "noise_beta_alpha": getattr(config, "noise_beta_alpha", 1.5),
+                "noise_beta_beta": getattr(config, "noise_beta_beta", 1.0),
+                "noise_s": getattr(config, "noise_s", 0.999),
+                "diffusion_model_cfg": getattr(config, "diffusion_model_cfg", None),
+                "use_vlln": getattr(config, "use_vlln", True),
+                "max_seq_len": getattr(config, "max_seq_len", 1024),
+            }
 
         super().__init__(config)
         self.local_model_path = local_model_path
