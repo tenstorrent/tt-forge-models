@@ -108,13 +108,13 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Wan 2.1 T2V 1.3B pipeline with Self-Forcing transformer weights.
+        """Load the Wan 2.1 T2V 1.3B transformer with Self-Forcing weights.
 
         Downloads the selected `.pt` checkpoint from gdhe17/Self-Forcing and
         loads its ``generator_ema`` state dict into the pipeline's transformer.
 
         Returns:
-            WanPipeline with Self-Forcing transformer weights.
+            WanTransformer3DModel with Self-Forcing weights applied.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -137,19 +137,36 @@ class ModelLoader(ForgeModel):
         generator_state = state_dict.get("generator_ema", state_dict)
         self.pipeline.transformer.load_state_dict(generator_state, strict=False)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation.
-
-        Returns:
-            dict with prompt plus small test-friendly resolution/frame settings.
-        """
+    def load_inputs(self, **kwargs) -> Any:
+        """Prepare synthetic inputs for the WanTransformer3DModel."""
+        dtype = kwargs.get("dtype_override", torch.float32)
+        config = self.pipeline.transformer.config
+        batch_size = 1
+        p_t, p_h, p_w = config.patch_size
+        hidden_states = torch.randn(
+            batch_size,
+            config.in_channels,
+            p_t,
+            p_h * 2,
+            p_w * 2,
+            dtype=dtype,
+        )
+        timestep = torch.tensor([0], dtype=torch.long)
+        encoder_hidden_states = torch.randn(
+            batch_size, 16, config.text_dim, dtype=dtype
+        )
         return {
-            "prompt": prompt if prompt is not None else self.DEFAULT_PROMPT,
-            "height": 480,
-            "width": 832,
-            "num_frames": 21,
-            "num_inference_steps": 4,
-            "guidance_scale": 1.0,
+            "hidden_states": hidden_states,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+            "return_dict": False,
         }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if isinstance(output, tuple):
+            return output[0]
+        if hasattr(output, "sample"):
+            return output.sample
+        return output
