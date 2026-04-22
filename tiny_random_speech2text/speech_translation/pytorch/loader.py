@@ -84,6 +84,8 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **model_kwargs
         )
         model.eval()
+        if dtype_override is not None:
+            model.to(dtype_override)
         self._model = model
 
         return model
@@ -92,6 +94,9 @@ class ModelLoader(ForgeModel):
         """Load and return sample inputs for the Tiny Random Speech2Text model."""
         if self._processor is None:
             self._load_processor()
+
+        model_param = next(self._model.parameters())
+        device, dtype = model_param.device, dtype_override or model_param.dtype
 
         # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
@@ -106,10 +111,14 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        input_features = inputs["input_features"].to(device=device, dtype=dtype)
+
         decoder_start_token_id = self._model.config.decoder_start_token_id
         decoder_input_ids = (
-            torch.ones((1, 1), dtype=torch.long) * decoder_start_token_id
+            torch.ones((1, 1), dtype=torch.long, device=device) * decoder_start_token_id
         )
-        inputs["decoder_input_ids"] = decoder_input_ids
 
-        return inputs
+        return {
+            "input_features": input_features,
+            "decoder_input_ids": decoder_input_ids,
+        }
