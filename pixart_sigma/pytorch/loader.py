@@ -18,7 +18,7 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from diffusers import PixArtSigmaPipeline
+from diffusers import PixArtSigmaPipeline, PixArtTransformer2DModel
 
 
 class ModelVariant(StrEnum):
@@ -39,6 +39,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="PixArt-alpha/pixart_sigma_sdxlvae_T5_diffusers",
         ),
     }
+
+    # The sdxlvae_T5_diffusers repo is a partial pipeline (no transformer);
+    # load the transformer from this source model.
+    _SDXLVAE_TRANSFORMER_SOURCE = "PixArt-alpha/PixArt-Sigma-XL-2-1024-MS"
 
     DEFAULT_VARIANT = ModelVariant.XL_2_1024_MS
 
@@ -66,9 +70,22 @@ class ModelLoader(ForgeModel):
             PixArtSigmaPipeline: The pre-trained PixArt-Sigma pipeline.
         """
         dtype = dtype_override or torch.float16
-        pipe = PixArtSigmaPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
-        )
+        if self._variant == ModelVariant.SDXLVAE_T5_DIFFUSERS:
+            transformer = PixArtTransformer2DModel.from_pretrained(
+                self._SDXLVAE_TRANSFORMER_SOURCE,
+                subfolder="transformer",
+                torch_dtype=dtype,
+            )
+            pipe = PixArtSigmaPipeline.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                transformer=transformer,
+                torch_dtype=dtype,
+                **kwargs,
+            )
+        else:
+            pipe = PixArtSigmaPipeline.from_pretrained(
+                self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
+            )
         return pipe
 
     def load_inputs(self, dtype_override=None, batch_size=1):
