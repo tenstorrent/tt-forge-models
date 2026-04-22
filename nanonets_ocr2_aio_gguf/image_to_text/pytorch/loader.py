@@ -2,9 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-prithivMLmods/Nanonets-OCR2-3B-AIO-GGUF model loader implementation for image to text.
+nanonets/Nanonets-OCR2-3B model loader implementation for image to text.
+
+Note: The GGUF quantized variant (prithivMLmods/Nanonets-OCR2-3B-AIO-GGUF) uses
+the qwen2vl architecture which is not yet supported by transformers' GGUF loader,
+so the base float model is used instead.
 """
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -30,24 +34,16 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.NANONETS_OCR2_3B_AIO_GGUF: LLMModelConfig(
-            pretrained_model_name="prithivMLmods/Nanonets-OCR2-3B-AIO-GGUF",
+            pretrained_model_name="nanonets/Nanonets-OCR2-3B",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.NANONETS_OCR2_3B_AIO_GGUF
 
-    _GGUF_FILES = {
-        ModelVariant.NANONETS_OCR2_3B_AIO_GGUF: "Nanonets-OCR2-3B.Q4_K_M.gguf",
-    }
-
     sample_image = (
         "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
     )
-
-    @property
-    def _gguf_file(self):
-        return self._GGUF_FILES[self._variant]
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -87,13 +83,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Nanonets OCR2 AIO GGUF model instance.
+        """Load and return the Nanonets OCR2 model instance.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            torch.nn.Module: The Nanonets OCR2 AIO GGUF model instance for image to text.
+            torch.nn.Module: The Nanonets OCR2 model instance for image to text.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -101,18 +97,17 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self._gguf_file
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self._gguf_file
-            )
+            from transformers import AutoConfig
+
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
 
@@ -120,7 +115,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Nanonets OCR2 AIO GGUF model.
+        """Load and return sample inputs for the Nanonets OCR2 model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -152,7 +147,9 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        from transformers import AutoConfig
+
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
+            self._variant_config.pretrained_model_name
         )
         return self.config
