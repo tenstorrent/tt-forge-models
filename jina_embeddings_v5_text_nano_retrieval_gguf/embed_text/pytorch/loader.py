@@ -3,22 +3,31 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Jina Embeddings v5 Text Nano Retrieval GGUF model loader implementation for embedding generation.
+
+The GGUF file uses the eurobert architecture which is not supported by transformers'
+GGUF loader.  When TT_RANDOM_WEIGHTS is set, or for all loading, we fall back to the
+base model (jinaai/jina-embeddings-v5-text-nano-retrieval) with trust_remote_code=True.
 """
+import os
+from typing import Optional
+
 import torch
 import torch.nn.functional as F
-from transformers import AutoModel, AutoTokenizer
-from typing import Optional
+from transformers import AutoConfig, AutoModel, AutoTokenizer
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
 from ....base import ForgeModel
 from ....config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+_BASE_MODEL = "jinaai/jina-embeddings-v5-text-nano-retrieval"
 
 
 class ModelVariant(StrEnum):
@@ -65,29 +74,37 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
+        # The eurobert GGUF architecture is not supported by the transformers GGUF
+        # loader, so always load the tokenizer from the base non-GGUF model.
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            _BASE_MODEL, trust_remote_code=True
         )
-
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        config = AutoConfig.from_pretrained(_BASE_MODEL, trust_remote_code=True)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            EuroBertModel = get_class_from_dynamic_module(
+                "modeling_eurobert.EuroBertModel", _BASE_MODEL
+            )
+            if dtype_override is not None:
+                old_default = torch.get_default_dtype()
+                torch.set_default_dtype(dtype_override)
+                try:
+                    model = EuroBertModel(config)
+                finally:
+                    torch.set_default_dtype(old_default)
+            else:
+                model = EuroBertModel(config)
+        else:
+            model_kwargs = {"trust_remote_code": True}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model = AutoModel.from_pretrained(_BASE_MODEL, **model_kwargs)
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
-
         return model
 
     def load_inputs(self, dtype_override=None):
