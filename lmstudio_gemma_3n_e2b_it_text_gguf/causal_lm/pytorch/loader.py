@@ -5,8 +5,48 @@
 lmstudio-community/gemma-3n-E2B-it-text-GGUF model loader implementation for causal language modeling.
 """
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
 from typing import Optional
+
+
+def _patch_gemma3n_support():
+    """Register gemma3n GGUF architecture as an alias for gemma3n_text.
+
+    The GGUF file declares architecture as 'gemma3n' but transformers uses
+    'gemma3n_text' as the model_type. Map GGUF fields using the gemma3 mapping.
+    """
+    if "gemma3n" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("gemma3n")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "gemma3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "gemma3n",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gemma3"],
+            )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Wrap load_gguf_checkpoint to add gemma3n architecture support."""
+    _patch_gemma3n_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "gemma3n":
+        result["config"]["model_type"] = "gemma3n_text"
+    return result
+
+
+_patch_gemma3n_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
