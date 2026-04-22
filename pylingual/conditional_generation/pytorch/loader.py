@@ -9,8 +9,8 @@ import torch
 from transformers import AutoTokenizer, T5ForConditionalGeneration
 from typing import Optional
 
-from ...base import ForgeModel
-from ...config import (
+from ....base import ForgeModel
+from ....config import (
     LLMModelConfig,
     ModelInfo,
     ModelGroup,
