@@ -6,6 +6,7 @@ Llama 3.1 8B Instruct OpenbookQA SFT DPO Para model loader implementation for ca
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from peft import PeftModel
 from typing import Optional
 
 from ....base import ForgeModel
@@ -40,6 +41,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LLAMA_3_1_8B_INSTRUCT_OPENBOOKQA_SFT_DPO_PARA
 
+    BASE_MODEL_NAME = "unsloth/Meta-Llama-3.1-8B-Instruct"
+
     sample_text = "Hey how are you doing today?"
 
     def __init__(
@@ -67,7 +70,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self.BASE_MODEL_NAME, **tokenizer_kwargs
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -75,8 +78,6 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
@@ -87,7 +88,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
                 if hasattr(config.text_config, "layer_types"):
@@ -98,9 +99,16 @@ class ModelLoader(ForgeModel):
                 config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        base_model = AutoModelForCausalLM.from_pretrained(
+            self.BASE_MODEL_NAME, **model_kwargs
+        )
+        model = PeftModel.from_pretrained(
+            base_model, self._variant_config.pretrained_model_name
+        )
+        model = model.merge_and_unload().eval()
+
+        for param in model.parameters():
+            param.requires_grad = False
 
         self.config = model.config
         self.model = model
@@ -145,7 +153,5 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
         return self.config
