@@ -51,10 +51,12 @@ def _patch_qwen2vl_support():
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen2vl", GGUF_TO_FAST_CONVERTERS["qwen2"])
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen2vl support and fix model_type."""
     _patch_qwen2vl_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
     if result.get("config", {}).get("model_type") == "qwen2vl":
         result["config"]["model_type"] = "qwen2_5_vl"
     return result
