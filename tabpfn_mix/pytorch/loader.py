@@ -61,7 +61,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load TabPFNMix classifier model via PyTorchModelHubMixin.from_pretrained.
 
         Returns:
@@ -74,29 +74,24 @@ class ModelLoader(ForgeModel):
         model = FoundationTransformer.from_pretrained(
             self._variant_config.pretrained_model_name, **kwargs
         )
-        if dtype_override is not None:
-            model = model.to(dtype_override)
         model.eval()
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         """Prepare sample in-context learning inputs for TabPFNMix classifier.
 
         Returns:
             list: [x_support, y_support, x_query] tensors.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
         batch_size = 1
 
         # Support set: labeled examples for in-context learning
-        x_support = torch.randn(
-            batch_size, self._N_SUPPORT, self._N_FEATURES, dtype=dtype
-        )
+        x_support = torch.randn(batch_size, self._N_SUPPORT, self._N_FEATURES)
         y_support = torch.randint(
             0, self._N_CLASSES, (batch_size, self._N_SUPPORT), dtype=torch.int64
         )
 
         # Query set: examples to classify
-        x_query = torch.randn(batch_size, self._N_QUERY, self._N_FEATURES, dtype=dtype)
+        x_query = torch.randn(batch_size, self._N_QUERY, self._N_FEATURES)
 
         return [x_support, y_support, x_query]
