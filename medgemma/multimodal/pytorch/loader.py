@@ -93,8 +93,6 @@ class ModelLoader(ForgeModel):
             self._load_processor(dtype_override)
 
         model_kwargs = {}
-        if self._variant == ModelVariant.UNSLOTH_MEDGEMMA_4B_IT_BNB_4BIT:
-            model_kwargs["device_map"] = "cpu"
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
