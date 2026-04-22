@@ -18,6 +18,20 @@ _LANGUAGEBIND_REPO = "https://github.com/PKU-YuanGroup/LanguageBind.git"
 _LANGUAGEBIND_COMMIT = "7070c53375661cdb235801176b564b45f96f0648"
 
 
+def _patch_torchvision_functional_tensor():
+    """Provide torchvision.transforms.functional_tensor removed in torchvision>=0.16."""
+    import sys
+    import types
+    import torchvision.transforms.functional as F
+
+    if "torchvision.transforms.functional_tensor" in sys.modules:
+        return
+    mod = types.ModuleType("torchvision.transforms.functional_tensor")
+    for name in dir(F):
+        setattr(mod, name, getattr(F, name))
+    sys.modules["torchvision.transforms.functional_tensor"] = mod
+
+
 def _patch_transformers_expand_mask():
     """Restore _expand_mask removed in transformers>=4.36 that LanguageBind still uses."""
     import torch
@@ -53,6 +67,7 @@ def _ensure_languagebind():
         )
     if cache_dir not in sys.path:
         sys.path.insert(0, cache_dir)
+    _patch_torchvision_functional_tensor()
     _patch_transformers_expand_mask()
 
 
