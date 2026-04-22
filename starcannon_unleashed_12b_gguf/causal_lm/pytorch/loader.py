@@ -75,24 +75,63 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _find_real_gguf_fn(fn, module_name, qualname):
+        """Traverse closure chain to find the real (un-patched) function."""
+        seen = set()
+        while True:
+            if (
+                getattr(fn, "__module__", "") == module_name
+                and getattr(fn, "__qualname__", "") == qualname
+            ):
+                return fn
+            fn_id = id(fn)
+            if fn_id in seen or not hasattr(fn, "__closure__") or not fn.__closure__:
+                break
+            seen.add(fn_id)
+            found = False
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val):
+                        fn = val
+                        found = True
+                        break
+                except ValueError:
+                    pass
+            if not found:
+                break
+        return fn
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        # Some GGUF loaders patch load_gguf_checkpoint globally without accepting the
-        # `model_to_load` kwarg added in newer transformers.  Re-patch right before
-        # loading so we accept (and drop) the extra kwarg regardless of import order.
+        # Other GGUF loaders monkey-patch load_gguf_checkpoint globally without
+        # accepting the `model_to_load` kwarg added in newer transformers.
+        # Restore the real function (found via closure traversal) and re-install it
+        # so all callers see the correct signature regardless of import order.
         import transformers.configuration_utils as _config_utils
         import transformers.modeling_gguf_pytorch_utils as _gguf_utils
         import transformers.models.auto.tokenization_auto as _auto_tokenizer
         import transformers.tokenization_utils_tokenizers as _tok_utils
 
-        _prev = _gguf_utils.load_gguf_checkpoint
+        _real_load = self._find_real_gguf_fn(
+            _gguf_utils.load_gguf_checkpoint,
+            "transformers.modeling_gguf_pytorch_utils",
+            "load_gguf_checkpoint",
+        )
+        _gguf_utils.load_gguf_checkpoint = _real_load
+        _config_utils.load_gguf_checkpoint = _real_load
+        _auto_tokenizer.load_gguf_checkpoint = _real_load
+        _tok_utils.load_gguf_checkpoint = _real_load
 
-        def _compat(gguf_path, return_tensors=False, model_to_load=None):
-            return _prev(gguf_path, return_tensors=return_tensors)
+        import transformers.modeling_utils as _modeling_utils
 
-        _gguf_utils.load_gguf_checkpoint = _compat
-        _config_utils.load_gguf_checkpoint = _compat
-        _auto_tokenizer.load_gguf_checkpoint = _compat
-        _tok_utils.load_gguf_checkpoint = _compat
+        _real_weights_map = self._find_real_gguf_fn(
+            getattr(_modeling_utils, "get_gguf_hf_weights_map", None)
+            or _gguf_utils.get_gguf_hf_weights_map,
+            "transformers.modeling_gguf_pytorch_utils",
+            "get_gguf_hf_weights_map",
+        )
+        _gguf_utils.get_gguf_hf_weights_map = _real_weights_map
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
