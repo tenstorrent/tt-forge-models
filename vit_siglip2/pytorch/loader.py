@@ -71,6 +71,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_tokenizer(self, variant):
+        from open_clip import get_tokenizer
+
+        tokenizer = get_tokenizer(_TOKENIZER_NAME[variant])
+        # open_clip's HFTokenizer uses batch_encode_plus which was removed in transformers 5.x;
+        # patch it to use __call__ which accepts identical arguments.
+        inner = getattr(tokenizer, "tokenizer", None)
+        if inner is not None and not hasattr(inner, "batch_encode_plus"):
+            inner.batch_encode_plus = inner.__call__
+        return tokenizer
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the ViT-SigLIP2 model instance.
 
@@ -80,12 +91,12 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The ViT-SigLIP2 model instance.
         """
-        from open_clip import create_model_from_pretrained, get_tokenizer
+        from open_clip import create_model_from_pretrained
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model, self.preprocess = create_model_from_pretrained(pretrained_model_name)
-        self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
+        self.tokenizer = self._load_tokenizer(self._variant)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -103,13 +114,13 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors containing image and text tokens.
         """
-        from open_clip import create_model_from_pretrained, get_tokenizer
+        from open_clip import create_model_from_pretrained
 
         if self.preprocess is None or self.tokenizer is None:
             _, self.preprocess = create_model_from_pretrained(
                 self._variant_config.pretrained_model_name
             )
-            self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
+            self.tokenizer = self._load_tokenizer(self._variant)
 
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
