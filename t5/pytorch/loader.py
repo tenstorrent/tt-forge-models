@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     FLAN_T5_LARGE = "Flan_T5_Large"
     FLAN_T5_XXL = "Flan_T5_XXL"
     XENOVA_FLAN_T5_SMALL = "Xenova_Flan_T5_Small"
+    SYSSEC_UTD_PY313_PYLINGUAL_V1_1_STATEMENT = "Syssec_Utd_Py313_Pylingual_V1_1_Statement"
 
 
 class ModelLoader(ForgeModel):
@@ -74,6 +75,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.XENOVA_FLAN_T5_SMALL: LLMModelConfig(
             pretrained_model_name="Xenova/flan-t5-small",
+            max_length=512,
+        ),
+        ModelVariant.SYSSEC_UTD_PY313_PYLINGUAL_V1_1_STATEMENT: LLMModelConfig(
+            pretrained_model_name="syssec-utd/py313-pylingual-v1.1-statement",
             max_length=512,
         ),
     }
