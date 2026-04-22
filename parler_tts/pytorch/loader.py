@@ -77,7 +77,25 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from parler_tts import ParlerTTSForConditionalGeneration
+        import pathlib
+        import sys
+
+        # The local parler_tts/ model directory shadows the parler-tts pip package.
+        # Temporarily remove the models root from sys.path so the installed package
+        # is found instead.
+        models_root = str(pathlib.Path(__file__).resolve().parents[2])
+        original_path = sys.path.copy()
+        sys.path = [p for p in sys.path if p != models_root]
+        cached = {
+            k: sys.modules.pop(k)
+            for k in list(sys.modules)
+            if k == "parler_tts" or k.startswith("parler_tts.")
+        }
+        try:
+            from parler_tts import ParlerTTSForConditionalGeneration
+        finally:
+            sys.path = original_path
+            sys.modules.update(cached)
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
