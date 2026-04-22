@@ -15,6 +15,7 @@ Repository:
 - https://huggingface.co/jayn7/HunyuanVideo-1.5_I2V_720p-GGUF
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -140,8 +141,15 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
+        # Local config with correct HunyuanVideo15Transformer3DModel dimensions
+        # (16 heads, inner_dim=2048). Without this, from_single_file fetches
+        # hunyuanvideo-community/HunyuanVideo config (24 heads, 3072 dim) which
+        # mismatches the 1.5 checkpoint weights.
+        local_config_dir = os.path.join(os.path.dirname(__file__), "model_config")
+
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
+            config=local_config_dir,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
