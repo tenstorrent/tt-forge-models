@@ -49,6 +49,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self._processor = None
+        self.model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -64,15 +65,11 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self, dtype_override=None):
+    def _load_processor(self):
         from transformers import Wav2Vec2FeatureExtractor
 
-        processor_kwargs = {}
-        if dtype_override is not None:
-            processor_kwargs["dtype"] = dtype_override
-
         self._processor = Wav2Vec2FeatureExtractor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
+            self._variant_config.pretrained_model_name
         )
 
         return self._processor
@@ -85,20 +82,23 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = HubertModel.from_pretrained(
+        self.model = HubertModel.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
-        model.eval()
+        self.model.eval()
         if dtype_override is not None:
-            model.to(dtype_override)
+            self.model.to(dtype_override)
 
-        return model
+        return self.model
 
     def load_inputs(self, dtype_override=None):
         import numpy as np
 
+        if self.model is None:
+            self.load_model(dtype_override=dtype_override)
+
         if self._processor is None:
-            self._load_processor(dtype_override=dtype_override)
+            self._load_processor()
 
         # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
@@ -112,5 +112,18 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        model_param = next(self.model.parameters())
+        dtype = dtype_override or model_param.dtype
+        device = model_param.device
+
+        for key in inputs:
+            if (
+                isinstance(inputs[key], torch.Tensor)
+                and inputs[key].is_floating_point()
+            ):
+                inputs[key] = inputs[key].to(device=device, dtype=dtype)
+            elif isinstance(inputs[key], torch.Tensor):
+                inputs[key] = inputs[key].to(device=device)
 
         return inputs
