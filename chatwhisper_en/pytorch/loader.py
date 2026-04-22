@@ -132,13 +132,10 @@ class ModelLoader(ForgeModel):
         inputs = self.processor(sample_audio, return_tensors="pt", sampling_rate=16000)
         input_features = inputs.input_features.to(device=device, dtype=dtype)
 
-        # Build decoder input IDs for English transcription
-        decoder_prompt_ids = self.processor.get_decoder_prompt_ids(
-            task="transcribe", language="en", no_timestamps=True
+        decoder_input_ids = torch.full(
+            (1, 2),
+            whisper_config.decoder_start_token_id,
+            dtype=torch.long,
+            device=device,
         )
-        init_tokens = [whisper_config.decoder_start_token_id]
-        if decoder_prompt_ids:
-            init_tokens += [tok for _, tok in decoder_prompt_ids]
-
-        decoder_input_ids = torch.tensor([init_tokens], dtype=torch.long, device=device)
         return [input_features, decoder_input_ids]
