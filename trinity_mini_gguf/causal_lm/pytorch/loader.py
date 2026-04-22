@@ -20,6 +20,80 @@ from ....config import (
 )
 
 
+def _patch_transformers_afmoe_gguf():
+    """Monkey-patch transformers to add afmoe GGUF architecture support.
+
+    Trinity Mini uses the 'afmoe' (Arcee Fusion MoE) architecture identifier in
+    its GGUF metadata. Transformers lacks GGUF loading support for afmoe, so we
+    bridge the gap by registering it as an alias for qwen2_moe (which it is based on).
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "afmoe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register afmoe as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("afmoe")
+
+    # 2. Add config mapping for afmoe (Arcee Fusion MoE, based on Qwen2.5 MoE)
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["afmoe"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+    }
+
+    # 3. Register tensor processor - afmoe uses the same MoE tensor layout as qwen2moe
+    TENSOR_PROCESSORS["afmoe"] = TENSOR_PROCESSORS["qwen2moe"]
+
+    # 4. Register tokenizer converter - afmoe uses Qwen2 tokenizer
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "afmoe" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["afmoe"] = GGUFQwen2Converter
+
+    # 5. Patch load_gguf_checkpoint to remap model_type afmoe -> qwen2_moe
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "afmoe":
+            config["model_type"] = "qwen2_moe"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Also patch modules that imported load_gguf_checkpoint directly
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_afmoe_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Trinity Mini GGUF model variants for causal language modeling."""
 
