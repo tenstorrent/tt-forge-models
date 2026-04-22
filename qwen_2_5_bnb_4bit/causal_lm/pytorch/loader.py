@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         model_kwargs["device_map"] = "cpu"
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
