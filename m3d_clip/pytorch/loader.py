@@ -159,6 +159,11 @@ class ModelLoader(ForgeModel):
                     persistent=False,
                 )
 
+        # gather_loss=True in the checkpoint config triggers torch.distributed
+        # all_gather in forward(), which fails without an initialized process
+        # group.  Single-device inference doesn't need cross-replica gathering.
+        model.gather_loss = False
+
         if dtype_override is not None:
             model = model.to(dtype_override)
         model.eval()
