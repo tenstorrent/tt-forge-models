@@ -1,2 +1,2 @@
-open_clip_torch
+open_clip_torch>=3.3.0
 spacy>=3.0.0
