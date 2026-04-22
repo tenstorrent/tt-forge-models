@@ -62,6 +62,18 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        # Fix stale PACKAGE_DISTRIBUTION_MAPPING when gguf is installed after transformers import
+        import gguf as _gguf
+        import importlib.metadata
+        import transformers.utils.import_utils as _iu
+
+        if not hasattr(_gguf, "__version__"):
+            try:
+                _gguf.__version__ = importlib.metadata.version("gguf")
+            except Exception:
+                pass
+        _iu.PACKAGE_DISTRIBUTION_MAPPING.setdefault("gguf", ["gguf"])
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
