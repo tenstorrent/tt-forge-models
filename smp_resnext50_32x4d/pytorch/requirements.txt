@@ -1,1 +1,2 @@
 segmentation_models_pytorch
+spacy
