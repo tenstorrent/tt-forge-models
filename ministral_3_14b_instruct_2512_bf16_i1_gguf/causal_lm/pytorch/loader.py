@@ -5,7 +5,7 @@
 Ministral-3-14B-Instruct-2512-BF16 i1 GGUF model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import Mistral3ForConditionalGeneration, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -87,10 +87,10 @@ class ModelLoader(ForgeModel):
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
+            config.text_config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
+        model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
 
@@ -137,7 +137,7 @@ class ModelLoader(ForgeModel):
 
     def load_shard_spec(self, model):
         shard_specs = {}
-        for layer in model.model.layers:
+        for layer in model.model.language_model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
