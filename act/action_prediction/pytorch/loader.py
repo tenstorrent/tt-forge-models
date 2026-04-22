@@ -33,6 +33,15 @@ class ACTInferenceWrapper(torch.nn.Module):
     def __init__(self, policy):
         super().__init__()
         self.policy = policy
+        # lerobot hardcodes dtype=torch.float32 when creating latent_sample (modeling_act.py:454),
+        # causing a dtype mismatch when model weights are bfloat16. Register a pre-hook on the
+        # linear projection that consumes latent_sample to cast it to the weight dtype.
+        self.policy.model.encoder_latent_input_proj.register_forward_pre_hook(
+            lambda module, args: tuple(
+                a.to(module.weight.dtype) if isinstance(a, torch.Tensor) else a
+                for a in args
+            )
+        )
 
     def forward(self, batch: dict) -> torch.Tensor:
         """Run inference via select_action. Returns action tensor."""
