@@ -106,6 +106,23 @@ def _patch_transformers_expand_mask():
     clip_module._expand_mask = _expand_mask
 
 
+def _fix_position_ids(model):
+    """Reset position_ids buffers after from_pretrained.
+
+    transformers 5.x registers position_ids with persistent=False, but the
+    expand()-based view can have its underlying storage corrupted during
+    model loading. Re-initializing from arange ensures correct values.
+    """
+    import torch
+
+    for module in model.modules():
+        if hasattr(module, "position_ids") and hasattr(module, "position_embedding"):
+            n = module.position_embedding.weight.shape[0]
+            module.position_ids = torch.arange(
+                n, device=module.position_ids.device
+            ).unsqueeze(0)
+
+
 def _patch_languagebind_video_processor():
     """Fix LanguageBindVideoProcessor compat for transformers>=5.
 
@@ -237,6 +254,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = LanguageBindVideo.from_pretrained(pretrained_model_name, **model_kwargs)
+        _fix_position_ids(model)
         model.eval()
         return model
 
