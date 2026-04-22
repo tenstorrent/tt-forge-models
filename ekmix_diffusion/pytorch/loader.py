@@ -47,6 +47,7 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
@@ -69,33 +70,60 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Ekmix Diffusion pipeline from Hugging Face.
+        """Load the Ekmix Diffusion pipeline and return its UNet.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use torch.bfloat16.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained Ekmix Diffusion pipeline object.
+            torch.nn.Module: The UNet denoising model from the pipeline.
         """
         dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionPipeline.from_pretrained(
+        self.pipeline = StableDiffusionPipeline.from_pretrained(
             self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
         )
-        return pipe
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the Ekmix Diffusion model.
+        """Load and return sample inputs for the UNet model.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+            dtype_override: Optional dtype override.
+            batch_size: Optional batch size.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments for the UNet forward method.
         """
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
 
-        prompt = [
-            "masterpiece, best quality, 1girl, long hair, solo, looking at viewer",
-        ] * batch_size
-        return prompt
+        dtype = dtype_override or torch.bfloat16
+        pipe = self.pipeline
+        unet = pipe.unet
+
+        prompt = "masterpiece, best quality, 1girl, long hair, solo, looking at viewer"
+        text_inputs = pipe.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=pipe.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            encoder_hidden_states = pipe.text_encoder(text_inputs.input_ids)[0].to(
+                dtype
+            )
+
+        in_channels = unet.config.in_channels
+        sample_size = unet.config.sample_size
+        latent_sample = torch.randn(
+            batch_size, in_channels, sample_size, sample_size, dtype=dtype
+        )
+        timestep = torch.tensor([1], dtype=torch.long)
+
+        return {
+            "sample": latent_sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+        }
