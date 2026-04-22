@@ -107,11 +107,12 @@ class ModelLoader(ForgeModel):
         prompt = "A photo of a ladybug, macro, zoom, high quality, cinematic"
         height, width = 512, 512
 
+        max_sequence_length = 256
         # Encode text with ChatGLM
         text_inputs = self.pipeline.tokenizer(
             prompt,
             padding="max_length",
-            max_length=self.pipeline.tokenizer.model_max_length,
+            max_length=max_sequence_length,
             truncation=True,
             return_tensors="pt",
         )
