@@ -40,7 +40,7 @@ _CONTROLNET_FILES = {
     "xinsir_canny": "xinsir-controlnet-canny-sdxl.safetensors",
     "xinsir_depth": "xinsir-controlnet-depth-sdxl-1.0.safetensors",
     "xinsir_openpose": "xinsir-controlnet-openpose-sdxl-1.0.safetensors",
-    "xinsir_tile": "xinsir-controlnet-tile-sdxl-1.0.safetensors",
+    "xinsir_tile": "xinsir-controlnet-tile-sdxl-1.0 .safetensors",
     "thibaud_openpose_xl2": "OpenPoseXL2.safetensors",
 }
 
@@ -157,7 +157,7 @@ class ModelLoader(ForgeModel):
 
         Returns a dict matching ControlNetModel.forward() signature for SDXL.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = kwargs.get("batch_size", 1)
 
         latent_h = IMAGE_SIZE // 8
