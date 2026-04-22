@@ -96,33 +96,50 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"trust_remote_code": True}
         model_kwargs |= kwargs
 
-        # transformers 5.x always initializes models inside a meta device context.
-        # M3D-CLIP's __init__ calls BertModel.from_pretrained() internally, which
-        # fails inside that context. Patch it to use BertModel(config) instead;
-        # the M3D-CLIP checkpoint contains all fine-tuned BERT weights so no
-        # pretrained BERT weights are lost.
+        # transformers 5.x always initializes models under a meta device context,
+        # which causes two problems for M3D-CLIP:
+        # 1. M3D-CLIP's __init__ calls BertModel.from_pretrained() internally —
+        #    forbidden inside a meta context.
+        # 2. Non-persistent BERT buffers (position_ids, token_type_ids) are left
+        #    on meta device after checkpoint loading, yielding garbage values.
+        # Fix: strip the meta device entry from get_init_context so the model is
+        # built on CPU from the start. BertModel.from_pretrained is also patched
+        # to avoid downloading unused BERT weights (M3D-CLIP checkpoint has them).
         _orig_bert_fp = BertModel.from_pretrained
+        _orig_get_init_ctx = PreTrainedModel.get_init_context
+        _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
 
         @classmethod
         def _bert_from_config(cls, name_or_path, *args, **kwargs):
             return cls(BertConfig.from_pretrained(name_or_path))
 
+        @classmethod
+        def _get_init_ctx_no_meta(cls, dtype, is_quantized, _is_ds_init_called):
+            contexts = _orig_get_init_ctx.__func__(
+                cls, dtype, is_quantized, _is_ds_init_called
+            )
+            return [
+                c
+                for c in contexts
+                if not (isinstance(c, torch.device) and str(c) == "meta")
+            ]
+
         # M3D-CLIP's __init__ never calls self.post_init(), so all_tied_weights_keys
         # is not set. Patch _adjust_tied_keys_with_tied_pointers to call post_init()
         # lazily if the attribute is missing.
-        _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
-
         def _patched_adjust(self, *args, **kwargs):
             if not hasattr(self, "all_tied_weights_keys"):
                 self.post_init()
             return _orig_adjust(self, *args, **kwargs)
 
         BertModel.from_pretrained = _bert_from_config
+        PreTrainedModel.get_init_context = _get_init_ctx_no_meta
         PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
         try:
             model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         finally:
             BertModel.from_pretrained = _orig_bert_fp
+            PreTrainedModel.get_init_context = _orig_get_init_ctx
             PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust
 
         if dtype_override is not None:
