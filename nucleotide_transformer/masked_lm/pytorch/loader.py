@@ -6,8 +6,35 @@ Nucleotide Transformer v2 model loader implementation for masked language modeli
 """
 
 import torch
-from transformers import AutoTokenizer, AutoModelForMaskedLM, AutoConfig
+from transformers import (
+    AutoTokenizer,
+    AutoModelForMaskedLM,
+    AutoConfig,
+    PreTrainedModel,
+)
 from typing import Optional
+
+
+def _patch_pretrained_model_init_weights():
+    """Patch PreTrainedModel.init_weights for compatibility with old-style custom models.
+
+    Transformers 5.x moved all_tied_weights_keys initialization to post_init(), but
+    models using the old API call init_weights() directly without calling post_init().
+    This patch ensures all_tied_weights_keys is set before tie_weights() is called.
+    """
+    _orig = PreTrainedModel.init_weights
+
+    def _patched(self):
+        if not hasattr(self, "all_tied_weights_keys"):
+            self.all_tied_weights_keys = self.get_expanded_tied_weights_keys(
+                all_submodels=False
+            )
+        _orig(self)
+
+    PreTrainedModel.init_weights = _patched
+
+
+_patch_pretrained_model_init_weights()
 
 from third_party.tt_forge_models.config import (
     ModelInfo,
@@ -71,7 +98,16 @@ class ModelLoader(ForgeModel):
 
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
+        config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+        # Custom modeling_esm.py references these PretrainedConfig attrs removed in newer transformers
+        if not hasattr(config, "is_decoder"):
+            config.is_decoder = False
+        if not hasattr(config, "add_cross_attention"):
+            config.add_cross_attention = False
+        if not hasattr(config, "chunk_size_feed_forward"):
+            config.chunk_size_feed_forward = 0
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -79,6 +115,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForMaskedLM.from_pretrained(
             model_name, trust_remote_code=True, **model_kwargs
         )
+        if dtype_override is not None:
+            model.to(dtype_override)
         model.eval()
         return model
 
