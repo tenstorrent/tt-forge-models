@@ -6,7 +6,6 @@ OCR Captcha model loader implementation for optical character recognition of CAP
 """
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 from PIL import Image
-import requests
 from typing import Optional
 
 from ....base import ForgeModel
@@ -81,11 +80,15 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        import torch
+        from PIL import ImageDraw
+
         if self.processor is None:
             self._load_processor()
 
-        url = "https://fki.tic.heia-fr.ch/static/img/a01-122-02-00.jpg"
-        image = Image.open(requests.get(url, stream=True).raw).convert("RGB")
+        image = Image.new("RGB", (300, 60), color=(255, 255, 255))
+        draw = ImageDraw.Draw(image)
+        draw.text((10, 15), "CAPTCHA123", fill=(0, 0, 0))
 
         pixel_values = self.processor(images=image, return_tensors="pt").pixel_values
 
@@ -94,7 +97,12 @@ class ModelLoader(ForgeModel):
 
         pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
 
-        return pixel_values
+        decoder_start_token_id = self.processor.tokenizer.bos_token_id
+        decoder_input_ids = torch.full(
+            (batch_size, 1), decoder_start_token_id, dtype=torch.long
+        )
+
+        return {"pixel_values": pixel_values, "decoder_input_ids": decoder_input_ids}
 
     @classmethod
     def decode_output(cls, outputs, processor=None, **kwargs):
