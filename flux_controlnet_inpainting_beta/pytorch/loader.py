@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.FLUX_1_DEV_CONTROLNET_INPAINTING_BETA
 
-    base_model = "black-forest-labs/FLUX.1-dev"
+    base_model = "frankjoshua/FLUX.1-dev"
     prompt = "a blue robot sitting on a wooden bench in a sunny park"
 
     def __init__(self, variant: Optional[ModelVariant] = None):

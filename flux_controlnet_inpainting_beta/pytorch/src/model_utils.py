@@ -21,7 +21,10 @@ def load_flux_controlnet_inpainting_beta_pipe(controlnet_model_name, base_model_
         FluxControlNetInpaintPipeline: Loaded pipeline with components set to eval mode
     """
     controlnet = FluxControlNetModel.from_pretrained(
-        controlnet_model_name, torch_dtype=torch.bfloat16
+        controlnet_model_name,
+        torch_dtype=torch.bfloat16,
+        ignore_mismatched_sizes=True,
+        low_cpu_mem_usage=False,
     )
     pipe = FluxControlNetInpaintPipeline.from_pretrained(
         base_model_name, controlnet=controlnet, torch_dtype=torch.bfloat16
