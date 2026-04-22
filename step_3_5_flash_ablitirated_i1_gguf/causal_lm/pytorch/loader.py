@@ -8,6 +8,51 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_step35_support():
+    """Register step35 as an alias for llama in the GGUF loader.
+
+    The transformers library does not support the step35 GGUF architecture
+    used by StepFun AI's Step-3.5 models. We register it as an alias for
+    the llama architecture (closest supported base) and fix model_type
+    after loading so AutoModelForCausalLM resolves correctly.
+    """
+    if "step35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("step35")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "llama" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "step35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["llama"],
+            )
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("step35", GGUF_TO_FAST_CONVERTERS["llama"])
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    _patch_step35_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "step35":
+        result["config"]["model_type"] = "llama"
+    return result
+
+
+_patch_step35_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
