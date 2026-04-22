@@ -11,6 +11,29 @@ from third_party.tt_forge_models.vadv2.pytorch.src.vad_utils import (
 TORCH_VERSION = torch.__version__
 
 
+def _compute_sampling_locations_eager(
+    reference_points, sampling_offsets, spatial_shapes, num_points
+):
+    """Compute sampling locations with device alignment. Runs eagerly to avoid
+    FakeTensor device propagation issues (xla vs cpu) during dynamo tracing.
+    """
+    ref_pts = reference_points.to(sampling_offsets.device)
+    spatial_shapes_dev = spatial_shapes.to(sampling_offsets.device)
+    offset_normalizer = torch.stack(
+        [spatial_shapes_dev[..., 1], spatial_shapes_dev[..., 0]], -1
+    )
+    if ref_pts.shape[-1] == 2:
+        return (
+            ref_pts[:, :, None, :, None, :]
+            + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
+        )
+    else:
+        return (
+            ref_pts[:, :, None, :, None, :2]
+            + sampling_offsets / num_points * ref_pts[:, :, None, :, None, 2:] * 0.5
+        )
+
+
 def inverse_sigmoid(x, eps=1e-5):
     """Inverse function of sigmoid.
     Args:
@@ -212,6 +235,9 @@ class VADPerceptionTransformer(nn.Module):
             feat_flatten.append(feat)
 
         feat_flatten = torch.cat(feat_flatten, 2)
+        spatial_shapes_ints = list(
+            spatial_shapes
+        )  # [(h,w), ...] for dynamo - avoid .item()
         spatial_shapes = torch.as_tensor(spatial_shapes, device=device)
         level_start_index = torch.cat(
             (
@@ -235,6 +261,7 @@ class VADPerceptionTransformer(nn.Module):
             bev_w=bev_w,
             bev_pos=bev_pos,
             spatial_shapes=spatial_shapes,
+            spatial_shapes_ints=spatial_shapes_ints,
             level_start_index=level_start_index,
             prev_bev=prev_bev,
             shift=shift,
@@ -342,6 +369,7 @@ class VADPerceptionTransformer(nn.Module):
                 cls_branches=cls_branches,
                 spatial_shapes=torch.tensor([[bev_h, bev_w]]),
                 level_start_index=torch.tensor([0]),
+                spatial_shapes_ints=[(bev_h, bev_w)],
                 **kwargs,
             )
             inter_references_out = inter_references
@@ -361,6 +389,7 @@ class VADPerceptionTransformer(nn.Module):
                 cls_branches=map_cls_branches,
                 spatial_shapes=torch.tensor([[bev_h, bev_w]]),
                 level_start_index=torch.tensor([0]),
+                spatial_shapes_ints=[(bev_h, bev_w)],
                 **kwargs,
             )
             map_inter_references_out = map_inter_references
@@ -654,7 +683,14 @@ class BEVFormerEncoder(nn.Module):
 
     @staticmethod
     def get_reference_points(
-        H, W, Z=8, num_points_in_pillar=4, dim="3d", bs=1, dtype=torch.float
+        H,
+        W,
+        Z=8,
+        num_points_in_pillar=4,
+        dim="3d",
+        bs=1,
+        dtype=torch.float,
+        device=None,
     ):
         """Get the reference points used in SCA and TSA.
         Args:
@@ -667,23 +703,28 @@ class BEVFormerEncoder(nn.Module):
             Tensor: reference points used in decoder, has \
                 shape (bs, num_keys, num_levels, 2).
         """
+        # Create on target device to avoid FakeTensor device propagation issues (xla vs cpu).
+        def _tensor(x, **kw):
+            return x.to(device, **kw) if device is not None else x
 
         # reference points in 3D space, used in spatial cross-attention (SCA)
         if dim == "3d":
             zs = (
-                torch.linspace(0.5, Z - 0.5, num_points_in_pillar, dtype=dtype)
+                torch.linspace(
+                    0.5, Z - 0.5, num_points_in_pillar, dtype=dtype, device=device
+                )
                 .view(-1, 1, 1)
                 .expand(num_points_in_pillar, H, W)
                 / Z
             )
             xs = (
-                torch.linspace(0.5, W - 0.5, W, dtype=dtype)
+                torch.linspace(0.5, W - 0.5, W, dtype=dtype, device=device)
                 .view(1, 1, W)
                 .expand(num_points_in_pillar, H, W)
                 / W
             )
             ys = (
-                torch.linspace(0.5, H - 0.5, H, dtype=dtype)
+                torch.linspace(0.5, H - 0.5, H, dtype=dtype, device=device)
                 .view(1, H, 1)
                 .expand(num_points_in_pillar, H, W)
                 / H
@@ -696,8 +737,8 @@ class BEVFormerEncoder(nn.Module):
         # reference points on 2D bev plane, used in temporal self-attention (TSA).
         elif dim == "2d":
             ref_y, ref_x = torch.meshgrid(
-                torch.linspace(0.5, H - 0.5, H, dtype=dtype),
-                torch.linspace(0.5, W - 0.5, W, dtype=dtype),
+                torch.linspace(0.5, H - 0.5, H, dtype=dtype, device=device),
+                torch.linspace(0.5, W - 0.5, W, dtype=dtype, device=device),
             )
             ref_y = ref_y.reshape(-1)[None] / H
             ref_x = ref_x.reshape(-1)[None] / W
@@ -705,27 +746,24 @@ class BEVFormerEncoder(nn.Module):
             ref_2d = ref_2d.repeat(bs, 1, 1).unsqueeze(2)
             return ref_2d
 
-    # XLA/TT compatibility: under torch.compile, img_meta["lidar2img"] may be (or
-    # contain) device tensors. np.asarray() cannot convert device tensors to numpy;
-    # it raises "can't convert xla:0 device type tensor to numpy". We convert via
-    # CPU first using _to_numpy() so inference works with the TT backend.
-    @staticmethod
-    def _to_numpy(x):
-        """Convert to numpy, moving tensor to CPU first (for XLA/device tensors)."""
-        if isinstance(x, torch.Tensor):
-            return x.detach().cpu().numpy()
-        if isinstance(x, (list, tuple)):
-            return np.array([BEVFormerEncoder._to_numpy(t) for t in x])
-        return np.asarray(x)
-
     # This function must use fp32!!!
     def point_sampling(self, reference_points, pc_range, img_metas):
-
-        lidar2img = []
+        # Build lidar2img from tensors directly (avoid numpy/.cpu() - causes graph
+        # breaks and leaves tensors on CPU when partitioned for XLA).
+        device = reference_points.device
+        lidar2img_list = []
         for img_meta in img_metas:
-            lidar2img.append(self._to_numpy(img_meta["lidar2img"]))
-        lidar2img = np.asarray(lidar2img)
-        lidar2img = reference_points.new_tensor(lidar2img)  # (B, N, 4, 4)
+            item = img_meta["lidar2img"]
+            row = []
+            for t in item:
+                if isinstance(t, torch.Tensor):
+                    row.append(t.to(device))
+                else:
+                    row.append(
+                        torch.tensor(t, device=device, dtype=reference_points.dtype)
+                    )
+            lidar2img_list.append(torch.stack(row))
+        lidar2img = torch.stack(lidar2img_list)  # (B, N, 4, 4)
         reference_points = reference_points.clone()
 
         reference_points[..., 0:1] = (
@@ -752,7 +790,7 @@ class BEVFormerEncoder(nn.Module):
             .unsqueeze(-1)
         )
 
-        lidar2img = lidar2img.view(1, B, num_cam, 1, 4, 4).repeat(
+        lidar2img = lidar2img.view(1, 1, num_cam, 1, 4, 4).repeat(
             D, 1, 1, num_query, 1, 1
         )
 
@@ -779,10 +817,7 @@ class BEVFormerEncoder(nn.Module):
         if TORCH_VERSION >= "1.8":
             bev_mask = torch.nan_to_num(bev_mask)
         else:
-            # XLA/TT: .numpy() on device tensor fails; use .detach().cpu().numpy()
-            bev_mask = bev_mask.new_tensor(
-                np.nan_to_num(bev_mask.detach().cpu().numpy())
-            )
+            bev_mask = bev_mask.new_tensor(np.nan_to_num(bev_mask.numpy()))
 
         reference_points_cam = reference_points_cam.permute(2, 1, 3, 0, 4)
         bev_mask = bev_mask.permute(2, 1, 3, 0, 4).squeeze(-1)
@@ -835,9 +870,15 @@ class BEVFormerEncoder(nn.Module):
             dim="3d",
             bs=bev_query.size(1),
             dtype=bev_query.dtype,
+            device=bev_query.device,
         )
         ref_2d = self.get_reference_points(
-            bev_h, bev_w, dim="2d", bs=bev_query.size(1), dtype=bev_query.dtype
+            bev_h,
+            bev_w,
+            dim="2d",
+            bs=bev_query.size(1),
+            dtype=bev_query.dtype,
+            device=bev_query.device,
         )
 
         reference_points_cam, bev_mask = self.point_sampling(
@@ -1236,29 +1277,19 @@ class CustomMSDeformableAttention(nn.Module):
         attention_weights = attention_weights.view(
             bs, num_query, self.num_heads, self.num_levels, self.num_points
         )
-        if reference_points.shape[-1] == 2:
-            offset_normalizer = torch.stack(
-                [spatial_shapes[..., 1], spatial_shapes[..., 0]], -1
-            )
-            sampling_locations = (
-                reference_points[:, :, None, :, None, :]
-                + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
-            )
-        elif reference_points.shape[-1] == 4:
-            sampling_locations = (
-                reference_points[:, :, None, :, None, :2]
-                + sampling_offsets
-                / self.num_points
-                * reference_points[:, :, None, :, None, 2:]
-                * 0.5
-            )
-        else:
-            raise ValueError(
-                f"Last dim of reference_points must be"
-                f" 2 or 4, but get {reference_points.shape[-1]} instead."
-            )
+        # Run eagerly to avoid FakeTensor device propagation (xla vs cpu) during dynamo.
+        sampling_locations = _compute_sampling_locations_eager(
+            reference_points,
+            sampling_offsets,
+            spatial_shapes,
+            self.num_points,
+        )
         output = multi_scale_deformable_attn_pytorch(
-            value, spatial_shapes, sampling_locations, attention_weights
+            value,
+            spatial_shapes,
+            sampling_locations,
+            attention_weights,
+            spatial_shapes_ints=kwargs.get("spatial_shapes_ints"),
         )
 
         output = self.output_proj(output)
@@ -1468,30 +1499,20 @@ class TemporalSelfAttention(nn.Module):
             2,
         )
 
-        if reference_points.shape[-1] == 2:
-            offset_normalizer = torch.stack(
-                [spatial_shapes[..., 1], spatial_shapes[..., 0]], -1
-            )
-            sampling_locations = (
-                reference_points[:, :, None, :, None, :]
-                + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
-            )
-
-        elif reference_points.shape[-1] == 4:
-            sampling_locations = (
-                reference_points[:, :, None, :, None, :2]
-                + sampling_offsets
-                / self.num_points
-                * reference_points[:, :, None, :, None, 2:]
-                * 0.5
-            )
-        else:
-            raise ValueError(
-                f"Last dim of reference_points must be"
-                f" 2 or 4, but get {reference_points.shape[-1]} instead."
-            )
+        # Run sampling_locations computation eagerly to avoid FakeTensor device
+        # propagation (xla vs cpu) during dynamo - .to() doesn't propagate correctly.
+        sampling_locations = _compute_sampling_locations_eager(
+            reference_points,
+            sampling_offsets,
+            spatial_shapes,
+            self.num_points,
+        )
         output = multi_scale_deformable_attn_pytorch(
-            value, spatial_shapes, sampling_locations, attention_weights
+            value,
+            spatial_shapes,
+            sampling_locations,
+            attention_weights,
+            spatial_shapes_ints=kwargs.get("spatial_shapes_ints"),
         )
 
         # output shape (bs*num_bev_queue, num_query, embed_dims)
@@ -1652,6 +1673,7 @@ class SpatialCrossAttention(nn.Module):
             ),
             spatial_shapes=spatial_shapes,
             level_start_index=level_start_index,
+            spatial_shapes_ints=kwargs.get("spatial_shapes_ints"),
         ).view(bs, self.num_cams, max_len, self.embed_dims)
         for j in range(bs):
             for i, index_query_per_img in enumerate(indexes):
@@ -1817,8 +1839,11 @@ class MSDeformableAttention3D(nn.Module):
             For each referent point, we sample `num_points` sampling points.
             For `num_Z_anchors` reference points,  it has overall `num_points * num_Z_anchors` sampling points.
             """
+            # Move to same device as sampling_offsets before stacking to avoid
+            # FakeTensor device propagation issues (xla vs cpu) during dynamo.
+            spatial_shapes_dev = spatial_shapes.to(sampling_offsets.device)
             offset_normalizer = torch.stack(
-                [spatial_shapes[..., 1], spatial_shapes[..., 0]], -1
+                [spatial_shapes_dev[..., 1], spatial_shapes_dev[..., 0]], -1
             )
 
             bs, num_query, num_Z_anchors, xy = reference_points.shape
@@ -1868,7 +1893,11 @@ class MSDeformableAttention3D(nn.Module):
             )
 
         output = multi_scale_deformable_attn_pytorch(
-            value, spatial_shapes, sampling_locations, attention_weights
+            value,
+            spatial_shapes,
+            sampling_locations,
+            attention_weights,
+            spatial_shapes_ints=kwargs.get("spatial_shapes_ints"),
         )
         if not self.batch_first:
             output = output.permute(1, 0, 2)
@@ -2446,7 +2475,11 @@ class BEVFormerLayer(MyCustomBaseTransformerLayer):
         for layer in self.operation_order:
             # temporal self attention
             if layer == "self_attn":
-
+                # Exclude spatial_shapes_ints from kwargs - we pass [(bev_h, bev_w)]
+                # explicitly; kwargs may carry encoder's multi-scale spatial_shapes_ints.
+                kwargs_self = {
+                    k: v for k, v in kwargs.items() if k != "spatial_shapes_ints"
+                }
                 query = self.attentions[attn_index](
                     query,
                     prev_bev,
@@ -2457,9 +2490,12 @@ class BEVFormerLayer(MyCustomBaseTransformerLayer):
                     attn_mask=attn_masks[attn_index],
                     key_padding_mask=query_key_padding_mask,
                     reference_points=ref_2d,
-                    spatial_shapes=torch.tensor([[bev_h, bev_w]]),
-                    level_start_index=torch.tensor([0]),
-                    **kwargs,
+                    spatial_shapes=torch.tensor(
+                        [[bev_h, bev_w]], device=query.device, dtype=query.dtype
+                    ),
+                    level_start_index=torch.tensor([0], device=query.device),
+                    spatial_shapes_ints=[(bev_h, bev_w)],
+                    **kwargs_self,
                 )
                 attn_index += 1
                 identity = query

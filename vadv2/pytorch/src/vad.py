@@ -228,22 +228,20 @@ class VAD(MVXTwoStageDetector):
             self.prev_frame_info["prev_bev"] = None
 
         # Get the delta of ego position and angle between two timestamps.
-        tmp_pos = copy.deepcopy(img_metas[0][0][0]["can_bus"][:3])
-        tmp_angle = copy.deepcopy(img_metas[0][0][0]["can_bus"][-1])
+        # Use clone() instead of copy.deepcopy for traceability (avoids graph breaks)
+        can_bus = img_metas[0][0][0]["can_bus"]
+        if isinstance(can_bus, torch.Tensor):
+            tmp_pos = can_bus[:3].clone()
+            tmp_angle = can_bus[-1].clone()
+        else:
+            tmp_pos = copy.deepcopy(can_bus[:3])
+            tmp_angle = copy.deepcopy(can_bus[-1])
         if self.prev_frame_info["prev_bev"] is not None:
             img_metas[0][0][0]["can_bus"][:3] -= self.prev_frame_info["prev_pos"]
             img_metas[0][0][0]["can_bus"][-1] -= self.prev_frame_info["prev_angle"]
         else:
             img_metas[0][0][0]["can_bus"][-1] = 0
             img_metas[0][0][0]["can_bus"][:3] = 0
-
-        # Convert can_bus from numpy to a tensor on the model's device so that
-        # the compiled graph fragment for simple_test receives a properly placed
-        # tensor instead of a CPU tensor (which breaks XLA graph partitioning).
-        _dev = next(self.parameters()).device
-        img_metas[0][0][0]["can_bus"] = torch.as_tensor(
-            img_metas[0][0][0]["can_bus"], dtype=torch.float64
-        ).to(_dev)
 
         new_prev_bev, bbox_results = self.simple_test(
             img_metas=img_metas[0][0],
