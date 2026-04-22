@@ -7,6 +7,7 @@ Huihui Qwen3 VL 4B Abliterated GGUF model loader implementation for image to tex
 
 from transformers import (
     Qwen3VLForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
 )
 from typing import Optional
@@ -53,9 +54,12 @@ class ModelLoader(ForgeModel):
         ModelVariant.HUIHUI_QWEN3_VL_4B_INSTRUCT_ABLITERATED_MRADERMACHER_GGUF: "Huihui-Qwen3-VL-4B-Instruct-abliterated.Q4_K_M.gguf",
     }
 
+    _BASE_MODEL = "Qwen/Qwen3-VL-4B-Instruct"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+        self.config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -80,7 +84,13 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
+        self.processor = AutoProcessor.from_pretrained(self._BASE_MODEL)
+
+        # Pre-load config from the base HF model so the GGUF config parser
+        # (which does not support qwen3vl architecture) is not invoked.
+        if self.config is None:
+            self.config = AutoConfig.from_pretrained(self._BASE_MODEL)
+        model_kwargs.setdefault("config", self.config)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
