@@ -61,6 +61,31 @@ class ModelLoader(ForgeModel):
             except importlib.metadata.PackageNotFoundError:
                 pass
 
+    @staticmethod
+    def _patch_gemma_embedding_support():
+        """Register gemma-embedding as an alias for gemma3 in GGUF architecture mappings.
+
+        The embeddinggemma-300m GGUF declares architecture 'gemma-embedding' which is
+        not in transformers' GGUF_SUPPORTED_ARCHITECTURES. The underlying model is
+        Gemma3-based (model_type=gemma3_text), so we alias it to gemma3.
+        """
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+        arch = "gemma-embedding"
+        if arch not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+            _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append(arch)
+        for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+            if "gemma3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                    arch,
+                    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gemma3"],
+                )
+        if "gemma3_text" in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS.setdefault(
+                arch, GGUF_TO_FAST_CONVERTERS["gemma3_text"]
+            )
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
@@ -81,6 +106,7 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self, dtype_override=None):
         self._fix_gguf_version_detection()
+        self._patch_gemma_embedding_support()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -94,6 +120,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         self._fix_gguf_version_detection()
+        self._patch_gemma_embedding_support()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
