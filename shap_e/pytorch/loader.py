@@ -40,6 +40,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -53,13 +54,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Shap-E text-to-3D pipeline.
+        """Load and return the Shap-E prior transformer.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            ShapEPipeline: The pre-trained Shap-E pipeline.
+            torch.nn.Module: The pre-trained Shap-E prior transformer.
         """
         dtype = dtype_override or torch.float32
         pipe = ShapEPipeline.from_pretrained(
@@ -67,17 +68,39 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
             **kwargs,
         )
-        return pipe
+        self.pipeline = pipe
+        return pipe.prior
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for Shap-E.
+        """Load and return sample inputs for the Shap-E prior transformer.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
+            batch_size: Number of samples in the batch.
 
         Returns:
-            list: A list of sample text prompts.
+            list: [hidden_states, timestep, proj_embedding] tensors for the prior.
         """
-        prompt = ["a shark"] * batch_size
-        return prompt
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        pipe = self.pipeline
+        dtype = dtype_override or torch.float32
+        device = "cpu"
+
+        prompt_embeds = pipe._encode_prompt(
+            "a shark",
+            device=device,
+            num_images_per_prompt=batch_size,
+            do_classifier_free_guidance=False,
+        )
+
+        num_embeddings = pipe.prior.config.num_embeddings
+        embedding_dim = pipe.prior.config.embedding_dim
+        latents = torch.randn(batch_size, num_embeddings, embedding_dim, dtype=dtype)
+
+        pipe.scheduler.set_timesteps(1, device=device)
+        t = pipe.scheduler.timesteps[0]
+        scaled_model_input = pipe.scheduler.scale_model_input(latents, t)
+
+        return [scaled_model_input, t, prompt_embeds]
