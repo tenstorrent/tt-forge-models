@@ -4,7 +4,9 @@
 """
 Unsloth Gemma 3 27B IT QAT GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
+import transformers.utils.import_utils as _import_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -62,6 +64,12 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        # transformers caches packages_distributions() at import time; gguf is
+        # installed later by RequirementsManager, so refresh the mapping here to
+        # prevent is_gguf_available() from falling back to gguf.__version__ (N/A).
+        _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -153,6 +161,9 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
