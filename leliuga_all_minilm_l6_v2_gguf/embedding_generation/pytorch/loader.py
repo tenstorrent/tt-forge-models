@@ -4,7 +4,7 @@
 """
 leliuga all-MiniLM-L6-v2 GGUF model loader implementation for embedding generation.
 """
-from transformers import AutoModel, AutoTokenizer, AutoConfig
+from transformers import AutoModel, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -30,13 +30,11 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.ALL_MINILM_L6_V2_Q4_K_M: ModelConfig(
-            pretrained_model_name="leliuga/all-MiniLM-L6-v2-GGUF",
+            pretrained_model_name="sentence-transformers/all-MiniLM-L6-v2",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.ALL_MINILM_L6_V2_Q4_K_M
-
-    GGUF_FILE = "all-MiniLM-L6-v2.Q4_K_M.gguf"
 
     sample_sentences = [
         "This is an example sentence for embedding generation.",
@@ -46,7 +44,6 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
-        self.config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -63,7 +60,6 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -81,11 +77,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs).eval()
 
-        self.config = model.config
         return model
 
     def load_inputs(self, dtype_override=None):
@@ -101,9 +95,3 @@ class ModelLoader(ForgeModel):
         )
 
         return inputs
-
-    def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
-        return self.config
