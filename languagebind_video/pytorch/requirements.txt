@@ -1,5 +1,3 @@
 decord
 opencv-python
 pytorchvideo
-soundfile
-torchaudio==2.9.1

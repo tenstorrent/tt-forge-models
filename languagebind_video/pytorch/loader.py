@@ -122,7 +122,8 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         _ensure_languagebind()
-        from languagebind import LanguageBindVideoTokenizer, LanguageBindVideoProcessor
+        from languagebind.video.tokenization_video import LanguageBindVideoTokenizer
+        from languagebind.video.processing_video import LanguageBindVideoProcessor
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         tokenizer = LanguageBindVideoTokenizer.from_pretrained(pretrained_model_name)
@@ -133,7 +134,7 @@ class ModelLoader(ForgeModel):
 
     def _load_model_config(self):
         _ensure_languagebind()
-        from languagebind import LanguageBindVideoConfig
+        from languagebind.video.configuration_video import LanguageBindVideoConfig
 
         return LanguageBindVideoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
@@ -141,7 +142,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         _ensure_languagebind()
-        from languagebind import LanguageBindVideo
+        from languagebind.video.modeling_video import LanguageBindVideo
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         model_kwargs = {"return_dict": False}
