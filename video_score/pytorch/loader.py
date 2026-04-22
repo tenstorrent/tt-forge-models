@@ -180,7 +180,11 @@ class ModelLoader(ForgeModel):
                 ],
             },
         ]
-        text = self.processor.apply_chat_template(messages, add_generation_prompt=False)
+        # transformers>=5.0 requires the processor itself to have a chat template;
+        # Idefics2Processor doesn't, so delegate to the underlying tokenizer.
+        text = self.processor.tokenizer.apply_chat_template(
+            messages, add_generation_prompt=False, tokenize=False
+        )
 
         inputs = self.processor(
             text=text,
