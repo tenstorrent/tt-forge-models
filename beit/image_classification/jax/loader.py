@@ -7,7 +7,7 @@ BEiT model loader implementation for image classification.
 """
 
 import jax
-from transformers import BeitImageProcessor, FlaxBeitForImageClassification
+from transformers import BeitImageProcessor
 from datasets import load_dataset
 from typing import Optional
 
@@ -118,6 +118,8 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # Load the model
+        from transformers import FlaxBeitForImageClassification
+
         model = FlaxBeitForImageClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
