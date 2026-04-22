@@ -16,6 +16,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -86,9 +87,10 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_filename = _GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(repo_id=REPO_ID, filename=gguf_filename)
 
         self._transformer = Lumina2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{REPO_ID}/resolve/main/{gguf_filename}",
+            gguf_path,
             quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
         )
