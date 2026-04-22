@@ -4,9 +4,37 @@
 """
 L3.3 The Omega Directive 70B GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+import importlib.util
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+
+def _patched_is_gguf_available(min_version: str = "0.10.0") -> bool:
+    """Fix is_gguf_available when PACKAGE_DISTRIBUTION_MAPPING is stale.
+
+    transformers caches packages_distributions() at import time; if gguf is
+    installed after transformers is imported (e.g. via RequirementsManager)
+    the cache misses, the fallback reads gguf.__version__ which doesn't exist,
+    and version.parse('N/A') raises InvalidVersion.
+    """
+    if importlib.util.find_spec("gguf") is None:
+        return False
+    try:
+        from packaging import version
+
+        return version.parse(importlib.metadata.version("gguf")) >= version.parse(
+            min_version
+        )
+    except Exception:
+        return False
+
+
+_gguf_utils.is_gguf_available = _patched_is_gguf_available
 
 from ....base import ForgeModel
 from ....config import (
