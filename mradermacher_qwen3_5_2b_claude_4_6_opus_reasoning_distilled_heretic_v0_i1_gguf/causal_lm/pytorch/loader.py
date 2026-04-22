@@ -185,6 +185,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        if self.config is not None:
+            return self.config
         self._ensure_gguf_detected()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
