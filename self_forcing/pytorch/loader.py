@@ -37,6 +37,12 @@ from ...config import (
 BASE_MODEL = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
 SELF_FORCING_REPO = "gdhe17/Self-Forcing"
 
+# Small spatial dimensions for compile-only testing
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
+
 
 class ModelVariant(StrEnum):
     """Available Self-Forcing checkpoint variants."""
@@ -137,19 +143,31 @@ class ModelLoader(ForgeModel):
         generator_state = state_dict.get("generator_ema", state_dict)
         self.pipeline.transformer.load_state_dict(generator_state, strict=False)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation.
+        """Prepare tensor inputs for the WanTransformer3DModel forward pass."""
+        if self.pipeline is None:
+            self.load_model()
 
-        Returns:
-            dict with prompt plus small test-friendly resolution/frame settings.
-        """
+        dtype = torch.bfloat16
+        config = self.pipeline.transformer.config
+
         return {
-            "prompt": prompt if prompt is not None else self.DEFAULT_PROMPT,
-            "height": 480,
-            "width": 832,
-            "num_frames": 21,
-            "num_inference_steps": 4,
-            "guidance_scale": 1.0,
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }
