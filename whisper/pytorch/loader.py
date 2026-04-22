@@ -5,6 +5,8 @@
 Whisper model loader implementation
 """
 
+import os
+
 import torch
 from transformers import (
     WhisperProcessor,
@@ -200,55 +202,79 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
 
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
-        # Preprocess audio
-        sampling_rate = 16000
-        if hasattr(self, "feature_extractor") and self.feature_extractor is not None:
-            processor = self.feature_extractor(
-                sample_audio, return_tensors="pt", sampling_rate=sampling_rate
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            # Generate synthetic mel spectrogram: (batch=1, n_mels, n_frames)
+            n_mels = model_config.num_mel_bins
+            n_frames = model_config.max_source_positions * 2
+            input_features = torch.zeros(
+                1, n_mels, n_frames, device=device, dtype=dtype
             )
         else:
-            processor = self.processor(
-                sample_audio, return_tensors="pt", sampling_rate=sampling_rate
-            )
+            # Load audio sample
+            weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
+            sample = torch.load(weights_pth, weights_only=False)
+            sample_audio = sample["audio"]["array"]
 
-        input_features = processor.input_features.to(device=device, dtype=dtype)
+            # Preprocess audio
+            sampling_rate = 16000
+            if (
+                hasattr(self, "feature_extractor")
+                and self.feature_extractor is not None
+            ):
+                processor = self.feature_extractor(
+                    sample_audio, return_tensors="pt", sampling_rate=sampling_rate
+                )
+            else:
+                processor = self.processor(
+                    sample_audio, return_tensors="pt", sampling_rate=sampling_rate
+                )
+
+            input_features = processor.input_features.to(device=device, dtype=dtype)
 
         if self._variant == ModelVariant.WHISPER_LARGE_V3_TURBO:
-            processor_v3 = AutoProcessor.from_pretrained(
-                self._variant_config.pretrained_model_name
-            )
-            features_v3 = processor_v3.feature_extractor(
-                sample_audio,
-                sampling_rate=processor_v3.feature_extractor.sampling_rate,
-                return_tensors="pt",
-                return_token_timestamps=True,
-                return_attention_mask=True,
-            )
-            input_features = features_v3["input_features"].to(
-                device=device, dtype=dtype
-            )
-            attention_mask = features_v3.get("attention_mask")
-            if attention_mask is not None:
-                attention_mask = attention_mask.to(device)
+            if os.environ.get("TT_RANDOM_WEIGHTS"):
+                attention_mask = torch.ones(
+                    1,
+                    model_config.max_source_positions * 2,
+                    dtype=torch.long,
+                    device=device,
+                )
+                init_tokens = [self.model.generation_config.decoder_start_token_id]
+                decoder_input_ids = torch.tensor(
+                    [init_tokens], dtype=torch.long, device=device
+                )
+            else:
+                processor_v3 = AutoProcessor.from_pretrained(
+                    self._variant_config.pretrained_model_name
+                )
+                features_v3 = processor_v3.feature_extractor(
+                    sample_audio,
+                    sampling_rate=processor_v3.feature_extractor.sampling_rate,
+                    return_tensors="pt",
+                    return_token_timestamps=True,
+                    return_attention_mask=True,
+                )
+                input_features = features_v3["input_features"].to(
+                    device=device, dtype=dtype
+                )
+                attention_mask = features_v3.get("attention_mask")
+                if attention_mask is not None:
+                    attention_mask = attention_mask.to(device)
 
-            # Build decoder input IDs
-            decoder_prompt_ids = self.processor.get_decoder_prompt_ids(
-                task="transcribe", language="en", no_timestamps=True
-            )
-            init_tokens = [self.model.generation_config.decoder_start_token_id]
-            if decoder_prompt_ids:
-                init_tokens += [tok for _, tok in decoder_prompt_ids]
+                # Build decoder input IDs
+                decoder_prompt_ids = self.processor.get_decoder_prompt_ids(
+                    task="transcribe", language="en", no_timestamps=True
+                )
+                init_tokens = [self.model.generation_config.decoder_start_token_id]
+                if decoder_prompt_ids:
+                    init_tokens += [tok for _, tok in decoder_prompt_ids]
 
-            decoder_input_ids = torch.tensor(
-                [init_tokens], dtype=torch.long, device=device
-            )
+                decoder_input_ids = torch.tensor(
+                    [init_tokens], dtype=torch.long, device=device
+                )
             return [input_features, attention_mask, decoder_input_ids]
 
         decoder_input_ids = torch.full(
