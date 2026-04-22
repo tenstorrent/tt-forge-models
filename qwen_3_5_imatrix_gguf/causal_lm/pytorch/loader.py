@@ -20,22 +20,25 @@ from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 
 def _patch_qwen35_support():
-    """Register qwen35 architecture as an alias for qwen3.
+    """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3.
 
     Qwen 3.5 uses the same model architecture as Qwen 3 but the GGUF file
-    declares architecture as 'qwen35' which transformers 5.x does not yet
-    recognise.
+    declares architecture as 'qwen35' and tokenizer class as 'qwen3_5_text',
+    which transformers 5.x does not yet recognise.
     """
-    if "qwen35" in GGUF_SUPPORTED_ARCHITECTURES:
-        return
-    GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
         if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section][
-                "qwen35"
-            ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"]
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["qwen35"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
@@ -152,7 +155,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
