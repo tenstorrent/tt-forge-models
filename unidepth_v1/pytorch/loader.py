@@ -77,9 +77,9 @@ class UniDepthV1Wrapper(nn.Module):
         self.model = model
 
     def forward(self, image):
-        inputs = {"image": image, "camera": None}
+        inputs = {"image": image.float(), "camera": None}
         _, outputs = self.model.encode_decode(inputs, image_metas=[])
-        return outputs["depth"]
+        return outputs["depth"].to(image.dtype)
 
 
 @dataclass
@@ -144,9 +144,6 @@ class ModelLoader(ForgeModel):
 
         wrapper = UniDepthV1Wrapper(model)
         wrapper.eval()
-
-        if dtype_override is not None:
-            wrapper = wrapper.to(dtype_override)
 
         return wrapper
 
