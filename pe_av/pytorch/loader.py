@@ -102,20 +102,11 @@ class ModelLoader(ForgeModel):
         return tmp.name
 
     @staticmethod
-    def _create_synthetic_video(num_frames=16, height=224, width=224, fps=8):
-        """Create a temporary synthetic mp4 video file and return its path."""
-        import cv2
+    def _create_synthetic_video(num_frames=16, height=224, width=224):
+        """Return synthetic video frames as a (T, H, W, C) uint8 numpy array."""
         import numpy as np
 
-        tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-        tmp.close()
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(tmp.name, fourcc, fps, (width, height))
-        for _ in range(num_frames):
-            frame = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
-            writer.write(frame)
-        writer.release()
-        return tmp.name
+        return np.random.randint(0, 255, (num_frames, height, width, 3), dtype=np.uint8)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the PE-AV model.
@@ -130,30 +121,31 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        video_path = self._create_synthetic_video()
-        audio_path = self._create_synthetic_audio()
+        import soundfile as sf
 
+        audio_path = self._create_synthetic_audio()
         self.text_prompts = ["a dog barking in the park"]
 
         try:
-            import numpy as np
-            import soundfile as sf
-
             # Load audio as numpy array to bypass torchcodec (requires FFmpeg binaries
             # incompatible with CPU-only torch builds); transformers skips torchcodec
             # when audio is already an ndarray.
             audio_array, _ = sf.read(audio_path, dtype="float32")
-
-            inputs = self.processor(
-                videos=[video_path],
-                text=self.text_prompts,
-                audio=[audio_array],
-                return_tensors="pt",
-                padding=True,
-            )
         finally:
-            os.unlink(video_path)
             os.unlink(audio_path)
+
+        # Build synthetic video frames in-memory as a (T, H, W, C) array; passing
+        # a valid 4D array skips fetch_videos/torchcodec in the video processor.
+        video_array = self._create_synthetic_video()
+
+        inputs = self.processor(
+            videos=[video_array],
+            text=self.text_prompts,
+            audio=[audio_array],
+            return_tensors="pt",
+            padding=True,
+            do_sample_frames=False,
+        )
 
         inputs = dict(inputs)
 

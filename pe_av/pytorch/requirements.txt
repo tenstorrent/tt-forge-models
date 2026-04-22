@@ -1,3 +1,2 @@
 numpy
 soundfile
-opencv-python
