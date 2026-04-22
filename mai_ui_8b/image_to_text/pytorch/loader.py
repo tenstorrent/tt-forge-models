@@ -8,6 +8,7 @@ MAI-UI-8B is a Qwen3-VL based foundation GUI agent for GUI grounding and
 mobile/web navigation tasks.
 """
 
+import torch
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
@@ -71,7 +72,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["dtype"] = "auto"
+        else:
+            model_kwargs["torch_dtype"] = torch.bfloat16
         model_kwargs["device_map"] = "auto"
         model_kwargs |= kwargs
 
@@ -105,4 +107,9 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
+
+        target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        if "pixel_values" in inputs:
+            inputs["pixel_values"] = inputs["pixel_values"].to(target_dtype)
+
         return inputs
