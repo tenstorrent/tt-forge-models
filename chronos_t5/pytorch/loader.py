@@ -9,8 +9,6 @@ import torch
 from typing import Optional
 from dataclasses import dataclass
 
-from chronos import ChronosPipeline
-
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -96,6 +94,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The T5ForConditionalGeneration instance.
         """
+        from chronos import ChronosPipeline
+
         cfg = self._variant_config
 
         pipeline = ChronosPipeline.from_pretrained(
