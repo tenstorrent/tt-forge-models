@@ -66,16 +66,9 @@ def _patch_nemotron_h_moe_support():
         )
 
 
-def _patched_load_gguf_checkpoint(
-    gguf_path, return_tensors=False, model_to_load=None, torch_dtype=None
-):
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     _patch_nemotron_h_moe_support()
-    result = _orig_load_gguf_checkpoint(
-        gguf_path,
-        return_tensors=return_tensors,
-        model_to_load=model_to_load,
-        torch_dtype=torch_dtype,
-    )
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     if result.get("config", {}).get("model_type") == "nemotron_h_moe":
         result["config"]["model_type"] = "nemotron_h"
         num_kv = result["config"].get("num_key_value_heads")
