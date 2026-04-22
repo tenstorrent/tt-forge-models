@@ -69,6 +69,7 @@ class ModelLoader(ForgeModel):
     def _load_processor(self):
         self.processor = Qwen2_5OmniProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
         )
         return self.processor
 
@@ -87,6 +88,7 @@ class ModelLoader(ForgeModel):
 
         model = Qwen2_5OmniThinkerForConditionalGeneration.from_pretrained(
             pretrained_model_name,
+            trust_remote_code=True,
             **model_kwargs,
         )
         model.config.use_cache = False
