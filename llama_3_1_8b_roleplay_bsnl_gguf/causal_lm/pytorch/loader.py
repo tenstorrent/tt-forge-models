@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LLAMA_3_1_8B_ROLEPLAY_BSNL_GGUF
 
-    GGUF_FILE = "llama3BSNL.Q4_K_M.gguf"
+    GGUF_FILE = "Llama3BSNL.Q4_K_M.gguf"
 
     sample_text = "What is your favorite city?"
 
