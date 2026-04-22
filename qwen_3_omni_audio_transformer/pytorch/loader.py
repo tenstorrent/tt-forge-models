@@ -88,16 +88,17 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Qwen3-Omni AudioTransformer model."""
-        from transformers import AutoModel
+        from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
+            Qwen3OmniMoeAudioEncoder,
+        )
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(
+        model = Qwen3OmniMoeAudioEncoder.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
             **model_kwargs,
         )
         model.eval()
