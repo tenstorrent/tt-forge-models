@@ -4,9 +4,39 @@
 """
 ThomasBaruzier Qwen2.5 14B Instruct GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+import importlib.util
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _patch_is_gguf_available():
+    """Patch is_gguf_available to bypass stale PACKAGE_DISTRIBUTION_MAPPING.
+
+    transformers.utils.import_utils caches packages_distributions() at import
+    time.  When gguf is installed later (by RequirementsManager), that cache
+    doesn't include gguf, causing version.parse('N/A') to raise InvalidVersion.
+    This patch reads the version directly from importlib.metadata instead.
+    """
+    import transformers.utils.import_utils as _import_utils
+
+    def _is_gguf_available_fresh(min_version=None):
+        if importlib.util.find_spec("gguf") is None:
+            return False
+        try:
+            from packaging.version import Version
+
+            ver = importlib.metadata.version("gguf")
+            mv = min_version or getattr(_import_utils, "GGUF_MIN_VERSION", "0.10.0")
+            return Version(ver) >= Version(mv)
+        except Exception:
+            return False
+
+    _import_utils.is_gguf_available = _is_gguf_available_fresh
+
+
+_patch_is_gguf_available()
 
 from ....base import ForgeModel
 from ....config import (
