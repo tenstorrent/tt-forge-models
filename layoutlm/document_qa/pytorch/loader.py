@@ -6,7 +6,7 @@ LayoutLM document question answering model loader implementation (PyTorch).
 """
 
 import torch
-from transformers import AutoTokenizer, LayoutLMForQuestionAnswering
+from transformers import AutoConfig, AutoTokenizer, LayoutLMForQuestionAnswering
 from typing import Optional
 
 from ....base import ForgeModel
@@ -56,6 +56,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
+        self._type_vocab_size = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -69,9 +70,10 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self):
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        self._type_vocab_size = getattr(config, "type_vocab_size", 2)
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -125,8 +127,11 @@ class ModelLoader(ForgeModel):
             + [[0, 0, 0, 0]]  # SEP
         )
 
-        # token_type_ids: 0 for question, 1 for context
-        token_type_ids = [0] * (len(question_tokens) + 2) + [1] * (len(word_tokens) + 1)
+        # token_type_ids: 0 for question, 1 for context (clamped to model's type_vocab_size)
+        context_type_id = min(1, (self._type_vocab_size or 2) - 1)
+        token_type_ids = [0] * (len(question_tokens) + 2) + [context_type_id] * (
+            len(word_tokens) + 1
+        )
 
         attention_mask = [1] * len(input_ids)
 
