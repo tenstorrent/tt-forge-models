@@ -134,7 +134,7 @@ class ModelLoader(ForgeModel):
         batch_size = kwargs.get("batch_size", 1)
 
         img_dim = 64
-        text_dim = 4096
+        text_dim = 3584
         txt_seq_len = 32
 
         frame, height, width = 1, 8, 8
