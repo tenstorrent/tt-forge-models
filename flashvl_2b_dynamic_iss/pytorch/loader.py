@@ -145,12 +145,16 @@ class ModelLoader(ForgeModel):
             "{% if add_generation_prompt %}{{ '<|im_start|>assistant\\n' }}{% endif %}"
         )
 
-        system_ids = tok.apply_chat_template(
-            [{"role": "system", "content": "You are a helpful assistant."}]
+        system_ids = list(
+            tok.apply_chat_template(
+                [{"role": "system", "content": "You are a helpful assistant."}]
+            )
         )
-        user_ids_raw = tok.apply_chat_template(
-            [{"role": "user", "content": f"<image>\n{self.default_query}"}],
-            add_generation_prompt=True,
+        user_ids_raw = list(
+            tok.apply_chat_template(
+                [{"role": "user", "content": f"<image>\n{self.default_query}"}],
+                add_generation_prompt=True,
+            )
         )
 
         expanded = []
