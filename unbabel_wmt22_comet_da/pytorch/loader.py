@@ -73,6 +73,8 @@ class ModelLoader(ForgeModel):
         Requires the unbabel-comet package:
             pip install unbabel-comet
         """
+        import types
+
         from comet import download_model, load_from_checkpoint
 
         model_path = download_model(self._variant_config.pretrained_model_name)
@@ -80,6 +82,21 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             model = model.to(dtype_override)
+            # COMET's pooling helpers (average_pooling, LayerwiseAttention) use
+            # hard-coded .float() casts that produce fp32 tensors even when the
+            # model is in bfloat16, causing a dtype mismatch in the ff layers.
+            # Patch get_sentence_embedding to cast its output back to model dtype.
+            _orig_gse = model.get_sentence_embedding.__func__
+
+            def _get_sentence_embedding(
+                self, input_ids, attention_mask, token_type_ids=None
+            ):
+                sentemb = _orig_gse(self, input_ids, attention_mask, token_type_ids)
+                return sentemb.to(dtype_override)
+
+            model.get_sentence_embedding = types.MethodType(
+                _get_sentence_embedding, model
+            )
 
         model.eval()
         self._model = model
