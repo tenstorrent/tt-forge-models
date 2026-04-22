@@ -78,6 +78,7 @@ class ModelLoader(ForgeModel):
                 model_max_length=self.MAX_TEXT_LEN,
                 padding_side="right",
                 use_fast=False,
+                trust_remote_code=True,
             )
         return self.tokenizer
 
