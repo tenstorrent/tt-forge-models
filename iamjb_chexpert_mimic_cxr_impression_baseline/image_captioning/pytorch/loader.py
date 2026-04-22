@@ -87,6 +87,9 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self.processor = ViTImageProcessor.from_pretrained(pretrained_model_name)
 
+        if self.tokenizer is None:
+            self.tokenizer = BertTokenizer.from_pretrained(pretrained_model_name)
+
         image_path = get_file(
             "https://huggingface.co/IAMJB/interpret-cxr-impression-baseline/resolve/main/effusions-bibasal.jpg"
         )
@@ -100,7 +103,11 @@ class ModelLoader(ForgeModel):
         if batch_size > 1:
             pixel_values = pixel_values.repeat(batch_size, 1, 1, 1)
 
-        return {"pixel_values": pixel_values}
+        decoder_input_ids = torch.tensor(
+            [[self.tokenizer.cls_token_id]] * max(batch_size, 1)
+        )
+
+        return {"pixel_values": pixel_values, "decoder_input_ids": decoder_input_ids}
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
