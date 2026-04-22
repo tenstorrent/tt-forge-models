@@ -163,10 +163,15 @@ class ModelLoader(ForgeModel):
         """
         dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = 1
-        seq_len = _LATENT_DEPTH * _LATENT_HEIGHT * _LATENT_WIDTH
 
+        # WanTransformer3DModel.forward expects (batch, channels, frames, height, width)
         hidden_states = torch.randn(
-            batch_size, seq_len, _TRANSFORMER_IN_CHANNELS, dtype=dtype
+            batch_size,
+            _TRANSFORMER_IN_CHANNELS,
+            _LATENT_DEPTH,
+            _LATENT_HEIGHT,
+            _LATENT_WIDTH,
+            dtype=dtype,
         )
         encoder_hidden_states = torch.randn(
             batch_size, _TEXT_SEQ_LEN, _TEXT_HIDDEN_DIM, dtype=dtype
