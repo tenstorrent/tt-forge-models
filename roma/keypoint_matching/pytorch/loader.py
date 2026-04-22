@@ -71,8 +71,8 @@ class ModelLoader(ForgeModel):
         model = roma_outdoor(device="cpu", **kwargs)
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        target_dtype = dtype_override if dtype_override is not None else torch.float32
+        model = model.to(target_dtype)
 
         return model
 
