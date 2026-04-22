@@ -219,8 +219,27 @@ class ModelLoader(ForgeModel):
         """
         import inspect
 
+        def _is_gguf_load_candidate(f):
+            try:
+                sig = inspect.signature(f)
+                p = sig.parameters
+            except (ValueError, TypeError):
+                return False
+            return (
+                "return_tensors" in p
+                or "gguf_checkpoint_path" in p
+                or any(
+                    pv.kind
+                    in (
+                        inspect.Parameter.VAR_POSITIONAL,
+                        inspect.Parameter.VAR_KEYWORD,
+                    )
+                    for pv in p.values()
+                )
+            )
+
         seen = set()
-        for _ in range(60):
+        for _ in range(100):
             fn_id = id(fn)
             if fn_id in seen:
                 return None
@@ -237,7 +256,11 @@ class ModelLoader(ForgeModel):
                 candidate = (
                     fn.__globals__.get(key) if hasattr(fn, "__globals__") else None
                 )
-                if callable(candidate) and id(candidate) not in seen:
+                if (
+                    callable(candidate)
+                    and id(candidate) not in seen
+                    and _is_gguf_load_candidate(candidate)
+                ):
                     next_fn = candidate
                     break
             if next_fn is None and getattr(fn, "__closure__", None):
@@ -248,14 +271,9 @@ class ModelLoader(ForgeModel):
                         continue
                     if not callable(val) or id(val) in seen:
                         continue
-                    try:
-                        sig = inspect.signature(val)
-                        p = sig.parameters
-                        if "return_tensors" in p or "gguf_checkpoint_path" in p:
-                            next_fn = val
-                            break
-                    except (ValueError, TypeError):
-                        pass
+                    if _is_gguf_load_candidate(val):
+                        next_fn = val
+                        break
             if next_fn is None:
                 return None
             fn = next_fn
