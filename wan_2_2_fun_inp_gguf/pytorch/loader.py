@@ -110,6 +110,7 @@ class ModelLoader(ForgeModel):
             f"https://huggingface.co/{GGUF_REPO}/{GGUF_FILE}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
+            low_cpu_mem_usage=False,
         )
 
         return self._transformer
