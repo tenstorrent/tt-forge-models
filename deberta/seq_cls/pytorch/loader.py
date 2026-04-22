@@ -85,6 +85,10 @@ class ModelLoader(ForgeModel):
         model = AutoModelForSequenceClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if dtype_override is not None:
+            # DeBERTa hardcodes q_bias/v_bias as float32 in __init__; from_pretrained
+            # with torch_dtype doesn't convert them, causing dtype mismatch in attention.
+            model = model.to(dtype_override)
         model.eval()
         self.model = model
         return model
