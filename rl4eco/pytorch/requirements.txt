@@ -1,2 +1,1 @@
 stable-baselines3>=2.0.0
-huggingface-sb3>=3.0

@@ -70,16 +70,14 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self):
         """Load and return the RL4Eco PPO policy network.
 
         Uses stable-baselines3 to load the pretrained PPO checkpoint from
         HuggingFace, then extracts the policy network as a standard
-        PyTorch module.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's
-                default dtype.
+        PyTorch module. The policy is always loaded in float32 because
+        SB3's preprocess_obs forces observations to float32 regardless
+        of input dtype.
 
         Returns:
             torch.nn.Module: The PPO policy network in eval mode.
@@ -109,29 +107,19 @@ class ModelLoader(ForgeModel):
         policy = ppo_model.policy
         policy.eval()
 
-        if dtype_override is not None:
-            policy = policy.to(dtype_override)
-
         return policy
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, batch_size=1):
         """Load and return sample inputs for the RL4Eco PPO policy.
 
         AsmEnv observations are bounded floats in [-1, 1]; the observe_2o
         variant produces a 2-dimensional observation vector.
 
         Args:
-            dtype_override: Optional torch.dtype to override the inputs'
-                default dtype.
             batch_size: Batch size for the inputs.
 
         Returns:
             torch.Tensor: Observation tensor of shape (batch_size, obs_dim).
         """
         obs_dim = self._OBS_DIMS[self._variant]
-        obs = torch.zeros((batch_size, obs_dim), dtype=torch.float32)
-
-        if dtype_override is not None:
-            obs = obs.to(dtype_override)
-
-        return obs
+        return torch.zeros((batch_size, obs_dim), dtype=torch.float32)
