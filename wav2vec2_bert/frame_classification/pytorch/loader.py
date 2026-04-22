@@ -75,9 +75,11 @@ class ModelLoader(ForgeModel):
         model = Wav2Vec2BertForAudioFrameClassification.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
-        model.eval()
         if dtype_override is not None:
-            model.to(dtype_override)
+            model = model.to(dtype_override)
+        else:
+            model = model.float()
+        model.eval()
 
         return model
 
@@ -99,5 +101,11 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if v.is_floating_point() else v
+                for k, v in inputs.items()
+            }
 
         return inputs
