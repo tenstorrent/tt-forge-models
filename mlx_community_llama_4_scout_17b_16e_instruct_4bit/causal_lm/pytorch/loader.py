@@ -104,7 +104,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
+        model = AutoModelForCausalLM.from_config(config.text_config, **model_kwargs)
 
         return model
 
