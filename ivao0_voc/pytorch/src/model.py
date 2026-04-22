@@ -211,7 +211,9 @@ class SplitResidualVectorQuantizer(nn.Module):
 
     def decode(self, codes):
         semantic = self.layers[0].decode(codes[:, 0, :])
-        acoustic = torch.zeros([1, 1], device=codes.device)
+        acoustic = torch.zeros(
+            [1, 1], device=codes.device, dtype=self.out_proj_a.weight.dtype
+        )
         for i, cb in enumerate(self._acoustic_books):
             acoustic = acoustic + self.layers[cb].decode(codes[:, i + 1, :])
         return self.out_proj_s(semantic) + self.out_proj_a(acoustic)
@@ -273,6 +275,7 @@ class Voc(Wav2Vec2PreTrainedModel):
         )
         self.frame_rate = 12.5
         self.encode_buffer = None
+        self.post_init()
 
     def encode(self, x):
         """24 kHz audio (bs, 1, samples) -> codes (bs, 22, time)."""
