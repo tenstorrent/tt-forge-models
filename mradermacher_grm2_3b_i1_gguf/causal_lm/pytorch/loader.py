@@ -29,6 +29,26 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """mradermacher GRM2 3B i1 GGUF model loader implementation for causal language modeling tasks."""
 
+    @staticmethod
+    def _fix_self_attn_return_count(model):
+        """Wrap each decoder layer's self_attn to return the 2-tuple expected by transformers 5.x.
+
+        Some GGUF loaders patch LlamaAttention with a 4.x-compat class that returns
+        (attn_output, attn_weights, past_key_value). LlamaDecoderLayer.forward in
+        transformers 5.x unpacks exactly 2 values, causing 'too many values to unpack'.
+        """
+        for layer in model.model.layers:
+            orig = layer.self_attn.forward
+
+            def _wrap(f):
+                def _fwd(*args, **kwargs):
+                    result = f(*args, **kwargs)
+                    return result[0], result[1]
+
+                return _fwd
+
+            layer.self_attn.forward = _wrap(orig)
+
     _VARIANTS = {
         ModelVariant.GRM2_3B_I1_Q4_K_M_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/GRM2-3b-i1-GGUF",
@@ -98,6 +118,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        self._fix_self_attn_return_count(model)
         self.config = model.config
         self.model = model
         return model
