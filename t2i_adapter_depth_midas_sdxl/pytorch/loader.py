@@ -89,12 +89,12 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            List: Input tensors for the UNet with T2I-Adapter residuals:
-                - latent_model_input (torch.Tensor)
-                - timestep (torch.Tensor)
-                - prompt_embeds (torch.Tensor)
-                - added_cond_kwargs (dict)
-                - down_intrablock_additional_residuals (list of torch.Tensor)
+            dict: Keyword arguments for the UNet forward method:
+                - sample (torch.Tensor): Latent input for the UNet
+                - timestep (torch.Tensor): Single timestep tensor
+                - encoder_hidden_states (torch.Tensor): Encoded prompt embeddings
+                - added_cond_kwargs (dict): Additional conditioning inputs
+                - down_intrablock_additional_residuals (list of torch.Tensor): T2I-Adapter features
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -119,10 +119,10 @@ class ModelLoader(ForgeModel):
             timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [
-            latent_model_input,
-            timestep,
-            prompt_embeds,
-            added_cond_kwargs,
-            down_intrablock_additional_residuals,
-        ]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+            "down_intrablock_additional_residuals": down_intrablock_additional_residuals,
+        }
