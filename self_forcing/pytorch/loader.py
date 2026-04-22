@@ -17,10 +17,11 @@ Available variants:
 - SELF_FORCING_10S: Extended 10-second generation checkpoint
 """
 
+import os
 from typing import Any, Optional
 
 import torch
-from diffusers import AutoencoderKLWan, WanPipeline  # type: ignore[import]
+from diffusers import AutoencoderKLWan, WanPipeline, WanTransformer3DModel  # type: ignore[import]
 from huggingface_hub import hf_hub_download  # type: ignore[import]
 
 from ...base import ForgeModel
@@ -88,6 +89,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipeline: Optional[WanPipeline] = None
+        self._transformer: Optional[WanTransformer3DModel] = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -110,13 +112,25 @@ class ModelLoader(ForgeModel):
     ):
         """Load the Wan 2.1 T2V 1.3B transformer with Self-Forcing weights.
 
-        Downloads the selected `.pt` checkpoint from gdhe17/Self-Forcing and
-        loads its ``generator_ema`` state dict into the pipeline's transformer.
+        When TT_RANDOM_WEIGHTS=1 (compile-only mode), loads the transformer
+        architecture from config with random weights to avoid large downloads.
+        Otherwise downloads the selected `.pt` checkpoint from gdhe17/Self-Forcing
+        and loads its ``generator_ema`` state dict into the pipeline's transformer.
 
         Returns:
             WanTransformer3DModel with Self-Forcing weights applied.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
+
+        if os.environ.get("TT_RANDOM_WEIGHTS", "0") == "1":
+            transformer_config = WanTransformer3DModel.load_config(
+                self._variant_config.pretrained_model_name,
+                subfolder="transformer",
+            )
+            self._transformer = WanTransformer3DModel.from_config(
+                transformer_config
+            ).to(dtype=dtype)
+            return self._transformer
 
         vae = AutoencoderKLWan.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -142,7 +156,12 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, **kwargs) -> Any:
         """Prepare synthetic inputs for the WanTransformer3DModel."""
         dtype = kwargs.get("dtype_override", torch.float32)
-        config = self.pipeline.transformer.config
+        transformer = (
+            self._transformer
+            if self._transformer is not None
+            else self.pipeline.transformer
+        )
+        config = transformer.config
         batch_size = 1
         p_t, p_h, p_w = config.patch_size
         hidden_states = torch.randn(
