@@ -5,6 +5,16 @@
 Mradermacher JSL-VL-7B-MedAgentBench-v2 i1-GGUF model loader implementation for image to text.
 """
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
 from transformers import (
     Qwen2_5_VLForConditionalGeneration,
     AutoProcessor,
@@ -21,6 +31,40 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_qwen2vl_support():
+    """Register qwen2vl architecture as an alias for qwen2.
+
+    Qwen2.5-VL GGUF files declare architecture as 'qwen2vl', which
+    transformers 5.x does not yet recognise for GGUF loading.
+    """
+    if "qwen2vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen2" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen2vl",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen2"],
+            )
+    if "qwen2" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen2vl", GGUF_TO_FAST_CONVERTERS["qwen2"])
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Wrap load_gguf_checkpoint to add qwen2vl support and fix model_type."""
+    _patch_qwen2vl_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "qwen2vl":
+        result["config"]["model_type"] = "qwen2_5_vl"
+    return result
+
+
+_patch_qwen2vl_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
