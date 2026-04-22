@@ -10,6 +10,7 @@ FluxTransformer2DModel.from_single_file and plugged into a FluxFillPipeline
 built from the original black-forest-labs/FLUX.1-Fill-dev repository.
 """
 
+from pathlib import Path
 from typing import Optional
 
 import torch
@@ -87,9 +88,11 @@ class ModelLoader(ForgeModel):
         """Load the FluxFillPipeline with a GGUF-quantized transformer."""
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
+        config_dir = str(Path(__file__).parent / "transformer_config")
 
         transformer = FluxTransformer2DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
+            config=config_dir,
             quantization_config=quantization_config,
             torch_dtype=dtype,
         )
