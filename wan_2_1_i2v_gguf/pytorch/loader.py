@@ -21,7 +21,6 @@ from diffusers import (
     WanImageToVideoPipeline,
     WanTransformer3DModel,
 )
-from diffusers.quantizers import GGUFQuantizationConfig
 from huggingface_hub import hf_hub_download
 from PIL import Image
 from transformers import CLIPVisionModel
@@ -103,6 +102,8 @@ class ModelLoader(ForgeModel):
             if dtype_override is not None:
                 self.pipeline = self.pipeline.to(dtype=dtype_override)
             return self.pipeline
+
+        from diffusers.quantizers import GGUFQuantizationConfig
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
