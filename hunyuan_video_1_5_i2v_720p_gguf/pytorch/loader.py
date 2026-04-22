@@ -142,8 +142,8 @@ def _convert_hunyuan_video15_i2v_gguf_to_diffusers(checkpoint, **kwargs):
         # Index 2 has no parameters.  Map the four parameterised layers to the
         # named attributes of diffusers' image_embedder.
         _MAP = {
-            "vision_in.proj.0": "image_embedder.linear_1",
-            "vision_in.proj.1": "image_embedder.norm_in",
+            "vision_in.proj.0": "image_embedder.norm_in",
+            "vision_in.proj.1": "image_embedder.linear_1",
             "vision_in.proj.3": "image_embedder.linear_2",
             "vision_in.proj.4": "image_embedder.norm_out",
         }
