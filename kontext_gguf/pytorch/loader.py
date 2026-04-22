@@ -10,6 +10,7 @@ diffusers' GGUF quantization support.
 Repository:
 - https://huggingface.co/calcuis/kontext-gguf
 """
+import os
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
@@ -74,6 +75,20 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # gguf is installed at test time via requirements.txt; fix diffusers' cached flags
+        import importlib
+        import sys
+        import diffusers.utils.import_utils as _diu
+        import importlib.metadata
+
+        _diu._gguf_available = True
+        try:
+            _diu._gguf_version = importlib.metadata.version("gguf")
+        except importlib.metadata.PackageNotFoundError:
+            _diu._gguf_version = "0.10.0"
+        if "diffusers.quantizers.gguf.gguf_quantizer" in sys.modules:
+            importlib.reload(sys.modules["diffusers.quantizers.gguf.gguf_quantizer"])
+
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
@@ -81,8 +96,10 @@ class ModelLoader(ForgeModel):
         gguf_file = self._GGUF_FILES[self._variant]
 
         local_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
+        config_dir = os.path.join(os.path.dirname(__file__), "model_config")
         self.transformer = FluxTransformer2DModel.from_single_file(
             local_path,
+            config=config_dir,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
