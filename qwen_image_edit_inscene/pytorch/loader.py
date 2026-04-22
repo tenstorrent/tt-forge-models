@@ -136,7 +136,7 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.QWEN_IMAGE_EDIT_INSCENE_ANNOTATE:
             # InScene-Annotate-0.4 uses old blocks.X key format; remap to
             # the current diffusers transformer_blocks naming before loading.
-            lora_path = hf_hub_download(LORA_REPO, weight_name=lora_file)
+            lora_path = hf_hub_download(LORA_REPO, filename=lora_file)
             state_dict = safetensors_load_file(lora_path)
             state_dict = _remap_lora_state_dict(state_dict)
             pipe.load_lora_weights(state_dict)
