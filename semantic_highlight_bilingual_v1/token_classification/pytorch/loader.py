@@ -6,6 +6,7 @@ Zilliz Semantic Highlight Bilingual v1 model loader implementation for token cla
 """
 
 from transformers import AutoModelForTokenClassification, AutoTokenizer
+from transformers.tokenization_utils_tokenizers import TokenizersBackend
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -66,7 +67,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_tokenizers_backend():
+        """Add build_inputs_with_special_tokens to TokenizersBackend for transformers 5.x compat."""
+        if hasattr(TokenizersBackend, "build_inputs_with_special_tokens"):
+            return
+
+        def build_inputs_with_special_tokens(self, token_ids_0, token_ids_1=None):
+            cls = [self.cls_token_id] if self.cls_token_id is not None else []
+            sep = [self.sep_token_id] if self.sep_token_id is not None else []
+            if token_ids_1 is None:
+                return cls + list(token_ids_0) + sep
+            return cls + list(token_ids_0) + sep + list(token_ids_1) + sep
+
+        TokenizersBackend.build_inputs_with_special_tokens = (
+            build_inputs_with_special_tokens
+        )
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._patch_tokenizers_backend()
+
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_name, trust_remote_code=True
         )
