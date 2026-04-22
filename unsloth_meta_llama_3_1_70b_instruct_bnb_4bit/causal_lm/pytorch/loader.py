@@ -84,15 +84,20 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            # BNB quantization requires CUDA; skip it for compile-only mode
+            # BNB quantization requires CUDA; skip it for compile-only mode.
+            # Limit to 1 layer to keep memory usage manageable for a 70B-width model.
             config = AutoConfig.from_pretrained(pretrained_model_name)
             config.quantization_config = None
-            if self.num_layers is not None:
-                config.num_hidden_layers = self.num_layers
-            model = LlamaForCausalLM(config)
-            if dtype_override is not None:
-                model = model.to(dtype_override)
-            model.eval()
+            config.num_hidden_layers = self.num_layers or 1
+            target_dtype = (
+                dtype_override if dtype_override is not None else torch.bfloat16
+            )
+            old_dtype = torch.get_default_dtype()
+            torch.set_default_dtype(target_dtype)
+            try:
+                model = LlamaForCausalLM(config).eval()
+            finally:
+                torch.set_default_dtype(old_dtype)
             self.config = model.config
             self.model = model
             return model
