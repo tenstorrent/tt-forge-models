@@ -75,6 +75,7 @@ class ModelLoader(ForgeModel):
         self.pipeline = KolorsPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
+            trust_remote_code=True,
             **kwargs,
         )
         return self.pipeline
