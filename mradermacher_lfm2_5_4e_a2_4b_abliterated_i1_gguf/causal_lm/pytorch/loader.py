@@ -66,6 +66,13 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     if result.get("config", {}).get("model_type") == "lfm2moe":
         result["config"]["model_type"] = "lfm2_moe"
+        cfg = result["config"]
+        num_kv_heads = cfg.get("num_key_value_heads")
+        if isinstance(num_kv_heads, list):
+            cfg["layer_types"] = [
+                "full_attention" if n > 0 else "short_conv" for n in num_kv_heads
+            ]
+            cfg["num_key_value_heads"] = max(num_kv_heads)
     return result
 
 
