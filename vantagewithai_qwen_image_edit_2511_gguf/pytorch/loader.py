@@ -13,6 +13,7 @@ Available variants:
 - Q8_0: 8-bit quantization (21.8 GB)
 """
 
+from pathlib import Path
 from typing import Any, Optional
 
 import torch
@@ -32,8 +33,7 @@ from ...config import (
 
 REPO_ID = "vantagewithai/Qwen-Image-Edit-2511-GGUF"
 
-# Upstream diffusers config for model construction
-CONFIG_REPO = "Qwen/Qwen-Image-Edit-2511"
+_LOADER_DIR = Path(__file__).parent
 
 _GGUF_FILES = {
     "Q4_K_M": "Qwen-Image-Edit-2511-Q4_K_M.gguf",
@@ -96,10 +96,10 @@ class ModelLoader(ForgeModel):
             filename=_GGUF_FILES[quant_key],
         )
 
+        config_dir = str(_LOADER_DIR / "transformer_config")
         self._transformer = QwenImageTransformer2DModel.from_single_file(
             model_path,
-            config=CONFIG_REPO,
-            subfolder="transformer",
+            config=config_dir,
             torch_dtype=dtype,
         )
         self._transformer.eval()
@@ -119,8 +119,8 @@ class ModelLoader(ForgeModel):
         dtype = kwargs.get("dtype_override", torch.float32)
         batch_size = kwargs.get("batch_size", 1)
 
-        # From model config: in_channels=64 (img_in linear input dimension)
-        img_dim = 64
+        # From model config: in_channels=128 (img_in linear input dimension)
+        img_dim = 128
         # joint_attention_dim from config = 3584
         text_dim = 3584
         txt_seq_len = 32
