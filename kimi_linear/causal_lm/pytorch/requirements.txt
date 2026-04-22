@@ -1,2 +1,4 @@
+fla-core
 tiktoken
 transformers>=5.5.0
+triton
