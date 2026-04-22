@@ -63,14 +63,21 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_gemma_embedding_support():
-        """Register gemma-embedding as an alias for gemma3 in GGUF architecture mappings.
+        """Register gemma-embedding as an alias for gemma3_text in GGUF architecture mappings.
 
         The embeddinggemma-300m GGUF declares architecture 'gemma-embedding' which is
         not in transformers' GGUF_SUPPORTED_ARCHITECTURES. The underlying model is
-        Gemma3-based (model_type=gemma3_text), so we alias it to gemma3.
+        Gemma3-based (model_type=gemma3_text), so we alias it and fix the model_type
+        returned by load_gguf_checkpoint so AutoConfig recognises the checkpoint.
         """
+        import transformers.configuration_utils as _config_utils
         import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        import transformers.models.auto.tokenization_auto as _auto_tokenizer
+        import transformers.tokenization_utils_tokenizers as _tok_utils
         from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+        from transformers.modeling_gguf_pytorch_utils import (
+            load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+        )
 
         arch = "gemma-embedding"
         if arch not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
@@ -85,6 +92,19 @@ class ModelLoader(ForgeModel):
             GGUF_TO_FAST_CONVERTERS.setdefault(
                 arch, GGUF_TO_FAST_CONVERTERS["gemma3_text"]
             )
+
+        def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+            result = _orig_load_gguf_checkpoint(
+                gguf_path, return_tensors=return_tensors
+            )
+            if result.get("config", {}).get("model_type") == arch:
+                result["config"]["model_type"] = "gemma3_text"
+            return result
+
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
