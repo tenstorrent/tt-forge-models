@@ -4,6 +4,16 @@
 """
 Bartowski mlabonne Gemma 3 12B IT Abliterated GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
+import gguf
+
+if not hasattr(gguf, "__version__"):
+    try:
+        gguf.__version__ = importlib.metadata.version("gguf")
+    except importlib.metadata.PackageNotFoundError:
+        pass
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
