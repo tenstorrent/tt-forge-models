@@ -4,9 +4,14 @@
 """
 TinyLlama v1.1 i1 GGUF model loader implementation for causal language modeling.
 """
+import os
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, LlamaConfig
 from typing import Optional
+
+# Chat model for tokenizer when TT_RANDOM_WEIGHTS avoids the GGUF download
+_BASE_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
 from ....base import ForgeModel
 from ....config import (
@@ -61,15 +66,35 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+    def _make_random_weights_config(self):
+        """Build a LlamaConfig from known TinyLlama v1.1 parameters.
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        Avoids downloading the GGUF file when TT_RANDOM_WEIGHTS is set.
+        """
+        return LlamaConfig(
+            hidden_size=2048,
+            intermediate_size=5632,
+            num_hidden_layers=22,
+            num_attention_heads=32,
+            num_key_value_heads=4,
+            max_position_embeddings=2048,
+            rms_norm_eps=1e-5,
+            vocab_size=32000,
+            rope_theta=10000.0,
+            hidden_act="silu",
         )
+
+    def _load_tokenizer(self, dtype_override=None):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.tokenizer = AutoTokenizer.from_pretrained(_BASE_MODEL)
+        else:
+            tokenizer_kwargs = {}
+            if dtype_override is not None:
+                tokenizer_kwargs["torch_dtype"] = dtype_override
+            tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -93,6 +118,8 @@ class ModelLoader(ForgeModel):
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+        elif os.environ.get("TT_RANDOM_WEIGHTS"):
+            model_kwargs["config"] = self._make_random_weights_config()
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -153,7 +180,10 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.config = self._make_random_weights_config()
+        else:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
