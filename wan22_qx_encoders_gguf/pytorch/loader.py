@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 import torch
 from huggingface_hub import hf_hub_download  # type: ignore[import]
-from transformers import AutoTokenizer, UMT5EncoderModel  # type: ignore[import]
+from transformers import AutoTokenizer, UMT5Config, UMT5EncoderModel  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -101,8 +101,10 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._encoder is None:
             gguf_path = hf_hub_download(REPO_ID, _GGUF_FILES[self._variant])
+            config = UMT5Config.from_pretrained(UMT5_CONFIG)
             self._encoder = UMT5EncoderModel.from_pretrained(
                 UMT5_CONFIG,
+                config=config,
                 gguf_file=gguf_path,
                 torch_dtype=dtype,
             )
