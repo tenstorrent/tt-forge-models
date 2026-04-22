@@ -127,6 +127,9 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors for audio, video, and text modalities.
         """
+        import numpy as np
+        import soundfile as sf
+
         if self.processor is None:
             self._load_processor()
 
@@ -135,11 +138,16 @@ class ModelLoader(ForgeModel):
 
         self.text_prompts = ["a dog barking in the park"]
 
+        # Pre-load audio as numpy array to bypass torchcodec (used by transformers
+        # when a file path is passed, but torchcodec may be incompatible at runtime).
+        audio_array, _ = sf.read(audio_path)
+        audio_array = audio_array.astype(np.float32)
+
         try:
             inputs = self.processor(
                 videos=[video_path],
                 text=self.text_prompts,
-                audio=[audio_path],
+                audio=[audio_array],
                 return_tensors="pt",
                 padding=True,
             )
