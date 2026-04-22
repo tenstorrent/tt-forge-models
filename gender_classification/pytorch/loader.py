@@ -8,6 +8,7 @@ import torch
 from transformers import (
     AutoImageProcessor,
     AutoModelForImageClassification,
+    ConvNextImageProcessor,
 )
 from datasets import load_dataset
 from typing import Optional
@@ -69,7 +70,13 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        try:
+            self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        except ValueError:
+            # Older model configs use feature_extractor_type instead of image_processor_type
+            self.processor = ConvNextImageProcessor.from_pretrained(
+                pretrained_model_name
+            )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -77,7 +84,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForImageClassification.from_pretrained(
