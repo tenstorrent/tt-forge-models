@@ -20,6 +20,24 @@ from third_party.tt_forge_models.config import (
 )
 
 
+class _TapasDataFrame(pd.DataFrame):
+    """DataFrame subclass that yields integer-indexed rows from iterrows().
+
+    The TAPAS tokenizer in transformers uses row[integer_col_index] on rows
+    returned by iterrows(), which worked via fallback in pandas < 2.0 but raises
+    KeyError in pandas >= 2.0 when the Series has string column names as index.
+    Overriding iterrows() to reset the row index to integers fixes this.
+    """
+
+    @property
+    def _constructor(self):
+        return _TapasDataFrame
+
+    def iterrows(self):
+        for idx, row in super().iterrows():
+            yield idx, row.reset_index(drop=True)
+
+
 class ModelVariant(StrEnum):
     """Available TAPAS model variants for table question answering."""
 
@@ -57,9 +75,11 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
 
         # Sample table data
-        # Use object dtype to avoid Arrow-backed string arrays in newer pandas,
-        # which cannot hold the Cell namedtuples the TAPAS tokenizer assigns.
-        self.table = pd.DataFrame(
+        # Use object dtype + integer-indexed iterrows to work around two pandas >= 2.0
+        # incompatibilities in the TAPAS tokenizer:
+        # 1. Arrow-backed string columns cannot hold Cell namedtuples (fixed by object dtype).
+        # 2. row[integer] on string-indexed Series raises KeyError (fixed by _TapasDataFrame).
+        self.table = _TapasDataFrame(
             {
                 "Player": [
                     "Lionel Messi",
