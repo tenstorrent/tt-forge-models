@@ -5,7 +5,7 @@
 TinyLlama 1.1B Chat GPTQ 4-bit model loader implementation for causal language modeling (PyTorch).
 """
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
 from ....config import (
@@ -89,14 +89,10 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"device_map": "cpu"}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.quantization_config = None
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        model = AutoModelForCausalLM.from_config(config)
         if dtype_override is not None:
             model = model.to(dtype_override)
         model.eval()
