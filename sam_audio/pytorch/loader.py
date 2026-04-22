@@ -10,7 +10,6 @@ import tempfile
 import numpy as np
 import soundfile as sf
 from typing import Optional
-from sam_audio import SAMAudio, SAMAudioProcessor
 
 from ...base import ForgeModel
 from ...config import (
@@ -57,12 +56,16 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        from sam_audio import SAMAudioProcessor
+
         self.processor = SAMAudioProcessor.from_pretrained(
             self._variant_config.pretrained_model_name
         )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from sam_audio import SAMAudio
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model = SAMAudio.from_pretrained(pretrained_model_name, **kwargs)
