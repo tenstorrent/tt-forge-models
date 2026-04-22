@@ -4,8 +4,8 @@
 """
 Stable Diffusion 3 Medium model loader implementation.
 
-Loads single-file safetensors checkpoints from the original
-stabilityai/stable-diffusion-3-medium repository.
+Loads single-file safetensors checkpoints from adamo1139/stable-diffusion-3-medium-ungated,
+a non-gated mirror of the original stabilityai/stable-diffusion-3-medium repository.
 """
 
 from typing import Optional
@@ -34,7 +34,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.INCL_CLIPS_T5XXL_FP16: ModelConfig(
-            pretrained_model_name="sd3_medium_incl_clips_t5xxlfp16.safetensors",
+            pretrained_model_name="sd3_medium_incl_clips_t5xxlfp8.safetensors",
         ),
     }
 
@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the Stable Diffusion 3 Medium model.

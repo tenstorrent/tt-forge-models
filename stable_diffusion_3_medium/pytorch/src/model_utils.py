@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Helper functions for Stable Diffusion 3 Medium (original single-file) model loading and processing.
+Helper functions for Stable Diffusion 3 Medium model loading and processing.
 """
 
 import torch
@@ -13,14 +13,20 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
 )
 from huggingface_hub import hf_hub_download
 
-REPO_ID = "stabilityai/stable-diffusion-3-medium"
+REPO_ID = "adamo1139/stable-diffusion-3-medium-ungated"
+# Non-gated diffusers-format mirror used for pipeline config (JSON/tokenizer files only)
+CONFIG_REPO = "v2ray/stable-diffusion-3-medium-diffusers"
 
 
 def load_pipe(filename, dtype=torch.float32):
     """Load Stable Diffusion 3 Medium pipeline from a single-file safetensors checkpoint.
 
+    Uses adamo1139/stable-diffusion-3-medium-ungated (non-gated) for weights and
+    v2ray/stable-diffusion-3-medium-diffusers (non-gated) for the pipeline config,
+    bypassing the gated stabilityai/stable-diffusion-3-medium-diffusers repo.
+
     Args:
-        filename: Safetensors filename within the stabilityai/stable-diffusion-3-medium repo.
+        filename: Safetensors filename within the adamo1139/stable-diffusion-3-medium-ungated repo.
         dtype: Torch dtype for the pipeline.
 
     Returns:
@@ -29,6 +35,7 @@ def load_pipe(filename, dtype=torch.float32):
     checkpoint_path = hf_hub_download(repo_id=REPO_ID, filename=filename)
     pipe = StableDiffusion3Pipeline.from_single_file(
         checkpoint_path,
+        config=CONFIG_REPO,
         torch_dtype=dtype,
     )
     pipe.to("cpu")
