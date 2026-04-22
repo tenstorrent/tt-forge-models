@@ -52,18 +52,29 @@ def _find_true_load_gguf_checkpoint():
     """Walk the patch chain to find the true original load_gguf_checkpoint.
 
     Other loaders may have patched _gguf_utils.load_gguf_checkpoint without
-    **kwargs support.  We traverse the _orig_load_gguf_checkpoint bindings in
-    each wrapper's globals until we reach the real function (name ==
-    'load_gguf_checkpoint').
+    **kwargs support.  We traverse known binding names used by various loaders
+    until we reach the real function (name == 'load_gguf_checkpoint').
     """
+    _CANDIDATE_NAMES = [
+        "_orig_load_gguf_checkpoint",
+        "orig_load",
+        "_orig",
+        "orig",
+        "_original_load_gguf_checkpoint",
+    ]
     fn = _gguf_utils.load_gguf_checkpoint
     seen = set()
     while fn.__name__ != "load_gguf_checkpoint" and id(fn) not in seen:
         seen.add(id(fn))
-        _next = fn.__globals__.get("_orig_load_gguf_checkpoint")
-        if _next is None:
+        found = False
+        for name in _CANDIDATE_NAMES:
+            _next = fn.__globals__.get(name)
+            if _next is not None and callable(_next) and id(_next) not in seen:
+                fn = _next
+                found = True
+                break
+        if not found:
             break
-        fn = _next
     return fn
 
 
