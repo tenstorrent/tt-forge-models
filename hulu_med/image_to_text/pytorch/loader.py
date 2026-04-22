@@ -130,7 +130,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        image_file = get_file(self.sample_image)
+        image_file = str(get_file(self.sample_image))
 
         messages = [
             {
