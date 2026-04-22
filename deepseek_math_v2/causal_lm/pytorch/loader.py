@@ -8,8 +8,10 @@ Built on DeepSeek-V3.2-Exp-Base. Uses a reduced MoE configuration for testing
 since the full model is too large to load directly.
 """
 
+import json
 from typing import Optional
 
+from huggingface_hub import hf_hub_download
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -65,8 +67,35 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    _V3_BASE_REPO = "deepseek-ai/DeepSeek-V3-0324"
+    _V32_SKIP_KEYS = frozenset(
+        {
+            "model_type",
+            "architectures",
+            "index_n_heads",
+            "index_topk",
+            "index_head_dim",
+            "auto_map",
+            "transformers_version",
+        }
+    )
+
+    def _load_config(self):
+        # deepseek_v32 is not in any released transformers version. Load the V3
+        # config (which has remote-code auto_map) and overlay V3.2 field values.
+        # V3.2 extends V3 with an indexer attention head; we skip those fields
+        # since the model is shrunk for testing anyway.
+        config = AutoConfig.from_pretrained(self._V3_BASE_REPO, trust_remote_code=True)
+        config_path = hf_hub_download(self.model_name, "config.json")
+        with open(config_path) as f:
+            config_v32 = json.load(f)
+        for k, v in config_v32.items():
+            if k not in self._V32_SKIP_KEYS:
+                setattr(config, k, v)
+        return config
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
+        config = self._load_config()
 
         # Reduce model dimensions for testing
         if self.num_layers is not None:
