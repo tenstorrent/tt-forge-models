@@ -9,6 +9,11 @@ from typing import Optional
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.utils import generic as _transformers_generic
+from transformers.utils.output_capturing import OutputRecorder
+
+if not hasattr(_transformers_generic, "OutputRecorder"):
+    _transformers_generic.OutputRecorder = OutputRecorder
 
 from ....base import ForgeModel
 from ....config import (
