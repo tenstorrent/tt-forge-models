@@ -10,6 +10,8 @@ and CLIP-aligned embeddings that can be used for zero-shot video-text
 retrieval and video classification.
 """
 
+import sys
+import types
 from typing import Optional
 
 import torch
@@ -25,6 +27,67 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+def _inject_flash_attn_stub():
+    """Inject a minimal flash_attn stub so the model's module-level imports succeed.
+
+    InternVideo2's modeling file unconditionally imports flash_attn symbols even
+    when use_flash_attn=False (as in the published config.json). The stub lets
+    the import pass; the actual CUDA kernels are never reached at runtime.
+    """
+    if "flash_attn" in sys.modules:
+        return
+
+    def _make_module(name):
+        m = types.ModuleType(name)
+        sys.modules[name] = m
+        return m
+
+    flash_attn = _make_module("flash_attn")
+    iface = _make_module("flash_attn.flash_attn_interface")
+    bert_pad = _make_module("flash_attn.bert_padding")
+    mlp_mod = _make_module("flash_attn.modules")
+    mlp_sub = _make_module("flash_attn.modules.mlp")
+    ops_mod = _make_module("flash_attn.ops")
+    rms_mod = _make_module("flash_attn.ops.rms_norm")
+
+    flash_attn.flash_attn_interface = iface
+    flash_attn.bert_padding = bert_pad
+    flash_attn.modules = mlp_mod
+    mlp_mod.mlp = mlp_sub
+    flash_attn.ops = ops_mod
+    ops_mod.rms_norm = rms_mod
+
+    def flash_attn_varlen_qkvpacked_func(*args, **kwargs):
+        raise RuntimeError(
+            "flash_attn stub: should not be called when use_flash_attn=False"
+        )
+
+    iface.flash_attn_varlen_qkvpacked_func = flash_attn_varlen_qkvpacked_func
+
+    def unpad_input(hidden_states, attention_mask):
+        raise RuntimeError(
+            "flash_attn stub: should not be called when use_flash_attn=False"
+        )
+
+    def pad_input(hidden_states, indices, batch, seqlen):
+        raise RuntimeError(
+            "flash_attn stub: should not be called when use_flash_attn=False"
+        )
+
+    bert_pad.unpad_input = unpad_input
+    bert_pad.pad_input = pad_input
+
+    class FusedMLP(torch.nn.Module):
+        pass
+
+    mlp_sub.FusedMLP = FusedMLP
+
+    class DropoutAddRMSNorm(torch.nn.Module):
+        pass
+
+    rms_mod.DropoutAddRMSNorm = DropoutAddRMSNorm
 
 
 class ModelVariant(StrEnum):
@@ -59,6 +122,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _inject_flash_attn_stub()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"trust_remote_code": True}
