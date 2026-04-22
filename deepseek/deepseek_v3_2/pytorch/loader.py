@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.cache_utils import DynamicCache
 from transformers.dynamic_module_utils import get_imports
 
 from ....base import ForgeModel
@@ -31,6 +32,14 @@ def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
     if not torch.cuda.is_available() and "flash_attn" in imports:
         imports.remove("flash_attn")
     return imports
+
+
+if not hasattr(DynamicCache, "get_usable_length"):
+    # get_usable_length was removed in transformers 4.54; patch it back for
+    # model remote code written against older transformers.
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+    )
 
 
 class ModelLoader(ForgeModel):
