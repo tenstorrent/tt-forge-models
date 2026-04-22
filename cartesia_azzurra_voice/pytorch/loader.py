@@ -4,6 +4,7 @@
 """
 Cartesia Azzurra Voice model loader implementation for text-to-speech tasks.
 """
+import torch
 from transformers import CsmForConditionalGeneration, AutoProcessor
 from typing import Optional
 
@@ -64,6 +65,14 @@ class ModelLoader(ForgeModel):
         model = CsmForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # Ensure all float parameters are in the target dtype to avoid mixed-precision
+        # issues in transformers 5.x where backbone hidden states may remain float32.
+        if dtype_override is not None:
+            for param in model.parameters():
+                if param.is_floating_point():
+                    param.data = param.data.to(dtype_override)
+
         model.eval()
 
         return model
@@ -76,7 +85,7 @@ class ModelLoader(ForgeModel):
 
         conversation = [
             {
-                "role": "0",
+                "role": "user",
                 "content": [
                     {
                         "type": "text",
@@ -92,4 +101,10 @@ class ModelLoader(ForgeModel):
             return_dict=True,
         )
 
-        return dict(inputs)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        return {
+            k: v.to(dtype)
+            if isinstance(v, torch.Tensor) and v.is_floating_point()
+            else v
+            for k, v in inputs.items()
+        }
