@@ -128,6 +128,26 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import unidepth.layers.nystrom_attention as _nystrom_mod
+
+        class _NystromFallback:
+            def __init__(self, num_landmarks=128, num_heads=4, dropout=0.0):
+                self.scale = None
+
+            def __call__(self, q, k, v, key_padding_mask=None):
+                B, N, H, D = q.shape
+                scale = D**-0.5
+                q_b = q.permute(0, 2, 1, 3).reshape(B * H, N, D)
+                k_b = k.permute(0, 2, 1, 3).reshape(B * H, -1, D)
+                v_b = v.permute(0, 2, 1, 3).reshape(B * H, -1, D)
+                attn = torch.softmax(
+                    torch.bmm(q_b, k_b.transpose(-1, -2)) * scale, dim=-1
+                )
+                out = torch.bmm(attn, v_b)
+                return out.reshape(B, H, N, D).permute(0, 2, 1, 3)
+
+        _nystrom_mod.NystromAttention = _NystromFallback
+
         from unidepth.models import UniDepthV1
 
         pretrained_model_name = self._variant_config.pretrained_model_name
