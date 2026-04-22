@@ -127,6 +127,13 @@ class ModelLoader(ForgeModel):
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        # LlamaFlashAttention2 was removed in transformers>=4.46; stub it back
+        # so the model's trust_remote_code can import it from the llama module.
+        import transformers.models.llama.modeling_llama as _llama_mod
+
+        if not hasattr(_llama_mod, "LlamaFlashAttention2"):
+            _llama_mod.LlamaFlashAttention2 = _llama_mod.LlamaAttention
+
         if self._variant in (
             ModelVariant.DEEPSEEK_OCR_UNSLOTH,
             ModelVariant.DEEPSEEK_OCR_JALEA96_BNB_4BIT_NF4,
