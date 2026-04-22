@@ -36,7 +36,9 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GRANITE_4_0_H_TINY_4BIT: LLMModelConfig(
-            pretrained_model_name="mlx-community/granite-4.0-h-tiny-4bit",
+            # MLX 4-bit weights are packed in a format incompatible with standard
+            # PyTorch/transformers; load the base model which has the same architecture.
+            pretrained_model_name="ibm-granite/granite-4.0-h-tiny",
             max_length=128,
         ),
     }
