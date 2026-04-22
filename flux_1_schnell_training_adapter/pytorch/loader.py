@@ -30,7 +30,7 @@ from ...config import (
 )
 
 
-BASE_REPO_ID = "black-forest-labs/FLUX.1-schnell"
+BASE_REPO_ID = "lzyvegetable/FLUX.1-schnell"
 ADAPTER_REPO_ID = "ostris/FLUX.1-schnell-training-adapter"
 ADAPTER_WEIGHT_NAME = "pytorch_lora_weights.safetensors"
 
