@@ -14,20 +14,26 @@ from typing import Optional
 
 from ....base import ForgeModel
 
-_inner_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
+
+def _apply_model_to_load_patch():
+    """Patch load_gguf_checkpoint to accept model_to_load kwarg added in transformers 5.x.
+
+    Called immediately before each HF load to ensure the patch is outermost
+    even if other GGUF loaders have patched after module import time.
+    """
+    _inner = _gguf_utils.load_gguf_checkpoint
+
+    def _patched(gguf_path, return_tensors=False, model_to_load=None, **kwargs):
+        return _inner(
+            gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+        )
+
+    _gguf_utils.load_gguf_checkpoint = _patched
+    _config_utils.load_gguf_checkpoint = _patched
+    _auto_tokenizer.load_gguf_checkpoint = _patched
+    _tok_utils.load_gguf_checkpoint = _patched
 
 
-def _patched_load_gguf_checkpoint(
-    gguf_path, return_tensors=False, model_to_load=None, **kwargs
-):
-    """Accept model_to_load kwarg added in transformers 5.x; forward to inner patches."""
-    return _inner_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
-
-
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -81,6 +87,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _apply_model_to_load_patch()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -95,6 +102,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _apply_model_to_load_patch()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -176,6 +184,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _apply_model_to_load_patch()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
