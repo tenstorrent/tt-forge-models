@@ -8,6 +8,13 @@ A compact 5-layer variant of DeepSeek-V3 intended for CI testing.
 """
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import DynamicCache
+
+# DynamicCache.get_usable_length was removed in transformers 5.x; patch for compatibility
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+    )
 
 from ....base import ForgeModel
 from ....config import (
@@ -43,6 +50,9 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
+        # FP8 quantization requires triton (CUDA-only); remove it so the model loads in bfloat16
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
 
         model_kwargs = {
             "attn_implementation": "eager",
