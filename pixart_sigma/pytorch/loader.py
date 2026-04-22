@@ -102,7 +102,9 @@ class ModelLoader(ForgeModel):
 
         sample_size = config.sample_size
         in_channels = config.in_channels
-        cross_attention_dim = config.cross_attention_dim
+        # PixArt-Sigma uses a CaptionProjection that expects T5-XXL (4096-dim)
+        # inputs, projected internally to cross_attention_dim.
+        caption_channels = config.caption_channels
 
         hidden_states = torch.randn(
             batch_size, in_channels, sample_size, sample_size, dtype=dtype
@@ -110,7 +112,7 @@ class ModelLoader(ForgeModel):
 
         max_sequence_length = 300
         encoder_hidden_states = torch.randn(
-            batch_size, max_sequence_length, cross_attention_dim, dtype=dtype
+            batch_size, max_sequence_length, caption_channels, dtype=dtype
         )
 
         timestep = torch.tensor([1], dtype=torch.long).expand(batch_size)
