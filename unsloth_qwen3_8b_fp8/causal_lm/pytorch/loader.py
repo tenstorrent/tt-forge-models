@@ -76,10 +76,11 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        # Load config and strip FP8 quantization to avoid triton dependency on CPU.
+        # Delete FP8 quantization_config so transformers doesn't invoke the
+        # triton-dependent FP8 quantizer (hasattr check in get_hf_quantizer).
         config = AutoConfig.from_pretrained(pretrained_model_name)
         if hasattr(config, "quantization_config"):
-            config.quantization_config = None
+            del config.quantization_config
 
         if self.num_layers is not None:
             if hasattr(config, "text_config"):
