@@ -65,13 +65,9 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
+    def _load_tokenizer(self):
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._TOKENIZER_MODEL, **tokenizer_kwargs
+            self._TOKENIZER_MODEL, trust_remote_code=True
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -82,11 +78,11 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {"trust_remote_code": True, "ignore_mismatched_sizes": True}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
@@ -105,7 +101,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         inputs = self.tokenizer(
             self.sample_text,
