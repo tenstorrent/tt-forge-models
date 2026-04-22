@@ -65,7 +65,9 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype_override,
         )
         model.eval()
-        return model
+        # BarkModel.forward is not implemented; return the semantic sub-model
+        # which accepts input_ids from the processor and has a proper forward.
+        return model.semantic
 
     def load_inputs(self, dtype_override=None):
         inputs = self.processor(
