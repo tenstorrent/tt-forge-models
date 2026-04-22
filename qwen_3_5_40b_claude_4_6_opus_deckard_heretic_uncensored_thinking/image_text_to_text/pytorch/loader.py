@@ -87,6 +87,39 @@ class ModelLoader(ForgeModel):
 
         return model
 
+    def _get_text_config(self):
+        """Get the text config from the model config."""
+        from transformers import AutoConfig
+
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        return config.text_config
+
+    def get_mesh_config(self, num_devices: int):
+        model_dim = 4  # constrained by num_key_value_heads=4
+        batch_dim = max(1, num_devices // model_dim)
+        mesh_shape = (batch_dim, model_dim)
+        text_config = self._get_text_config()
+        assert (
+            text_config.num_attention_heads % model_dim == 0
+        ), "Attention heads must be divisible by the model axis size"
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        """Shard full-attention and MLP layers for tensor parallel."""
+        shard_specs = {}
+        lm = model.model.language_model
+        for layer in lm.layers:
+            if hasattr(layer, "self_attn"):
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+        return shard_specs
+
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the DavidAU Qwen3.5-40B Claude 4.6 Opus Deckard Heretic model."""
         if self.processor is None:
