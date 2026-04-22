@@ -77,6 +77,23 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _fix_self_attn_return_count(model):
+        """Wrap each decoder layer's self_attn to return the 2-tuple expected by transformers 5.x."""
+        for layer in model.model.layers:
+            orig = layer.self_attn.forward
+
+            def _wrap(f):
+                def _fwd(*args, **kwargs):
+                    result = f(*args, **kwargs)
+                    if isinstance(result, tuple) and len(result) > 2:
+                        return result[0], result[1]
+                    return result
+
+                return _fwd
+
+            layer.self_attn.forward = _wrap(orig)
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -100,6 +117,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        self._fix_self_attn_return_count(model)
         self.config = model.config
         self.model = model
         return model
@@ -110,18 +128,21 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        prompts = [text]
+        if self.tokenizer.chat_template is not None:
+            messages = [
+                {
+                    "role": "user",
+                    "content": self.sample_text,
+                }
+            ]
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            prompts = [text]
+        else:
+            prompts = [self.sample_text]
 
         inputs = self.tokenizer(
             prompts,
