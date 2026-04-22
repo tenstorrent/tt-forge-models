@@ -49,12 +49,15 @@ def _patch_qwen2vl_support():
 
 
 def _find_true_load_gguf_checkpoint():
-    """Walk the patch chain to find the true original load_gguf_checkpoint.
+    """Walk the patch chain to find the real load_gguf_checkpoint from transformers.
 
-    Other loaders may have patched _gguf_utils.load_gguf_checkpoint without
-    **kwargs support.  We traverse known binding names used by various loaders
-    until we reach the real function (name == 'load_gguf_checkpoint').
+    Loaders patch _gguf_utils.load_gguf_checkpoint using different variable names
+    and sometimes closures.  We identify the real function by its source file.
     """
+    import os
+
+    real_file = _gguf_utils.__file__
+
     _CANDIDATE_NAMES = [
         "_orig_load_gguf_checkpoint",
         "orig_load",
@@ -62,10 +65,19 @@ def _find_true_load_gguf_checkpoint():
         "orig",
         "_original_load_gguf_checkpoint",
     ]
+
     fn = _gguf_utils.load_gguf_checkpoint
     seen = set()
-    while fn.__name__ != "load_gguf_checkpoint" and id(fn) not in seen:
+
+    while id(fn) not in seen:
         seen.add(id(fn))
+
+        # If this function lives in the real transformers module, we're done.
+        code = getattr(fn, "__code__", None)
+        if code and os.path.samefile(code.co_filename, real_file):
+            return fn
+
+        # Try well-known global names that loaders use to stash the previous fn.
         found = False
         for name in _CANDIDATE_NAMES:
             _next = fn.__globals__.get(name)
@@ -73,8 +85,22 @@ def _find_true_load_gguf_checkpoint():
                 fn = _next
                 found = True
                 break
+
+        # Also follow closure cells — our own wrapper captures true_orig that way.
+        if not found and fn.__closure__:
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                except ValueError:
+                    continue
+                if callable(val) and getattr(val, "__code__", None) and id(val) not in seen:
+                    fn = val
+                    found = True
+                    break
+
         if not found:
             break
+
     return fn
 
 
