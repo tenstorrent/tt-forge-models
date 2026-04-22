@@ -92,21 +92,30 @@ def _patch_transformers_nemotron_h_moe_gguf():
 
     _orig_load_gguf_checkpoint = gguf_utils.load_gguf_checkpoint
 
-    def _patched_load_gguf_checkpoint(*args, **kwargs):
-        result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    def _patched_load_gguf_checkpoint(
+        gguf_checkpoint_path, return_tensors=False, model_to_load=None, torch_dtype=None
+    ):
+        result = _orig_load_gguf_checkpoint(
+            gguf_checkpoint_path,
+            return_tensors=return_tensors,
+            model_to_load=model_to_load,
+            torch_dtype=torch_dtype,
+        )
+        if return_tensors:
+            return result
+
         config = result.get("config", {})
         if config.get("model_type") != "nemotron_h_moe":
             return result
 
         config["model_type"] = "nemotron_h"
 
-        gguf_path = args[0] if args else kwargs.get("gguf_checkpoint_path")
-        if gguf_path:
+        if gguf_checkpoint_path:
             try:
                 from gguf import GGUFReader
                 from transformers.modeling_gguf_pytorch_utils import read_field
 
-                reader = GGUFReader(gguf_path)
+                reader = GGUFReader(gguf_checkpoint_path)
                 kv_heads = read_field(reader, "nemotron_h_moe.attention.head_count_kv")
                 ffn_sizes = read_field(reader, "nemotron_h_moe.feed_forward_length")
                 inner_size = read_field(reader, "nemotron_h_moe.ssm.inner_size")
