@@ -80,16 +80,21 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {"trust_remote_code": True, "ignore_mismatched_sizes": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
+        # Load config and remove MLX quantization_config which lacks quant_method
+        # attribute required by transformers' AutoHfQuantizer (checked via hasattr).
+        # MLX-quantized safetensors have different weight shapes, so ignore mismatches.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
