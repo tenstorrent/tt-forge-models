@@ -12,6 +12,8 @@ Available variants:
 - KOLORS: Kwai-Kolors/Kolors-diffusers text-to-image generation
 """
 
+import sys
+from pathlib import Path
 from typing import Optional
 
 import torch
@@ -65,6 +67,31 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _register_chatglm_classes():
+        """Register ChatGLM classes with AutoConfig so trust_remote_code is not required.
+
+        AutoConfig checks CONFIG_MAPPING to determine has_local_code. Registering
+        ChatGLMConfig makes has_local_code=True, which bypasses the trust_remote_code
+        prompt when loading the Kolors text encoder in non-interactive environments.
+        """
+        from huggingface_hub import snapshot_download
+        from transformers import AutoConfig
+
+        model_path = Path(
+            snapshot_download(REPO_ID, ignore_patterns=["*.safetensors", "*.bin"])
+        )
+        text_encoder_path = model_path / "text_encoder"
+        if str(text_encoder_path) not in sys.path:
+            sys.path.insert(0, str(text_encoder_path))
+
+        from configuration_chatglm import ChatGLMConfig  # noqa: PLC0415
+
+        try:
+            AutoConfig.register("chatglm", ChatGLMConfig)
+        except ValueError:
+            pass  # already registered
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Kolors pipeline.
 
@@ -72,10 +99,11 @@ class ModelLoader(ForgeModel):
             KolorsPipeline: The Kolors pipeline instance.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
+        self._register_chatglm_classes()
         self.pipeline = KolorsPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
-            trust_remote_code=True,
+            variant="fp16",
             **kwargs,
         )
         return self.pipeline
