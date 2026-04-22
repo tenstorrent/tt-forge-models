@@ -4,9 +4,20 @@
 """
 Llama-1B-TASTE-V0 (MediaTek-Research/Llama-1B-TASTE-V0) model loader implementation
 for causal language modeling.
+
+TASTE is a spoken language model with a LLaMA-3.2-1B text backbone fine-tuned
+with LoRA.  The full TASTE architecture requires torchaudio/CUDA and cannot be
+loaded via AutoModelForCausalLM.  This loader extracts the LLaMA backbone
+(base weights, without LoRA deltas) from the TASTE safetensors checkpoint.
 """
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+import json
+import os
+
+import torch
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
+from transformers import AutoTokenizer, LlamaConfig, LlamaForCausalLM
 from typing import Optional
 
 from ....config import (
@@ -23,6 +34,76 @@ from ....tools.utils import (
     pad_inputs,
     cast_input_to_type,
 )
+
+# Prefix for LLaMA weights inside the TASTE checkpoint.
+_TASTE_LM_PREFIX = "spoken_lm.language_model.base_model.model."
+
+
+def _build_llama_config(text_config: dict, dtype_override=None) -> LlamaConfig:
+    keep = {
+        "vocab_size",
+        "hidden_size",
+        "intermediate_size",
+        "num_hidden_layers",
+        "num_attention_heads",
+        "num_key_value_heads",
+        "hidden_act",
+        "max_position_embeddings",
+        "initializer_range",
+        "rms_norm_eps",
+        "use_cache",
+        "pad_token_id",
+        "bos_token_id",
+        "eos_token_id",
+        "pretraining_tp",
+        "tie_word_embeddings",
+        "attention_bias",
+        "attention_dropout",
+        "mlp_bias",
+        "head_dim",
+        "rope_scaling",
+        "rope_theta",
+    }
+    params = {k: v for k, v in text_config.items() if k in keep}
+    if dtype_override is not None:
+        params["torch_dtype"] = dtype_override
+    return LlamaConfig(**params)
+
+
+def _load_taste_llama_state_dict(pretrained_model_name: str) -> dict:
+    """
+    Download the TASTE safetensors index, then load only the LLaMA backbone
+    weights from the relevant shards, remapping PEFT LoRA key names to plain
+    LlamaForCausalLM key names.
+    """
+    idx_path = hf_hub_download(pretrained_model_name, "model.safetensors.index.json")
+    with open(idx_path) as f:
+        weight_map = json.load(f)["weight_map"]
+
+    # Identify shards that contain our target keys.
+    shards = set()
+    for key, shard in weight_map.items():
+        if key.startswith(_TASTE_LM_PREFIX):
+            shards.add(shard)
+
+    cache_dir = os.path.dirname(idx_path)
+    state_dict = {}
+    for shard in shards:
+        shard_path = hf_hub_download(pretrained_model_name, shard)
+        data = load_file(shard_path)
+        for key, val in data.items():
+            if not key.startswith(_TASTE_LM_PREFIX):
+                continue
+            new_key = key[len(_TASTE_LM_PREFIX) :]
+            # Skip LoRA adapter weights; keep only base weights.
+            if ".lora_A." in new_key or ".lora_B." in new_key:
+                continue
+            # Strip PEFT's .base_layer suffix to get standard weight names.
+            new_key = new_key.replace(".base_layer.weight", ".weight")
+            new_key = new_key.replace(".base_layer.bias", ".bias")
+            state_dict[new_key] = val
+
+    return state_dict
 
 
 class ModelVariant(StrEnum):
@@ -66,13 +147,9 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self, dtype_override=None):
         pretrained_model_name = self._variant_config.pretrained_model_name
-
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
+        # Tokenizer files live in the llama_tokenizer/ subdirectory of the repo.
         self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
+            pretrained_model_name, subfolder="llama_tokenizer"
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -85,16 +162,24 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        # Load model config and build a plain LlamaConfig from text_config.
+        config_path = hf_hub_download(pretrained_model_name, "config.json")
+        with open(config_path) as f:
+            full_config = json.load(f)
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        llama_config = _build_llama_config(
+            full_config["text_config"], dtype_override=dtype_override
         )
-        model.eval()
 
+        # Build the model skeleton, then fill in the TASTE weights.
+        model = LlamaForCausalLM(llama_config)
+        state_dict = _load_taste_llama_state_dict(pretrained_model_name)
+        model.load_state_dict(state_dict, strict=True)
+
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
+        model.eval()
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
