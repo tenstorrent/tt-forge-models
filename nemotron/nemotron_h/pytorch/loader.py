@@ -5,6 +5,7 @@
 Nemotron-H model loader implementation for causal language modeling.
 """
 
+import contextlib
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
@@ -19,6 +20,38 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _nemotron_h_block_forward_patched(
+    self,
+    hidden_states,
+    cache_params=None,
+    cache_position=None,
+    attention_mask=None,
+):
+    """NemotronHBlock.forward without torch.cuda.stream context (CPU-compatible)."""
+    with contextlib.nullcontext():
+        residual = hidden_states
+        hidden_states = self.norm(hidden_states.to(dtype=self.norm.weight.dtype))
+        if self.residual_in_fp32:
+            residual = residual.to(torch.float32)
+
+        if self.block_type == "mamba":
+            hidden_states = self.mixer(
+                hidden_states,
+                cache_params=cache_params,
+                cache_position=cache_position,
+            )
+        elif self.block_type == "attention":
+            hidden_states = self.mixer(hidden_states, cache_position=cache_position)
+            hidden_states = hidden_states[0]
+        elif self.block_type == "mlp":
+            hidden_states = self.mixer(hidden_states)
+        else:
+            raise ValueError(f"Invalid block_type: {self.block_type}")
+
+        hidden_states = residual + hidden_states
+        return hidden_states
 
 
 class ModelVariant(StrEnum):
@@ -109,7 +142,17 @@ class ModelLoader(ForgeModel):
         model.eval()
         self.config = model.config
 
+        self._patch_cuda_stream_blocks(model)
+
         return model
+
+    @staticmethod
+    def _patch_cuda_stream_blocks(model):
+        """Replace torch.cuda.stream context in NemotronHBlock.forward with nullcontext for CPU compat."""
+        for module in model.modules():
+            cls = type(module)
+            if cls.__name__ == "NemotronHBlock":
+                cls.forward = _nemotron_h_block_forward_patched
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
