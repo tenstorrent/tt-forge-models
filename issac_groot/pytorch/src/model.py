@@ -489,7 +489,6 @@ class GR00T_N1_6_Config(GR00T_N1_5_Config):
 
 
 AutoConfig.register("Gr00tN1d6", GR00T_N1_6_Config)
-AutoModel.register(GR00T_N1_6_Config, GR00T_N1_5)
 
 
 COMPUTE_DTYPE = torch.bfloat16
