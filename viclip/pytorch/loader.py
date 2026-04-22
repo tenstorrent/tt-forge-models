@@ -9,11 +9,12 @@ clips and text in a shared embedding space. This loader exposes the vision
 encoder path so the model can be driven with synthetic video tensors without
 requiring the BPE tokenizer asset at runtime.
 """
+import importlib.resources
 from typing import Optional
 
 import torch
 import torch.nn as nn
-from transformers import AutoModel
+from transformers import AutoConfig, AutoModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -75,8 +76,20 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # The model config stores a relative tokenizer path that doesn't resolve
+        # at runtime. Override it to the BPE vocab bundled with open_clip.
+        config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+        )
+        bpe_path = str(
+            importlib.resources.files("open_clip") / "bpe_simple_vocab_16e6.txt.gz"
+        )
+        config.tokenizer_path = bpe_path
+
         viclip = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name,
+            config=config,
             trust_remote_code=True,
             **kwargs,
         )
