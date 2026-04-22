@@ -38,7 +38,6 @@ class ModelVariant(StrEnum):
     QWEN_2_5_VL_72B_INSTRUCT = "72B_Instruct"
     QWEN_2_5_VL_7B_INSTRUCT_QUANTIZED_W4A16 = "7B_Instruct_Quantized_W4A16"
     UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT = "Unsloth_7B_Instruct"
-    QWEN_2_5_VL_7B_INSTRUCT_FP4 = "7B_Instruct_FP4"
 
 
 class ModelLoader(ForgeModel):
@@ -69,9 +68,6 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.UNSLOTH_QWEN_2_5_VL_7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="unsloth/Qwen2.5-VL-7B-Instruct",
-        ),
-        ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_FP4: LLMModelConfig(
-            pretrained_model_name="asi992h/Qwen2.5-VL-7B-Instruct-FP4",
         ),
     }
 
