@@ -83,6 +83,10 @@ def _patch_transformers_glm4moe_gguf():
 
     if "glm4moe" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["glm4moe"] = GGUFQwen2Converter
+    # Also register under glm4_moe since load_gguf_checkpoint remaps model_type
+    # from "glm4moe" to "glm4_moe" and convert_gguf_tokenizer uses model_type as key
+    if "glm4_moe" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["glm4_moe"] = GGUFQwen2Converter
 
     # 4. Register MoE tensor processor for glm4moe (handles gate_up_proj merging)
     from transformers.modeling_gguf_pytorch_utils import Qwen2MoeTensorProcessor
