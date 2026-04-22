@@ -8,6 +8,34 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_gguf_version_check():
+    """Patch transformers' is_gguf_available to use importlib.metadata directly.
+
+    When gguf is installed after transformers is imported, the cached
+    PACKAGE_DISTRIBUTION_MAPPING misses the new package, causing is_gguf_available
+    to return False and load_gguf_checkpoint to raise ImportError.
+    """
+    import importlib.metadata
+    import transformers.utils.import_utils as _import_utils
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+    _min_version = _import_utils.GGUF_MIN_VERSION
+
+    def _patched(min_version=_min_version):
+        try:
+            from packaging.version import Version
+
+            return Version(importlib.metadata.version("gguf")) >= Version(min_version)
+        except Exception:
+            return False
+
+    _import_utils.is_gguf_available = _patched
+    _gguf_utils.is_gguf_available = _patched
+
+
+_patch_gguf_version_check()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
