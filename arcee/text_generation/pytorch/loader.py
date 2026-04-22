@@ -4,7 +4,11 @@
 """
  ARCEE model loader implementation for causal language modeling.
 """
+import os
+import shutil
+
 import torch
+from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -63,6 +67,10 @@ class ModelLoader(ForgeModel):
     # Shared configuration parameters
     sample_text = "Give me a short introduction to large language model."
 
+    # Trinity-Large-Preview (base) is missing modeling_afmoe.py in its HF repo.
+    # Use the FP8 variant's repo to source that file.
+    _MODELING_SOURCE_REPO = "arcee-ai/Trinity-Large-Preview-FP8"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
@@ -101,6 +109,20 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _get_trinity_local_path(self) -> str:
+        """Return local snapshot path for Trinity-Large-Preview, injecting modeling_afmoe.py from the FP8 repo if absent."""
+        config_path = hf_hub_download(
+            self._variant_config.pretrained_model_name, "config.json"
+        )
+        snap_dir = os.path.dirname(config_path)
+        modeling_dst = os.path.join(snap_dir, "modeling_afmoe.py")
+        if not os.path.exists(modeling_dst):
+            modeling_src = hf_hub_download(
+                self._MODELING_SOURCE_REPO, "modeling_afmoe.py"
+            )
+            shutil.copy(modeling_src, modeling_dst)
+        return snap_dir
+
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
 
@@ -123,8 +145,12 @@ class ModelLoader(ForgeModel):
         ):
             tokenizer_kwargs["trust_remote_code"] = True
 
+        pretrained_name = self._variant_config.pretrained_model_name
+        if self._variant == ModelVariant.Trinity_Large_Preview:
+            pretrained_name = self._get_trinity_local_path()
+
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            pretrained_name, **tokenizer_kwargs
         )
 
         return self.tokenizer
@@ -157,6 +183,9 @@ class ModelLoader(ForgeModel):
             ModelVariant.Trinity_Large_Preview_W4A16,
         ):
             model_kwargs["trust_remote_code"] = True
+
+        if self._variant == ModelVariant.Trinity_Large_Preview:
+            pretrained_model_name = self._get_trinity_local_path()
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -252,8 +281,10 @@ class ModelLoader(ForgeModel):
         ):
             config_kwargs["trust_remote_code"] = True
 
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, **config_kwargs
-        )
+        pretrained_name = self._variant_config.pretrained_model_name
+        if self._variant == ModelVariant.Trinity_Large_Preview:
+            pretrained_name = self._get_trinity_local_path()
+
+        self.config = AutoConfig.from_pretrained(pretrained_name, **config_kwargs)
 
         return self.config
