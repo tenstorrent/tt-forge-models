@@ -20,9 +20,9 @@ source $TT_XLA_ROOT/.env
 cd $TT_XLA_ROOT
 source venv/activate
 
-if [[ -n "$TT_COMPILE_ONLY_SYSTEM_DESC" ]]; then
-  export TT_RANDOM_WEIGHTS=1
-fi
+#if [[ -n "$TT_COMPILE_ONLY_SYSTEM_DESC" ]]; then
+#  export TT_RANDOM_WEIGHTS=1
+#fi
 export TTXLA_LOGGER_LEVEL=DEBUG
 
 TEST_NAME="$@"
