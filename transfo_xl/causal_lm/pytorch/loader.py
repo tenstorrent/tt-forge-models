@@ -4,7 +4,6 @@
 """
 Transformer-XL model loader implementation for causal language modeling.
 """
-from transformers import TransfoXLLMHeadModel, TransfoXLTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -58,6 +57,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self):
+        from transformers import TransfoXLTokenizer
+
         self.tokenizer = TransfoXLTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name
         )
@@ -71,6 +72,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        from transformers import TransfoXLLMHeadModel
 
         model = TransfoXLLMHeadModel.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
