@@ -122,7 +122,6 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Load and return the AutoencoderKL VAE model for the selected variant."""
-        dtype = dtype_override if dtype_override is not None else torch.float32
         if self._vae is None:
             filename = _VARIANT_FILENAMES[self._variant]
             weights_path = hf_hub_download(repo_id=REPO_ID, filename=filename)
@@ -132,28 +131,30 @@ class ModelLoader(ForgeModel):
                     weights_path,
                     config=FLUX_VAE_CONFIG_REPO,
                     subfolder=FLUX_VAE_CONFIG_SUBFOLDER,
-                    torch_dtype=dtype,
                     low_cpu_mem_usage=False,
                 )
             else:
                 self._vae = AutoencoderKL.from_single_file(
                     weights_path,
                     config=SDXL_VAE_CONFIG,
-                    torch_dtype=dtype,
                     low_cpu_mem_usage=False,
                 )
+            # from_single_file may load weights as BFloat16; force float32
+            self._vae = self._vae.to(torch.float32)
             self._vae.eval()
-        elif dtype_override is not None:
+        if dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
         return self._vae
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare inputs for the VAE.
 
-        Pass vae_type="decoder" (default) or vae_type="encoder".
+        Pass vae_type="encoder" (default, full forward pass) or vae_type="decoder".
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        vae_type = kwargs.get("vae_type", "decoder")
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        vae_type = kwargs.get("vae_type", "encoder")
         latent_channels = self._latent_channels()
 
         if vae_type == "decoder":
