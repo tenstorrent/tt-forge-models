@@ -76,6 +76,9 @@ class ModelLoader(ForgeModel):
         return self._feature_extractor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import types
+
+        import torch
         from transformers import AutoModel
 
         model_kwargs = {}
@@ -89,6 +92,21 @@ class ModelLoader(ForgeModel):
             **model_kwargs,
         )
         model.eval()
+
+        # The model's _load_exported_model only accepts the strings 'cpu' or 'cuda'.
+        # The test framework may call model.to() with a torch.device or a non-standard
+        # device type (e.g. TT). Normalize device to a string and fall back to 'cpu'.
+        original_load_exported = model._load_exported_model.__func__
+
+        def _patched_load_exported_model(self, device):
+            if isinstance(device, torch.dtype):
+                return
+            device_str = device.type if isinstance(device, torch.device) else str(device)
+            if device_str not in ("cpu", "cuda"):
+                device_str = "cpu"
+            original_load_exported(self, device_str)
+
+        model._load_exported_model = types.MethodType(_patched_load_exported_model, model)
 
         return model
 
