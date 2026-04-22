@@ -82,7 +82,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True, "use_cache": False}
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
@@ -99,6 +99,8 @@ class ModelLoader(ForgeModel):
             and "rope_type" in config.rope_scaling
         ):
             config.rope_scaling["type"] = config.rope_scaling["rope_type"]
+        # The custom Phi3 model code doesn't accept use_cache as a constructor arg.
+        config.use_cache = False
         model_kwargs["config"] = config
 
         model_kwargs |= kwargs
