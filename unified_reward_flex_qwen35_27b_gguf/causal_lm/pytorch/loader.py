@@ -4,7 +4,10 @@
 """
 UnifiedReward-Flex-qwen35-27b GGUF model loader for causal language modeling.
 """
+import importlib.metadata
+import importlib.util
 import torch
+from packaging import version as _version_pkg
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -12,11 +15,34 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
+import transformers.utils.import_utils as _import_utils_mod
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _fixed_is_gguf_available(min_version=None):
+    """Robust is_gguf_available that handles dynamically-installed gguf.
+
+    transformers computes PACKAGE_DISTRIBUTION_MAPPING at import time, so gguf
+    installed after transformers is first imported won't appear in that map and
+    version detection falls back to getattr(__version__, 'N/A') which fails with
+    packaging.version.InvalidVersion. We use importlib.metadata directly instead.
+    """
+    if min_version is None:
+        min_version = _import_utils_mod.GGUF_MIN_VERSION
+    try:
+        if importlib.util.find_spec("gguf") is None:
+            return False
+        gguf_ver = importlib.metadata.version("gguf")
+        return _version_pkg.parse(gguf_ver) >= _version_pkg.parse(min_version)
+    except Exception:
+        return False
+
+
+_gguf_utils.is_gguf_available = _fixed_is_gguf_available
 
 
 def _patch_qwen35_support():
