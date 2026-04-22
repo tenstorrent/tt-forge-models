@@ -62,9 +62,13 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self):
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
+        # batch_encode_plus was removed in transformers>=5.0
+        if not hasattr(tokenizer, "batch_encode_plus"):
+            tokenizer.batch_encode_plus = tokenizer.__call__
+        self.tokenizer = tokenizer
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
