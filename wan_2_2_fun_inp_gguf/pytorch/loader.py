@@ -21,6 +21,8 @@ from ...config import (
 
 GGUF_REPO = "QuantStack/Wan2.2-Fun-A14B-InP-GGUF"
 GGUF_FILE = "HighNoise/Wan2.2-Fun-A14B-InP_HighNoise-Q4_K_M.gguf"
+CONFIG_REPO = "alibaba-pai/Wan2.2-Fun-A14B-InP"
+CONFIG_SUBFOLDER = "high_noise_model"
 
 TRANSFORMER_NUM_FRAMES = 2
 TRANSFORMER_HEIGHT = 4
@@ -108,9 +110,10 @@ class ModelLoader(ForgeModel):
 
         self._transformer = WanTransformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/{GGUF_FILE}",
+            config=CONFIG_REPO,
+            subfolder=CONFIG_SUBFOLDER,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
-            low_cpu_mem_usage=False,
         )
 
         return self._transformer
