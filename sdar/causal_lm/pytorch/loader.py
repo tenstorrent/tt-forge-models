@@ -8,9 +8,21 @@ import os
 from typing import Optional
 from unittest.mock import patch
 
+import sys
+
 import torch
+import transformers.cache_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.dynamic_module_utils import get_imports, get_relative_imports
+
+# transformers 5.x removed SlidingWindowCache; inject a stub so the model's remote code loads.
+if not hasattr(transformers.cache_utils, "SlidingWindowCache"):
+    transformers.cache_utils.SlidingWindowCache = type(
+        "SlidingWindowCache", (transformers.cache_utils.Cache,), {}
+    )
+    sys.modules[
+        "transformers.cache_utils"
+    ].SlidingWindowCache = transformers.cache_utils.SlidingWindowCache
 
 from ....base import ForgeModel
 from ....config import (
