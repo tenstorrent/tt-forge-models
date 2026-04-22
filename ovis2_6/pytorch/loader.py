@@ -6,13 +6,15 @@ Ovis2.6 model loader implementation for multimodal visual question answering.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, Qwen3MoeForCausalLM
+from transformers import AutoModelForCausalLM, Qwen3MoeForCausalLM, Siglip2PreTrainedModel
 from PIL import Image
 from typing import Optional
 
-# Qwen3MoeForCausalLM lacks is_parallelizable, which Ovis2.6's __init__ checks
-if not hasattr(Qwen3MoeForCausalLM, "is_parallelizable"):
-    Qwen3MoeForCausalLM.is_parallelizable = False
+# Qwen3MoeForCausalLM and Siglip2NavitModel (subclass of Siglip2PreTrainedModel) lack
+# is_parallelizable, which Ovis2.6's __init__ checks on both llm and visual_tokenizer.vit
+for _cls in (Qwen3MoeForCausalLM, Siglip2PreTrainedModel):
+    if not hasattr(_cls, "is_parallelizable"):
+        _cls.is_parallelizable = False
 
 from ...base import ForgeModel
 from ...config import (
