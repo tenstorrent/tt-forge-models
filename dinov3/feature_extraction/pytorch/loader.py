@@ -107,10 +107,12 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded processor instance
         """
-        from transformers import DINOv3ViTImageProcessor
+        from transformers import DINOv3ViTImageProcessorFast
 
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = DINOv3ViTImageProcessor.from_pretrained(pretrained_model_name)
+        self.processor = DINOv3ViTImageProcessorFast.from_pretrained(
+            pretrained_model_name
+        )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -206,36 +208,15 @@ class ModelLoader(ForgeModel):
         dataset = load_dataset("huggingface/cats-image")["test"]
         image = dataset[0]["image"]
 
-        if source == ModelSource.TIMM:
-            import timm
+        inputs = self.processor(images=image, return_tensors="pt")
 
-            data_config = timm.data.resolve_model_data_config(self._model)
-            transforms = timm.data.create_transform(**data_config, is_training=False)
-            pixel_values = transforms(image).unsqueeze(0)
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-            if batch_size > 1:
-                pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
-
-            if dtype_override is not None and pixel_values.dtype.is_floating_point:
-                pixel_values = pixel_values.to(dtype_override)
-
-            return pixel_values
-        else:
-            if self.processor is None:
-                self._load_processor()
-
-            inputs = self.processor(images=image, return_tensors="pt")
-
+        if dtype_override is not None:
             for key in inputs:
-                if torch.is_tensor(inputs[key]):
-                    inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+                if torch.is_tensor(inputs[key]) and inputs[key].dtype.is_floating_point:
+                    inputs[key] = inputs[key].to(dtype_override)
 
-            if dtype_override is not None:
-                for key in inputs:
-                    if (
-                        torch.is_tensor(inputs[key])
-                        and inputs[key].dtype.is_floating_point
-                    ):
-                        inputs[key] = inputs[key].to(dtype_override)
-
-            return inputs
+        return inputs
