@@ -65,19 +65,27 @@ class ModelLoader(ForgeModel):
         return self._processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import Wav2Vec2BertConfig, Wav2Vec2BertForCTC
+        from transformers import AutoConfig, Wav2Vec2BertConfig, Wav2Vec2BertForCTC
 
-        model_kwargs = {}
+        # Register the custom model type so AutoConfig can resolve it.
+        # This checkpoint uses "multi_level_ctc" which is not in standard transformers.
+        try:
+            AutoConfig.register("multi_level_ctc", Wav2Vec2BertConfig)
+        except ValueError:
+            pass  # already registered
+
+        config = Wav2Vec2BertConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+        # The custom multi-level config stores per-level vocab sizes; set the primary one.
+        if config.vocab_size is None:
+            level_vocab = getattr(config, "level_to_vocab_size", {})
+            config.vocab_size = level_vocab.get("phonemes", 43)
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-
-        # Pre-load with the specific config class to avoid AutoConfig failing on
-        # the custom "multi_level_ctc" model_type in this checkpoint.
-        if "config" not in model_kwargs:
-            model_kwargs["config"] = Wav2Vec2BertConfig.from_pretrained(
-                self._variant_config.pretrained_model_name
-            )
 
         model = Wav2Vec2BertForCTC.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
@@ -106,5 +114,11 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if v.is_floating_point() else v
+                for k, v in inputs.items()
+            }
 
         return inputs
