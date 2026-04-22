@@ -68,10 +68,40 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **tokenizer_kwargs,
-        )
+        # XgenTokenizer passes add_special_tokens to super().__init__() which
+        # conflicts with the add_special_tokens method in newer transformers.
+        # Temporarily patch to strip that kwarg before the conflict check runs.
+        import transformers.tokenization_utils_base as _tub
+
+        _orig_init = _tub.PreTrainedTokenizerBase.__init__
+
+        def _patched_init(self_tok, **kwargs):
+            kwargs.pop("add_special_tokens", None)
+            _orig_init(self_tok, **kwargs)
+
+        _tub.PreTrainedTokenizerBase.__init__ = _patched_init
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                **tokenizer_kwargs,
+            )
+        finally:
+            _tub.PreTrainedTokenizerBase.__init__ = _orig_init
+
+        # XgenTokenizer.get_vocab() returns bytes keys instead of str, so
+        # transformers can't find existing special tokens and re-adds them with
+        # IDs >= vocab_size (out of range for the embedding table).
+        # Fix by updating the authoritative _added_tokens_decoder with correct IDs.
+        for wrong_id, tok_obj in list(self.tokenizer._added_tokens_decoder.items()):
+            try:
+                correct_id = self.tokenizer.encoder.encode_single_token(tok_obj.content)
+                if correct_id != wrong_id:
+                    self.tokenizer._added_tokens_decoder.pop(wrong_id)
+                    self.tokenizer._added_tokens_decoder[correct_id] = tok_obj
+                    self.tokenizer._added_tokens_encoder[tok_obj.content] = correct_id
+            except Exception:
+                pass
+
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
