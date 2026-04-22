@@ -132,6 +132,13 @@ class ModelLoader(ForgeModel):
 
             model, self.preprocess = create_model_from_pretrained(pretrained_model_name)
             self.tokenizer = get_tokenizer(pretrained_model_name)
+            # transformers 5.x removed batch_encode_plus from GemmaTokenizer; alias __call__
+            if hasattr(self.tokenizer, "tokenizer") and not hasattr(
+                self.tokenizer.tokenizer, "batch_encode_plus"
+            ):
+                self.tokenizer.tokenizer.batch_encode_plus = (
+                    self.tokenizer.tokenizer.__call__
+                )
 
             if dtype_override is not None:
                 model = model.to(dtype_override)
@@ -178,6 +185,13 @@ class ModelLoader(ForgeModel):
                 self.tokenizer = get_tokenizer(
                     self._variant_config.pretrained_model_name
                 )
+                # transformers 5.x removed batch_encode_plus from GemmaTokenizer; alias __call__
+                if hasattr(self.tokenizer, "tokenizer") and not hasattr(
+                    self.tokenizer.tokenizer, "batch_encode_plus"
+                ):
+                    self.tokenizer.tokenizer.batch_encode_plus = (
+                        self.tokenizer.tokenizer.__call__
+                    )
 
             pixel_values = self.preprocess(image).unsqueeze(0)
             text_tokens = self.tokenizer(self.text_prompts)
