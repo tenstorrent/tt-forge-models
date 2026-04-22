@@ -142,7 +142,7 @@ class ModelLoader(ForgeModel):
                 messages,
                 add_generation_prompt=True,
                 return_tensors="pt",
-            )
+            )["input_ids"]
         padded_inputs, seq_len = pad_inputs(inputs)
         self.seq_len = seq_len
 
