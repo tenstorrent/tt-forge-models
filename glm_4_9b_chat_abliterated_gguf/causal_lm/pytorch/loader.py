@@ -220,7 +220,7 @@ class ModelLoader(ForgeModel):
         import inspect
 
         seen = set()
-        for _ in range(15):
+        for _ in range(60):
             fn_id = id(fn)
             if fn_id in seen:
                 return None
