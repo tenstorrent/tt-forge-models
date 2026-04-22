@@ -5,9 +5,9 @@
 """
 Qwen 360 Diffusion LoRA model loader implementation.
 
-Loads the Qwen-Image base pipeline and applies the 360-degree equirectangular
-panorama LoRA weights from ProGamerGov/qwen-360-diffusion for text-to-image
-generation of 360-degree panoramic images.
+Loads the Qwen-Image base pipeline, applies the 360-degree equirectangular
+panorama LoRA weights from ProGamerGov/qwen-360-diffusion, fuses them, and
+returns the transformer component for compilation.
 
 Available variants:
 - INT8_V1: int8-bf16 v1 LoRA on Qwen/Qwen-Image (default)
@@ -16,7 +16,7 @@ Available variants:
 - INT8_V2_2512: int8-bf16 v2 LoRA on Qwen/Qwen-Image-2512
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import torch
 from diffusers import DiffusionPipeline  # type: ignore[import]
@@ -40,6 +40,12 @@ LORA_INT8_V1 = "qwen-360-diffusion-int8-bf16-v1.safetensors"
 LORA_INT4_V1 = "qwen-360-diffusion-int4-bf16-v1.safetensors"
 LORA_INT4_V1B = "qwen-360-diffusion-int4-bf16-v1-b.safetensors"
 LORA_INT8_V2_2512 = "qwen-360-diffusion-2512-int8-bf16-v2.safetensors"
+
+# joint_attention_dim differs between Qwen-Image variants
+_TEXT_DIM = {
+    BASE_MODEL_QWEN_IMAGE: 4096,
+    BASE_MODEL_QWEN_IMAGE_2512: 3584,
+}
 
 
 class ModelVariant(StrEnum):
@@ -80,7 +86,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -101,41 +107,58 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Qwen-Image pipeline with 360 diffusion LoRA weights applied.
+        """Load the Qwen-Image transformer with 360 diffusion LoRA weights fused.
 
         Returns:
-            DiffusionPipeline with LoRA weights loaded.
+            QwenImageTransformer2DModel with LoRA weights fused.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
-        )
-
-        lora_file = _LORA_FILES[self._variant]
-        self.pipeline.load_lora_weights(
-            LORA_REPO,
-            weight_name=lora_file,
-        )
-
-        return self.pipeline
-
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for 360-degree panorama image generation.
-
-        Returns:
-            dict with prompt and generation parameters.
-        """
-        if prompt is None:
-            prompt = (
-                "equirectangular 360 panorama of a mountain landscape at sunset, "
-                "photography, 4K"
+        if self._transformer is None:
+            pipe = DiffusionPipeline.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=False,
             )
+            lora_file = _LORA_FILES[self._variant]
+            pipe.load_lora_weights(LORA_REPO, weight_name=lora_file)
+            pipe.fuse_lora()
+            self._transformer = pipe.transformer
+            self._transformer.eval()
+            del pipe
+        elif dtype_override is not None:
+            self._transformer = self._transformer.to(dtype=dtype_override)
+
+        return self._transformer
+
+    def load_inputs(self, **kwargs) -> Dict[str, Any]:
+        """Prepare sample inputs for the diffusion transformer.
+
+        Returns a dict matching QwenImageTransformer2DModel.forward() signature.
+        """
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        batch_size = kwargs.get("batch_size", 1)
+
+        base_model = self._variant_config.pretrained_model_name
+        img_dim = 64
+        text_dim = _TEXT_DIM[base_model]
+        txt_seq_len = 32
+
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
+        )
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_shapes = [(frame, height, width)] * batch_size
 
         return {
-            "prompt": prompt,
-            "width": 2048,
-            "height": 1024,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
         }
