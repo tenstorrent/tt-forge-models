@@ -5,7 +5,7 @@
 MediX R1 30B GGUF model loader implementation for image to text.
 """
 
-from transformers import Qwen3VLMoeForConditionalGeneration, AutoProcessor
+from transformers import Qwen3VLMoeForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +18,65 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_transformers_qwen3vlmoe_gguf():
+    """Monkey-patch transformers to add qwen3vlmoe GGUF architecture support.
+
+    transformers 5.x does not support the qwen3vlmoe GGUF architecture used by
+    Qwen3-VL-MoE models. This patch registers the architecture, adds the config
+    field mapping (reusing qwen3_moe's text config mapping), selects the right
+    tensor processor, and fixes get_gguf_hf_weights_map to handle the nested
+    Qwen3VLMoeConfig structure (num_hidden_layers lives in text_config).
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+        Qwen2MoeTensorProcessor,
+    )
+
+    if "qwen3vlmoe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vlmoe")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vlmoe"] = GGUF_TO_TRANSFORMERS_MAPPING[
+        "config"
+    ]["qwen3_moe"].copy()
+
+    TENSOR_PROCESSORS["qwen3vlmoe"] = Qwen2MoeTensorProcessor
+
+    orig_get_weights_map = gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            mt = getattr(hf_model.config, "model_type", None)
+            if mt == "qwen3_vl_moe":
+                model_type = "qwen3vlmoe"
+        if num_layers is None:
+            try:
+                num_layers = hf_model.config.num_hidden_layers
+            except AttributeError:
+                try:
+                    num_layers = hf_model.config.text_config.num_hidden_layers
+                except AttributeError:
+                    num_layers = 28
+        return orig_get_weights_map(
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+        )
+
+    gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_qwen3vlmoe_gguf()
 
 
 class ModelVariant(StrEnum):
@@ -72,11 +131,17 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         model_kwargs["gguf_file"] = gguf_file
+        model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(
             "Qwen/Qwen3-VL-30B-A3B-Instruct",
         )
+
+        # Load config from base model to avoid GGUF config parsing which does
+        # not support the nested Qwen3VLMoeConfig structure.
+        base_config = AutoConfig.from_pretrained("Qwen/Qwen3-VL-30B-A3B-Instruct")
+        model_kwargs["config"] = base_config
 
         model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
