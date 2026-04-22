@@ -107,11 +107,43 @@ def _rms_norm_fn_stub(x, weight, bias=None, eps=1e-6, **kwargs):
     return result
 
 
+def _flash_attn_func_stub(
+    q, k, v, dropout_p=0.0, softmax_scale=None, causal=False, **kwargs
+):
+    # q/k/v: (batch, seqlen, num_heads, head_dim)
+    num_kv_groups = q.shape[2] // k.shape[2]
+    if num_kv_groups > 1:
+        k = k.repeat_interleave(num_kv_groups, dim=2)
+        v = v.repeat_interleave(num_kv_groups, dim=2)
+    scale = softmax_scale or (q.shape[-1] ** -0.5)
+    # Transpose to (batch, num_heads, seqlen, head_dim) for matmul
+    q = q.transpose(1, 2)
+    k = k.transpose(1, 2)
+    v = v.transpose(1, 2)
+    attn_weights = torch.matmul(q, k.transpose(2, 3)) * scale
+    if causal:
+        seqlen = q.shape[2]
+        mask = torch.triu(
+            torch.full((seqlen, seqlen), float("-inf"), device=q.device, dtype=q.dtype),
+            diagonal=1,
+        )
+        attn_weights = attn_weights + mask
+    attn_weights = torch.nn.functional.softmax(
+        attn_weights, dim=-1, dtype=torch.float32
+    ).to(q.dtype)
+    out = torch.matmul(attn_weights, v)
+    # Return (batch, seqlen, num_heads, head_dim)
+    return out.transpose(1, 2).contiguous()
+
+
 def _inject_flash_attn_stubs():
     if "flash_attn" not in sys.modules:
         layer_norm_mod = types.ModuleType("flash_attn.ops.triton.layer_norm")
         layer_norm_mod.rms_norm_fn = _rms_norm_fn_stub
-        sys.modules["flash_attn"] = types.ModuleType("flash_attn")
+        flash_attn_mod = types.ModuleType("flash_attn")
+        flash_attn_mod.flash_attn_func = _flash_attn_func_stub
+        flash_attn_mod.flash_attn_varlen_func = _flash_attn_func_stub
+        sys.modules["flash_attn"] = flash_attn_mod
         sys.modules["flash_attn.ops"] = types.ModuleType("flash_attn.ops")
         sys.modules["flash_attn.ops.triton"] = types.ModuleType("flash_attn.ops.triton")
         sys.modules["flash_attn.ops.triton.layer_norm"] = layer_norm_mod
