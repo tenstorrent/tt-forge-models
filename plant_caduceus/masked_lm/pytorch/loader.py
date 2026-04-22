@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
         # DNA sequence for masked language modeling
         sequence = "ATGCGTACGATCGTAG"
 
-        inputs = self.tokenizer.encode_plus(
+        inputs = self.tokenizer(
             sequence,
             return_tensors="pt",
             return_attention_mask=False,
