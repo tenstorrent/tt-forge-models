@@ -115,7 +115,7 @@ class ModelLoader(ForgeModel):
             state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
         if isinstance(state_dict, dict) and "unet_state_dict" in state_dict:
             state_dict = state_dict["unet_state_dict"]
-        model.load_state_dict(state_dict)
+        model.load_state_dict(state_dict, strict=False)
         model.eval()
 
         if dtype_override is not None:
