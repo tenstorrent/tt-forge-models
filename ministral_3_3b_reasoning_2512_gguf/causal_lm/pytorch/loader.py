@@ -18,13 +18,17 @@ from transformers.modeling_gguf_pytorch_utils import (
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
 
 def _patch_mistral3_support():
-    """Register mistral3 architecture as an alias for mistral.
+    """Register mistral3 architecture support for Ministral 3B GGUF models.
 
-    Ministral 3B models use the same model architecture as Mistral but the GGUF
-    file declares architecture as 'mistral3', which transformers 5.x does not
-    yet recognise. The mistral tokenizer uses the llama BPE converter.
+    llama.cpp labels Ministral 3B GGUF files as 'mistral3' architecture.
+    Transformers 5.6 knows 'mistral3' only as a multimodal model (Mistral3Config)
+    while the correct causal-LM class is Ministral3Config ('ministral3').
+    The gguf-py tensor-name map uses the 'mistral3' arch key (MODEL_ARCH.MISTRAL3).
+    The mistral tokenizer uses the llama BPE converter.
     """
     if "mistral3" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
@@ -40,10 +44,26 @@ def _patch_mistral3_support():
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
-    """Wrap load_gguf_checkpoint to add mistral3 support."""
+    """Wrap load_gguf_checkpoint: add mistral3 support and remap to ministral3."""
     _patch_mistral3_support()
-    return _orig_load_gguf_checkpoint(
+    result = _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "mistral3":
+        result["config"]["model_type"] = "ministral3"
+    return result
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Remap ministral3 model_type to mistral3 for gguf-py tensor name lookup."""
+    if model_type is None and hasattr(hf_model, "config"):
+        model_type = hf_model.config.model_type
+    if model_type == "ministral3":
+        model_type = "mistral3"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
     )
 
 
@@ -52,6 +72,7 @@ _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 from ....base import ForgeModel
 from ....config import (
