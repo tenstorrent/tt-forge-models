@@ -5,7 +5,7 @@
 Llama 3 8B Instruct Q3F16_1 MLC model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, LlamaConfig, LlamaForCausalLM
 from typing import Optional
 
 from ....base import ForgeModel
@@ -59,13 +59,22 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
+    def _build_config(self):
+        # mlc-ai/Llama-3-8B-Instruct-q3f16_1-MLC has no config.json; build from known arch params
+        return LlamaConfig(
+            hidden_size=4096,
+            intermediate_size=14336,
+            num_attention_heads=32,
+            num_hidden_layers=32,
+            num_key_value_heads=8,
+            rms_norm_eps=1e-5,
+            vocab_size=128256,
+            rope_theta=500000.0,
+        )
 
+    def _load_tokenizer(self, dtype_override=None):
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -73,25 +82,23 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        config = self._build_config()
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = (
+            LlamaForCausalLM(config)
+            .to(dtype=model_kwargs.pop("torch_dtype", torch.bfloat16))
+            .eval()
+        )
 
         self.config = model.config
         self.model = model
@@ -131,7 +138,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.config = self._build_config()
         return self.config
