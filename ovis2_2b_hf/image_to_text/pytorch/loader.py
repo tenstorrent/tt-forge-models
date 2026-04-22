@@ -66,11 +66,8 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        else:
-            model_kwargs["torch_dtype"] = torch.bfloat16
+        target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        model_kwargs = {"torch_dtype": target_dtype}
         model_kwargs |= kwargs
 
         if self.processor is None:
@@ -79,6 +76,7 @@ class ModelLoader(ForgeModel):
         model = Ovis2ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        model = model.to(target_dtype)
         model.eval()
         return model
 
@@ -104,8 +102,9 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        if dtype_override is not None and "pixel_values" in inputs:
-            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+        target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        if "pixel_values" in inputs:
+            inputs["pixel_values"] = inputs["pixel_values"].to(target_dtype)
 
         if batch_size > 1:
             for key in inputs:
