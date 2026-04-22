@@ -45,18 +45,19 @@ _TRANSFORMER_CONFIG = {
     "pooled_projection_dim": 768,
 }
 
-# FLUX.1-dev uses guidance embeddings; schnell (distilled) does not.
-_GUIDANCE_EMBEDS = {
-    "dev_Q4_K_S": True,
-    "schnell_Q4_K_S": False,
-}
-
 
 class ModelVariant(StrEnum):
     """Available StableDiffusionVN/Flux GGUF model variants."""
 
     DEV_Q4_K_S = "dev_Q4_K_S"
     SCHNELL_Q4_K_S = "schnell_Q4_K_S"
+
+
+# FLUX.1-dev uses guidance embeddings; schnell (distilled) does not.
+_GUIDANCE_EMBEDS = {
+    ModelVariant.DEV_Q4_K_S: True,
+    ModelVariant.SCHNELL_Q4_K_S: False,
+}
 
 
 class ModelLoader(ForgeModel):
