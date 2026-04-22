@@ -90,6 +90,10 @@ class ModelLoader(ForgeModel):
             and "type" not in config.rope_scaling
         ):
             config.rope_scaling = None
+        # Transformers 5.x expects _tied_weights_keys to be a dict, but this model's
+        # custom code defines it as a list. Disabling tie_word_embeddings avoids the
+        # incompatible code path.
+        config.tie_word_embeddings = False
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
