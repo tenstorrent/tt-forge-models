@@ -5,7 +5,6 @@
 """Parrot Paraphraser on T5 model loader implementation for paraphrase generation."""
 
 from typing import Optional
-from transformers.models.t5.modeling_flax_t5 import shift_tokens_right
 
 from ....base import ForgeModel
 from ....config import (
@@ -100,6 +99,7 @@ class ModelLoader(ForgeModel):
         """Load and return sample inputs for the Parrot Paraphraser T5 model."""
 
         from transformers import T5Config
+        from transformers.models.t5.modeling_flax_t5 import shift_tokens_right
 
         if self._tokenizer is None:
             self._load_tokenizer(dtype_override)
