@@ -48,11 +48,20 @@ def _apply_gguf_load_compat_patch():
             visited.add(fn_id)
             if getattr(fn, "__module__", None) == _GGUF_TARGET_MODULE:
                 return fn
+            # Check module globals (for module-level patches)
             globs = getattr(fn, "__globals__", {})
             for name in _GGUF_ORIG_VAR_NAMES:
                 orig = globs.get(name)
                 if orig is not None and callable(orig) and id(orig) not in visited:
                     queue.append(orig)
+            # Check closure cells (for patches defined inside functions)
+            for cell in getattr(fn, "__closure__", None) or ():
+                try:
+                    val = cell.cell_contents
+                    if callable(val) and id(val) not in visited:
+                        queue.append(val)
+                except ValueError:
+                    pass
             wrapped = getattr(fn, "__wrapped__", None)
             if wrapped is not None and callable(wrapped) and id(wrapped) not in visited:
                 queue.append(wrapped)
