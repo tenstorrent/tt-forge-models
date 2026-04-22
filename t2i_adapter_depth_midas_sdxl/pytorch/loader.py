@@ -111,14 +111,17 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, depth_image
         )
 
+        # Select only the first timestep for a single UNet forward pass
+        timestep = timesteps[0]
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
         return [
             latent_model_input,
-            timesteps,
+            timestep,
             prompt_embeds,
             added_cond_kwargs,
             down_intrablock_additional_residuals,
