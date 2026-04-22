@@ -5,7 +5,8 @@
 VantageWithAI Qwen-Image-Edit-2511 GGUF model loader implementation.
 
 Loads GGUF-quantized diffusion transformer variants from
-vantagewithai/Qwen-Image-Edit-2511-GGUF.
+vantagewithai/Qwen-Image-Edit-2511-GGUF. Uses Qwen/Qwen-Image-Edit-2511
+for architecture config, overriding in_channels=128 for the edit variant.
 
 Available variants:
 - Q4_K_M: 4-bit quantization (medium, 13 GB)
@@ -30,6 +31,7 @@ from ...config import (
 )
 
 REPO_ID = "vantagewithai/Qwen-Image-Edit-2511-GGUF"
+CONFIG_REPO = "Qwen/Qwen-Image-Edit-2511"
 
 _GGUF_FILES = {
     "Q4_K_M": "Qwen-Image-Edit-2511-Q4_K_M.gguf",
@@ -92,8 +94,13 @@ class ModelLoader(ForgeModel):
             filename=_GGUF_FILES[quant_key],
         )
 
+        # GGUF edit model uses in_channels=128 (2× standard 64: noisy + conditioning concat)
+        # The upstream config has in_channels=64 which mismatches; override here.
         self._transformer = QwenImageTransformer2DModel.from_single_file(
             model_path,
+            config=CONFIG_REPO,
+            subfolder="transformer",
+            in_channels=128,
             torch_dtype=dtype,
         )
         self._transformer.eval()
