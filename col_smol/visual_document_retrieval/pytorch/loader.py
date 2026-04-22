@@ -5,7 +5,6 @@
 ColSmol model loader implementation for visual document retrieval.
 """
 import torch
-from colpali_engine.models import ColIdefics3, ColIdefics3Processor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -57,6 +56,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        from colpali_engine.models import ColIdefics3Processor
+
         self.processor = ColIdefics3Processor.from_pretrained(
             self._variant_config.pretrained_model_name,
         )
@@ -74,6 +75,8 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["torch_dtype"] = torch.bfloat16
         model_kwargs |= kwargs
+
+        from colpali_engine.models import ColIdefics3
 
         model = ColIdefics3.from_pretrained(
             pretrained_model_name,
