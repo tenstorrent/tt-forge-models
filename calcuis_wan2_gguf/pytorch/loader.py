@@ -152,11 +152,38 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        self._transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        # Patch dispatch_model so that any parameters left on the meta device
+        # after GGUF loading are materialized as empty tensors before dispatch.
+        _sfm = sys.modules.get("diffusers.loaders.single_file_model")
+        _orig_dispatch = getattr(_sfm, "dispatch_model", None) if _sfm else None
+
+        if _orig_dispatch is not None:
+
+            def _dispatch_meta_safe(model, **kwargs):
+                for module in model.modules():
+                    for name, param in list(module._parameters.items()):
+                        if param is not None and param.is_meta:
+                            module._parameters[name] = torch.nn.Parameter(
+                                torch.empty(param.shape, dtype=param.dtype)
+                            )
+                    for name, buf in list(module._buffers.items()):
+                        if buf is not None and buf.is_meta:
+                            module._buffers[name] = torch.empty(
+                                buf.shape, dtype=buf.dtype
+                            )
+                return _orig_dispatch(model, **kwargs)
+
+            _sfm.dispatch_model = _dispatch_meta_safe
+
+        try:
+            self._transformer = WanTransformer3DModel.from_single_file(
+                f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
+        finally:
+            if _orig_dispatch is not None and _sfm is not None:
+                _sfm.dispatch_model = _orig_dispatch
 
         return self._transformer
 
