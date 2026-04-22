@@ -5,22 +5,78 @@
 hfmaster models-moved Qwen3-VL GGUF model loader implementation for image to text.
 """
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_base as _tok_utils
 from transformers import (
-    Qwen3VLForConditionalGeneration,
     AutoProcessor,
+    Qwen3VLForConditionalGeneration,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
 )
 from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+
+def _patch_qwen3vl_support():
+    """Register qwen3vl architecture as an alias for qwen3_vl.
+
+    Transformers 5.x has Qwen3VLForConditionalGeneration but lacks GGUF
+    loading support for the qwen3vl architecture declared in GGUF files.
+    """
+    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    qwen3_config = GGUF_TO_TRANSFORMERS_MAPPING["config"].get("qwen3", {})
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"] = dict(qwen3_config)
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"].update(
+        {
+            "attention.key_length": "head_dim",
+            "attention.value_length": None,
+            "rope.dimension_sections": None,
+            "n_deepstack_layers": None,
+        }
+    )
+    for section in ("tokenizer", "tokenizer_config"):
+        qwen3_tok = GGUF_TO_TRANSFORMERS_MAPPING[section].get("qwen3", {})
+        GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault("qwen3vl", dict(qwen3_tok))
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen3vl", GGUF_TO_FAST_CONVERTERS["qwen3"])
+    elif "qwen2" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen3vl", GGUFQwen2Converter)
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add qwen3vl support and fix model_type."""
+    _patch_qwen3vl_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "qwen3vl":
+        result["config"]["model_type"] = "qwen3_vl"
+    return result
+
+
+_patch_qwen3vl_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
