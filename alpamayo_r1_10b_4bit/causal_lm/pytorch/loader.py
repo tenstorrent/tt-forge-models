@@ -7,7 +7,8 @@ dwko/Alpamayo-R1-10B-4bit model loader implementation for causal language modeli
 
 from typing import Optional
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from alpamayo_r1.models.alpamayo_r1 import AlpamayoR1
+from transformers import AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -90,9 +91,12 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        wrapper = AlpamayoR1.from_pretrained(pretrained_model_name, **model_kwargs)
+        wrapper.eval()
+
+        # AlpamayoR1 is a VLA model with no forward() — return its Qwen3-VL
+        # backbone which exposes the standard causal-LM forward interface.
+        model = wrapper.vlm
         model.eval()
 
         return model
