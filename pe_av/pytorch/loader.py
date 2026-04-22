@@ -136,10 +136,18 @@ class ModelLoader(ForgeModel):
         self.text_prompts = ["a dog barking in the park"]
 
         try:
+            import numpy as np
+            import soundfile as sf
+
+            # Load audio as numpy array to bypass torchcodec (requires FFmpeg binaries
+            # incompatible with CPU-only torch builds); transformers skips torchcodec
+            # when audio is already an ndarray.
+            audio_array, _ = sf.read(audio_path, dtype="float32")
+
             inputs = self.processor(
                 videos=[video_path],
                 text=self.text_prompts,
-                audio=[audio_path],
+                audio=[audio_array],
                 return_tensors="pt",
                 padding=True,
             )
