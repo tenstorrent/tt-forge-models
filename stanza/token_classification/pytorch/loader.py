@@ -47,6 +47,7 @@ class ModelVariant(StrEnum):
 
     STANFORDNLP_STANZA_ES = "stanfordnlp/stanza-es"
     STANFORDNLP_STANZA_FR = "stanfordnlp/stanza-fr"
+    STANFORDNLP_STANZA_VI = "stanfordnlp/stanza-vi"
 
 
 # Per-variant sample text used for NER inference.
@@ -56,6 +57,9 @@ _SAMPLE_TEXTS = {
     ),
     ModelVariant.STANFORDNLP_STANZA_FR: (
         "Le président de la France a visité la ville de Paris hier après-midi."
+    ),
+    ModelVariant.STANFORDNLP_STANZA_VI: (
+        "Tổng thống Việt Nam đã đến thăm thành phố Hà Nội hôm qua."
     ),
 }
 
@@ -70,6 +74,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.STANFORDNLP_STANZA_FR: ModelConfig(
             pretrained_model_name="stanfordnlp/stanza-fr",
+        ),
+        ModelVariant.STANFORDNLP_STANZA_VI: ModelConfig(
+            pretrained_model_name="stanfordnlp/stanza-vi",
         ),
     }
 
