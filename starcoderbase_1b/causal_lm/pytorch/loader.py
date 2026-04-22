@@ -8,7 +8,7 @@ StarCoderBase 1B model loader implementation for causal language modeling.
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, GPTBigCodeConfig
 
 from ....base import ForgeModel
 from ....config import (
@@ -20,6 +20,21 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+# bigcode/starcoderbase-1b is a gated repo; use a local config with known architecture
+# parameters so we can compile without HF access.
+_STARCODERBASE_1B_CONFIG = GPTBigCodeConfig(
+    vocab_size=49152,
+    n_positions=8192,
+    n_embd=2048,
+    n_layer=24,
+    n_head=16,
+    n_inner=8192,
+    multi_query=True,
+    bos_token_id=0,
+    eos_token_id=0,
+)
+_PUBLIC_TOKENIZER = "bigcode/tiny_starcoder_py"
 
 
 class ModelVariant(StrEnum):
@@ -63,39 +78,27 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(_PUBLIC_TOKENIZER)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
+
+        config = _STARCODERBASE_1B_CONFIG
+        if self.num_layers is not None:
+            config = GPTBigCodeConfig(**config.to_dict())
+            config.n_layer = self.num_layers
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config, **model_kwargs).eval()
 
         self.config = model.config
         self.model = model
@@ -124,7 +127,5 @@ class ModelLoader(ForgeModel):
         return self.tokenizer.decode([next_token])
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.config = _STARCODERBASE_1B_CONFIG
         return self.config
