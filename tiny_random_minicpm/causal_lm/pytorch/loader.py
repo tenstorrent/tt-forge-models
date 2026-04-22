@@ -97,6 +97,9 @@ class ModelLoader(ForgeModel):
         # custom code defines it as a list. Disabling tie_word_embeddings avoids the
         # incompatible code path.
         config.tie_word_embeddings = False
+        # Transformers 5.x removed DynamicCache.get_usable_length; disable KV cache
+        # to avoid the deprecated cache API in this model's custom forward code.
+        config.use_cache = False
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
