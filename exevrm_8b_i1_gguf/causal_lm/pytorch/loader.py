@@ -8,6 +8,59 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_transformers_qwen3vl_gguf():
+    """Monkey-patch transformers to add qwen3vl GGUF architecture support.
+
+    ExeVRM-8B uses the 'qwen3vl' architecture identifier in its GGUF metadata
+    (Qwen3-VL backbone). Transformers GGUF loading doesn't support qwen3vl yet.
+    We bridge the gap by registering the config/tokenizer mappings for qwen3vl
+    and remapping model_type to 'qwen3' so AutoModelForCausalLM can load the
+    text backbone via Qwen3ForCausalLM.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+
+    # qwen3vl text backbone has identical GGUF config fields to qwen3
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"] = dict(
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3"]
+    )
+
+    # Reuse qwen3 tokenizer converter
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "qwen3vl" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
+
+    # Patch load_gguf_checkpoint to remap qwen3vl -> qwen3 so that
+    # AutoModelForCausalLM resolves to Qwen3ForCausalLM (text backbone only).
+    # Must patch both the module attribute and the configuration_utils reference
+    # since configuration_utils imports the function directly at module load time.
+    import transformers.configuration_utils as config_utils
+    import transformers.models.auto.tokenization_auto as tokenization_auto
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") in ("qwen3vl", "qwen3_vl"):
+            config["model_type"] = "qwen3"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+    config_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+    tokenization_auto.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -62,6 +115,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _patch_transformers_qwen3vl_gguf()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -153,6 +207,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _patch_transformers_qwen3vl_gguf()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
