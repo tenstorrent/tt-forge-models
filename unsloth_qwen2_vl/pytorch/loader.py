@@ -128,7 +128,11 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"low_cpu_mem_usage": True}
 
         if pretrained_model_name == "unsloth/Qwen2-VL-2B-Instruct-unsloth-bnb-4bit":
-            model_kwargs["device_map"] = "cpu"
+            if not torch.cuda.is_available():
+                # BNB 4-bit quantization requires CUDA for inference; fall back to unquantized
+                pretrained_model_name = "Qwen/Qwen2-VL-2B-Instruct"
+            else:
+                model_kwargs["device_map"] = "cpu"
 
         # Load the model with dtype override if specified
         if dtype_override is not None:
