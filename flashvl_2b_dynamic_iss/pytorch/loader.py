@@ -85,6 +85,21 @@ class ModelLoader(ForgeModel):
         )
         config_cls.has_no_defaults_at_init = True
 
+        # FlashVLDynamicISS was written for transformers 4.x and doesn't call self.post_init()
+        # at the end of __init__. In transformers 5.x, post_init() sets all_tied_weights_keys
+        # which is required by _finalize_model_loading -> _adjust_tied_keys_with_tied_pointers.
+        model_cls = get_class_from_dynamic_module(
+            "modeling_FlashVLDynamicISS.FlashVLDynamicISS",
+            pretrained_model_name,
+        )
+        _original_init = model_cls.__init__
+
+        def _patched_init(self, config):
+            _original_init(self, config)
+            self.post_init()
+
+        model_cls.__init__ = _patched_init
+
         model_kwargs = {
             "trust_remote_code": True,
         }
