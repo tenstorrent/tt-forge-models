@@ -4,6 +4,8 @@
 """
 GPT4chan 8B GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -28,6 +30,49 @@ class ModelVariant(StrEnum):
 
 class ModelLoader(ForgeModel):
     """GPT4chan 8B GGUF model loader implementation for causal language modeling tasks."""
+
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix gguf version detection when installed at runtime by RequirementsManager.
+
+        transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
+        is installed later, the mapping is stale and version detection falls back to
+        gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
+        """
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+                _import_utils.is_gguf_available.cache_clear()
+            except importlib.metadata.PackageNotFoundError:
+                pass
+
+    @staticmethod
+    def _get_real_load_gguf_checkpoint():
+        """Find the original (unpatched) load_gguf_checkpoint from transformers.
+
+        Multiple loaders patch transformers.modeling_gguf_pytorch_utils.load_gguf_checkpoint
+        at import time to add architecture support. Some old-style patches use
+        (gguf_path, return_tensors=False) signatures that don't accept the model_to_load
+        kwarg added in transformers 5.x. Walk sys.modules to find the real original.
+        """
+        import sys
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        for mod in list(sys.modules.values()):
+            if mod is None:
+                continue
+            orig = getattr(mod, "_orig_load_gguf_checkpoint", None)
+            if orig is None:
+                continue
+            if (
+                getattr(orig, "__module__", "")
+                == "transformers.modeling_gguf_pytorch_utils"
+            ):
+                return orig
+        return _gguf_utils.load_gguf_checkpoint
 
     _VARIANTS = {
         ModelVariant.GPT4CHAN_8B_GGUF: LLMModelConfig(
@@ -62,6 +107,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_version_detection()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -76,7 +122,10 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
         pretrained_model_name = self._variant_config.pretrained_model_name
+        self._fix_gguf_version_detection()
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -94,9 +143,17 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Some loaders install patches with old signatures that drop model_to_load,
+        # which transformers 5.x requires. Temporarily restore the real function.
+        real_fn = self._get_real_load_gguf_checkpoint()
+        saved_fn = _gguf_utils.load_gguf_checkpoint
+        _gguf_utils.load_gguf_checkpoint = real_fn
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = saved_fn
 
         self.config = model.config
         self.model = model
@@ -108,18 +165,16 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        prompts = [text]
+        if self.tokenizer.chat_template is not None:
+            messages = [{"role": "user", "content": self.sample_text}]
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            prompts = [text]
+        else:
+            prompts = [self.sample_text]
 
         inputs = self.tokenizer(
             prompts,
@@ -153,6 +208,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._fix_gguf_version_detection()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
