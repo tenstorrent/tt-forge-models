@@ -105,25 +105,86 @@ def _patch_transformers_chatglm_gguf():
     GGUF_TO_FAST_CONVERTERS["chatglm"] = GGUFChatGLMConverter
     GGUF_TO_FAST_CONVERTERS["glm4"] = GGUFChatGLMConverter
 
-    # 4. Patch load_gguf_checkpoint to remap model_type and compute partial_rotary_factor
-    orig_load = gguf_utils.load_gguf_checkpoint
+    # 4. Patch load_gguf_checkpoint to remap model_type and compute partial_rotary_factor.
+    # Many loaders in the chain use the old 2-param API (gguf_path, return_tensors=False)
+    # without accepting model_to_load. When return_tensors=True (weight loading), bypass
+    # the old-API chain and call the real transformers function directly.
+    _chain_fn = gguf_utils.load_gguf_checkpoint
 
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
+    def _get_real_load_gguf_checkpoint(fn):
+        import inspect
+
+        seen = set()
+        current = fn
+        while True:
+            fn_id = id(current)
+            if (
+                fn_id in seen
+                or not callable(current)
+                or not hasattr(current, "__code__")
+            ):
+                return current
+            seen.add(fn_id)
+            if (
+                getattr(current, "__module__", "")
+                == "transformers.modeling_gguf_pytorch_utils"
+            ):
+                return current
+            try:
+                if "model_to_load" in inspect.signature(current).parameters:
+                    return current
+            except (ValueError, TypeError):
+                pass
+            freevars = current.__code__.co_freevars
+            cells = current.__closure__ or ()
+            next_fn = None
+            for i, varname in enumerate(freevars):
+                if i >= len(cells):
+                    break
+                if "load_gguf_checkpoint" in varname or "orig_load" in varname:
+                    try:
+                        v = cells[i].cell_contents
+                        if callable(v) and id(v) not in seen:
+                            next_fn = v
+                            break
+                    except ValueError:
+                        pass
+            if next_fn is None:
+                v = getattr(current, "__globals__", {}).get(
+                    "_orig_load_gguf_checkpoint"
+                )
+                if v is not None and callable(v) and id(v) not in seen:
+                    next_fn = v
+            if next_fn is None:
+                return current
+            current = next_fn
+
+    _real_load_gguf_checkpoint = _get_real_load_gguf_checkpoint(_chain_fn)
+
+    def patched_load_gguf_checkpoint(
+        gguf_checkpoint_path, return_tensors=False, model_to_load=None, **kwargs
+    ):
+        if return_tensors:
+            # Bypass old-API chain; call real transformers function directly
+            return _real_load_gguf_checkpoint(
+                gguf_checkpoint_path,
+                return_tensors=True,
+                model_to_load=model_to_load,
+                **kwargs,
+            )
+        result = _chain_fn(gguf_checkpoint_path, return_tensors=False)
         config = result.get("config", {})
         if config.get("model_type") == "chatglm":
             config["model_type"] = "glm4"
             head_dim = config.get("head_dim", 128)
-            if hasattr(args[0] if args else None, "__fspath__") or isinstance(
-                args[0] if args else None, str
-            ):
+            if isinstance(gguf_checkpoint_path, str):
                 try:
                     from gguf import GGUFReader
                     from transformers.modeling_gguf_pytorch_utils import (
                         _gguf_parse_value,
                     )
 
-                    reader = GGUFReader(args[0])
+                    reader = GGUFReader(gguf_checkpoint_path)
                     for key, field in reader.fields.items():
                         if "rope.dimension_count" in key:
                             rope_dim = _gguf_parse_value(
