@@ -4,6 +4,8 @@
 """
 Med42 model loader implementation for causal language modeling.
 """
+import os
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
@@ -127,6 +129,22 @@ class ModelLoader(ForgeModel):
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            from transformers import AutoConfig
+
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            old_dtype = torch.get_default_dtype()
+            if dtype_override is not None:
+                torch.set_default_dtype(dtype_override)
+            try:
+                with torch.device("meta"):
+                    model = AutoModelForCausalLM.from_config(config)
+            finally:
+                torch.set_default_dtype(old_dtype)
+            return model.to_empty(device="cpu")
 
         # Load the model with dtype override if specified
         model_kwargs = {}
