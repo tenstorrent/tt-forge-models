@@ -32,6 +32,15 @@ def _patch_transformers_deepseek2_gguf():
         GGUF_TO_TRANSFORMERS_MAPPING,
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
 
     if "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES:
         return  # Already patched
@@ -65,14 +74,6 @@ def _patch_transformers_deepseek2_gguf():
         "leading_dense_block_count": "first_k_dense_replace",
         "expert_feed_forward_length": "moe_intermediate_size",
     }
-
-    from transformers.integrations.ggml import (
-        GGUF_TO_FAST_CONVERTERS,
-        GGUFQwen2Converter,
-    )
-
-    if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 

@@ -32,6 +32,15 @@ def _patch_transformers_deepseek2_gguf():
         GGUF_TO_TRANSFORMERS_MAPPING,
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
 
     if "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES:
         return  # Already patched
@@ -68,18 +77,7 @@ def _patch_transformers_deepseek2_gguf():
         "expert_feed_forward_length": "moe_intermediate_size",
     }
 
-    # 3. Register deepseek2 tokenizer converter (BPE/GPT2-based, same as qwen2)
-    from transformers.integrations.ggml import (
-        GGUF_TO_FAST_CONVERTERS,
-        GGUFQwen2Converter,
-    )
-
-    if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
-    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
-
-    # 4. Patch load_gguf_checkpoint to set model_type to deepseek_v2
+    # 3. Patch load_gguf_checkpoint to set model_type to deepseek_v2
     orig_load = gguf_utils.load_gguf_checkpoint
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
@@ -91,7 +89,7 @@ def _patch_transformers_deepseek2_gguf():
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # Also patch modules that imported load_gguf_checkpoint directly
+    # 4. Also patch modules that imported load_gguf_checkpoint directly
     import transformers.models.auto.tokenization_auto as tok_auto
     import transformers.configuration_utils as config_utils
     import transformers.modeling_utils as modeling_utils
