@@ -6,7 +6,23 @@ Atom OLMo 3 7B i1 GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from typing import Optional
+
+# OLMo2 GGUF support is not yet in transformers; patch it in at import time.
+if "olmo2" not in GGUF_CONFIG_MAPPING:
+    GGUF_CONFIG_MAPPING["olmo2"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    }
+    _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("olmo2")
 
 from ....base import ForgeModel
 from ....config import (
