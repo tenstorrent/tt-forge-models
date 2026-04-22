@@ -79,6 +79,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {
             "trust_remote_code": True,
             "device_map": "cpu",
+            "low_cpu_mem_usage": False,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
