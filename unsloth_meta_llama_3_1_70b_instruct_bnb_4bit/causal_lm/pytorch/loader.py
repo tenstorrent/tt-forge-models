@@ -4,6 +4,7 @@
 """
 Unsloth Meta-Llama-3.1-70B-Instruct BnB 4-bit model loader for causal language modeling.
 """
+import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -75,10 +76,26 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from transformers import LlamaForCausalLM
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            # BNB quantization requires CUDA; skip it for compile-only mode
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.quantization_config = None
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            model = LlamaForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+            model.eval()
+            self.config = model.config
+            self.model = model
+            return model
 
         model_kwargs = {}
         if dtype_override is not None:
