@@ -8,7 +8,6 @@ This is a small attention-only transformer from Neel Nanda's
 mechanistic interpretability research, loaded via the TransformerLens library.
 """
 
-from transformer_lens import HookedTransformer
 from typing import Optional
 
 from ...base import ForgeModel
@@ -59,6 +58,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Attention-Only 1L model via TransformerLens."""
+        from transformer_lens import HookedTransformer
+
         model = HookedTransformer.from_pretrained(
             "attn-only-1l",
             device="cpu",
