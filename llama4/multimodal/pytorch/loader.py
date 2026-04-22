@@ -103,6 +103,22 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
 
+        # transformers 5.x initializes models under torch.device("meta"), so
+        # Llama4VisionRotaryEmbedding.freqs_ci (a plain attribute, not a buffer)
+        # stays as a meta tensor after weight loading. Re-compute it on CPU.
+        from transformers.models.llama4.modeling_llama4 import (
+            Llama4VisionRotaryEmbedding,
+        )
+
+        vision_config = model.config.vision_config
+        for module in model.modules():
+            if isinstance(module, Llama4VisionRotaryEmbedding):
+                if hasattr(module, "freqs_ci") and module.freqs_ci.is_meta:
+                    with torch.no_grad():
+                        cpu_rotary = Llama4VisionRotaryEmbedding(vision_config)
+                    module.freqs_ci = cpu_rotary.freqs_ci
+                    del cpu_rotary
+
         model.eval()
         self.model = model
         return model
