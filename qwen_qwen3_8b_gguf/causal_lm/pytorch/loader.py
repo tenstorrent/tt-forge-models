@@ -14,28 +14,51 @@ from typing import Optional
 
 from ....base import ForgeModel
 
+# Variable names that GGUF loader patches commonly use to store the previous function.
+_GGUF_ORIG_VAR_NAMES = (
+    "_orig_load_gguf_checkpoint",
+    "orig_load",
+    "_orig_fn",
+    "_real_fn",
+    "_original_fn",
+)
+_GGUF_TARGET_MODULE = "transformers.modeling_gguf_pytorch_utils"
+
 
 def _apply_gguf_load_compat_patch():
-    """Restore load_gguf_checkpoint to accept the model_to_load param from transformers 5.x.
+    """Restore load_gguf_checkpoint to the real transformers implementation.
 
-    Other GGUF loaders patch load_gguf_checkpoint with old-style signatures that lack
-    model_to_load. Their architecture-registration side effects are applied at module
-    import time, so bypassing their function wrappers is safe. Must be called at
-    load_model() time (not at module import time) because loaders imported later
-    (alphabetically after 'q') would otherwise overwrite this patch.
+    30+ GGUF loaders patch load_gguf_checkpoint at collection time with old signatures
+    that lack the model_to_load parameter added in transformers 5.x. We chase the wrapper
+    chain, checking module provenance and multiple capture-variable names, until we find
+    the function actually defined in transformers.modeling_gguf_pytorch_utils, then
+    install a compat shim over it.
+
+    Must be called at load_model() time so it executes after all loaders are imported.
     """
-    fn = _gguf_utils.load_gguf_checkpoint
-    visited: set = set()
-    while True:
-        fn_id = id(fn)
-        if fn_id in visited:
-            break
-        visited.add(fn_id)
-        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
-        if orig is None or not callable(orig) or id(orig) in visited:
-            break
-        fn = orig
-    real_fn = fn
+
+    def _find_real_fn(start):
+        visited: set = set()
+        queue = [start]
+        while queue:
+            fn = queue.pop(0)
+            fn_id = id(fn)
+            if fn_id in visited:
+                continue
+            visited.add(fn_id)
+            if getattr(fn, "__module__", None) == _GGUF_TARGET_MODULE:
+                return fn
+            globs = getattr(fn, "__globals__", {})
+            for name in _GGUF_ORIG_VAR_NAMES:
+                orig = globs.get(name)
+                if orig is not None and callable(orig) and id(orig) not in visited:
+                    queue.append(orig)
+            wrapped = getattr(fn, "__wrapped__", None)
+            if wrapped is not None and callable(wrapped) and id(wrapped) not in visited:
+                queue.append(wrapped)
+        return start
+
+    real_fn = _find_real_fn(_gguf_utils.load_gguf_checkpoint)
 
     def _compat(gguf_checkpoint_path, return_tensors=False, model_to_load=None, **kw):
         return real_fn(
