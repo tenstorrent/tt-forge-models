@@ -24,20 +24,28 @@ class MossSoundEffectWrapper(nn.Module):
     """Wrapper around the MOSS-SoundEffect backbone.
 
     Exposes a clean forward pass through the MossTTSDelay language backbone,
-    producing hidden states suitable for audio code prediction.
+    producing text-head logits from multi-channel audio+text input.
     """
 
     def __init__(self, model):
         super().__init__()
-        self.model = model.model
-        self.lm_head = model.lm_head
+        self.language_model = model.language_model
+        self.emb_ext = model.emb_ext
+        self.lm_text_head = model.lm_heads[0]
+        self.n_vq = model.config.n_vq
 
     def forward(self, input_ids, attention_mask):
-        outputs = self.model(
-            input_ids=input_ids, attention_mask=attention_mask, use_cache=False
+        # input_ids: (B, S, 1 + n_vq) — channel 0 is text, channels 1..n_vq are audio VQ
+        inputs_embeds = self.language_model.get_input_embeddings()(input_ids[..., 0])
+        for i, embed_layer in enumerate(self.emb_ext):
+            inputs_embeds = inputs_embeds + embed_layer(input_ids[..., i + 1])
+        outputs = self.language_model(
+            input_ids=None,
+            attention_mask=attention_mask,
+            inputs_embeds=inputs_embeds,
+            use_cache=False,
         )
-        logits = self.lm_head(outputs.last_hidden_state)
-        return logits
+        return self.lm_text_head(outputs.last_hidden_state)
 
 
 class ModelVariant(StrEnum):
@@ -85,7 +93,14 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        # Simulate tokenized input: batch of 1, short sequence
-        input_ids = torch.randint(0, 1000, (1, 32))
+        n_vq = 16
+        # Channel 0: text tokens; channels 1..n_vq: audio VQ tokens
+        input_ids = torch.cat(
+            [
+                torch.randint(0, 1000, (1, 32, 1)),
+                torch.randint(0, 1024, (1, 32, n_vq)),
+            ],
+            dim=-1,
+        )
         attention_mask = torch.ones(1, 32, dtype=torch.long)
         return (input_ids, attention_mask)
