@@ -8,7 +8,6 @@ import torch
 from typing import Optional
 
 from diffusers import SD3Transformer2DModel, StableDiffusion3Pipeline
-from diffusers.quantizers import GGUFQuantizationConfig
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -75,6 +74,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The SD3 transformer instance.
         """
+        from diffusers.quantizers import GGUFQuantizationConfig
+
         gguf_path = hf_hub_download(
             self._variant_config.pretrained_model_name,
             filename=self.gguf_file,
