@@ -79,7 +79,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    # Base model to use for chat template if fine-tuned checkpoint lacks one
+    # Base model tokenizer to use: fine-tuned checkpoint has vocab_size=1 and no chat template
     _BASE_MODEL_NAME = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
 
     def _load_tokenizer(self, dtype_override=None):
@@ -91,18 +91,7 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
-
-        if self.tokenizer.chat_template is None:
-            base_tokenizer = AutoTokenizer.from_pretrained(self._BASE_MODEL_NAME)
-            self.tokenizer.chat_template = base_tokenizer.chat_template
-
+        self.tokenizer = AutoTokenizer.from_pretrained(self._BASE_MODEL_NAME)
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
