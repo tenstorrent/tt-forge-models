@@ -148,11 +148,11 @@ class LanguageBindAudioProcessor(ProcessorMixin):
     tokenizer_class = "LanguageBindAudioTokenizer"
 
     def __init__(self, config, tokenizer=None, **kwargs):
-        super().__init__(**kwargs)
+        # transformers 5.x ProcessorMixin.__init__ requires all attributes
+        # listed by get_attributes() to be passed (here: tokenizer).
+        super().__init__(tokenizer, **kwargs)
         self.config = config
         self.transform = get_audio_transform(config)
-        self.image_processor = load_and_transform_audio
-        self.tokenizer = tokenizer
 
     def __call__(
         self, images=None, text=None, context_length=77, return_tensors=None, **kwargs
