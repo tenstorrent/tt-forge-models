@@ -89,6 +89,7 @@ class ModelLoader(ForgeModel):
         model = GPT2LMHeadModel.from_pretrained(
             pretrained_model_name, config=config, **kwargs
         )
+        model.resize_token_embeddings(len(self.tokenizer))
 
         return model
 
