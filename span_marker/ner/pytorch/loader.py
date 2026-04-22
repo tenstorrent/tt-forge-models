@@ -5,7 +5,6 @@
 SpanMarker NER model loader implementation for named entity recognition.
 """
 
-from span_marker import SpanMarkerModel
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -64,6 +63,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from span_marker import SpanMarkerModel
+
         model = SpanMarkerModel.from_pretrained(self.model_name)
         self.tokenizer = model.tokenizer
         if dtype_override is not None:
