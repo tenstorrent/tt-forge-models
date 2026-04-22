@@ -14,6 +14,7 @@ Available variants:
 - ANIMA_PREVIEW_TCFP8_MIXED: Mixed-precision hardware FP8 preview checkpoint.
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -32,7 +33,7 @@ from ...config import (
 )
 
 FP8_REPO_ID = "pachiiahri/anima-fp8-comfyui"
-UPSTREAM_CONFIG_REPO = "nvidia/Cosmos-Predict2-2B-Text2Image"
+_TRANSFORMER_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "transformer_config")
 
 
 class ModelVariant(StrEnum):
@@ -80,8 +81,7 @@ class ModelLoader(ForgeModel):
         fp8_path = hf_hub_download(repo_id=FP8_REPO_ID, filename=fp8_file)
         self._transformer = CosmosTransformer3DModel.from_single_file(
             fp8_path,
-            config=UPSTREAM_CONFIG_REPO,
-            subfolder="transformer",
+            config=_TRANSFORMER_CONFIG_DIR,
             torch_dtype=dtype,
         )
         self._transformer.eval()
