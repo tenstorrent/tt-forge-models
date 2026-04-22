@@ -9,7 +9,6 @@ from typing import Optional
 
 import jax
 import jax.numpy as jnp
-from diffusers import FlaxStableDiffusionPipeline
 
 from ....base import ForgeModel
 from ....config import (
@@ -70,6 +69,8 @@ class ModelLoader(ForgeModel):
         Returns:
             FlaxStableDiffusionPipeline: The loaded pipeline instance.
         """
+        from diffusers import FlaxStableDiffusionPipeline
+
         dtype = dtype_override if dtype_override is not None else jnp.bfloat16
 
         self.pipeline, self.params = FlaxStableDiffusionPipeline.from_pretrained(
