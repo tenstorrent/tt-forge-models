@@ -5,10 +5,7 @@
 Visual Attention Network (VAN) model loader implementation for image classification.
 """
 import torch
-from transformers import (
-    AutoImageProcessor,
-    VanForImageClassification,
-)
+from transformers import AutoImageProcessor
 from datasets import load_dataset
 from typing import Optional
 
@@ -107,6 +104,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        from transformers import VanForImageClassification
 
         model = VanForImageClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
