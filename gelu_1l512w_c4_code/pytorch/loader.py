@@ -5,7 +5,6 @@
 GELU 1L512W C4 Code model loader implementation for causal language modeling.
 """
 import torch
-from transformer_lens import HookedTransformer
 from transformers import AutoTokenizer
 from typing import Optional
 
@@ -65,6 +64,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from transformer_lens import HookedTransformer
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
