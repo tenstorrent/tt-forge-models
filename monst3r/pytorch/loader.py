@@ -129,6 +129,42 @@ class ModelLoader(ForgeModel):
         """
         _ensure_monst3r_importable()
         from dust3r.model import AsymmetricCroCo3DStereo
+        from dust3r.patch_embed import ManyAR_PatchEmbed
+
+        # dust3r hardcodes .float() in ManyAR_PatchEmbed.forward which breaks
+        # non-float32 dtypes. Patch it to use .to(x.dtype) instead.
+        def _forward_dtype_safe(self, img, true_shape):
+            B, C, H, W = img.shape
+            assert W >= H, f"img should be in landscape mode, but got {W=} {H=}"
+            assert H % self.patch_size[0] == 0
+            assert W % self.patch_size[1] == 0
+            assert true_shape.shape == (B, 2)
+            W //= self.patch_size[0]
+            H //= self.patch_size[1]
+            n_tokens = H * W
+            height, width = true_shape.T
+            is_landscape = width >= height
+            is_portrait = ~is_landscape
+            x = img.new_zeros((B, n_tokens, self.embed_dim))
+            pos = img.new_zeros((B, n_tokens, 2), dtype=torch.int64)
+            x[is_landscape] = (
+                self.proj(img[is_landscape])
+                .permute(0, 2, 3, 1)
+                .flatten(1, 2)
+                .to(x.dtype)
+            )
+            x[is_portrait] = (
+                self.proj(img[is_portrait].swapaxes(-1, -2))
+                .permute(0, 2, 3, 1)
+                .flatten(1, 2)
+                .to(x.dtype)
+            )
+            pos[is_landscape] = self.position_getter(1, H, W, pos.device)
+            pos[is_portrait] = self.position_getter(1, W, H, pos.device)
+            x = self.norm(x)
+            return x, pos
+
+        ManyAR_PatchEmbed.forward = _forward_dtype_safe
 
         repo_id = self._variant_config.pretrained_model_name
         model = AsymmetricCroCo3DStereo.from_pretrained(repo_id)
