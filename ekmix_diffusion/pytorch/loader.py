@@ -103,10 +103,11 @@ class ModelLoader(ForgeModel):
         unet = pipe.unet
 
         prompt = "masterpiece, best quality, 1girl, long hair, solo, looking at viewer"
+        max_length = min(pipe.tokenizer.model_max_length, 77)
         text_inputs = pipe.tokenizer(
             prompt,
             padding="max_length",
-            max_length=pipe.tokenizer.model_max_length,
+            max_length=max_length,
             truncation=True,
             return_tensors="pt",
         )
