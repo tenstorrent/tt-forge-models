@@ -92,6 +92,10 @@ class ModelLoader(ForgeModel):
         ),
     }
 
+    _GGUF_FILES = {
+        ModelVariant.GEMMA_3_12B_CLAUDE_REASONING: "claude-3.7-sonnet-reasoning-gemma3-12B.Q8_0.gguf",
+    }
+
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_270M_IT
 
     sample_text = "What is your favorite city?"
@@ -143,6 +147,9 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        gguf_file = self._GGUF_FILES.get(self._variant)
+        if gguf_file is not None:
+            tokenizer_kwargs["gguf_file"] = gguf_file
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name, **tokenizer_kwargs
         )
@@ -164,6 +171,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
         model_kwargs = {}
+        gguf_file = self._GGUF_FILES.get(self._variant)
         if self._variant == ModelVariant.GEMMA_3_1B_IT_AWQ_INT4:
             model_kwargs["device_map"] = "cpu"
         elif self._variant == ModelVariant.GEMMA_3_4B_IT_BNB_4BIT:
@@ -172,9 +180,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["use_cache"] = False
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if gguf_file is not None:
+            model_kwargs["gguf_file"] = gguf_file
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config_kwargs = {}
+            if gguf_file is not None:
+                config_kwargs["gguf_file"] = gguf_file
+            config = AutoConfig.from_pretrained(pretrained_model_name, **config_kwargs)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
