@@ -67,8 +67,10 @@ def _eager_flex_attention(
 
     attn_weights = torch.matmul(query, key.transpose(2, 3)) * scale
     if attention_mask is not None and isinstance(attention_mask, torch.Tensor):
-        causal_mask = attention_mask[:, :, :, : key.shape[-2]]
-        attn_weights = attn_weights + causal_mask
+        # Only apply if it's a 4D causal mask; 2D padding masks are not added directly.
+        if attention_mask.dim() == 4:
+            causal_mask = attention_mask[:, :, :, : key.shape[-2]]
+            attn_weights = attn_weights + causal_mask
 
     attn_weights = torch.nn.functional.softmax(
         attn_weights, dim=-1, dtype=torch.float32
