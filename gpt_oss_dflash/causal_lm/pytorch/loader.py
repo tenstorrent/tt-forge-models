@@ -29,6 +29,9 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """GPT-OSS DFlash model loader implementation for causal language modeling tasks."""
 
+    # DFlash drafter model has no tokenizer; use the target model's tokenizer instead
+    _TOKENIZER_MODEL = "openai/gpt-oss-20b"
+
     _VARIANTS = {
         ModelVariant.GPT_OSS_20B_DFLASH: LLMModelConfig(
             pretrained_model_name="z-lab/gpt-oss-20b-DFlash",
@@ -58,7 +61,7 @@ class ModelLoader(ForgeModel):
     def _ensure_tokenizer(self):
         if self.tokenizer is None:
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self._variant_config.pretrained_model_name,
+                self._TOKENIZER_MODEL,
                 trust_remote_code=True,
             )
 
