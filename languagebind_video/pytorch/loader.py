@@ -18,15 +18,26 @@ _LANGUAGEBIND_REPO = "https://github.com/PKU-YuanGroup/LanguageBind.git"
 _LANGUAGEBIND_COMMIT = "7070c53375661cdb235801176b564b45f96f0648"
 
 
+def _patch_transformers_expand_mask():
+    """Restore _expand_mask removed in transformers>=4.36 that LanguageBind still uses."""
+    import torch
+    import transformers.models.clip.modeling_clip as clip_module
+
+    if hasattr(clip_module, "_expand_mask"):
+        return
+
+    def _expand_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len=None):
+        bsz, src_len = mask.size()
+        tgt_len = tgt_len if tgt_len is not None else src_len
+        expanded = mask[:, None, None, :].expand(bsz, 1, tgt_len, src_len).to(dtype)
+        inverted = 1.0 - expanded
+        return inverted.masked_fill(inverted.to(torch.bool), torch.finfo(dtype).min)
+
+    clip_module._expand_mask = _expand_mask
+
+
 def _ensure_languagebind():
     """Clone LanguageBind repo if not importable (repo has no setup.py/pyproject.toml)."""
-    try:
-        import languagebind  # noqa: F401
-
-        return
-    except ImportError:
-        pass
-
     cache_dir = os.path.join(
         os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
         "languagebind_repo",
@@ -42,6 +53,7 @@ def _ensure_languagebind():
         )
     if cache_dir not in sys.path:
         sys.path.insert(0, cache_dir)
+    _patch_transformers_expand_mask()
 
 
 from ...base import ForgeModel
