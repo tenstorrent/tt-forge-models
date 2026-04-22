@@ -209,28 +209,120 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _find_real_load_gguf_checkpoint(fn):
+        """Traverse patch chain to find the original load_gguf_checkpoint.
+
+        Multiple loaders patch load_gguf_checkpoint with kwargs-incompatible
+        signatures (no model_to_load). This walks the global/closure chain to
+        find the actual original that accepts model_to_load.
+        """
+        import inspect
+
+        seen = set()
+        for _ in range(15):
+            fn_id = id(fn)
+            if fn_id in seen:
+                return None
+            seen.add(fn_id)
+            try:
+                sig = inspect.signature(fn)
+                params = sig.parameters
+                if "gguf_checkpoint_path" in params and "model_to_load" in params:
+                    return fn
+            except (ValueError, TypeError):
+                pass
+            next_fn = None
+            for key in ("_orig_load_gguf_checkpoint", "orig_load", "_orig"):
+                candidate = (
+                    fn.__globals__.get(key) if hasattr(fn, "__globals__") else None
+                )
+                if callable(candidate) and id(candidate) not in seen:
+                    next_fn = candidate
+                    break
+            if next_fn is None and getattr(fn, "__closure__", None):
+                for cell in fn.__closure__:
+                    try:
+                        val = cell.cell_contents
+                    except ValueError:
+                        continue
+                    if not callable(val) or id(val) in seen:
+                        continue
+                    try:
+                        sig = inspect.signature(val)
+                        p = sig.parameters
+                        if "return_tensors" in p or "gguf_checkpoint_path" in p:
+                            next_fn = val
+                            break
+                    except (ValueError, TypeError):
+                        pass
+            if next_fn is None:
+                return None
+            fn = next_fn
+        return None
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        # Various loaders patch load_gguf_checkpoint with kwargs-incompatible
+        # signatures. Temporarily restore the real original (which accepts
+        # model_to_load) with the chatglm→glm4 remapping applied on top.
+        _prev_load = _gguf_utils.load_gguf_checkpoint
+        _real_load = self._find_real_load_gguf_checkpoint(_prev_load) or _prev_load
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+        def _glm4_load_gguf_checkpoint(
+            gguf_path, return_tensors=False, model_to_load=None
+        ):
+            result = _real_load(
+                gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
             )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            config = result.get("config", {})
+            if config.get("model_type") == "chatglm":
+                config["model_type"] = "glm4"
+                head_dim = config.get("head_dim", 128)
+                try:
+                    from gguf import GGUFReader
+                    from transformers.modeling_gguf_pytorch_utils import (
+                        _gguf_parse_value,
+                    )
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+                    reader = GGUFReader(gguf_path)
+                    for key, field in reader.fields.items():
+                        if "rope.dimension_count" in key:
+                            rope_dim = _gguf_parse_value(
+                                field.parts[field.data[0]], field.types
+                            )
+                            config["partial_rotary_factor"] = rope_dim / head_dim
+                            break
+                except Exception:
+                    pass
+            return result
+
+        _gguf_utils.load_gguf_checkpoint = _glm4_load_gguf_checkpoint
+        try:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.GGUF_FILE
+
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _prev_load
 
         self.config = model.config
         self.model = model
