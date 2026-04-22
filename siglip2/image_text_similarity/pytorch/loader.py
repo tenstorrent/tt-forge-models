@@ -160,10 +160,9 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        from datasets import load_dataset
+        from PIL import Image
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (384, 384))
 
         self.text_prompts = ["a photo of 2 cats", "a photo of 2 dogs"]
         source = self._variant_config.source
