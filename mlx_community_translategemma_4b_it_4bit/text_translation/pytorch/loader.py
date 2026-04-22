@@ -8,7 +8,7 @@ A 4-bit MLX-quantized variant of google/translategemma-4b-it, a Gemma3
 conditional generation model fine-tuned for multilingual translation.
 """
 import torch
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoModelForImageTextToText, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -72,12 +72,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
-        processor_kwargs = {}
-        if dtype_override is not None:
-            processor_kwargs["torch_dtype"] = dtype_override
-
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
+        self.processor = AutoTokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name
         )
         return self.processor
 
