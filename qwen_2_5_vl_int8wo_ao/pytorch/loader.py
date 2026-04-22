@@ -86,13 +86,23 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
+        model_kwargs = {"low_cpu_mem_usage": True}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         else:
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
+
+        # Importing this class caches is_torchao_available()=False at collection time
+        # (before RequirementsManager installs torchao). Clear the cache so that
+        # from_pretrained() sees the correct availability.
+        try:
+            from transformers.utils import is_torchao_available
+
+            is_torchao_available.cache_clear()
+        except Exception:
+            pass
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
