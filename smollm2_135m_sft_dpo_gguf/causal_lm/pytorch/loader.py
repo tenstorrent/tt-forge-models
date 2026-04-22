@@ -8,6 +8,60 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+
+
+def _find_true_orig_load_gguf_checkpoint():
+    """Traverse closure chain to find the original transformers load_gguf_checkpoint.
+
+    Other GGUF loaders monkey-patch load_gguf_checkpoint with a fixed signature that
+    drops model_to_load. This traverses the closure chain to find the true original
+    so we can restore model_to_load support.
+    """
+    seen = set()
+    queue = [_gguf_utils.load_gguf_checkpoint]
+    while queue:
+        func = queue.pop(0)
+        if id(func) in seen:
+            continue
+        seen.add(id(func))
+        if (
+            getattr(func, "__module__", "")
+            == "transformers.modeling_gguf_pytorch_utils"
+            and getattr(func, "__name__", "") == "load_gguf_checkpoint"
+        ):
+            return func
+        if hasattr(func, "__closure__") and func.__closure__:
+            for cell in func.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val):
+                        queue.append(val)
+                except ValueError:
+                    pass
+    return _gguf_utils.load_gguf_checkpoint
+
+
+_true_orig_load_gguf_checkpoint = _find_true_orig_load_gguf_checkpoint()
+
+
+def _patched_load_gguf_checkpoint(
+    gguf_checkpoint_path, return_tensors=False, model_to_load=None
+):
+    """Restore model_to_load support broken by other GGUF loader patches."""
+    return _true_orig_load_gguf_checkpoint(
+        gguf_checkpoint_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
+
+
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
