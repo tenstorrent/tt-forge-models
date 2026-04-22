@@ -7,48 +7,32 @@ Helper functions for FLUX ControlNet Inpainting Alpha model loading and processi
 """
 
 import torch
-from diffusers import FluxControlNetInpaintPipeline, FluxControlNetModel
+from diffusers.models import FluxControlNetModel
 
 
-def load_flux_controlnet_inpainting_alpha_pipe(controlnet_model_name, base_model_name):
-    """Load FLUX ControlNet Inpainting Alpha pipeline.
+def load_flux_controlnet_inpainting_alpha(controlnet_model_name, dtype=torch.bfloat16):
+    """Load the FLUX ControlNet Inpainting Alpha controlnet directly.
+
+    The checkpoint has extra_condition_channels=4 in its config, which the
+    current diffusers FluxControlNetModel does not yet support. This adds 4
+    channels to controlnet_x_embedder (shape [3072, 68] vs expected [3072, 64]).
+    We load with ignore_mismatched_sizes=True so that compilation (which targets
+    the controlnet, not the full pipeline) succeeds without a gated base model.
 
     Args:
         controlnet_model_name: ControlNet model name on HuggingFace
-        base_model_name: Base FLUX model name on HuggingFace
+        dtype: torch dtype for the model weights
 
     Returns:
-        FluxControlNetInpaintPipeline: Loaded pipeline with components set to eval mode
+        FluxControlNetModel: Loaded controlnet in eval mode
     """
-    # ignore_mismatched_sizes=True is needed because the checkpoint has
-    # extra_condition_channels=4 in its config (adds 4 inpainting channels to
-    # controlnet_x_embedder), but the current diffusers FluxControlNetModel does
-    # not yet expose this parameter. We compile only the transformer, so the
-    # mismatched controlnet_x_embedder shape does not affect compilation.
     controlnet = FluxControlNetModel.from_pretrained(
         controlnet_model_name,
-        torch_dtype=torch.bfloat16,
+        torch_dtype=dtype,
         low_cpu_mem_usage=False,
         ignore_mismatched_sizes=True,
     )
-    pipe = FluxControlNetInpaintPipeline.from_pretrained(
-        base_model_name, controlnet=controlnet, torch_dtype=torch.bfloat16
-    )
-
-    pipe.to("cpu")
-
-    for component_name in [
-        "text_encoder",
-        "text_encoder_2",
-        "transformer",
-        "vae",
-        "controlnet",
-    ]:
-        module = getattr(pipe, component_name, None)
-        if module is not None:
-            module.eval()
-            for param in module.parameters():
-                if param.requires_grad:
-                    param.requires_grad = False
-
-    return pipe
+    controlnet.eval()
+    for param in controlnet.parameters():
+        param.requires_grad = False
+    return controlnet
