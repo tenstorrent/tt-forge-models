@@ -64,18 +64,18 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _prepare_gguf_env():
-        """Refresh stale package metadata and fix load_gguf_checkpoint call chain.
+        """Refresh stale package metadata and bypass load_gguf_checkpoint patch chain.
 
         RequirementsManager installs gguf at runtime, after transformers has
         already cached importlib.metadata.packages_distributions().  This
         causes is_gguf_available() to return version string 'N/A' and raises
         InvalidVersion.  Refreshing the mapping fixes that.
 
-        Additionally, loaders imported during collection replace
-        load_gguf_checkpoint with wrappers that lack the model_to_load kwarg
-        added in transformers 5.x.  We insert our own wrapper at the top of
-        the chain that absorbs model_to_load (it is not needed by the chain)
-        and forwards all other arguments.
+        Other GGUF loaders imported during collection wrap load_gguf_checkpoint
+        in a chain that drops the model_to_load kwarg added in transformers 5.x.
+        We traverse the closure chain to find the real transformers function and
+        install a bypass wrapper that forwards all arguments including
+        model_to_load.
         """
         import transformers.configuration_utils as _config_utils
         import transformers.modeling_gguf_pytorch_utils as _gguf_utils
@@ -87,18 +87,40 @@ class ModelLoader(ForgeModel):
             importlib.metadata.packages_distributions()
         )
 
+        def _find_real_fn(fn):
+            """Walk closure/defaults chain to the original transformers function."""
+            visited = set()
+            queue = [fn]
+            while queue:
+                cur = queue.pop(0)
+                if id(cur) in visited or not callable(cur):
+                    continue
+                visited.add(id(cur))
+                code = getattr(cur, "__code__", None)
+                if code and "modeling_gguf_pytorch_utils" in code.co_filename:
+                    return cur
+                for cell in getattr(cur, "__closure__", None) or ():
+                    try:
+                        queue.append(cell.cell_contents)
+                    except ValueError:
+                        pass
+                for val in getattr(cur, "__defaults__", None) or ():
+                    queue.append(val)
+            return None
+
+        real_fn = _find_real_fn(_gguf_utils.load_gguf_checkpoint)
+        if real_fn is None:
+            return
+
         for mod in [_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils]:
-            if getattr(mod.load_gguf_checkpoint, "_model_to_load_compat", False):
+            if getattr(mod.load_gguf_checkpoint, "_nemotron_bypass", False):
                 continue
-            _inner = mod.load_gguf_checkpoint
 
-            def _compat(
-                gguf_path, return_tensors=False, model_to_load=None, _fn=_inner
-            ):
-                return _fn(gguf_path, return_tensors=return_tensors)
+            def _bypass(*args, _real=real_fn, **kwargs):
+                return _real(*args, **kwargs)
 
-            _compat._model_to_load_compat = True
-            mod.load_gguf_checkpoint = _compat
+            _bypass._nemotron_bypass = True
+            mod.load_gguf_checkpoint = _bypass
 
     def _load_tokenizer(self, dtype_override=None):
         self._prepare_gguf_env()
