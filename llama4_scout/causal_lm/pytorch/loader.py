@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.SCOUT_17B_16E_INSTRUCT_FP8: LLMModelConfig(
-            pretrained_model_name="nvidia/Llama-4-Scout-17B-16E-Instruct-FP8",
+            pretrained_model_name="unsloth/Llama-4-Scout-17B-16E-Instruct",
             max_length=128,
         ),
     }
