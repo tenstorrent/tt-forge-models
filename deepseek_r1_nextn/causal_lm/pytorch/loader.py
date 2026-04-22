@@ -7,6 +7,8 @@ DeepSeek R1 NextN model loader implementation for causal language modeling.
 The NextN layer is a speculative decoding draft module exported from
 DeepSeek-R1, intended for use with the EAGLE algorithm in SGLang.
 """
+import json
+import os
 from typing import Optional
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
@@ -61,15 +63,29 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
+    def _patch_index_file(self, pretrained_model_name):
+        """Add missing 'metadata' key to model.safetensors.index.json.
 
+        lmsys/DeepSeek-R1-NextN omits this key, which transformers requires.
+        """
+        from huggingface_hub import hf_hub_download
+
+        index_path = hf_hub_download(
+            pretrained_model_name, "model.safetensors.index.json"
+        )
+        real_path = os.path.realpath(index_path)
+
+        with open(real_path) as f:
+            index = json.load(f)
+
+        if "metadata" not in index:
+            index["metadata"] = {"total_size": 0}
+            with open(real_path, "w") as f:
+                json.dump(index, f)
+
+    def _load_tokenizer(self, dtype_override=None):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            **tokenizer_kwargs,
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -82,15 +98,18 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        # lmsys/DeepSeek-R1-NextN has no modeling_deepseek.py (trust_remote_code won't
+        # work) and its model.safetensors.index.json is missing the 'metadata' key
+        # required by transformers. Patch the cached index before loading.
+        self._patch_index_file(pretrained_model_name)
+
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
