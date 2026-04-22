@@ -269,24 +269,35 @@ class ModelLoader(ForgeModel):
 
         model.eval()
 
-        return model
+        # InternVideo2_Stage2 exposes encode_vision() but has no forward().
+        # Wrap it so the test runner can call model(pixel_values) directly.
+        return _InternVideo2Wrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Generate a synthetic video tensor matching the expected input format.
 
-        The model's vision encoder expects input shape
-        ``(batch, channels, num_frames, height, width)`` with 8 frames at
-        224x224 resolution.
+        encode_vision() expects ``[B, T, C, H, W]`` (8 frames at 224×224).
         """
         num_frames = 8
         image_size = 224
         channels = 3
 
         pixel_values = torch.randn(
-            batch_size, channels, num_frames, image_size, image_size
+            batch_size, num_frames, channels, image_size, image_size
         )
 
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
 
-        return {"x": pixel_values}
+        return {"pixel_values": pixel_values}
+
+
+class _InternVideo2Wrapper(nn.Module):
+    """Thin wrapper that exposes a forward() for the test runner."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, pixel_values):
+        return self.model.encode_vision(pixel_values, test=True)
