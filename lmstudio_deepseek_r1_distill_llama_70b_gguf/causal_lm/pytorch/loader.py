@@ -8,6 +8,14 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.utils.import_utils as _import_utils
+
+# transformers 5.2+ omits 'gguf' from PACKAGE_DISTRIBUTION_MAPPING, causing
+# is_gguf_available() to crash with InvalidVersion when the gguf package is
+# installed but lacks a __version__ attribute.
+if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+    _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ("gguf",)
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
