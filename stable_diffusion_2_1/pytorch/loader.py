@@ -51,6 +51,7 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
@@ -72,32 +73,58 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Diffusion 2.1 pipeline from Hugging Face.
+        """Load the Stable Diffusion 2.1 pipeline and return its UNet component.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use torch.bfloat16.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained Stable Diffusion pipeline object.
+            UNet2DConditionModel: The UNet denoising model from the pipeline.
         """
         dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionPipeline.from_pretrained(
+        self.pipeline = StableDiffusionPipeline.from_pretrained(
             self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
         )
-        return pipe
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the Stable Diffusion 2.1 model.
+        """Load and return sample inputs for the Stable Diffusion 2.1 UNet model.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+            dtype_override: Optional torch.dtype to override input dtype.
+            batch_size: Optional batch size for the inputs.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments for the UNet forward method.
         """
-        prompt = [
-            "a photo of an astronaut riding a horse on mars",
-        ] * batch_size
-        return prompt
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        dtype = dtype_override or torch.bfloat16
+        prompt = ["a photo of an astronaut riding a horse on mars"] * batch_size
+
+        text_inputs = self.pipeline.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        text_embeddings = self.pipeline.text_encoder(text_inputs.input_ids)[0]
+
+        unet = self.pipeline.unet
+        height, width = 512, 512
+        latents = torch.randn(
+            (batch_size, unet.config.in_channels, height // 8, width // 8),
+            dtype=dtype,
+        )
+
+        self.pipeline.scheduler.set_timesteps(1)
+        timestep = self.pipeline.scheduler.timesteps[0]
+
+        return {
+            "sample": latents,
+            "timestep": timestep,
+            "encoder_hidden_states": text_embeddings.to(dtype),
+        }
