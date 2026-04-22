@@ -195,6 +195,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self._gguf_file
+        # Vision encoder tensors may not be mapped correctly during GGUF loading
+        model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(_BASE_MODEL)
