@@ -198,6 +198,9 @@ def _patch_transformers_chatglm_gguf():
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    global _CHATGLM_GGUF_LOAD_FN
+    _CHATGLM_GGUF_LOAD_FN = patched_load_gguf_checkpoint
+
     # Also patch modules that imported load_gguf_checkpoint directly
     import transformers.models.auto.tokenization_auto as tok_auto
     import transformers.configuration_utils as config_utils
@@ -208,6 +211,7 @@ def _patch_transformers_chatglm_gguf():
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
 
+_CHATGLM_GGUF_LOAD_FN = None
 # Apply the monkey-patch at import time
 _patch_transformers_chatglm_gguf()
 
@@ -286,9 +290,17 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        import transformers.modeling_gguf_pytorch_utils as _gguf_mod
+
+        _saved_gguf_fn = _gguf_mod.load_gguf_checkpoint
+        if _CHATGLM_GGUF_LOAD_FN is not None:
+            _gguf_mod.load_gguf_checkpoint = _CHATGLM_GGUF_LOAD_FN
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_mod.load_gguf_checkpoint = _saved_gguf_fn
 
         self.config = model.config
         self.model = model
