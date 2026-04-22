@@ -43,7 +43,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LCO_EMBEDDING_OMNI_7B_GGUF: LLMModelConfig(
-            pretrained_model_name="marksverdhei/LCO-Embedding-Omni-7B",
+            pretrained_model_name="Qwen/Qwen2.5-VL-7B-Instruct",
             max_length=128,
         ),
     }
