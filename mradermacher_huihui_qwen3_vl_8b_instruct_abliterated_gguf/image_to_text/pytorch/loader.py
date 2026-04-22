@@ -17,7 +17,7 @@ from transformers import (
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from transformers.modeling_gguf_pytorch_utils import (
     GGUF_SUPPORTED_ARCHITECTURES,
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    load_gguf_checkpoint as _real_load_gguf_checkpoint,
 )
 from typing import Optional
 
@@ -54,17 +54,13 @@ def _patch_qwen3vl_support():
 
 def _patched_load_gguf_checkpoint(*args, **kwargs):
     _patch_qwen3vl_support()
-    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    result = _real_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "qwen3vl":
         result["config"]["model_type"] = "qwen3_vl"
     return result
 
 
 _patch_qwen3vl_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -128,6 +124,13 @@ class ModelLoader(ForgeModel):
         self.processor = AutoProcessor.from_pretrained(
             "Qwen/Qwen3-VL-8B-Instruct",
         )
+
+        # Install our patch just before from_pretrained so other modules'
+        # module-level patches (which use restricted signatures) don't win.
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
