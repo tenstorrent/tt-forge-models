@@ -68,18 +68,28 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     @staticmethod
-    def _patch_tied_weights_keys(pretrained_model_name):
+    def _patch_tied_weights_keys_compat():
         # transformers 5.x requires _tied_weights_keys to be a dict, not a list.
-        # Some models with custom remote code still use the old list format.
-        config = AutoConfig.from_pretrained(
-            pretrained_model_name, trust_remote_code=True
-        )
-        try:
-            model_cls = AutoModelForImageTextToText._model_mapping[type(config)]
-            if isinstance(getattr(model_cls, "_tied_weights_keys", None), list):
-                model_cls._tied_weights_keys = None
-        except Exception:
-            pass
+        # Models with trust_remote_code may still use the old list format.
+        # Patch get_expanded_tied_weights_keys to convert list -> None before dispatch.
+        from transformers.modeling_utils import PreTrainedModel
+
+        if getattr(
+            PreTrainedModel.get_expanded_tied_weights_keys, "_compat_patched", False
+        ):
+            return
+
+        original = PreTrainedModel.get_expanded_tied_weights_keys
+
+        def _compat(self, all_submodels=False):
+            if not all_submodels and isinstance(
+                getattr(self, "_tied_weights_keys", None), list
+            ):
+                self._tied_weights_keys = None
+            return original(self, all_submodels=all_submodels)
+
+        _compat._compat_patched = True
+        PreTrainedModel.get_expanded_tied_weights_keys = _compat
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -87,7 +97,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        self._patch_tied_weights_keys(pretrained_model_name)
+        self._patch_tied_weights_keys_compat()
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
