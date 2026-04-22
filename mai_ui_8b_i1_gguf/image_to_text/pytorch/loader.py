@@ -8,6 +8,7 @@ MAI-UI-8B i1 GGUF model loader implementation for image to text.
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
+    AutoConfig,
 )
 from typing import Optional
 
@@ -21,6 +22,72 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_transformers_qwen3vl_gguf():
+    """Monkey-patch transformers to add qwen3vl GGUF architecture support."""
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+
+    from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+
+    GGUF_CONFIG_MAPPING["qwen3vl"] = GGUF_CONFIG_MAPPING["qwen3"].copy()
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"] = GGUF_CONFIG_MAPPING["qwen3vl"]
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "qwen3vl" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUFQwen2Converter
+
+    _text_config_keys = {
+        "max_position_embeddings",
+        "num_hidden_layers",
+        "intermediate_size",
+        "hidden_size",
+        "rope_theta",
+        "num_attention_heads",
+        "num_key_value_heads",
+        "rms_norm_eps",
+        "vocab_size",
+    }
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "qwen3vl":
+            text_config = {"model_type": "qwen3_vl_text"}
+            for key in list(config.keys()):
+                if key in _text_config_keys:
+                    text_config[key] = config.pop(key)
+            config["text_config"] = text_config
+            config["model_type"] = "qwen3_vl"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_qwen3vl_gguf()
 
 
 class ModelVariant(StrEnum):
@@ -78,8 +145,12 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.gguf_file
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
+        # GGUF repos do not ship a processor or full config; use the base model
         self.processor = AutoProcessor.from_pretrained("Tongyi-MAI/MAI-UI-8B")
+
+        # Load config from base model to ensure vision and text configs are
+        # consistent; the GGUF loader does not populate the vision config.
+        model_kwargs["config"] = AutoConfig.from_pretrained("Tongyi-MAI/MAI-UI-8B")
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
