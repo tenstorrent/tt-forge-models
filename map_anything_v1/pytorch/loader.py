@@ -65,10 +65,8 @@ class MapAnythingWrapper(torch.nn.Module):
         self.model = model
 
     def forward(self, pixel_values):
-        views = [
-            {"img": img.permute(1, 2, 0) * 255.0, "data_norm_type": ["dinov2"]}
-            for img in pixel_values
-        ]
+        # pixel_values is [B, 3, H, W], already DINOv2-normalized
+        views = [{"img": pixel_values, "data_norm_type": ["dinov2"]}]
         predictions = self.model.infer(views)
         return predictions[0]["pts3d"]
 
@@ -124,10 +122,11 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: A batch of images as pixel values [B, 3, H, W].
         """
-        from PIL import Image
-        import requests
         from io import BytesIO
-        from torchvision.transforms.functional import to_tensor
+
+        import requests
+        from PIL import Image
+        from torchvision.transforms import Compose, Normalize, ToTensor
 
         url = "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/481px-Cat03.jpg"
         try:
@@ -138,7 +137,13 @@ class ModelLoader(ForgeModel):
         except Exception:
             image = Image.new("RGB", (518, 518), color=(128, 128, 128))
 
-        pixel_values = to_tensor(image).unsqueeze(0)
+        transform = Compose(
+            [
+                ToTensor(),
+                Normalize(mean=[0.4850, 0.4560, 0.4060], std=[0.2290, 0.2240, 0.2250]),
+            ]
+        )
+        pixel_values = transform(image).unsqueeze(0)
 
         if batch_size > 1:
             pixel_values = pixel_values.repeat(batch_size, 1, 1, 1)
