@@ -4,6 +4,7 @@
 """
 mradermacher Crow-4B-Opus-4.6-Distill-Heretic_Qwen3.5 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -17,6 +18,20 @@ from transformers.modeling_gguf_pytorch_utils import (
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+# transformers.utils.import_utils.PACKAGE_DISTRIBUTION_MAPPING is computed at
+# import time, before gguf is dynamically installed by the test runner.
+# gguf also doesn't define __version__, so is_gguf_available() raises
+# InvalidVersion('N/A').  Fix: inject __version__ and clear the lru_cache.
+try:
+    import gguf as _gguf_pkg
+    from transformers.utils.import_utils import is_gguf_available
+
+    if not hasattr(_gguf_pkg, "__version__"):
+        _gguf_pkg.__version__ = importlib.metadata.version("gguf")
+    is_gguf_available.cache_clear()
+except Exception:
+    pass
 
 
 def _patch_qwen35_support():
