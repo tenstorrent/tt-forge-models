@@ -14,8 +14,21 @@ import torch
 # Patch missing functions before importing model code that depends on them.
 # The model's remote code was written for an older transformers that included
 # these helpers; newer versions removed them.
+import transformers.models.gpt2.tokenization_gpt2
 import transformers.utils
 import transformers.utils.import_utils
+
+# bytes_to_unicode was removed from gpt2 tokenizer in newer transformers versions
+# but some custom tokenizers (like Kimi's) still import it from there.
+if not hasattr(transformers.models.gpt2.tokenization_gpt2, "bytes_to_unicode"):
+    from transformers.convert_slow_tokenizer import (
+        bytes_to_unicode as _bytes_to_unicode,
+    )
+
+    transformers.models.gpt2.tokenization_gpt2.bytes_to_unicode = _bytes_to_unicode
+    sys.modules["transformers.models.gpt2.tokenization_gpt2"].__dict__[
+        "bytes_to_unicode"
+    ] = _bytes_to_unicode
 
 if not hasattr(transformers.utils, "is_flash_attn_greater_or_equal_2_10"):
 
