@@ -39,6 +39,15 @@ def _patch_transformers_mistral3_gguf():
         "vocab_size": "vocab_size",
     }
 
+    # Register the BPE tokenizer converter for the remapped model_type.
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "ministral3" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["ministral3"] = GGUFQwen2Converter
+
     _orig_load = gguf_utils.load_gguf_checkpoint
 
     def _patched_load_gguf_checkpoint(
