@@ -4,6 +4,7 @@
 """
 FLUX.1-dev GGUF model loader implementation for text-to-image generation
 """
+import os
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
@@ -123,8 +124,10 @@ class ModelLoader(ForgeModel):
         repo_id = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
         local_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
+        config_dir = os.path.join(os.path.dirname(__file__), "transformer_config")
         self.transformer = FluxTransformer2DModel.from_single_file(
             local_path,
+            config=config_dir,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
