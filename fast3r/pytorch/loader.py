@@ -169,8 +169,12 @@ class ModelLoader(ForgeModel):
             {
                 "img": torch.randn(batch_size, 3, height, width, dtype=dtype),
                 "true_shape": torch.tensor([[height, width]]).repeat(batch_size, 1),
+                # Required by view_name() for debug prints inside fast3r
+                "dataset": ["synthetic"] * batch_size,
+                "label": [f"view_{i}"] * batch_size,
+                "instance": ["0"] * batch_size,
             }
-            for _ in range(num_views)
+            for i in range(num_views)
         ]
 
         return {"views": views}
