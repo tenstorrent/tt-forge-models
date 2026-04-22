@@ -15,6 +15,7 @@ import types
 from typing import Optional
 
 import torch
+import torch.nn as nn
 from transformers import AutoModel
 
 from ...base import ForgeModel
@@ -27,6 +28,65 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_transformers_compat():
+    """Re-add APIs removed from transformers.modeling_utils in v5.x.
+
+    InternVideo2's remote code was written against an older transformers API.
+    These helpers were moved to transformers.pytorch_utils or dropped entirely;
+    we backfill them on the module object so the remote import succeeds.
+    """
+    import transformers.modeling_utils as mu
+
+    if not hasattr(mu, "apply_chunking_to_forward"):
+        from transformers.pytorch_utils import apply_chunking_to_forward
+
+        mu.apply_chunking_to_forward = apply_chunking_to_forward
+
+    if not hasattr(mu, "find_pruneable_heads_and_indices"):
+
+        def find_pruneable_heads_and_indices(
+            heads, n_heads, head_size, already_pruned_heads
+        ):
+            mask = torch.ones(n_heads, head_size)
+            heads = set(heads) - already_pruned_heads
+            for head in heads:
+                head = head - sum(1 if h < head else 0 for h in already_pruned_heads)
+                mask[head] = 0
+            mask = mask.view(-1).contiguous().eq(1)
+            index = torch.arange(len(mask))[mask].long()
+            return heads, index
+
+        mu.find_pruneable_heads_and_indices = find_pruneable_heads_and_indices
+
+    if not hasattr(mu, "prune_linear_layer"):
+
+        def prune_linear_layer(layer, index, dim=0):
+            index = index.to(layer.weight.device)
+            W = layer.weight.index_select(dim, index).clone().detach()
+            b = None
+            if layer.bias is not None:
+                b = (
+                    layer.bias.clone().detach()
+                    if dim == 1
+                    else layer.bias[index].clone().detach()
+                )
+            new_size = list(layer.weight.size())
+            new_size[dim] = len(index)
+            new_layer = nn.Linear(
+                new_size[1], new_size[0], bias=layer.bias is not None
+            ).to(layer.weight.device)
+            new_layer.weight.requires_grad = False
+            new_layer.weight.copy_(W.contiguous())
+            new_layer.weight.requires_grad = True
+            if b is not None:
+                new_layer.bias.requires_grad = False
+                new_layer.bias.copy_(b.contiguous())
+                new_layer.bias.requires_grad = True
+            return new_layer
+
+        mu.prune_linear_layer = prune_linear_layer
 
 
 def _inject_flash_attn_stub():
@@ -123,6 +183,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         _inject_flash_attn_stub()
+        _patch_transformers_compat()
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
