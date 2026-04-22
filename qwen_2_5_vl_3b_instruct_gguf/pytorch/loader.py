@@ -5,7 +5,7 @@
 Qwen 2.5 VL 3B Instruct GGUF (ggml-org) model loader for vision-language tasks.
 """
 import torch
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ...base import ForgeModel
@@ -96,6 +96,12 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+
+        # The qwen2vl GGUF architecture is not yet supported by the transformers
+        # GGUF config loader. Pre-load config from the original HF repo so that
+        # GGUF config parsing is bypassed (the random-weights path in particular
+        # calls AutoConfig.from_pretrained with gguf_file, which would fail).
+        model_kwargs["config"] = AutoConfig.from_pretrained(self.PROCESSOR_MODEL)
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
