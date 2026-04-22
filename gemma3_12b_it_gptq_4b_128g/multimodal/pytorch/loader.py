@@ -8,6 +8,7 @@ Gemma3 12B IT GPTQ 4-bit 128g model loader implementation for multimodal modelin
 from typing import Optional
 
 from transformers import (
+    AutoConfig,
     AutoProcessor,
     Gemma3ForConditionalGeneration,
 )
@@ -92,6 +93,23 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        # compressed_tensors uses re.match (anchors to start) for ignore patterns,
+        # but Gemma3's named_modules() prefixes all paths with "model.".
+        # Extend ignore patterns to include the "model." prefix so vision_tower
+        # and multi_modal_projector are correctly excluded from quantization.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if isinstance(getattr(config, "quantization_config", None), dict):
+            qconf = config.quantization_config
+            existing = qconf.get("ignore", [])
+            extended = list(existing)
+            for pattern in existing:
+                if pattern.startswith("re:"):
+                    extended.append("re:model." + pattern[3:])
+                else:
+                    extended.append("model." + pattern)
+            qconf["ignore"] = extended
+            model_kwargs["config"] = config
 
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
