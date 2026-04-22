@@ -5,8 +5,6 @@
 AudioGen Medium model loader implementation for text-to-audio generation.
 """
 
-from audiocraft.models import AudioGen
-
 from ...base import ForgeModel
 from ...config import (
     ModelInfo,
@@ -40,6 +38,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, **kwargs):
         """Load and return the AudioGen Medium model instance."""
+        from audiocraft.models import AudioGen
+
         self.model = AudioGen.get_pretrained(self.model_name)
         self.model.set_generation_params(duration=5)
         return self.model
