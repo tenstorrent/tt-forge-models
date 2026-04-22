@@ -26,13 +26,19 @@ def _patch_transformers_mistral3_gguf():
     """Add mistral3 GGUF architecture support by aliasing it to mistral.
 
     llama.cpp uses 'mistral3' as the architecture name for Ministral-3 models,
-    but transformers only knows 'mistral'. This patch registers the alias so
-    GGUF loading works, then remaps model_type back to 'mistral' so that
-    AutoModelForCausalLM can find MistralForCausalLM.
+    but transformers only knows 'mistral'. This patch:
+    1. Registers mistral3 config mapping (same keys as mistral)
+    2. Remaps model_type from mistral3 to mistral so AutoModelForCausalLM finds MistralForCausalLM
+    3. Registers 'mistral' in GGUF_TO_FAST_CONVERTERS (uses GGUFLlamaConverter since Mistral
+       shares the LLaMA SentencePiece tokenizer format)
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
@@ -43,6 +49,9 @@ def _patch_transformers_mistral3_gguf():
         GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral"]
     )
     GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+
+    if "mistral" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral"] = GGUFLlamaConverter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
