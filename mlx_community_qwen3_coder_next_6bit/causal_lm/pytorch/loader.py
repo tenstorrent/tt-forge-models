@@ -84,9 +84,10 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(pretrained_model_name)
         # MLX-community quantized models have an incomplete quantization_config
         # that lacks a quant_method attribute, which transformers requires.
-        # Strip it so we load in full precision (bfloat16 via dtype_override).
+        # Delete the attribute (setting to None isn't enough — transformers
+        # uses hasattr() to detect pre_quantized) so we load without quantization.
         if hasattr(config, "quantization_config"):
-            config.quantization_config = None
+            delattr(config, "quantization_config")
 
         if self.num_layers is not None:
             if hasattr(config, "text_config"):
