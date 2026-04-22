@@ -1,3 +1,5 @@
 decord
 opencv-python
 pytorchvideo
+soundfile
+torchaudio
