@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.LARGE
+    DEFAULT_VARIANT = ModelVariant.SMALL
 
     sample_text = """summarize: Researchers have extensively studied the benefits of having pets,
                     particularly dogs, on human health and well-being. Findings suggest that pet ownership
