@@ -4,8 +4,10 @@
 """
 Llama 3.2 1B Instruct MLC model loader implementation for causal language modeling.
 """
+import json
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from huggingface_hub import hf_hub_download
+from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -59,41 +61,80 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
+    @staticmethod
+    def _fix_self_attn_return_count(model):
+        """Wrap each decoder layer's self_attn to return the 2-tuple expected by transformers 5.x.
 
+        During torch.compile/XLA tracing the attention forward may return a 3-tuple
+        (attn_output, attn_weights, past_key_value). LlamaDecoderLayer.forward in
+        transformers 5.x unpacks exactly 2 values, causing 'too many values to unpack'.
+        """
+        for layer in model.model.layers:
+            orig = layer.self_attn.forward
+
+            def _wrap(f):
+                def _fwd(*args, **kwargs):
+                    result = f(*args, **kwargs)
+                    return result[0], result[1]
+
+                return _fwd
+
+            layer.self_attn.forward = _wrap(orig)
+
+    def _load_mlc_chat_config(self):
+        config_path = hf_hub_download(
+            self._variant_config.pretrained_model_name, "mlc-chat-config.json"
+        )
+        with open(config_path) as f:
+            return json.load(f)
+
+    def _build_llama_config(self, mlc_config, num_layers=None):
+        mc = mlc_config["model_config"]
+        rope_scaling = dict(mc["rope_scaling"])
+        num_hidden_layers = (
+            num_layers if num_layers is not None else mc["num_hidden_layers"]
+        )
+        return LlamaConfig(
+            hidden_size=mc["hidden_size"],
+            intermediate_size=mc["intermediate_size"],
+            num_attention_heads=mc["num_attention_heads"],
+            num_hidden_layers=num_hidden_layers,
+            rms_norm_eps=mc["rms_norm_eps"],
+            vocab_size=mc["vocab_size"],
+            tie_word_embeddings=mc["tie_word_embeddings"],
+            rope_theta=mc["position_embedding_base"],
+            max_position_embeddings=mc["context_window_size"],
+            num_key_value_heads=mc["num_key_value_heads"],
+            rope_scaling=rope_scaling,
+            bos_token_id=mlc_config["bos_token_id"],
+            eos_token_id=mlc_config["eos_token_id"],
+            pad_token_id=mlc_config.get("pad_token_id", 0),
+        )
+
+    def _load_tokenizer(self, dtype_override=None):
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        mlc_config = self._load_mlc_chat_config()
+        llama_config = self._build_llama_config(mlc_config, num_layers=self.num_layers)
+
+        # MLC weights are in a compiled binary format incompatible with transformers;
+        # build an untrained model with the correct architecture for compilation.
+        model = AutoModelForCausalLM.from_config(llama_config).eval()
+        self._fix_self_attn_return_count(model)
+
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model = model.to(dtype_override)
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model_kwargs |= kwargs
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
-
-        self.config = model.config
+        self.config = llama_config
         self.model = model
         return model
 
@@ -131,7 +172,6 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        mlc_config = self._load_mlc_chat_config()
+        self.config = self._build_llama_config(mlc_config)
         return self.config
