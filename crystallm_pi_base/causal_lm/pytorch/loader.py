@@ -89,24 +89,12 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
         max_length = self._variant_config.max_length
-
-        inputs = self.tokenizer(
-            self.sample_text,
-            return_tensors="pt",
-            padding="max_length",
-            truncation=True,
-            max_length=max_length,
-        )
-
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
-        return inputs
+        # CustomCIFTokenizer is not available via AutoTokenizer and has no
+        # tokenizer files in the HF repo, so generate dummy integer inputs.
+        input_ids = torch.zeros((batch_size, max_length), dtype=torch.long)
+        attention_mask = torch.ones((batch_size, max_length), dtype=torch.long)
+        return {"input_ids": input_ids, "attention_mask": attention_mask}
 
     def decode_output(self, outputs, inputs=None):
         """Helper method to decode model outputs into human-readable text."""
