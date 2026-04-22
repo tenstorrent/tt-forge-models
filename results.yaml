@@ -1,0 +1,13 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[koala_7b_hf/causal_lm/pytorch-Default-single_device-inference]"
+  status: "PASS"
+  date: "20260422_170827"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-18"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[levit/pytorch-LeViT_128_FB_Dist_In1k-single_device-inference]"
+  status: "PASS"
+  date: "20260422_171822"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-18"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[huihui_qwen3_5_35b_a3b_abliterated_4bit_mlx/causal_lm/pytorch-35B_A3B_Abliterated_4bit_MLX-single_device-inference]"
+  status: "PASS"
+  date: "20260422_211551"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-18"
