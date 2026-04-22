@@ -4,11 +4,14 @@
 """
 Bartowski ServiceNow-AI Apriel 1.6 15B Thinker GGUF model loader implementation for causal language modeling.
 """
-
+import os
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, Qwen2Config
+
+# Non-GGUF base model for tokenizer when TT_RANDOM_WEIGHTS avoids the GGUF download
+_BASE_MODEL = "ServiceNow-AI/Apriel-1.6-15b-Thinker"
 
 from ....base import ForgeModel
 from ....config import (
@@ -63,15 +66,36 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+    def _make_random_weights_config(self):
+        """Build a Qwen2Config from known Apriel-1.6-15b-Thinker parameters.
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        Avoids downloading the GGUF file when TT_RANDOM_WEIGHTS is set.
+        Parameters derived from the Qwen2.5-14B-based architecture used by this model.
+        """
+        return Qwen2Config(
+            hidden_size=5120,
+            intermediate_size=13824,
+            num_hidden_layers=48,
+            num_attention_heads=40,
+            num_key_value_heads=8,
+            max_position_embeddings=32768,
+            vocab_size=152064,
+            rope_theta=1000000.0,
+            rms_norm_eps=1e-6,
+            hidden_act="silu",
         )
+
+    def _load_tokenizer(self, dtype_override=None):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.tokenizer = AutoTokenizer.from_pretrained(_BASE_MODEL)
+        else:
+            tokenizer_kwargs = {}
+            if dtype_override is not None:
+                tokenizer_kwargs["torch_dtype"] = dtype_override
+            tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -95,6 +119,8 @@ class ModelLoader(ForgeModel):
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+        elif os.environ.get("TT_RANDOM_WEIGHTS"):
+            model_kwargs["config"] = self._make_random_weights_config()
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -155,7 +181,10 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.config = self._make_random_weights_config()
+        else:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
