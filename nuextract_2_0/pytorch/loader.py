@@ -43,7 +43,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.NUEXTRACT_2_0_8B
 
-    # Sample extraction messages using an image input
+    # Sample extraction messages using an image input.
+    # NuExtract's chat template treats messages with mixed image+text as text-only;
+    # image-only content is required to include the vision placeholder in the prompt.
     messages = [
         {
             "role": "user",
@@ -52,7 +54,6 @@ class ModelLoader(ForgeModel):
                     "type": "image",
                     "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
                 },
-                {"type": "text", "text": "Describe this image."},
             ],
         }
     ]
