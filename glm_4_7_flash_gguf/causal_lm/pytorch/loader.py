@@ -4,6 +4,8 @@
 """
 GLM-4.7-Flash GGUF model loader implementation for causal language modeling.
 """
+import os
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -103,6 +105,10 @@ def _patch_transformers_deepseek2_gguf():
 _patch_transformers_deepseek2_gguf()
 
 
+# Source model for tokenizer and random-weights config (no GGUF required)
+_BASE_MODEL = "zai-org/GLM-4.7-Flash"
+
+
 class ModelVariant(StrEnum):
     """Available GLM-4.7-Flash GGUF model variants for causal language modeling."""
 
@@ -153,18 +159,55 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            # Load tokenizer from base model to avoid downloading the GGUF file.
+            self.tokenizer = AutoTokenizer.from_pretrained(_BASE_MODEL)
+        else:
+            tokenizer_kwargs = {}
+            if dtype_override is not None:
+                tokenizer_kwargs["torch_dtype"] = dtype_override
+            tokenizer_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
+
+    def _make_random_weights_config(self):
+        """Build a DeepseekV2Config from known GLM-4.7-Flash GGUF metadata.
+
+        Avoids downloading the GGUF file when TT_RANDOM_WEIGHTS is set.
+        Parameters derived from the deepseek2 GGUF header fields.
+        """
+        from transformers import DeepseekV2Config
+
+        return DeepseekV2Config(
+            hidden_size=2048,
+            num_hidden_layers=47,
+            num_attention_heads=20,
+            num_key_value_heads=1,
+            intermediate_size=10240,
+            max_position_embeddings=202752,
+            vocab_size=154880,
+            rope_theta=1000000.0,
+            rms_norm_eps=1e-5,
+            qk_rope_head_dim=64,
+            qk_nope_head_dim=256,
+            v_head_dim=256,
+            q_lora_rank=768,
+            kv_lora_rank=512,
+            n_routed_experts=64,
+            num_experts_per_tok=4,
+            n_shared_experts=1,
+            n_group=1,
+            topk_group=1,
+            routed_scaling_factor=1.8,
+            norm_topk_prob=True,
+            first_k_dense_replace=1,
+            moe_intermediate_size=1536,
+        )
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -185,6 +228,11 @@ class ModelLoader(ForgeModel):
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+        elif os.environ.get("TT_RANDOM_WEIGHTS"):
+            # Pass explicit config so the random_weights hook doesn't call
+            # AutoConfig.from_pretrained with gguf_file, which would download
+            # the full GGUF file just to read the config.
+            model_kwargs["config"] = self._make_random_weights_config()
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -249,8 +297,11 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            gguf_file=self._GGUF_FILES[self._variant],
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.config = self._make_random_weights_config()
+        else:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                gguf_file=self._GGUF_FILES[self._variant],
+            )
         return self.config
