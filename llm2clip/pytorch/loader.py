@@ -49,6 +49,10 @@ class LLM2CLIPVisionWrapper(nn.Module):
     def __init__(self, model):
         super().__init__()
         self.model = model
+        # The non-persistent position_ids buffer may contain garbage after model
+        # loading in the TT-XLA environment. Re-initialize it as a contiguous tensor.
+        embed = model.vision_model.embeddings
+        embed.position_ids = torch.arange(embed.num_positions).unsqueeze(0)
 
     def forward(self, pixel_values):
         return self.model.get_image_features(pixel_values=pixel_values)
