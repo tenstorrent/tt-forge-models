@@ -94,7 +94,7 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
         import gguf as _gguf_lib
 
         reader = _gguf_lib.GGUFReader(gguf_path)
-        if reader.tensor_count == 0:
+        if len(reader.tensors) == 0:
             result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=False)
             result.setdefault("tensors", {})
             return _fix_nemotron_h_moe_config(result)
