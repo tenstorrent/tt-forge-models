@@ -27,10 +27,17 @@ from ...config import (
     StrEnum,
 )
 
-TRANSFORMER_NUM_FRAMES = 2
+# hidden_states: (B, 2*latent_channels+4, T+1, H, W)
+# pose_hidden_states: (B, latent_channels, T, H, W)
+# With T+1=3 frames, H=W=4, patch_size=(1,2,2), the post-patch seq len S = 3*2*2 = 12.
+# face_pixel_values: (B, 3, T_face, 512, 512); with T_face=2 the face encoder outputs T_out=1
+# frame, then after padding T=T_out+1=2, and S/T=12/2=6 is an integer as required.
+TRANSFORMER_NUM_FRAMES = 2  # T in pose; hidden gets T+1=3
 TRANSFORMER_HEIGHT = 4
 TRANSFORMER_WIDTH = 4
 TRANSFORMER_TEXT_SEQ_LEN = 8
+FACE_FRAME_SIZE = 512  # motion encoder requires exactly this spatial resolution
+FACE_NUM_FRAMES = 2
 
 
 class ModelVariant(StrEnum):
@@ -101,7 +108,7 @@ class ModelLoader(ForgeModel):
             "hidden_states": torch.randn(
                 1,
                 config.in_channels,
-                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_NUM_FRAMES + 1,
                 TRANSFORMER_HEIGHT,
                 TRANSFORMER_WIDTH,
                 dtype=dtype,
@@ -110,6 +117,22 @@ class ModelLoader(ForgeModel):
                 1,
                 TRANSFORMER_TEXT_SEQ_LEN,
                 config.text_dim,
+                dtype=dtype,
+            ),
+            "pose_hidden_states": torch.randn(
+                1,
+                config.latent_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "face_pixel_values": torch.randn(
+                1,
+                3,
+                FACE_NUM_FRAMES,
+                FACE_FRAME_SIZE,
+                FACE_FRAME_SIZE,
                 dtype=dtype,
             ),
             "timestep": torch.tensor([500], dtype=torch.long),
