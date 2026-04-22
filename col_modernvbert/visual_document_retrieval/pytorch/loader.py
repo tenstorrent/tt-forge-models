@@ -4,7 +4,6 @@
 """
 ColModernVBERT model loader implementation for visual document retrieval.
 """
-from colpali_engine.models import ColModernVBert, ColModernVBertProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -56,6 +55,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        from colpali_engine.models import ColModernVBertProcessor
+
         self.processor = ColModernVBertProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
         )
@@ -71,6 +72,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        from colpali_engine.models import ColModernVBert
 
         model = ColModernVBert.from_pretrained(
             pretrained_model_name,
