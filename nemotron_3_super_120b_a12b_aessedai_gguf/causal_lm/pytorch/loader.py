@@ -7,6 +7,96 @@ AesSedai NVIDIA Nemotron 3 Super 120B A12B GGUF model loader implementation for 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUF_CONFIG_MAPPING
+
+_HYBRID_OVERRIDE_PATTERN = "MEMEMEM*EMEMEMEM*EMEMEMEM*EMEMEMEMEM*EMEMEMEMEM*EMEMEMEMEM*EMEMEMEMEM*EMEMEMEM*EMEMEMEME"
+_PATTERN_MAPPING = {"M": "mamba", "E": "moe", "*": "attention", "-": "mlp"}
+
+_NEMOTRON_H_MOE_CONFIG_MAPPING = {
+    "block_count": "num_hidden_layers",
+    "context_length": "max_position_embeddings",
+    "embedding_length": "hidden_size",
+    "feed_forward_length": None,
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "rope.freq_base": "rope_theta",
+    "rope.dimension_count": None,
+    "attention.layer_norm_rms_epsilon": "layer_norm_epsilon",
+    "attention.key_length": "head_dim",
+    "vocab_size": "vocab_size",
+    "ssm.conv_kernel": "conv_kernel",
+    "ssm.state_size": "ssm_state_size",
+    "ssm.group_count": "n_groups",
+    "expert_used_count": "num_experts_per_tok",
+    "expert_group_count": "n_group",
+    "expert_group_used_count": "topk_group",
+    "expert_feed_forward_length": "moe_intermediate_size",
+    "expert_shared_feed_forward_length": "moe_shared_expert_intermediate_size",
+    "expert_count": "n_routed_experts",
+    "expert_shared_count": "n_shared_experts",
+    "expert_weights_norm": "norm_topk_prob",
+    "expert_weights_scale": "routed_scaling_factor",
+    "moe_latent_size": "moe_latent_size",
+}
+
+
+def _patch_nemotron_h_moe_support():
+    if "nemotron_h_moe" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("nemotron_h_moe")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "nemotron" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "nemotron_h_moe",
+                _NEMOTRON_H_MOE_CONFIG_MAPPING
+                if section == "config"
+                else _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["nemotron"],
+            )
+    GGUF_CONFIG_MAPPING.setdefault("nemotron_h_moe", _NEMOTRON_H_MOE_CONFIG_MAPPING)
+    if "nemotron" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "nemotron_h_moe", GGUF_TO_FAST_CONVERTERS["nemotron"]
+        )
+
+
+def _patched_load_gguf_checkpoint(
+    gguf_path, return_tensors=False, model_to_load=None, torch_dtype=None
+):
+    _patch_nemotron_h_moe_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path,
+        return_tensors=return_tensors,
+        model_to_load=model_to_load,
+        torch_dtype=torch_dtype,
+    )
+    if result.get("config", {}).get("model_type") == "nemotron_h_moe":
+        result["config"]["model_type"] = "nemotron_h"
+        num_kv = result["config"].get("num_key_value_heads")
+        if isinstance(num_kv, list):
+            result["config"]["num_key_value_heads"] = max(num_kv)
+        elif not num_kv:
+            result["config"]["num_key_value_heads"] = 2
+        result["config"]["layers_block_type"] = [
+            _PATTERN_MAPPING[c] for c in _HYBRID_OVERRIDE_PATTERN
+        ]
+        result["config"].setdefault(
+            "intermediate_size", result["config"].get("moe_intermediate_size", 2688)
+        )
+    return result
+
+
+_patch_nemotron_h_moe_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
