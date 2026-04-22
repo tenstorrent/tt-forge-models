@@ -9,7 +9,6 @@ tokens via a diffusion-based VQ-VAE (DiVAE) with a 16k codebook.
 """
 
 import torch
-from fourm.vq.vqvae import DiVAE
 from typing import Optional
 
 from ...base import ForgeModel
@@ -69,6 +68,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The DiVAE tokenizer model.
         """
+        from fourm.vq.vqvae import DiVAE
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model = DiVAE.from_pretrained(pretrained_model_name)
