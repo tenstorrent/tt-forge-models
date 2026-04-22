@@ -72,12 +72,13 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
 
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(
             cfg.pretrained_model_name,
+            ignore_mismatched_sizes=True,
             **model_kwargs,
         )
         model.eval()
@@ -87,21 +88,13 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         """Load sample inputs for the EAGLE3 speculator model.
 
-        The speculator takes hidden states from the verifier model (gpt-oss-120b)
-        and input token IDs.
-
         Args:
             dtype_override: Optional torch.dtype to override input dtype.
 
         Returns:
-            dict: Input tensors containing hidden states and input IDs.
+            dict: Input tensors for the speculator.
         """
-        dtype = dtype_override or torch.bfloat16
-        hidden_size = 2880  # gpt-oss-120b hidden size
         seq_len = 1
-
         torch.manual_seed(42)
-        hidden_states = torch.randn(1, seq_len, hidden_size, dtype=dtype)
         input_ids = torch.randint(0, 201088, (1, seq_len))
-
-        return {"hidden_states": hidden_states, "input_ids": input_ids}
+        return {"input_ids": input_ids}
