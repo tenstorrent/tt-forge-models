@@ -63,6 +63,30 @@ _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    mapping = _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+    # GGUF files created with older tools use separate ffn_gate_exps/ffn_up_exps
+    # names; newer gguf 0.18+ maps gate_up_proj to the merged ffn_gate_up_exps.
+    # Add old-format names as aliases so Qwen2MoeTensorProcessor can find them.
+    extra = {}
+    for k, v in mapping.items():
+        if k.endswith("ffn_gate_up_exps"):
+            base = k[: -len("ffn_gate_up_exps")]
+            extra[f"{base}ffn_gate_exps"] = v
+            extra[f"{base}ffn_up_exps"] = v
+    mapping.update(extra)
+    return mapping
+
+
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
 
 class ModelVariant(StrEnum):
     """Available mradermacher Qwen3.5 24B A3B Claude Opus Gemini 3.1 Pro Reasoning Distilled heretic GGUF model variants."""
