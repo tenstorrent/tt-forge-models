@@ -5,7 +5,7 @@
 amlm_hard model loader implementation for masked language modeling.
 """
 
-from transformers import AutoModelForMaskedLM, AutoTokenizer
+from transformers import AutoModelForMaskedLM, AutoTokenizer, PreTrainedTokenizerFast
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -57,9 +57,11 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, trust_remote_code=True
-        )
+        # AutoTokenizer resolves to DebertaV2Tokenizer which has a class/JSON
+        # mismatch in transformers 5.x (model=Unigram vs tokenizer.json BPE).
+        # PreTrainedTokenizerFast loads directly from tokenizer.json without
+        # the broken conversion path.
+        self.tokenizer = PreTrainedTokenizerFast.from_pretrained(self.model_name)
 
         model_kwargs = {}
         if dtype_override is not None:
