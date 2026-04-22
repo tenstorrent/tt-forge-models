@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
                 (torch.rand(3, 1024, 1024) * 255).byte().permute(1, 2, 0).numpy()
             )
 
-        input_points = [[[450, 600]]]
+        input_points = [[[[450, 600]]]]
 
         inputs = self.processor(
             raw_image, input_points=input_points, return_tensors="pt"
