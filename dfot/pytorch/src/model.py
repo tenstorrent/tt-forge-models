@@ -380,7 +380,7 @@ def load_dit3d_from_checkpoint(checkpoint_path: str, cfg: DiT3DConfig) -> DiT3D:
     Returns:
         DiT3D model with loaded weights.
     """
-    model = DiT3D(cfg)
+    from dataclasses import replace
 
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state_dict = ckpt.get("state_dict", ckpt)
@@ -392,5 +392,20 @@ def load_dit3d_from_checkpoint(checkpoint_path: str, cfg: DiT3DConfig) -> DiT3D:
         if k.startswith(prefix):
             backbone_state[k[len(prefix) :]] = v
 
+    # Infer hidden_size from checkpoint to handle DiT-L (1024) vs DiT-XL (1152)
+    noise_embed_key = "noise_level_pos_embedding.embedding.linear_1.weight"
+    if noise_embed_key in backbone_state:
+        cfg = replace(cfg, hidden_size=backbone_state[noise_embed_key].shape[0])
+
+    # Infer depth from checkpoint by counting transformer blocks
+    depth = sum(
+        1
+        for k in backbone_state
+        if k.startswith("blocks.") and k.endswith(".norm1.weight")
+    )
+    if depth > 0:
+        cfg = replace(cfg, depth=depth)
+
+    model = DiT3D(cfg)
     model.load_state_dict(backbone_state, strict=False)
     return model
