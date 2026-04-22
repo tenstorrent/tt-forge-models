@@ -6,7 +6,6 @@ MiniCPM-Llama3-V-2.5 GGUF model loader implementation for image to text.
 """
 from transformers import AutoModel, AutoTokenizer
 from typing import Optional
-from PIL import Image
 
 from ....base import ForgeModel
 from ....config import (
@@ -18,7 +17,6 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -46,8 +44,6 @@ class ModelLoader(ForgeModel):
     _BASE_MODELS = {
         ModelVariant.MINICPM_LLAMA3_V_2_5_GGUF: "openbmb/MiniCPM-Llama3-V-2_5",
     }
-
-    sample_image = "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -101,20 +97,11 @@ class ModelLoader(ForgeModel):
                 self._base_model, trust_remote_code=True
             )
 
-        image_file = get_file(self.sample_image)
-        image = Image.open(image_file).convert("RGB")
-
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": "Describe this image."},
-                ],
-            }
-        ]
-
-        return {"messages": messages, "image": image}
+        # The GGUF file contains only the LLM component (no vision encoder),
+        # so we tokenize a plain text prompt rather than passing image/messages.
+        text = "Describe this image."
+        inputs = self.tokenizer(text, return_tensors="pt")
+        return dict(inputs)
 
     def load_config(self):
         self.config = AutoModel.from_pretrained(
