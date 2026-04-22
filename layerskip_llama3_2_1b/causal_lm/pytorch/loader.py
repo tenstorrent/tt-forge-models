@@ -35,7 +35,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LAYERSKIP_LLAMA_3_2_1B: LLMModelConfig(
-            pretrained_model_name="facebook/layerskip-llama3.2-1B",
+            pretrained_model_name="melhoushi/layerskip-llama3.2-1b-topv1-v1",
             max_length=128,
         ),
     }
