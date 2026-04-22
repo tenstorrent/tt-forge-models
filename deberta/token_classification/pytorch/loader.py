@@ -67,14 +67,16 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        model_kwargs = {"torch_dtype": target_dtype}
         model_kwargs |= kwargs
 
         model = AutoModelForTokenClassification.from_pretrained(
             self.model_name, **model_kwargs
         )
+        # q_bias/v_bias are hardcoded as float32 in DisentangledSelfAttention.__init__
+        # and may not be in the checkpoint, so cast everything to ensure uniform dtype.
+        model = model.to(target_dtype)
         self.model = model
         model.eval()
         return model
