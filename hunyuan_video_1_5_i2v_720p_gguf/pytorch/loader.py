@@ -147,8 +147,10 @@ class ModelLoader(ForgeModel):
         # fall back to auto-detecting the model type from checkpoint keys (which
         # fails for HunyuanVideo 1.5 GGUF files whose keys are already in
         # diffusers format and are not recognised by infer_diffusers_model_type).
+        # URL must omit "resolve/main/" so _extract_repo_id_and_weights_name
+        # correctly separates the repo id from the nested filename path.
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
             config="hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_i2v",
             subfolder="transformer",
             quantization_config=quantization_config,
