@@ -481,6 +481,17 @@ AutoConfig.register("gr00t_n1_5", GR00T_N1_5_Config)
 AutoModel.register(GR00T_N1_5_Config, GR00T_N1_5)
 
 
+@dataclass
+class GR00T_N1_6_Config(GR00T_N1_5_Config):
+    """Config alias for GR00T N1.6 models which use model_type='Gr00tN1d6'."""
+
+    model_type = "Gr00tN1d6"
+
+
+AutoConfig.register("Gr00tN1d6", GR00T_N1_6_Config)
+AutoModel.register(GR00T_N1_6_Config, GR00T_N1_5)
+
+
 COMPUTE_DTYPE = torch.bfloat16
 
 
