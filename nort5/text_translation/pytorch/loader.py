@@ -127,7 +127,11 @@ class ModelLoader(ForgeModel):
         attention_mask = torch.ones_like(input_ids)
 
         # Seq2seq models need decoder_input_ids for the forward pass.
-        decoder_start_token_id = self._model.config.decoder_start_token_id
+        # NorT5Config doesn't set decoder_start_token_id; fall back to bos_token_id.
+        decoder_start_token_id = (
+            getattr(self._model.config, "decoder_start_token_id", None)
+            or self._model.config.bos_token_id
+        )
         decoder_input_ids = torch.tensor([[decoder_start_token_id]], dtype=torch.long)
 
         inputs = {
