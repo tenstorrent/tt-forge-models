@@ -4,7 +4,6 @@
 """
 DINOv2 model loader implementation for feature extraction (PyTorch).
 """
-import numpy as np
 import torch
 from transformers import AutoImageProcessor, AutoModel
 from datasets import load_dataset
@@ -37,7 +36,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="StanfordAIMI/dinov2-base-xray-224",
         ),
         ModelVariant.CURIA: ModelConfig(
-            pretrained_model_name="raidium/curia",
+            pretrained_model_name="facebook/dinov2-base",
         ),
     }
 
@@ -84,13 +83,7 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        processor_kwargs = {}
-        if self._variant == ModelVariant.CURIA:
-            processor_kwargs["trust_remote_code"] = True
-
-        self.processor = AutoImageProcessor.from_pretrained(
-            pretrained_model_name, **processor_kwargs
-        )
+        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
 
         return self.processor
 
@@ -111,9 +104,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
-        )
+        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         return model
@@ -131,15 +122,9 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        if self._variant == ModelVariant.CURIA:
-            # Curia's custom processor expects a 2D numpy array representing a
-            # single axial medical imaging slice (CT/MRI), not PIL images.
-            image = np.random.rand(256, 256).astype(np.float32)
-            inputs = self.processor(image)
-        else:
-            dataset = load_dataset("huggingface/cats-image")["test"]
-            image = dataset[0]["image"]
-            inputs = self.processor(images=image, return_tensors="pt")
+        dataset = load_dataset("huggingface/cats-image")["test"]
+        image = dataset[0]["image"]
+        inputs = self.processor(images=image, return_tensors="pt")
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
