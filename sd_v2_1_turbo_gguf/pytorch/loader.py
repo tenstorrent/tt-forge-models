@@ -17,6 +17,7 @@ Available variants:
 - Q8_0: 8-bit quantization (~2.32 GB)
 """
 
+from pathlib import Path
 from typing import Optional
 
 import torch
@@ -110,12 +111,13 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
+        unet_config = str(Path(__file__).parent / "unet_config.json")
         local_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
         unet = UNet2DConditionModel.from_single_file(
             local_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
-            config=BASE_PIPELINE,
+            config=unet_config,
         )
 
         self.pipeline = StableDiffusionPipeline.from_pretrained(
