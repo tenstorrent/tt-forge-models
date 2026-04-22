@@ -41,8 +41,8 @@ class Qwen3OmniAudioEncoderWrapper(torch.nn.Module):
         super().__init__()
         self.model = model
 
-    def forward(self, input_features):
-        return self.model(input_features)
+    def forward(self, input_features, feature_lens):
+        return self.model(input_features, feature_lens=feature_lens)
 
 
 class ModelLoader(ForgeModel):
@@ -88,7 +88,20 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Qwen3-Omni AudioTransformer model."""
-        from transformers import AutoModel
+        from transformers import AutoConfig, AutoModel
+        from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
+            Qwen3OmniMoeAudioEncoder,
+            Qwen3OmniMoeAudioEncoderConfig,
+        )
+
+        AutoConfig.register(
+            "qwen3_omni_moe_audio_encoder",
+            Qwen3OmniMoeAudioEncoderConfig,
+            exist_ok=True,
+        )
+        AutoModel.register(
+            Qwen3OmniMoeAudioEncoderConfig, Qwen3OmniMoeAudioEncoder, exist_ok=True
+        )
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -124,4 +137,14 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        return [inputs["input_features"]]
+        # feature_lens: total number of mel frames per sample in the padded input
+        feature_lens = torch.tensor(
+            [inputs["input_features"].shape[-1]], dtype=torch.long
+        )
+
+        # The encoder expects a 2D input [num_mel_bins, time_frames], not batched
+        input_features = inputs["input_features"].squeeze(0)
+        if dtype_override is not None:
+            input_features = input_features.to(dtype_override)
+
+        return [input_features, feature_lens]
