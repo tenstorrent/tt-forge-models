@@ -95,6 +95,23 @@ class ModelLoader(ForgeModel):
         if not hasattr(_tu, "is_remote_url"):
             _tu.is_remote_url = lambda url: bool(urllib.parse.urlparse(url).scheme)
 
+        # TinyTimeMixerForPrediction uses the old transformers API; transformers
+        # 5.x _finalize_model_loading unconditionally accesses all_tied_weights_keys.
+        from transformers.modeling_utils import PreTrainedModel
+
+        if not getattr(PreTrainedModel, "_patched_adjust_tied_keys", False):
+            _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+            def _adjust_tied_keys_safe(self, missing_keys_and_mismatched):
+                if not hasattr(self, "all_tied_weights_keys"):
+                    self.all_tied_weights_keys = {}
+                return _orig_adjust(self, missing_keys_and_mismatched)
+
+            PreTrainedModel._adjust_tied_keys_with_tied_pointers = (
+                _adjust_tied_keys_safe
+            )
+            PreTrainedModel._patched_adjust_tied_keys = True
+
         from tsfm_public.toolkit.get_model import get_model
 
         model = get_model(
