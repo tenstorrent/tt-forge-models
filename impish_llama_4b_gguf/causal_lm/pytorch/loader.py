@@ -25,7 +25,7 @@ def _ensure_gguf_compat():
     if "model_to_load" not in inspect.signature(current).parameters:
 
         def _compat(path, return_tensors=False, model_to_load=None, _fn=current):
-            return _fn(path, return_tensors=return_tensors)
+            return _fn(path, return_tensors=return_tensors, model_to_load=model_to_load)
 
         _gguf_utils.load_gguf_checkpoint = _compat
 
