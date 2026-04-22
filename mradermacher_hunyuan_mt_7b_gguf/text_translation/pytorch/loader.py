@@ -81,8 +81,73 @@ class ModelLoader(ForgeModel):
             except importlib.metadata.PackageNotFoundError:
                 pass
 
+    @staticmethod
+    def _patch_hunyuan_gguf_support():
+        """Register 'hunyuan-dense' GGUF architecture so transformers can load it.
+
+        The GGUF file uses 'hunyuan-dense' but transformers only knows 'hunyuan_v1_dense'.
+        We patch the GGUF config/model mappings and register a config alias so
+        AutoConfig.from_pretrained and AutoModelForCausalLM.from_pretrained work.
+        """
+        import transformers.integrations.ggml as _ggml
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        from transformers import AutoConfig
+        from transformers.models.hunyuan_v1_dense.configuration_hunyuan_v1_dense import (
+            HunYuanDenseV1Config,
+        )
+
+        arch = "hunyuan-dense"
+        if arch not in _ggml.GGUF_CONFIG_MAPPING:
+            _ggml.GGUF_CONFIG_MAPPING[arch] = {
+                "context_length": "max_position_embeddings",
+                "block_count": "num_hidden_layers",
+                "feed_forward_length": "intermediate_size",
+                "embedding_length": "hidden_size",
+                "attention.head_count": "num_attention_heads",
+                "attention.head_count_kv": "num_key_value_heads",
+                "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+                "attention.key_length": "head_dim",
+                "rope.freq_base": "rope_theta",
+                "vocab_size": "vocab_size",
+            }
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[
+                "config"
+            ] = _ggml.GGUF_CONFIG_MAPPING
+            _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append(arch)
+
+        from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+
+        if arch not in CONFIG_MAPPING._extra_content:
+
+            class _HunyuanDenseGGUFConfig(HunYuanDenseV1Config):
+                """HunYuanDenseV1Config alias for the 'hunyuan-dense' GGUF architecture.
+
+                The class attribute model_type='hunyuan-dense' satisfies AutoConfig.register,
+                but the instance attribute is reset to 'hunyuan_v1_dense' so that
+                AutoModelForCausalLM finds the existing HunYuanDenseV1ForCausalLM mapping.
+                """
+
+                model_type = arch
+
+                def __init__(self, **kwargs):
+                    # GGUF loader passes rope_theta as a flat kwarg; convert to
+                    # rope_parameters dict that HunYuanDenseV1 actually reads.
+                    rope_theta = kwargs.pop("rope_theta", None)
+                    if rope_theta is not None and kwargs.get("rope_parameters") is None:
+                        kwargs["rope_parameters"] = {
+                            "rope_type": "default",
+                            "rope_theta": float(rope_theta),
+                        }
+                    super().__init__(**kwargs)
+                    # Reset to the canonical model_type so AutoModelForCausalLM
+                    # resolves to HunYuanDenseV1ForCausalLM via its existing mapping.
+                    self.model_type = "hunyuan_v1_dense"
+
+            AutoConfig.register(arch, _HunyuanDenseGGUFConfig, exist_ok=True)
+
     def _load_tokenizer(self, dtype_override=None):
         self._fix_gguf_version_detection()
+        self._patch_hunyuan_gguf_support()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -98,6 +163,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         self._fix_gguf_version_detection()
+        self._patch_hunyuan_gguf_support()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
