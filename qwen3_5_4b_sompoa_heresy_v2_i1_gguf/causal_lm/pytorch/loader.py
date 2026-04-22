@@ -4,7 +4,9 @@
 """
 Qwen3.5-4B-SOMPOA-heresy-v2 i1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
+import transformers.utils.import_utils as _import_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -62,6 +64,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
