@@ -2,8 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-FLUX.1-dev GGUF model loader implementation for text-to-image generation
+FLUX.1-dev GGUF model loader implementation for text-to-image generation.
+
+Avoids accessing the gated black-forest-labs/FLUX.1-dev repo by providing a
+local transformer config and using hf_hub_download to fetch GGUF weights.
 """
+import json
+import os
+import tempfile
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
@@ -40,6 +46,22 @@ class ModelVariant(StrEnum):
 
 _EVIATION_REPO = "Eviation/flux-imatrix"
 _EVIATION_CAESAR_SUBDIR = "experimental-from-f16-caesar"
+
+# FLUX.1-dev transformer architecture config (same for all Dev variants).
+_TRANSFORMER_CONFIG = {
+    "_class_name": "FluxTransformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "attention_head_dim": 128,
+    "axes_dims_rope": [16, 56, 56],
+    "guidance_embeds": True,
+    "in_channels": 64,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 24,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "patch_size": 1,
+    "pooled_projection_dim": 768,
+}
 
 
 class ModelLoader(ForgeModel):
@@ -116,6 +138,14 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _make_local_config_dir(self):
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
+
     def load_model(self, *, dtype_override=None, **kwargs):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
@@ -123,8 +153,11 @@ class ModelLoader(ForgeModel):
         repo_id = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
         local_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
+        config_dir = self._make_local_config_dir()
         self.transformer = FluxTransformer2DModel.from_single_file(
             local_path,
+            config=config_dir,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
