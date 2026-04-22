@@ -163,10 +163,23 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+        import torch
+
         model_kwargs = {}
         if self._variant == ModelVariant.GEMMA_3_1B_IT_AWQ_INT4:
             model_kwargs["device_map"] = "cpu"
         elif self._variant == ModelVariant.GEMMA_3_4B_IT_BNB_4BIT:
+            if not torch.cuda.is_available():
+                # BNB 4-bit quantization requires CUDA; load non-quantized from config
+                config = AutoConfig.from_pretrained(pretrained_model_name)
+                config.quantization_config = None
+                model_kwargs["dtype"] = dtype_override or torch.float32
+                model_kwargs |= kwargs
+                model = AutoModelForCausalLM.from_config(config, **model_kwargs)
+                model.eval()
+                self.model = model
+                self.config = model.config
+                return model
             model_kwargs["device_map"] = "cpu"
         else:
             model_kwargs["use_cache"] = False
