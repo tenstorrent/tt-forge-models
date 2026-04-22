@@ -114,6 +114,7 @@ def inpainting_preprocessing(
         tuple: (latent_model_input, timestep, prompt_embeds)
     """
     height = width = pipe.unet.config.sample_size * pipe.vae_scale_factor
+    unet_dtype = pipe.unet.dtype
 
     do_classifier_free_guidance = guidance_scale > 1.0
 
@@ -130,7 +131,7 @@ def inpainting_preprocessing(
     image = pipe.image_processor.preprocess(image, height=height, width=width)
     mask = pipe.mask_processor.preprocess(mask_image, height=height, width=width)
 
-    masked_image = image * (mask < 0.5)
+    masked_image = (image * (mask < 0.5)).to(unet_dtype)
     masked_image_latents = (
         pipe.vae.encode(masked_image).latent_dist.mode()
         * pipe.vae.config.scaling_factor
@@ -139,7 +140,7 @@ def inpainting_preprocessing(
     mask = torch.nn.functional.interpolate(
         mask,
         size=(height // pipe.vae_scale_factor, width // pipe.vae_scale_factor),
-    )
+    ).to(unet_dtype)
 
     if do_classifier_free_guidance:
         masked_image_latents = torch.cat([masked_image_latents] * 2)
@@ -163,6 +164,7 @@ def inpainting_preprocessing(
             height // pipe.vae_scale_factor,
             width // pipe.vae_scale_factor,
         ),
+        dtype=unet_dtype,
         device=device,
     )
     latents = latents * pipe.scheduler.init_noise_sigma
