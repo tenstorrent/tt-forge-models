@@ -105,6 +105,24 @@ def _patch_transformers_compat():
 
             setattr(tu, name, getattr(tp, name))
 
+    # InternVideo2's custom Bert classes call self.init_weights() (old API)
+    # instead of self.post_init() (new transformers 5.x API).  post_init() is
+    # what sets self.all_tied_weights_keys, which _finalize_model_loading now
+    # unconditionally accesses.  Wrap init_weights() to ensure the attribute
+    # is always present after construction.
+    from transformers.modeling_utils import PreTrainedModel
+
+    if not getattr(PreTrainedModel, "_patched_init_weights_tied_keys", False):
+        _orig_init_weights = PreTrainedModel.init_weights
+
+        def _init_weights_ensure_tied_keys(self):
+            _orig_init_weights(self)
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.all_tied_weights_keys = {}
+
+        PreTrainedModel.init_weights = _init_weights_ensure_tied_keys
+        PreTrainedModel._patched_init_weights_tied_keys = True
+
 
 def _inject_flash_attn_stub():
     """Inject a minimal flash_attn stub so the model's module-level imports succeed.
