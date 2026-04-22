@@ -1,1 +1,2 @@
-silentcipher
+huggingface_hub
+pyyaml
