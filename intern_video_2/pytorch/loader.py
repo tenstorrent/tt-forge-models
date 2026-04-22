@@ -105,23 +105,24 @@ def _patch_transformers_compat():
 
             setattr(tu, name, getattr(tp, name))
 
-    # InternVideo2's custom Bert classes call self.init_weights() (old API)
-    # instead of self.post_init() (new transformers 5.x API).  post_init() is
-    # what sets self.all_tied_weights_keys, which _finalize_model_loading now
-    # unconditionally accesses.  Wrap init_weights() to ensure the attribute
-    # is always present after construction.
+    # InternVideo2's custom model classes use the old transformers API
+    # (self.init_weights() instead of self.post_init()).  In transformers 5.x
+    # post_init() is what sets self.all_tied_weights_keys, which
+    # _finalize_model_loading unconditionally accesses on every class.  Patch
+    # _adjust_tied_keys_with_tied_pointers to lazily initialise the attribute
+    # when missing; this covers both the top-level and any nested custom class.
     from transformers.modeling_utils import PreTrainedModel
 
-    if not getattr(PreTrainedModel, "_patched_init_weights_tied_keys", False):
-        _orig_init_weights = PreTrainedModel.init_weights
+    if not getattr(PreTrainedModel, "_patched_adjust_tied_keys", False):
+        _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
 
-        def _init_weights_ensure_tied_keys(self):
-            _orig_init_weights(self)
+        def _adjust_tied_keys_safe(self, missing_keys_and_mismatched):
             if not hasattr(self, "all_tied_weights_keys"):
                 self.all_tied_weights_keys = {}
+            return _orig_adjust(self, missing_keys_and_mismatched)
 
-        PreTrainedModel.init_weights = _init_weights_ensure_tied_keys
-        PreTrainedModel._patched_init_weights_tied_keys = True
+        PreTrainedModel._adjust_tied_keys_with_tied_pointers = _adjust_tied_keys_safe
+        PreTrainedModel._patched_adjust_tied_keys = True
 
 
 def _inject_flash_attn_stub():
