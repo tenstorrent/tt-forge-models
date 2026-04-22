@@ -85,8 +85,12 @@ class ModelLoader(ForgeModel):
         question = "how many cats are in the picture?"
         inputs = self.processor(image, question, return_tensors="pt")
 
-        # BlipForQuestionAnswering requires decoder_input_ids for inference
-        bos_token_id = self.processor.tokenizer.bos_token_id
+        # BlipForQuestionAnswering requires decoder_input_ids for inference;
+        # BERT-based tokenizer uses cls_token_id as the start token
+        bos_token_id = (
+            self.processor.tokenizer.bos_token_id
+            or self.processor.tokenizer.cls_token_id
+        )
         inputs["decoder_input_ids"] = (
             torch.ones((1, 1), dtype=torch.long) * bos_token_id
         )
