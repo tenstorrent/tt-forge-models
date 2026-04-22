@@ -104,9 +104,11 @@ class ModelLoader(ForgeModel):
             self._transformer = self._transformer.to(dtype=dtype_override)
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare sample inputs for the Wan T2V diffusion transformer."""
-        dtype = kwargs.get("dtype_override", torch.float16)
+        dtype = dtype_override if dtype_override is not None else torch.float16
         batch_size = kwargs.get("batch_size", 1)
 
         # Wan T2V 14B transformer config dimensions
