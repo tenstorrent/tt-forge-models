@@ -9,27 +9,6 @@ from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
 from transformers.image_utils import load_image
 from typing import Optional
 
-# transformers does not yet include granite in its GGUF architecture registry; patch it in
-# so that load_gguf_checkpoint can parse the config fields from the GGUF file.
-from transformers.integrations import GGUF_CONFIG_MAPPING
-import transformers.modeling_gguf_pytorch_utils as _gguf_utils
-
-if "granite" not in GGUF_CONFIG_MAPPING:
-    GGUF_CONFIG_MAPPING["granite"] = {
-        "context_length": "max_position_embeddings",
-        "block_count": "num_hidden_layers",
-        "feed_forward_length": "intermediate_size",
-        "embedding_length": "hidden_size",
-        "rope.dimension_count": "head_dim",
-        "rope.freq_base": "rope_theta",
-        "attention.head_count": "num_attention_heads",
-        "attention.head_count_kv": "num_key_value_heads",
-        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
-        "vocab_size": "vocab_size",
-    }
-    if "granite" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
-        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("granite")
-
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -53,14 +32,10 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GRANITE_VISION_3_3_2B_GGUF: LLMModelConfig(
-            pretrained_model_name="ibm-granite/granite-vision-3.3-2b-GGUF",
+            pretrained_model_name="ibm-granite/granite-vision-3.3-2b",
             max_length=128,
         ),
     }
-
-    DEFAULT_VARIANT = ModelVariant.GRANITE_VISION_3_3_2B_GGUF
-
-    GGUF_FILE = "granite-vision-3.3-2b-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -85,7 +60,7 @@ class ModelLoader(ForgeModel):
             kwargs["torch_dtype"] = dtype_override
 
         self.processor = AutoProcessor.from_pretrained(
-            "ibm-granite/granite-vision-3.3-2b", **kwargs
+            self._variant_config.pretrained_model_name, **kwargs
         )
 
         return self.processor
@@ -100,7 +75,6 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -145,6 +119,5 @@ class ModelLoader(ForgeModel):
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name,
-            gguf_file=self.GGUF_FILE,
         )
         return self.config
