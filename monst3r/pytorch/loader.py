@@ -72,6 +72,20 @@ def _ensure_monst3r_importable():
                     sys.path.remove(sp)
                 break
 
+    # dust3r/model.py imports load_RAFT from third_party.raft at module level but
+    # never calls it during model loading. Inject a stub to avoid the RAFT
+    # dependency cascade which conflicts with the project's `utils` package.
+    import types
+
+    if "third_party.raft" not in sys.modules or not hasattr(
+        sys.modules["third_party.raft"], "load_RAFT"
+    ):
+        raft_stub = types.ModuleType("third_party.raft")
+        raft_stub.load_RAFT = None
+        sys.modules["third_party.raft"] = raft_stub
+        if "third_party" in sys.modules:
+            sys.modules["third_party"].raft = raft_stub
+
 
 class ModelVariant(StrEnum):
     """Available MonST3R model variants."""
@@ -140,10 +154,12 @@ class ModelLoader(ForgeModel):
         view1 = {
             "img": torch.randn(batch_size, 3, height, width, dtype=dtype),
             "true_shape": torch.tensor([[height, width]] * batch_size),
+            "instance": [f"view1_{i}" for i in range(batch_size)],
         }
         view2 = {
             "img": torch.randn(batch_size, 3, height, width, dtype=dtype),
             "true_shape": torch.tensor([[height, width]] * batch_size),
+            "instance": [f"view2_{i}" for i in range(batch_size)],
         }
 
         return {"view1": view1, "view2": view2}
