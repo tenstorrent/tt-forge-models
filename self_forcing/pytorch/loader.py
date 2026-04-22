@@ -158,9 +158,12 @@ class ModelLoader(ForgeModel):
         height = p_h * 4
         width = p_w * 4
 
-        hidden_states = torch.randn(1, in_channels, num_frames, height, width)
+        model_dtype = next(transformer.parameters()).dtype
+        hidden_states = torch.randn(
+            1, in_channels, num_frames, height, width, dtype=model_dtype
+        )
         timestep = torch.randint(0, 1000, (1,), dtype=torch.long)
-        encoder_hidden_states = torch.randn(1, 16, text_dim)
+        encoder_hidden_states = torch.randn(1, 16, text_dim, dtype=model_dtype)
 
         return {
             "hidden_states": hidden_states,
