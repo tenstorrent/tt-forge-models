@@ -4,9 +4,24 @@
 """
 Gemma 3 27B QAT GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+import importlib.util
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+# transformers v5.2.0 falls back to gguf.__version__ when "gguf" is absent from
+# PACKAGE_DISTRIBUTION_MAPPING; gguf 0.18.0 doesn't set that attribute, causing
+# packaging.version.InvalidVersion.  Populate it from package metadata instead.
+if importlib.util.find_spec("gguf") is not None:
+    import gguf as _gguf_pkg
+
+    if not hasattr(_gguf_pkg, "__version__"):
+        try:
+            _gguf_pkg.__version__ = importlib.metadata.version("gguf")
+        except importlib.metadata.PackageNotFoundError:
+            pass
 
 from ....base import ForgeModel
 from ....config import (
