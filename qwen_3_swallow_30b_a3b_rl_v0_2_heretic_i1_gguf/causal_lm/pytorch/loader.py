@@ -4,9 +4,32 @@
 """
 Qwen 3 Swallow 30B-A3B RL v0.2 Heretic i1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata as _importlib_metadata
 import torch
+from packaging.version import Version as _Version
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _patch_is_gguf_available():
+    import transformers.utils.import_utils as _import_utils
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+    _min_ver = _import_utils.GGUF_MIN_VERSION
+
+    def _is_gguf_available(min_version: str = _min_ver) -> bool:
+        try:
+            return _Version(_importlib_metadata.version("gguf")) >= _Version(
+                min_version
+            )
+        except Exception:
+            return False
+
+    _import_utils.is_gguf_available = _is_gguf_available
+    _gguf_utils.is_gguf_available = _is_gguf_available
+
+
+_patch_is_gguf_available()
 
 from ....base import ForgeModel
 from ....config import (
