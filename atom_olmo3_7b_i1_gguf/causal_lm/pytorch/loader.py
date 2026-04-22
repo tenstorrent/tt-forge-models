@@ -6,7 +6,11 @@ Atom OLMo 3 7B i1 GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+from transformers.integrations.ggml import (
+    GGUF_CONFIG_MAPPING,
+    GGUF_TO_FAST_CONVERTERS,
+    GGUFGPTConverter,
+)
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from typing import Optional
 
@@ -23,6 +27,7 @@ if "olmo2" not in GGUF_CONFIG_MAPPING:
         "attention.layer_norm_rms_epsilon": "rms_norm_eps",
     }
     _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("olmo2")
+    GGUF_TO_FAST_CONVERTERS["olmo2"] = GGUFGPTConverter
 
 from ....base import ForgeModel
 from ....config import (
