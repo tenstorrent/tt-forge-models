@@ -3,11 +3,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Mistral-Small-4-119B-2603 NVFP4 model loader implementation for causal language modeling.
+
+The NVFP4 checkpoint uses Mistral's native format (params.json, no config.json)
+with NVIDIA FP4 quantization.  For compilation testing we load the architecture
+from the BF16 counterpart (mistralai/Mistral-Small-4-119B-2603) which exposes a
+standard HuggingFace config, extract its Mistral4TextConfig, reduce the layer
+count and hidden dimensions to a tractable size, and initialise the model with
+random weights via Mistral4ForCausalLM(config).  The tokenizer is loaded from
+the NVFP4 repo directly, which does ship a tokenizer.json.
 """
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer, Mistral4ForCausalLM
 
 from ....base import ForgeModel
 from ....config import (
@@ -19,6 +27,9 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+# BF16 companion repo that carries a standard HuggingFace config.json.
+_CONFIG_REPO = "mistralai/Mistral-Small-4-119B-2603"
 
 
 class ModelVariant(StrEnum):
@@ -38,10 +49,6 @@ class ModelLoader(ForgeModel):
     }
 
     DEFAULT_VARIANT = ModelVariant.MISTRAL_SMALL_4_119B_2603_NVFP4
-
-    # NVFP4 packed weight shapes differ from the model definition, so
-    # ignore_mismatched_sizes is required when loading from pretrained.
-    _NVFP4_VARIANTS = {ModelVariant.MISTRAL_SMALL_4_119B_2603_NVFP4}
 
     sample_text = "Give me a short introduction to large language models."
 
@@ -67,41 +74,52 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
+    def _build_text_config(self):
+        """Return a Mistral4Config with reduced dimensions for compile testing."""
+        outer = AutoConfig.from_pretrained(_CONFIG_REPO)
+        cfg = outer.text_config
 
+        if self.num_layers is not None:
+            cfg.num_hidden_layers = self.num_layers
+        else:
+            cfg.num_hidden_layers = 6
+
+        cfg.hidden_size = 1024
+        cfg.intermediate_size = 4096
+        cfg.num_attention_heads = 8
+        cfg.num_key_value_heads = 8
+        cfg.kv_lora_rank = 128
+        cfg.q_lora_rank = 256
+        cfg.qk_head_dim = 128
+        cfg.qk_nope_head_dim = 64
+        cfg.qk_rope_head_dim = 64
+        cfg.v_head_dim = 128
+        cfg.n_routed_experts = 8
+        cfg.num_experts_per_tok = 2
+        cfg.n_shared_experts = 1
+        cfg.moe_intermediate_size = 512
+
+        return cfg
+
+    def _load_tokenizer(self, dtype_override=None):
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name,
+            fix_mistral_regex=True,
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        cfg = self._build_text_config()
+        cfg._attn_implementation = "eager"
+
+        model = Mistral4ForCausalLM(cfg).eval()
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        if self._variant in self._NVFP4_VARIANTS:
-            model_kwargs["ignore_mismatched_sizes"] = True
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model_kwargs |= kwargs
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            model = model.to(dtype_override)
 
         self.config = model.config
         self.model = model
@@ -119,10 +137,9 @@ class ModelLoader(ForgeModel):
             tokenize=False,
             add_generation_prompt=True,
         )
-        prompts = [text]
 
         inputs = self.tokenizer(
-            prompts,
+            [text],
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -135,6 +152,10 @@ class ModelLoader(ForgeModel):
 
         return inputs
 
+    def load_config(self):
+        self.config = self._build_text_config()
+        return self.config
+
     def get_mesh_config(self, num_devices: int):
         mesh_shape = (1, num_devices)
         return mesh_shape, ("batch", "model")
@@ -142,18 +163,19 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            # MLA attention projections
+            shard_specs[layer.self_attn.q_b_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.kv_b_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        return shard_specs
 
-    def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
-        return self.config
+            # Shared (dense) expert
+            shared = layer.mlp.shared_experts
+            shard_specs[shared.up_proj.weight] = ("model", "batch")
+            shard_specs[shared.gate_proj.weight] = ("model", "batch")
+            shard_specs[shared.down_proj.weight] = ("batch", "model")
+
+            # Routed (sparse) expert weight tensors
+            shard_specs[layer.mlp.experts.gate_up_proj] = ("model", "batch")
+            shard_specs[layer.mlp.experts.down_proj] = ("batch", "model")
+
+        return shard_specs
