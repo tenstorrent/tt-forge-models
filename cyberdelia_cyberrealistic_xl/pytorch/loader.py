@@ -29,7 +29,7 @@ from ...config import (
 )
 
 
-REPO_ID = "cyberdelia/CyberRealisticXL"
+REPO_ID = "John6666/cyberrealistic-xl-v4-sdxl"
 
 
 class ModelVariant(StrEnum):
