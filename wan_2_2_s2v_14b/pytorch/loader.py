@@ -5,24 +5,20 @@
 """
 Wan 2.2 Sound-to-Video 14B model loader implementation.
 
-Loads the sharded-safetensors Wan 2.2 Sound-to-Video 14B denoising
-transformer from Wan-AI/Wan2.2-S2V-14B. This model generates video
-from an audio waveform combined with a reference image and optional
-text prompt.
-
-The upstream config.json uses `_class_name: WanModel_S2V`, which is
-not yet integrated into the upstream diffusers library, so this
-loader downloads the shard index file to expose the model artifacts
-without instantiating a PyTorch module.
+Loads the Wav2Vec2 audio encoder embedded in the Wan-AI/Wan2.2-S2V-14B
+repository. The S2V pipeline uses this encoder to extract audio features
+that condition the denoising transformer. The main transformer class
+(WanModel_S2V) is not yet available in upstream diffusers, so this loader
+exposes the audio encoder component as a standalone torch.nn.Module.
 
 Available variants:
-- WAN22_S2V_14B: Wan 2.2 Sound-to-Video 14B (base safetensors release)
+- WAN22_S2V_14B: Wan 2.2 Sound-to-Video 14B (audio encoder component)
 """
 
 from typing import Any, Optional
 
 import torch
-from huggingface_hub import hf_hub_download  # type: ignore[import]
+from transformers import Wav2Vec2Model  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -36,6 +32,10 @@ from ...config import (
 )
 
 REPO_ID = "Wan-AI/Wan2.2-S2V-14B"
+AUDIO_ENCODER_SUBFOLDER = "wav2vec2-large-xlsr-53-english"
+
+SAMPLE_RATE = 16000
+DURATION_SEC = 1
 
 
 class ModelVariant(StrEnum):
@@ -47,10 +47,9 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Wan 2.2 Sound-to-Video 14B model loader.
 
-    Downloads the safetensors shard index for the denoising transformer
-    from HuggingFace. The upstream model class (WanModel_S2V) is not yet
-    available in diffusers, so the loader exposes the model artifact path
-    rather than a PyTorch module.
+    Loads the Wav2Vec2 audio encoder from the Wan2.2-S2V-14B HuggingFace
+    repo. The main denoising transformer (WanModel_S2V) is not yet part of
+    upstream diffusers, so this loader targets the audio encoder component.
     """
 
     _VARIANTS = {
@@ -62,7 +61,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._model_path = None
+        self._model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -78,32 +77,26 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Download and return the path to the sharded safetensors index.
-
-        The WanModel_S2V class referenced by config.json is not yet part of
-        upstream diffusers, so the loader returns the local path to the
-        safetensors shard index. The index, together with the per-shard
-        files resolved via `hf_hub_download`, can be consumed by a custom
-        inference pipeline.
+        """Load and return the Wav2Vec2 audio encoder.
 
         Returns:
-            str: Local path to the downloaded safetensors index file.
+            Wav2Vec2Model: The audio encoder as a torch.nn.Module.
         """
-        self._model_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename="diffusion_pytorch_model.safetensors.index.json",
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        self._model = Wav2Vec2Model.from_pretrained(
+            REPO_ID,
+            subfolder=AUDIO_ENCODER_SUBFOLDER,
+            torch_dtype=dtype,
         )
-        return self._model_path
+        self._model.eval()
+        return self._model
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare dummy inputs for the sound-to-video model.
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare a dummy audio waveform for the Wav2Vec2 encoder.
 
-        Returns a dict with a dummy audio waveform tensor (5 seconds at
-        16 kHz) matching the wav2vec2 audio encoder sampling rate.
+        Returns a raw float waveform tensor at 16 kHz.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        sample_rate = 16000
-        duration_sec = 5
-        return {
-            "audio": torch.randn(1, sample_rate * duration_sec, dtype=dtype),
-        }
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        return torch.randn(1, SAMPLE_RATE * DURATION_SEC, dtype=dtype)
