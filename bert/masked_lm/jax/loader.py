@@ -6,7 +6,7 @@
 BERT model loader implementation for masked language modeling.
 """
 
-from transformers import AutoTokenizer, FlaxBertForMaskedLM
+from transformers import AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -150,6 +150,8 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # Load the model
+        from transformers import FlaxBertForMaskedLM
+
         model = FlaxBertForMaskedLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
