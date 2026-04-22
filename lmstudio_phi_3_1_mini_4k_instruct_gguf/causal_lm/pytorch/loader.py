@@ -4,6 +4,7 @@
 """
 lmstudio-community/Phi-3.1-mini-4k-instruct-GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -63,7 +64,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _fix_gguf_version():
+        """Set gguf.__version__ so transformers' is_gguf_available() can parse it.
+
+        transformers.utils.import_utils.PACKAGE_DISTRIBUTION_MAPPING is computed
+        at module import time.  When gguf is dynamically installed later by the
+        RequirementsManager the mapping is stale, causing a KeyError fallback that
+        reads gguf.__version__ — which the gguf package does not expose.  Setting
+        it from importlib.metadata lets is_gguf_available() parse the version.
+        """
+        try:
+            import gguf as _gguf_mod
+
+            if not hasattr(_gguf_mod, "__version__"):
+                _gguf_mod.__version__ = importlib.metadata.version("gguf")
+        except Exception:
+            pass
+
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_version()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -138,6 +158,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        self._fix_gguf_version()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
