@@ -57,7 +57,24 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from audioseal import AudioSeal
+        import sys
+
+        # The local 'audioseal/' model directory shadows the installed audioseal
+        # package. Temporarily remove the project root from sys.path and clear any
+        # cached namespace entries so the real package is found.
+        project_root = str(__import__("pathlib").Path(__file__).resolve().parents[2])
+        original_path = sys.path.copy()
+        sys.path = [p for p in sys.path if p != project_root]
+        cached_audioseal = {
+            k: sys.modules.pop(k)
+            for k in list(sys.modules)
+            if k == "audioseal" or k.startswith("audioseal.")
+        }
+        try:
+            from audioseal import AudioSeal
+        finally:
+            sys.path = original_path
+            sys.modules.update(cached_audioseal)
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
