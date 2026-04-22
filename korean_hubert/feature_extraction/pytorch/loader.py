@@ -55,33 +55,27 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self, dtype_override=None):
+    def _load_processor(self):
         from transformers import Wav2Vec2FeatureExtractor
 
-        processor_kwargs = {}
-        if dtype_override is not None:
-            processor_kwargs["dtype"] = dtype_override
-
         self._processor = Wav2Vec2FeatureExtractor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
+            self._variant_config.pretrained_model_name
         )
 
         return self._processor
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         from transformers import HubertModel
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        # HuBERT's conv feature extractor is incompatible with bfloat16 on CPU.
+        # Always load as float32.
+        kwargs.pop("dtype_override", None)
+        kwargs.pop("torch_dtype", None)
 
         model = HubertModel.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
+            self._variant_config.pretrained_model_name, **kwargs
         )
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
 
         return model
 
@@ -89,7 +83,7 @@ class ModelLoader(ForgeModel):
         import numpy as np
 
         if self._processor is None:
-            self._load_processor(dtype_override=dtype_override)
+            self._load_processor()
 
         # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
