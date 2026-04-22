@@ -81,8 +81,12 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
+        # The GGUF metadata encodes model type as "lfm2" (Lfm2Config) rather than
+        # "lfm2_vl" (Lfm2VlConfig), so AutoModelForImageTextToText rejects it.
+        # Load the correct VL config from the original non-GGUF checkpoint.
+        config = AutoConfig.from_pretrained("LiquidAI/LFM2-VL-450M")
         model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         ).eval()
 
         self.config = model.config
