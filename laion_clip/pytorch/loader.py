@@ -31,7 +31,7 @@ class ModelVariant(StrEnum):
     CONVNEXT_BASE_W_320_LAION_AESTHETIC_NO_AUGREG = (
         "ConvNeXt_Base_W_320_laion_aesthetic_no_augreg"
     )
-    VIT_G_14_LAION2B = "ViT_g_14_laion2B"
+    VIT_G_14_LAION2B_S12B = "ViT_g_14_laion2B_s12B"
 
 
 # Mapping from variant to OpenCLIP tokenizer name
@@ -42,7 +42,7 @@ _TOKENIZER_NAME = {
     ModelVariant.CONVNEXT_BASE_W_LAION2B_S13B_B82K: "convnext_base_w",
     ModelVariant.CONVNEXT_BASE_W_320_LAION_AESTHETIC: "convnext_base_w_320",
     ModelVariant.CONVNEXT_BASE_W_320_LAION_AESTHETIC_NO_AUGREG: "convnext_base_w_320",
-    ModelVariant.VIT_G_14_LAION2B: "ViT-g-14",
+    ModelVariant.VIT_G_14_LAION2B_S12B: "ViT-g-14",
 }
 
 
@@ -68,7 +68,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.CONVNEXT_BASE_W_320_LAION_AESTHETIC_NO_AUGREG: ModelConfig(
             pretrained_model_name="hf-hub:laion/CLIP-convnext_base_w_320-laion_aesthetic-s13B-b82K",
         ),
-        ModelVariant.VIT_G_14_LAION2B: ModelConfig(
+        ModelVariant.VIT_G_14_LAION2B_S12B: ModelConfig(
             pretrained_model_name="hf-hub:laion/CLIP-ViT-g-14-laion2B-s12B-b42K",
         ),
     }
