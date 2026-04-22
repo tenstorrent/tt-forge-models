@@ -82,17 +82,15 @@ class ModelLoader(ForgeModel):
             self._load_processor(dtype_override=dtype_override)
 
         model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs["torch_dtype"] = (
+            dtype_override if dtype_override is not None else torch.float32
+        )
         model_kwargs |= kwargs
 
         model = WhisperForConditionalGeneration.from_pretrained(
             pretrained_model_name, use_cache=False, **model_kwargs
         )
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
-
         return model
 
     def load_inputs(self, dtype_override=None):
