@@ -50,6 +50,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self._model = None
         self._processor = None
+        self._dtype = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -74,6 +75,7 @@ class ModelLoader(ForgeModel):
             self._model.eval()
         if dtype_override is not None:
             self._model = self._model.to(dtype=dtype_override)
+            self._dtype = dtype_override
         return self._model
 
     def load_inputs(self, **kwargs):
@@ -84,4 +86,7 @@ class ModelLoader(ForgeModel):
 
         image = Image.new("RGB", (64, 64), color=(128, 128, 128))
         inputs = self._processor(images=image, return_tensors="pt")
-        return inputs["pixel_values"]
+        pixel_values = inputs["pixel_values"]
+        if self._dtype is not None:
+            pixel_values = pixel_values.to(dtype=self._dtype)
+        return pixel_values
