@@ -29,6 +29,38 @@ from ...config import (
 
 FAST3R_REPO_PATH = "/tmp/fast3r_repo"
 
+_AUTOCAST_PATCH_SENTINEL = "# PATCHED: device-agnostic autocast\n"
+
+
+def _patch_fast3r_blocks():
+    """Patch fast3r's blocks.py CUDA-only autocast to work on non-CUDA devices.
+
+    The fast3r attention code hardcodes torch.autocast("cuda", dtype=torch.bfloat16)
+    which fails when CUDA is unavailable or the device doesn't support bfloat16.
+    Since the model runs in bfloat16, the autocast is a no-op and we replace it
+    with contextlib.nullcontext().
+    """
+    import contextlib
+
+    blocks_path = os.path.join(FAST3R_REPO_PATH, "fast3r/croco/models/blocks.py")
+    with open(blocks_path) as f:
+        content = f.read()
+
+    if _AUTOCAST_PATCH_SENTINEL in content:
+        return
+
+    content = (
+        _AUTOCAST_PATCH_SENTINEL
+        + "import contextlib as _contextlib\n"
+        + content.replace(
+            'with torch.autocast("cuda", dtype=torch.bfloat16):',
+            "with _contextlib.nullcontext():",
+        )
+    )
+
+    with open(blocks_path, "w") as f:
+        f.write(content)
+
 
 def _ensure_fast3r_importable():
     """Ensure the fast3r repo is cloned, installed, and importable."""
@@ -47,6 +79,8 @@ def _ensure_fast3r_importable():
         subprocess.check_call(
             ["pip", "install", "-e", FAST3R_REPO_PATH],
         )
+
+    _patch_fast3r_blocks()
 
     if FAST3R_REPO_PATH not in sys.path:
         sys.path.insert(0, FAST3R_REPO_PATH)
