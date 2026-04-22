@@ -24,15 +24,15 @@ from third_party.tt_forge_models.base import ForgeModel
 class ModelVariant(StrEnum):
     """Available model variants for msmarco-distilbert-base-v4."""
 
-    MSMARCO_DISTILBERT_BASE_V4 = "Xenova/msmarco-distilbert-base-v4"
+    MSMARCO_DISTILBERT_BASE_V4 = "sentence-transformers/msmarco-distilbert-base-v4"
 
 
 class ModelLoader(ForgeModel):
-    """Xenova msmarco-distilbert-base-v4 model loader."""
+    """sentence-transformers msmarco-distilbert-base-v4 model loader."""
 
     _VARIANTS = {
         ModelVariant.MSMARCO_DISTILBERT_BASE_V4: LLMModelConfig(
-            pretrained_model_name="Xenova/msmarco-distilbert-base-v4",
+            pretrained_model_name="sentence-transformers/msmarco-distilbert-base-v4",
             max_length=512,
         ),
     }
