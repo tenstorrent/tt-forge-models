@@ -79,6 +79,34 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_lora_state_dict(self, lora_file: str) -> dict:
+        """Load LoRA state dict, injecting default alpha keys (alpha=rank) when absent.
+
+        diffusers 0.37.1's _convert_non_diffusers_z_image_lora_to_diffusers requires
+        alpha keys alongside lora_A/lora_B keys, but this LoRA file was saved without
+        them.  alpha=rank gives scale=1.0 so the weights are applied as-is.
+        """
+        import safetensors.torch as st
+        from huggingface_hub import hf_hub_download
+
+        local_path = hf_hub_download(repo_id=LORA_REPO, filename=lora_file)
+        state_dict = st.load_file(local_path)
+
+        # Strip diffusion_model. prefix so diffusers format detection works.
+        state_dict = {
+            k.removeprefix("diffusion_model."): v for k, v in state_dict.items()
+        }
+
+        # Add missing alpha keys with alpha=rank → effective scale = 1.0.
+        a_key = ".lora_A.weight"
+        for k, v in list(state_dict.items()):
+            if k.endswith(a_key):
+                alpha_key = k[: -len(a_key)] + ".alpha"
+                if alpha_key not in state_dict:
+                    state_dict[alpha_key] = torch.tensor(float(v.shape[0]))
+
+        return state_dict
+
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
         """Load the Z-Image-Turbo pipeline with Pornmaster v1 LoRA weights applied."""
         self._pipe = ZImagePipeline.from_pretrained(
@@ -88,10 +116,8 @@ class ModelLoader(ForgeModel):
         )
 
         lora_file = _LORA_FILES[self._variant]
-        self._pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=lora_file,
-        )
+        lora_state_dict = self._load_lora_state_dict(lora_file)
+        self._pipe.load_lora_weights(lora_state_dict)
         self._pipe.fuse_lora()
 
         return self._pipe
