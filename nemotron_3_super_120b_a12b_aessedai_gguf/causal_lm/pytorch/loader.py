@@ -64,6 +64,9 @@ def _patch_nemotron_h_moe_support():
         GGUF_TO_FAST_CONVERTERS.setdefault(
             "nemotron_h_moe", GGUF_TO_FAST_CONVERTERS["nemotron"]
         )
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "nemotron_h", GGUF_TO_FAST_CONVERTERS["nemotron"]
+        )
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
