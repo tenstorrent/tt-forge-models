@@ -6,6 +6,7 @@ Mradermacher Huihui Qwen3-VL 8B Instruct Abliterated GGUF model loader
 implementation for image to text.
 """
 
+import inspect
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
@@ -15,10 +16,7 @@ from transformers import (
     Qwen3VLForConditionalGeneration,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
-from transformers.modeling_gguf_pytorch_utils import (
-    GGUF_SUPPORTED_ARCHITECTURES,
-    load_gguf_checkpoint as _real_load_gguf_checkpoint,
-)
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
 from typing import Optional
 
 from ....base import ForgeModel
@@ -52,12 +50,49 @@ def _patch_qwen3vl_support():
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen3vl", GGUF_TO_FAST_CONVERTERS["qwen3"])
 
 
-def _patched_load_gguf_checkpoint(*args, **kwargs):
-    _patch_qwen3vl_support()
-    result = _real_load_gguf_checkpoint(*args, **kwargs)
-    if result.get("config", {}).get("model_type") == "qwen3vl":
-        result["config"]["model_type"] = "qwen3_vl"
-    return result
+def _find_orig_load_fn():
+    """Traverse the chain of patched load_gguf_checkpoint functions to find
+    the one that accepts model_to_load (i.e. the actual transformers original).
+
+    Several other model loaders replace _gguf_utils.load_gguf_checkpoint with
+    restricted-signature wrappers.  We follow their _orig_load_gguf_checkpoint
+    closure references until we reach a function whose signature includes
+    model_to_load or **kwargs.
+    """
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen = set()
+    while True:
+        fn_id = id(fn)
+        if fn_id in seen:
+            break
+        seen.add(fn_id)
+        try:
+            sig = inspect.signature(fn)
+            params = sig.parameters
+            if "model_to_load" in params or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+            ):
+                return fn
+        except (ValueError, TypeError):
+            return fn
+        # Follow the _orig_load_gguf_checkpoint pointer stored in the function's globals
+        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if orig is not None and id(orig) != fn_id:
+            fn = orig
+        else:
+            break
+    return fn
+
+
+def _make_patched_fn(underlying_fn):
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        _patch_qwen3vl_support()
+        result = underlying_fn(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen3vl":
+            result["config"]["model_type"] = "qwen3_vl"
+        return result
+
+    return _patched_load_gguf_checkpoint
 
 
 _patch_qwen3vl_support()
@@ -125,12 +160,15 @@ class ModelLoader(ForgeModel):
             "Qwen/Qwen3-VL-8B-Instruct",
         )
 
-        # Install our patch just before from_pretrained so other modules'
-        # module-level patches (which use restricted signatures) don't win.
-        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        # Locate the original load_gguf_checkpoint (one that accepts model_to_load)
+        # by traversing any chain of restricted-signature wrappers set by other loaders,
+        # then install our patched version just before from_pretrained executes.
+        orig_fn = _find_orig_load_fn()
+        patched_fn = _make_patched_fn(orig_fn)
+        _gguf_utils.load_gguf_checkpoint = patched_fn
+        _config_utils.load_gguf_checkpoint = patched_fn
+        _auto_tokenizer.load_gguf_checkpoint = patched_fn
+        _tok_utils.load_gguf_checkpoint = patched_fn
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
