@@ -8,7 +8,14 @@ DeepSeek MoE model loader implementation for causal language modeling.
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, DynamicCache
+
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length, layer_idx=0):
+        return self.get_seq_length(layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
 
 from ....base import ForgeModel
 from ....config import (
