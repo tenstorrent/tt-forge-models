@@ -9,7 +9,6 @@ into discrete tokens via a VQVAE with an 8k codebook.
 """
 
 import torch
-from fourm.vq.vqvae import VQVAE
 from typing import Optional
 
 from ...base import ForgeModel
@@ -70,6 +69,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The VQVAE tokenizer model.
         """
+        from fourm.vq.vqvae import VQVAE
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model = VQVAE.from_pretrained(pretrained_model_name)
