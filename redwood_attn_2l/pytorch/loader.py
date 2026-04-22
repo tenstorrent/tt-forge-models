@@ -9,7 +9,6 @@ mechanistic interpretability project. It uses a GPT-2-style architecture with
 no MLP layers and is loaded via the TransformerLens library.
 """
 
-from transformer_lens import HookedTransformer
 from typing import Optional
 
 from ...base import ForgeModel
@@ -62,6 +61,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from transformer_lens import HookedTransformer
+
         model_name = self._variant_config.pretrained_model_name
 
         model = HookedTransformer.from_pretrained(model_name, **kwargs)
