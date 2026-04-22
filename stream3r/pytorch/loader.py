@@ -81,7 +81,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load and return the STream3R model.
 
         Returns:
@@ -94,12 +94,9 @@ class ModelLoader(ForgeModel):
         model = STream3R.from_pretrained(repo_id)
         model.eval()
 
-        dtype = dtype_override if dtype_override is not None else torch.float32
-        model = model.to(dtype)
-
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, batch_size=1, **kwargs):
         """Load sample image sequence inputs for STream3R.
 
         STream3R expects a tensor of shape [S, 3, H, W] or [B, S, 3, H, W]
@@ -110,11 +107,10 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Dict with 'images' and 'mode' keys for model(**inputs) unpacking.
         """
-        dtype = dtype_override or torch.float32
         num_frames, height, width = 4, 378, 518
 
         torch.manual_seed(42)
 
-        images = torch.rand(batch_size, num_frames, 3, height, width, dtype=dtype)
+        images = torch.rand(batch_size, num_frames, 3, height, width)
 
         return {"images": images, "mode": "causal"}
