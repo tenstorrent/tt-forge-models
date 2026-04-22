@@ -116,9 +116,10 @@ class ModelLoader(ForgeModel):
 
         # Spatial/temporal latent dimensions
         frame, height, width = 2, 8, 8
-        seq_len = frame * height * width
 
-        hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
+        hidden_states = torch.randn(
+            batch_size, in_channels, frame, height, width, dtype=dtype
+        )
         encoder_hidden_states = torch.randn(
             batch_size, txt_seq_len, text_dim, dtype=dtype
         )
