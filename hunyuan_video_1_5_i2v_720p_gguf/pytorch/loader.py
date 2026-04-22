@@ -32,6 +32,11 @@ from ...config import (
 
 GGUF_REPO = "jayn7/HunyuanVideo-1.5_I2V_720p-GGUF"
 
+# Diffusers repo that provides the transformer architecture config.
+# The 480p and 720p I2V models share the same HunyuanVideo15Transformer3DModel
+# architecture so this config is valid for both resolutions.
+_CONFIG_REPO = "hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_i2v"
+
 # Small spatial/temporal dimensions for compile-only testing.
 TRANSFORMER_NUM_FRAMES = 4
 TRANSFORMER_HEIGHT = 8
@@ -72,6 +77,134 @@ _GGUF_FILES = {
     ModelVariant.I2V_720P_CFG_DISTILLED_Q6_K: "720p_distilled/hunyuanvideo1.5_720p_i2v_cfg_distilled-Q6_K.gguf",
     ModelVariant.I2V_720P_CFG_DISTILLED_Q8_0: "720p_distilled/hunyuanvideo1.5_720p_i2v_cfg_distilled-Q8_0.gguf",
 }
+
+
+def _convert_hunyuan_video15_i2v_gguf_to_diffusers(checkpoint, **kwargs):
+    """Convert HunyuanVideo 1.5 I2V GGUF checkpoint from original to diffusers key format.
+
+    The GGUF files in jayn7/HunyuanVideo-1.5_I2V_720p-GGUF use the original
+    ComfyUI/upstream key naming convention. This function remaps those keys to
+    the diffusers HunyuanVideo15Transformer3DModel state-dict layout so that
+    from_single_file can load the weights correctly.
+    """
+
+    def remap_norm_scale_shift_(key, state_dict):
+        # final_layer.adaLN_modulation.1 stores [shift, scale]; diffusers expects
+        # [scale, shift] for norm_out.linear.
+        weight = state_dict.pop(key)
+        shift, scale = weight.chunk(2, dim=0)
+        new_key = key.replace("final_layer.adaLN_modulation.1", "norm_out.linear")
+        state_dict[new_key] = torch.cat([scale, shift], dim=0)
+
+    def remap_txt_in_(key, state_dict):
+        def rename_key(k):
+            k = k.replace(
+                "individual_token_refiner.blocks", "token_refiner.refiner_blocks"
+            )
+            k = k.replace("adaLN_modulation.1", "norm_out.linear")
+            k = k.replace("txt_in", "context_embedder")
+            k = k.replace(
+                "t_embedder.mlp.0", "time_text_embed.timestep_embedder.linear_1"
+            )
+            k = k.replace(
+                "t_embedder.mlp.2", "time_text_embed.timestep_embedder.linear_2"
+            )
+            k = k.replace("c_embedder", "time_text_embed.text_embedder")
+            k = k.replace("input_embedder", "proj_in")
+            k = k.replace("mlp", "ff")
+            return k
+
+        if "self_attn_qkv" in key:
+            weight = state_dict.pop(key)
+            to_q, to_k, to_v = weight.chunk(3, dim=0)
+            state_dict[rename_key(key.replace("self_attn_qkv", "attn.to_q"))] = to_q
+            state_dict[rename_key(key.replace("self_attn_qkv", "attn.to_k"))] = to_k
+            state_dict[rename_key(key.replace("self_attn_qkv", "attn.to_v"))] = to_v
+        else:
+            state_dict[rename_key(key)] = state_dict.pop(key)
+
+    def remap_img_attn_qkv_(key, state_dict):
+        weight = state_dict.pop(key)
+        to_q, to_k, to_v = weight.chunk(3, dim=0)
+        state_dict[key.replace("img_attn_qkv", "attn.to_q")] = to_q
+        state_dict[key.replace("img_attn_qkv", "attn.to_k")] = to_k
+        state_dict[key.replace("img_attn_qkv", "attn.to_v")] = to_v
+
+    def remap_txt_attn_qkv_(key, state_dict):
+        weight = state_dict.pop(key)
+        to_q, to_k, to_v = weight.chunk(3, dim=0)
+        state_dict[key.replace("txt_attn_qkv", "attn.add_q_proj")] = to_q
+        state_dict[key.replace("txt_attn_qkv", "attn.add_k_proj")] = to_k
+        state_dict[key.replace("txt_attn_qkv", "attn.add_v_proj")] = to_v
+
+    def remap_vision_in_(key, state_dict):
+        # vision_in.proj is a Sequential: [Linear(0), Norm(1), Act(2), Linear(3), Norm(4)]
+        # Index 2 has no parameters.  Map the four parameterised layers to the
+        # named attributes of diffusers' image_embedder.
+        _MAP = {
+            "vision_in.proj.0": "image_embedder.linear_1",
+            "vision_in.proj.1": "image_embedder.norm_in",
+            "vision_in.proj.3": "image_embedder.linear_2",
+            "vision_in.proj.4": "image_embedder.norm_out",
+        }
+        for old_prefix, new_prefix in _MAP.items():
+            if key.startswith(old_prefix + "."):
+                state_dict[key.replace(old_prefix, new_prefix, 1)] = state_dict.pop(key)
+                return
+
+    # Simple key renames applied in one pass.  Order matters: more specific
+    # patterns must appear before generic ones that are substrings of them.
+    RENAME_DICT = {
+        "cond_type_embedding": "cond_type_embed",
+        # byt5_in must come before the generic fc1/fc2/fc3 patterns.
+        "byt5_in.fc1": "context_embedder_2.linear_1",
+        "byt5_in.fc2": "context_embedder_2.linear_2",
+        "byt5_in.fc3": "context_embedder_2.linear_3",
+        "byt5_in.layernorm": "context_embedder_2.norm",
+        "img_in.proj": "x_embedder.proj",
+        # time_in.mlp.N must come before the generic mlp/fc patterns.
+        "time_in.mlp.0": "time_embed.timestep_embedder.linear_1",
+        "time_in.mlp.2": "time_embed.timestep_embedder.linear_2",
+        "double_blocks": "transformer_blocks",
+        "img_attn_q_norm": "attn.norm_q",
+        "img_attn_k_norm": "attn.norm_k",
+        "img_attn_proj": "attn.to_out.0",
+        "txt_attn_q_norm": "attn.norm_added_q",
+        "txt_attn_k_norm": "attn.norm_added_k",
+        "txt_attn_proj": "attn.to_add_out",
+        "img_mod.linear": "norm1.linear",
+        # img_mlp/txt_mlp must come before the generic fc1/fc2 patterns.
+        "img_mlp": "ff",
+        "txt_mod.linear": "norm1_context.linear",
+        "txt_mlp": "ff_context",
+        "self_attn_proj": "attn.to_out.0",
+        "fc1": "net.0.proj",
+        "fc2": "net.2",
+        "final_layer.linear": "proj_out",
+    }
+
+    for key in list(checkpoint.keys()):
+        new_key = key
+        for old, new in RENAME_DICT.items():
+            new_key = new_key.replace(old, new)
+        if new_key != key:
+            checkpoint[new_key] = checkpoint.pop(key)
+
+    SPECIAL_KEYS_REMAP = {
+        "txt_in": remap_txt_in_,
+        "img_attn_qkv": remap_img_attn_qkv_,
+        "txt_attn_qkv": remap_txt_attn_qkv_,
+        "vision_in": remap_vision_in_,
+        "final_layer.adaLN_modulation.1": remap_norm_scale_shift_,
+    }
+
+    for key in list(checkpoint.keys()):
+        for special_key, handler in SPECIAL_KEYS_REMAP.items():
+            if special_key in key:
+                handler(key, checkpoint)
+                break
+
+    return checkpoint
 
 
 class ModelLoader(ForgeModel):
@@ -123,18 +256,14 @@ class ModelLoader(ForgeModel):
             HunyuanVideo15Transformer3DModel,
         )
         from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
-        from diffusers.loaders.single_file_utils import (
-            convert_hunyuan_video_transformer_to_diffusers,
-        )
 
-        # diffusers 0.37.x omits HunyuanVideo15Transformer3DModel from the
-        # SINGLE_FILE_LOADABLE_CLASSES registry, which causes from_single_file to
-        # raise ValueError.  Register it here using the same conversion function as
-        # the 1.0 model; the function is a no-op when the GGUF already carries
-        # diffusers-native key names (detected by _should_convert_state_dict_to_diffusers).
+        # diffusers 0.37.x does not include HunyuanVideo15Transformer3DModel in
+        # SINGLE_FILE_LOADABLE_CLASSES, so from_single_file raises ValueError.
+        # Register it here with the correct conversion function that maps the
+        # original ComfyUI-style GGUF key names to diffusers format.
         if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
             SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
-                "checkpoint_mapping_fn": convert_hunyuan_video_transformer_to_diffusers,
+                "checkpoint_mapping_fn": _convert_hunyuan_video15_i2v_gguf_to_diffusers,
                 "default_subfolder": "transformer",
             }
 
@@ -144,14 +273,14 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         # Provide the transformer config explicitly so from_single_file does not
-        # fall back to auto-detecting the model type from checkpoint keys (which
-        # fails for HunyuanVideo 1.5 GGUF files whose keys are already in
-        # diffusers format and are not recognised by infer_diffusers_model_type).
+        # fall back to auto-detecting the model type from checkpoint keys (the
+        # GGUF uses original key names that are not recognised by
+        # infer_diffusers_model_type, which would default to a wrong SD v1 config).
         # URL must omit "resolve/main/" so _extract_repo_id_and_weights_name
-        # correctly separates the repo id from the nested filename path.
+        # correctly separates the repo id from the nested sub-path.
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
-            config="hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_i2v",
+            config=_CONFIG_REPO,
             subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
