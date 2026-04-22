@@ -9,7 +9,13 @@ Vision Transformer vision encoder and a BERT language encoder, trained
 contrastively on the M3D-Cap dataset.
 """
 import torch
-from transformers import AutoModel, AutoTokenizer, BertModel, BertConfig
+from transformers import (
+    AutoModel,
+    AutoTokenizer,
+    BertModel,
+    BertConfig,
+    PreTrainedModel,
+)
 from typing import Optional
 
 from ...base import ForgeModel
@@ -94,17 +100,29 @@ class ModelLoader(ForgeModel):
         # fails inside that context. Patch it to use BertModel(config) instead;
         # the M3D-CLIP checkpoint contains all fine-tuned BERT weights so no
         # pretrained BERT weights are lost.
-        _orig = BertModel.from_pretrained
+        _orig_bert_fp = BertModel.from_pretrained
 
         @classmethod
         def _bert_from_config(cls, name_or_path, *args, **kwargs):
             return cls(BertConfig.from_pretrained(name_or_path))
 
+        # M3D-CLIP's __init__ never calls self.post_init(), so all_tied_weights_keys
+        # is not set. Patch _adjust_tied_keys_with_tied_pointers to call post_init()
+        # lazily if the attribute is missing.
+        _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+        def _patched_adjust(self, *args, **kwargs):
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.post_init()
+            return _orig_adjust(self, *args, **kwargs)
+
         BertModel.from_pretrained = _bert_from_config
+        PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
         try:
             model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         finally:
-            BertModel.from_pretrained = _orig
+            BertModel.from_pretrained = _orig_bert_fp
+            PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust
 
         if dtype_override is not None:
             model = model.to(dtype_override)
