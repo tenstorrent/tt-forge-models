@@ -68,8 +68,9 @@ class ModelLoader(ForgeModel):
 
         model = Pi3.from_pretrained(pretrained_model_name, **kwargs)
 
-        if dtype_override is not None:
-            model = model.to(dtype=dtype_override)
+        model = model.to(
+            dtype=dtype_override if dtype_override is not None else torch.float32
+        )
 
         model.eval()
 
