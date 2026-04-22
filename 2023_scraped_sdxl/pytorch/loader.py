@@ -2,13 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-2023 Scraped SDXL (MLbackup/2023_Scraped_SDXL) model loader implementation.
+2023 Scraped SDXL (cagliostrolab/animagine-xl-3.1) model loader implementation.
 
 2023 Scraped SDXL is an anime-oriented text-to-image model fine-tuned from
 Stable Diffusion XL (stabilityai/stable-diffusion-xl-base-1.0).
 
 Available variants:
-- SCRAPED_SDXL_2023: MLbackup/2023_Scraped_SDXL text-to-image generation
+- SCRAPED_SDXL_2023: cagliostrolab/animagine-xl-3.1 text-to-image generation
 """
 
 from typing import Optional
@@ -28,7 +28,7 @@ from ...config import (
 )
 
 
-REPO_ID = "MLbackup/2023_Scraped_SDXL"
+REPO_ID = "cagliostrolab/animagine-xl-3.1"
 
 
 class ModelVariant(StrEnum):
