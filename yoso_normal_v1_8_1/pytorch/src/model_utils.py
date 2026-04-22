@@ -24,7 +24,7 @@ def load_unet(pretrained_model_name, dtype=None):
         model_kwargs["torch_dtype"] = dtype
 
     unet = UNet2DConditionModel.from_pretrained(
-        pretrained_model_name, subfolder="unet", **model_kwargs
+        pretrained_model_name, subfolder="unet", variant="fp16", **model_kwargs
     )
     unet.eval()
     return unet
