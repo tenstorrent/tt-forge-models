@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
             repo_id=self._variant_config.pretrained_model_name,
             filename="HumAwareVAD.jit",
         )
-        model = torch.jit.load(jit_path)
+        model = torch.jit.load(jit_path, map_location="cpu")
         model.eval()
 
         if dtype_override is not None:
