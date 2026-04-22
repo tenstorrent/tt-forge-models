@@ -16,7 +16,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import DiffusionPipeline
-from diffusers.utils import load_image
 
 from ...base import ForgeModel
 from ...config import (
@@ -67,10 +66,10 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the Qwen-Image-Edit-2511 pipeline with Zoom Master LoRA.
+        """Load the Qwen-Image-Edit-2511 pipeline with Zoom Master LoRA and return transformer.
 
         Returns:
-            DiffusionPipeline: The pipeline with LoRA adapter applied.
+            torch.nn.Module: The transformer with LoRA adapter applied.
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         self.pipeline = DiffusionPipeline.from_pretrained(
@@ -79,16 +78,41 @@ class ModelLoader(ForgeModel):
             **kwargs,
         )
         self.pipeline.load_lora_weights(LORA_REPO_ID)
-        return self.pipeline
+        if dtype_override is not None:
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
+        return self.pipeline.transformer
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Load sample inputs for the image editing pipeline.
+    def load_inputs(self, *, dtype_override=None, **kwargs) -> Any:
+        """Load sample inputs for the QwenImageTransformer2DModel.
 
         Returns:
-            dict: A dict with 'image' and 'prompt' keys.
+            dict: Keyword arguments matching QwenImageTransformer2DModel.forward().
         """
-        image = load_image(
-            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png"
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        batch_size = kwargs.get("batch_size", 1)
+
+        # Model config: in_channels=64 (packed latent token dimension)
+        img_dim = 64
+        # joint_attention_dim from config = 3584
+        text_dim = 3584
+        txt_seq_len = 32
+
+        # img_seq_len = frame * height * width for positional encoding
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
         )
-        prompt = "Zoom into the red highlighted area."
-        return {"image": image, "prompt": prompt}
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([0.5] * batch_size, dtype=dtype)
+        img_shapes = [(frame, height, width)] * batch_size
+
+        return {
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
+        }
