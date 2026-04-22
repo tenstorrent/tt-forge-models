@@ -136,6 +136,9 @@ class ModelLoader(ForgeModel):
         state_dict = torch.load(ckpt_path, map_location="cpu", weights_only=False)
         generator_state = state_dict.get("generator_ema", state_dict)
         self.pipeline.transformer.load_state_dict(generator_state, strict=False)
+        # Normalize all parameters to a consistent dtype after checkpoint loading
+        # (the Self-Forcing checkpoints are saved in bfloat16, causing mixed dtypes)
+        self.pipeline.transformer = self.pipeline.transformer.to(dtype)
 
         return self.pipeline.transformer
 
