@@ -29,11 +29,17 @@ def _patch_qwen35_support():
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
-        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
-                "qwen35",
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
-            )
+        section_map = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]
+        if "qwen3" not in section_map or "qwen35" in section_map:
+            continue
+        if section == "config":
+            # qwen35 uses a different head_dim than qwen3; include attention.key_length
+            # so the GGUF head_dim value is propagated to the model config.
+            qwen35_cfg = dict(section_map["qwen3"])
+            qwen35_cfg["attention.key_length"] = "head_dim"
+            section_map["qwen35"] = qwen35_cfg
+        else:
+            section_map["qwen35"] = section_map["qwen3"]
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
         GGUF_TO_FAST_CONVERTERS.setdefault(
