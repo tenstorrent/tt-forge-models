@@ -18,8 +18,10 @@ from typing import Optional
 _prev_gguf_load = _gguf_utils.load_gguf_checkpoint
 if "model_to_load" not in inspect.signature(_prev_gguf_load).parameters:
 
-    def _compat_gguf_load(path, return_tensors=False, model_to_load=None):
-        return _prev_gguf_load(path, return_tensors=return_tensors)
+    def _compat_gguf_load(
+        path, return_tensors=False, model_to_load=None, _fn=_prev_gguf_load
+    ):
+        return _fn(path, return_tensors=return_tensors)
 
     _gguf_utils.load_gguf_checkpoint = _compat_gguf_load
 del _prev_gguf_load
