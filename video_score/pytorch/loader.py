@@ -139,6 +139,15 @@ class ModelLoader(ForgeModel):
 
             Idefics2ForSequenceClassification.tie_weights = _compat_tie_weights
 
+        # mantis-vl 0.0.5 calls DynamicCache.get_usable_length() which was
+        # removed in transformers>=5.0; add it back as an alias.
+        from transformers import DynamicCache
+
+        if not hasattr(DynamicCache, "get_usable_length"):
+            DynamicCache.get_usable_length = (
+                lambda self, new_seq_length, layer_idx=0: self.get_seq_length()
+            )
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.processor is None:
