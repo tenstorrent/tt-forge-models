@@ -242,6 +242,7 @@ class ModelLoader(ForgeModel):
         self.config.num_key_value_heads = self._args.n_heads
         self.config.hidden_size = self._args.dim
         self.config.head_dim = self._args.v_head_dim
+        self.config.index_topk = self._args.index_topk
 
         return self.config
 
@@ -354,7 +355,7 @@ class ModelLoader(ForgeModel):
                 shard_specs[idx.wq_b.weight] = ("model", None)
                 shard_specs[idx.wk.weight] = (None, "model")
                 shard_specs[idx.weights_proj.weight] = (None, "model")
-                shard_specs[idx.k_cache] = ("batch", None, None)
+                shard_specs[idx.k_cache] = ("batch", None, None, None)
 
             ffn = layer.ffn
             if hasattr(ffn, "mlp"):

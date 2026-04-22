@@ -136,7 +136,7 @@ class ModelArgs:
     # index
     index_n_heads: int = 64
     index_head_dim: int = 128
-    index_topk: int = 2048
+    index_topk: int = 2048  # need to change this in the config for testing purposes
     # When True, the model is always called with an external MLACache and the
     # internal kv_cache/pe_cache buffers are not allocated (saves ~2 GiB/layer).
     use_mla_cache: bool = False
@@ -610,16 +610,21 @@ class Indexer(torch.nn.Module):
         # Register Hadamard matrix as a buffer so it moves with the model to the correct device
         self.register_buffer("haddamard", haddamard_matrix, persistent=False)
 
-        self.register_buffer(
-            "k_cache",
-            torch.zeros(
-                args.max_batch_size,
-                args.max_seq_len,
-                self.head_dim,
-                dtype=torch.bfloat16,
-            ),
-            persistent=False,
-        )
+        if args.use_mla_cache:
+            # batch_size and max_cache_len are unknown at construction time;
+            # call early_initialization() before the first forward pass.
+            self.register_buffer("k_cache", None, persistent=False)
+        else:
+            self.register_buffer(
+                "k_cache",
+                torch.zeros(
+                    args.max_batch_size,
+                    args.max_seq_len,
+                    self.head_dim,
+                    dtype=torch.bfloat16,
+                ),
+                persistent=False,
+            )
         # k_scale_cache is only used for fp8 quantization mode.
         # Currently, we don't need it since the Indexer only supports bf16.
         # Keeping this here for when we support fp8 quantization.
@@ -634,6 +639,32 @@ class Indexer(torch.nn.Module):
         #     persistent=False,
         # )
 
+    # This should be called before the first forward pass when use_mla_cache=True (i.e. k_cache was registered
+    # as None in __init__). Call init_indexer_cache() from the benchmark to invoke this for all layers.
+    def early_initialization(
+        self,
+        batch_size: int,
+        max_cache_len: int,
+        device,
+        dtype: torch.dtype,
+    ) -> None:
+        """Allocate k_cache when batch_size and max_cache_len are known.
+
+        Mirrors MLAStaticLayer.lazy_initialization. Must be called before the
+        first forward pass when use_mla_cache=True (i.e. k_cache was registered
+        as None in __init__). Call init_indexer_cache() from the benchmark to
+        invoke this for all layers.
+        """
+        self.register_buffer(
+            "k_cache",
+            torch.zeros(
+                batch_size, 1, max_cache_len, self.head_dim, dtype=dtype, device=device
+            ),
+            persistent=False,
+        )
+        if not torch.compiler.is_compiling():
+            torch._dynamo.mark_static_address(self.k_cache)
+
     def forward(
         self,
         x: torch.Tensor,
@@ -641,9 +672,9 @@ class Indexer(torch.nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        cache_position: Optional[torch.Tensor] = None,
     ):
         bsz, seqlen, _ = x.size()
-        end_pos = start_pos + seqlen
 
         q = self.wq_b(qr)
         q = q.view(bsz, seqlen, self.n_heads, self.head_dim)
@@ -679,24 +710,50 @@ class Indexer(torch.nn.Module):
         # k_fp8, k_scale = act_quant(k, block_size, self.scale_fmt)
 
         bsz, seqlen, n_heads, head_dim = q.shape
-        end_pos = start_pos + seqlen
 
-        self.k_cache[:bsz, start_pos:end_pos] = k
+        if cache_position is not None:
+            # Scatter-write to the true sequence position via index_copy_ on dim 2
+            # of the 4D cache [bsz, 1, max_cache_len, head_dim], matching the MLA
+            # cache layout so the TT backend can legalize the resulting scatter op.
+            self.k_cache[:bsz].index_copy_(2, cache_position, k.unsqueeze(1))
+            if seqlen > 1:
+                # Prefill: only read the positions just written so topk indices
+                # stay in [0, seqlen) and match the seqlen-sized index_mask in
+                # Attention.forward.
+                k_view = self.k_cache[:bsz, 0, :seqlen]  # [bsz, seqlen, head_dim]
+            else:
+                # Decode: read all cached positions.
+                k_view = self.k_cache[:bsz, 0]  # [bsz, max_cache_len, head_dim]
+        else:
+            end_pos = start_pos + seqlen
+            self.k_cache[:bsz, start_pos:end_pos] = k
+            k_view = self.k_cache[:bsz, :end_pos]
 
         # In full implementation, this would use fp8_index with quantized values
         weights = self.weights_proj(x) * self.n_heads**-0.5
         weights = weights.unsqueeze(-1) * self.softmax_scale
 
-        index_score = bf16_index(q, weights, self.k_cache[:bsz, :end_pos])
+        index_score = bf16_index(q, weights, k_view)  # [b, seqlen, n_positions]
 
-        if mask is not None:
+        if cache_position is not None:
+            # Causal mask via tensor comparison — no .item() needed.
+            # future_mask[q, k] is True when position k > cache_position[q],
+            # matching the pattern used in the MLA attention path.
+            pos_range = torch.arange(k_view.size(1), device=k.device)
+            future_mask = pos_range.unsqueeze(0) > cache_position.unsqueeze(
+                1
+            )  # [seqlen, max_cache_len]
+            index_score = index_score.masked_fill(
+                future_mask.unsqueeze(0), float("-inf")
+            )
+        elif mask is not None:
             index_score += mask
 
         # Return continuous scores for testing instead of discrete indices
         if self.return_raw_scores:
             return index_score
 
-        topk_indices = index_score.topk(min(self.index_topk, end_pos), dim=-1)[1]
+        topk_indices = index_score.topk(min(self.index_topk, k_view.size(1)), dim=-1)[1]
 
         return topk_indices
 
@@ -861,9 +918,17 @@ class MLA(nn.Module):
             k = torch.cat([k_nope, k_pe.expand(-1, -1, self.n_local_heads, -1)], dim=-1)
             scores = torch.einsum("bshd,bthd->bsht", q, k).mul_(self.softmax_scale)
 
-            # indexer
-            if self.indexer is not None:
-                topk_indices = self.indexer(x, qr, start_pos, freqs_cis, mask)
+            # indexer: pass cache_position so Indexer uses the 4D write path and
+            # returns indices in [0, seqlen) that fit the seqlen-sized index_mask.
+            if self.indexer is not None and self.indexer.k_cache is not None:
+                topk_indices = self.indexer(
+                    x,
+                    qr,
+                    start_pos,
+                    freqs_cis,
+                    mask=None,
+                    cache_position=cache_position,
+                )
                 index_mask = torch.full(
                     (bsz, seqlen, seqlen), float("-inf"), device=x.device
                 ).scatter_(-1, topk_indices, 0)
@@ -889,17 +954,32 @@ class MLA(nn.Module):
                 # kv_full / pe_full: [bsz, max_cache_len, dim]
                 kv_full = past_key_value.compressed_kv[:bsz, 0]
                 pe_full = past_key_value.k_pe[:bsz, 0]
+                max_cache_len = kv_full.size(1)
                 scores = (
                     torch.einsum("bshc,btc->bsht", q_nope, kv_full)
                     + torch.einsum("bshr,btr->bsht", q_pe, pe_full)
                 ) * self.softmax_scale
-                # Mask future positions without .item() — pure tensor comparison.
-                max_cache_len = kv_full.size(1)
+                # Hard causal mask: block positions not yet written to the cache.
                 pos_range = torch.arange(max_cache_len, device=x.device)
                 future_mask = pos_range > cache_position[0]
                 scores = scores.masked_fill(
                     future_mask.view(1, 1, 1, -1), float("-inf")
                 )
+                # Sparse token selection: Indexer picks top-k relevant cached positions.
+                # Its index_mask further restricts attention on top of the causal mask.
+                if self.indexer is not None and self.indexer.k_cache is not None:
+                    topk_indices = self.indexer(
+                        x,
+                        qr,
+                        start_pos,
+                        freqs_cis,
+                        mask=None,
+                        cache_position=cache_position,
+                    )
+                    index_mask = torch.full(
+                        (bsz, 1, max_cache_len), float("-inf"), device=x.device
+                    ).scatter_(-1, topk_indices, 0)
+                    scores += index_mask.unsqueeze(2)
                 scores = scores.softmax(dim=-1)
                 x = torch.einsum("bsht,btc->bshc", scores, kv_full)
                 x = torch.einsum("bshc,hdc->bshd", x, wkv_b[:, -self.v_head_dim :])
