@@ -45,8 +45,17 @@ def _patch_transformers_smollm3_gguf():
         GGUFLlamaConverter,
     )
 
+    class GGUFSmolLM3Converter(GGUFLlamaConverter):
+        def tokenizer(self, proto):
+            # GGUFLlamaConverter.tokenizer has a bug where it accesses proto.bos_token_id
+            # when checking eos_token_id (line 413 of ggml.py). SmolLM3 GGUF omits
+            # bos_token_id; fall back to eos_token_id so the index lookup succeeds.
+            if not hasattr(proto, "bos_token_id"):
+                proto.bos_token_id = getattr(proto, "eos_token_id", None)
+            return super().tokenizer(proto)
+
     if "smollm3" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["smollm3"] = GGUFLlamaConverter
+        GGUF_TO_FAST_CONVERTERS["smollm3"] = GGUFSmolLM3Converter
 
 
 _patch_transformers_smollm3_gguf()
