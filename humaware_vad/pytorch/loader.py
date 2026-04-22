@@ -68,10 +68,7 @@ class ModelLoader(ForgeModel):
         )
         model = torch.jit.load(jit_path, map_location="cpu")
         model.eval()
-
-        if dtype_override is not None:
-            model.to(dtype_override)
-
+        # TorchScript STFT layer requires float32; dtype_override is intentionally ignored.
         return model
 
     def load_inputs(self, dtype_override=None):
@@ -82,10 +79,6 @@ class ModelLoader(ForgeModel):
         """
         chunk_size = 512
         sampling_rate = 16000
-
+        # Model STFT layer requires float32; dtype_override is intentionally ignored.
         audio_chunk = torch.randn(1, chunk_size)
-
-        if dtype_override is not None:
-            audio_chunk = audio_chunk.to(dtype_override)
-
         return [audio_chunk, torch.tensor(sampling_rate)]
