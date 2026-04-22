@@ -6,7 +6,7 @@ Hulu-Med model loader implementation for medical image-to-text generation.
 """
 
 import torch
-from transformers import AutoModelForVision2Seq, AutoProcessor
+from transformers import AutoModelForImageTextToText, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForVision2Seq.from_pretrained(
+        model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
@@ -132,15 +132,13 @@ class ModelLoader(ForgeModel):
 
         image_file = get_file(self.sample_image)
 
-        conversation = [
+        messages = [
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "image",
-                        "image": {
-                            "image_path": image_file,
-                        },
+                        "image": image_file,
                     },
                     {
                         "type": "text",
@@ -150,9 +148,11 @@ class ModelLoader(ForgeModel):
             }
         ]
 
-        inputs = self.processor(
-            conversation=conversation,
+        inputs = self.processor.apply_chat_template(
+            messages,
+            tokenize=True,
             add_generation_prompt=True,
+            return_dict=True,
             return_tensors="pt",
         )
 
