@@ -5,6 +5,8 @@
 T5Gemma model loader implementation for conditional generation tasks.
 """
 
+import os
+
 import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from typing import Optional
@@ -84,6 +86,9 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        token = os.environ.get("HF_TOKEN")
+        if token:
+            tokenizer_kwargs["token"] = token
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -108,6 +113,9 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        token = os.environ.get("HF_TOKEN")
+        if token:
+            model_kwargs["token"] = token
         model_kwargs |= kwargs
 
         model = AutoModelForSeq2SeqLM.from_pretrained(
