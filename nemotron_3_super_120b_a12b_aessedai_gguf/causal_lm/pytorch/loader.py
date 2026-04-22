@@ -93,7 +93,9 @@ def _patch_transformers_nemotron_h_moe_gguf():
     _chain_fn = gguf_utils.load_gguf_checkpoint
 
     def _get_real_load_gguf_checkpoint(fn):
-        """Walk the _patched closure chain to find the real transformers function."""
+        """Walk the patch chain (closures + module globals) to find the real function."""
+        import inspect
+
         seen = set()
         current = fn
         while True:
@@ -103,6 +105,12 @@ def _patch_transformers_nemotron_h_moe_gguf():
             if fn_id in seen or not hasattr(current, "__code__"):
                 return current
             seen.add(fn_id)
+            try:
+                if "model_to_load" in inspect.signature(current).parameters:
+                    return current
+            except (ValueError, TypeError):
+                pass
+            # Check closure variables
             freevars = current.__code__.co_freevars
             cells = current.__closure__ or ()
             next_fn = None
@@ -117,6 +125,13 @@ def _patch_transformers_nemotron_h_moe_gguf():
                             break
                     except ValueError:
                         pass
+            # Check module-level globals (pattern: from X import load_gguf_checkpoint as _orig_...)
+            if next_fn is None:
+                v = getattr(current, "__globals__", {}).get(
+                    "_orig_load_gguf_checkpoint"
+                )
+                if v is not None and callable(v) and id(v) not in seen:
+                    next_fn = v
             if next_fn is None:
                 return current
             current = next_fn
@@ -179,6 +194,9 @@ def _patch_transformers_nemotron_h_moe_gguf():
 
     gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
+    global _NEMOTRON_GGUF_LOAD_FN
+    _NEMOTRON_GGUF_LOAD_FN = _patched_load_gguf_checkpoint
+
     import transformers.models.auto.tokenization_auto as _tok_auto
     import transformers.configuration_utils as _config_utils
     import transformers.modeling_utils as _modeling_utils
@@ -203,6 +221,7 @@ def _patch_transformers_nemotron_h_moe_gguf():
     gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
+_NEMOTRON_GGUF_LOAD_FN = None
 _patch_transformers_nemotron_h_moe_gguf()
 
 
@@ -282,9 +301,22 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        import transformers.modeling_gguf_pytorch_utils as _gguf_mod
+        import transformers.modeling_utils as _modeling_mod
+
+        _saved_gguf_fn = _gguf_mod.load_gguf_checkpoint
+        _saved_modeling_fn = getattr(_modeling_mod, "load_gguf_checkpoint", None)
+        if _NEMOTRON_GGUF_LOAD_FN is not None:
+            _gguf_mod.load_gguf_checkpoint = _NEMOTRON_GGUF_LOAD_FN
+            _modeling_mod.load_gguf_checkpoint = _NEMOTRON_GGUF_LOAD_FN
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_mod.load_gguf_checkpoint = _saved_gguf_fn
+            if _saved_modeling_fn is not None:
+                _modeling_mod.load_gguf_checkpoint = _saved_modeling_fn
 
         self.config = model.config
         self.model = model
