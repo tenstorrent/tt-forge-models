@@ -54,25 +54,20 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self, dtype_override=None):
+    def _load_processor(self):
         from transformers import Wav2Vec2FeatureExtractor
 
-        processor_kwargs = {}
-        if dtype_override is not None:
-            processor_kwargs["dtype"] = dtype_override
-
         self._processor = Wav2Vec2FeatureExtractor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
+            self._variant_config.pretrained_model_name
         )
 
         return self._processor
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         import torch
         from transformers import Wav2Vec2ForSequenceClassification
 
-        dtype = dtype_override if dtype_override is not None else torch.float32
-        model_kwargs = {"torch_dtype": dtype}
+        model_kwargs = {"torch_dtype": torch.float32}
         model_kwargs |= kwargs
 
         model = Wav2Vec2ForSequenceClassification.from_pretrained(
@@ -80,15 +75,15 @@ class ModelLoader(ForgeModel):
             **model_kwargs,
         )
         model.eval()
-        model.to(dtype)
+        model.to(torch.float32)
 
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         import numpy as np
 
         if self._processor is None:
-            self._load_processor(dtype_override=dtype_override)
+            self._load_processor()
 
         # Generate a synthetic 1-second audio waveform at 16kHz
         sampling_rate = 16000
