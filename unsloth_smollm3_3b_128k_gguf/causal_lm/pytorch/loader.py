@@ -20,6 +20,38 @@ from ....config import (
 )
 
 
+def _patch_transformers_smollm3_gguf():
+    """Monkey-patch transformers to add smollm3 GGUF architecture support.
+
+    SmolLM3 uses the 'smollm3' architecture identifier in GGUF metadata but is
+    Llama-based (SmolLM3ForCausalLM inherits LlamaForCausalLM). We bridge the gap
+    by registering smollm3 with llama's config mapping and tokenizer converter.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+
+    if "smollm3" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("smollm3")
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["smollm3"] = GGUF_TO_TRANSFORMERS_MAPPING[
+        "config"
+    ]["llama"]
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "smollm3" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["smollm3"] = GGUFLlamaConverter
+
+
+_patch_transformers_smollm3_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Unsloth SmolLM3 3B 128K GGUF model variants for causal language modeling."""
 
