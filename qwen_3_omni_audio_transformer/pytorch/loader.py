@@ -88,7 +88,17 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Qwen3-Omni AudioTransformer model."""
-        from transformers import AutoModel
+        from transformers import AutoConfig, AutoModel
+        from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
+            Qwen3OmniMoeAudioEncoder,
+            Qwen3OmniMoeAudioEncoderConfig,
+        )
+
+        # qwen3_omni_moe_audio_encoder is not registered in AutoConfig/AutoModel mappings
+        AutoConfig.register(
+            "qwen3_omni_moe_audio_encoder", Qwen3OmniMoeAudioEncoderConfig
+        )
+        AutoModel.register(Qwen3OmniMoeAudioEncoderConfig, Qwen3OmniMoeAudioEncoder)
 
         model_kwargs = {}
         if dtype_override is not None:
