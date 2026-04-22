@@ -106,6 +106,33 @@ def _patch_transformers_expand_mask():
     clip_module._expand_mask = _expand_mask
 
 
+def _patch_languagebind_video_processor():
+    """Fix LanguageBindVideoProcessor compat for transformers>=5.
+
+    transformers 5.x ProcessorMixin.__init__ validates that components named
+    in tokenizer_class are passed as kwargs. LanguageBindVideoProcessor calls
+    super().__init__(**kwargs) without forwarding tokenizer, so validation fails.
+    This shim replaces __init__ to call ProcessorMixin.__init__ with tokenizer.
+    """
+    from languagebind.video import processing_video
+    from transformers import ProcessorMixin
+
+    if getattr(
+        processing_video.LanguageBindVideoProcessor.__init__, "_patched_t5", False
+    ):
+        return
+
+    def _patched_init(self, config, tokenizer=None, **kwargs):
+        ProcessorMixin.__init__(self, tokenizer=tokenizer, **kwargs)
+        self.config = config
+        self.transform = processing_video.get_video_transform(config)
+        self.image_processor = processing_video.load_and_transform_video
+        self.tokenizer = tokenizer
+
+    _patched_init._patched_t5 = True
+    processing_video.LanguageBindVideoProcessor.__init__ = _patched_init
+
+
 def _ensure_languagebind():
     """Clone LanguageBind repo if not importable (repo has no setup.py/pyproject.toml)."""
     cache_dir = os.path.join(
@@ -180,6 +207,7 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         _ensure_languagebind()
+        _patch_languagebind_video_processor()
         from languagebind.video.tokenization_video import LanguageBindVideoTokenizer
         from languagebind.video.processing_video import LanguageBindVideoProcessor
 
