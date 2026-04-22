@@ -5,7 +5,6 @@
 ColQwen Omni model loader implementation for visual document retrieval.
 """
 import torch
-from colpali_engine.models import ColQwen2_5Omni, ColQwen2_5OmniProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -57,6 +56,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        from colpali_engine.models import ColQwen2_5OmniProcessor
+
         self.processor = ColQwen2_5OmniProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
         )
@@ -74,6 +75,8 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["torch_dtype"] = torch.bfloat16
         model_kwargs |= kwargs
+
+        from colpali_engine.models import ColQwen2_5Omni
 
         model = ColQwen2_5Omni.from_pretrained(
             pretrained_model_name,
