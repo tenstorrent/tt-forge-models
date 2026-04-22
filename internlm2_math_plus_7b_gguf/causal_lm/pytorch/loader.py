@@ -42,11 +42,11 @@ def _patch_internlm2_support():
     TENSOR_PROCESSORS["internlm2"] = LlamaTensorProcessor
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to add internlm2 support and fix model_type."""
     _patch_internlm2_support()
     result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+        gguf_path, return_tensors=return_tensors, **kwargs
     )
     if result.get("config", {}).get("model_type") == "internlm2":
         result["config"]["model_type"] = "llama"
