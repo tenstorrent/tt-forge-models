@@ -7,6 +7,7 @@ Mistral 7B Instruct v0.3 AWQ model loader implementation for causal language mod
 
 from typing import Optional
 
+import gptqmodel  # noqa: F401 - must import before from_pretrained to avoid meta-tensor failure
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
