@@ -102,9 +102,21 @@ class DeepseekOCRAttention(nn.Module):
     ) -> torch.Tensor:
         B, T, _ = hidden_states.shape
 
-        q = self.q_proj(hidden_states).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
-        k = self.k_proj(hidden_states).view(B, T, self.num_kv_heads, self.head_dim).transpose(1, 2)
-        v = self.v_proj(hidden_states).view(B, T, self.num_kv_heads, self.head_dim).transpose(1, 2)
+        q = (
+            self.q_proj(hidden_states)
+            .view(B, T, self.num_heads, self.head_dim)
+            .transpose(1, 2)
+        )
+        k = (
+            self.k_proj(hidden_states)
+            .view(B, T, self.num_kv_heads, self.head_dim)
+            .transpose(1, 2)
+        )
+        v = (
+            self.v_proj(hidden_states)
+            .view(B, T, self.num_kv_heads, self.head_dim)
+            .transpose(1, 2)
+        )
 
         cos, sin = self._get_rotary(T, hidden_states.device)
         q, k = _apply_rotary(q, k, cos, sin)
@@ -122,9 +134,15 @@ class DeepseekOCRAttention(nn.Module):
 class DenseMLP(nn.Module):
     def __init__(self, config: DeepseekOCRConfig):
         super().__init__()
-        self.gate_proj = nn.Linear(config.hidden_size, config.intermediate_size, bias=False)
-        self.up_proj = nn.Linear(config.hidden_size, config.intermediate_size, bias=False)
-        self.down_proj = nn.Linear(config.intermediate_size, config.hidden_size, bias=False)
+        self.gate_proj = nn.Linear(
+            config.hidden_size, config.intermediate_size, bias=False
+        )
+        self.up_proj = nn.Linear(
+            config.hidden_size, config.intermediate_size, bias=False
+        )
+        self.down_proj = nn.Linear(
+            config.intermediate_size, config.hidden_size, bias=False
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.down_proj(F.silu(self.gate_proj(x)) * self.up_proj(x))
@@ -154,7 +172,11 @@ class MoEMLP(nn.Module):
 
     def __init__(self, config: DeepseekOCRConfig):
         super().__init__()
-        H, E, N = config.hidden_size, config.moe_intermediate_size, config.n_routed_experts
+        H, E, N = (
+            config.hidden_size,
+            config.moe_intermediate_size,
+            config.n_routed_experts,
+        )
         self.num_experts_per_tok = config.num_experts_per_tok
 
         self.gate = nn.Linear(H, N, bias=False)
@@ -175,7 +197,9 @@ class MoEMLP(nn.Module):
         # Routing
         router_logits = self.gate(flat_x)  # [B*T, N]
         router_weights = F.softmax(router_logits, dim=-1)
-        top_weights, top_experts = torch.topk(router_weights, self.num_experts_per_tok, dim=-1)
+        top_weights, top_experts = torch.topk(
+            router_weights, self.num_experts_per_tok, dim=-1
+        )
         top_weights = top_weights / top_weights.sum(dim=-1, keepdim=True)
 
         # Compute all expert outputs simultaneously (dense over N experts)
@@ -183,10 +207,14 @@ class MoEMLP(nn.Module):
         gate_out = F.silu(torch.einsum("bh,hEN->bNE", flat_x, self.gate_proj_experts))
         up_out = torch.einsum("bh,hEN->bNE", flat_x, self.up_proj_experts)
         # expert_out: [B*T, N, H]
-        expert_out = torch.einsum("bNE,EhN->bNh", gate_out * up_out, self.down_proj_experts)
+        expert_out = torch.einsum(
+            "bNE,EhN->bNh", gate_out * up_out, self.down_proj_experts
+        )
 
         # Build dense routing weight matrix [B*T, N]
-        routing = torch.zeros(B * T, self.gate_proj_experts.shape[-1], device=x.device, dtype=x.dtype)
+        routing = torch.zeros(
+            B * T, self.gate_proj_experts.shape[-1], device=x.device, dtype=x.dtype
+        )
         routing.scatter_add_(1, top_experts, top_weights)
 
         # Weighted sum of routed expert outputs: [B*T, H]
@@ -201,7 +229,9 @@ class DeepseekOCRLayer(nn.Module):
         super().__init__()
         self.self_attn = DeepseekOCRAttention(config)
         self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = RMSNorm(
+            config.hidden_size, eps=config.rms_norm_eps
+        )
         # Layer 0 uses dense MLP; subsequent layers use MoE
         if layer_idx < config.first_k_dense_replace:
             self.mlp = DenseMLP(config)
@@ -214,7 +244,9 @@ class DeepseekOCRLayer(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         residual = hidden_states
-        hidden_states = self.self_attn(self.input_layernorm(hidden_states), attention_mask)
+        hidden_states = self.self_attn(
+            self.input_layernorm(hidden_states), attention_mask
+        )
         hidden_states = residual + hidden_states
 
         residual = hidden_states
