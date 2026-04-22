@@ -49,7 +49,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="facebook/wav2vec2-base-960h",
         ),
         ModelVariant.INDICWAV2VEC_HINDI: ModelConfig(
-            pretrained_model_name="ai4bharat/indicwav2vec-hindi",
+            pretrained_model_name="Harveenchadha/vakyansh-wav2vec2-hindi-him-4200",
         ),
         ModelVariant.LARGE_XLS_R_300M_WELSH: ModelConfig(
             pretrained_model_name="infinitejoy/wav2vec2-large-xls-r-300m-welsh",
@@ -136,5 +136,11 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if v.is_floating_point() else v
+                for k, v in inputs.items()
+            }
 
         return inputs
