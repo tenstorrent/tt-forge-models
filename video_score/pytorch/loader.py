@@ -110,7 +110,22 @@ class ModelLoader(ForgeModel):
         Requires the mantis-vl package:
             pip install mantis-vl
         """
-        from mantis.models.idefics2 import Idefics2ForSequenceClassification
+        import site
+        import sys
+
+        # mantis-vl installs as 'mantis' in site-packages; the local mantis/
+        # (Mantis-8M time series model) shadows it when the forge-models root
+        # is on sys.path.  Prepend site-packages so the correct package is found.
+        _site_pkgs = [p for p in site.getsitepackages() if "site-packages" in p]
+        _saved_mantis = sys.modules.pop("mantis", None)
+        _orig_path = sys.path[:]
+        sys.path = _site_pkgs + sys.path
+        try:
+            from mantis.models.idefics2 import Idefics2ForSequenceClassification
+        finally:
+            sys.path = _orig_path
+            if _saved_mantis is not None:
+                sys.modules["mantis"] = _saved_mantis
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
