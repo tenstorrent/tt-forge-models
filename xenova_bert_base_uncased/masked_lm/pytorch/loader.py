@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BERT_BASE_UNCASED: LLMModelConfig(
-            pretrained_model_name="Xenova/bert-base-uncased",
+            pretrained_model_name="google-bert/bert-base-uncased",
             max_length=128,
         ),
     }
@@ -68,7 +68,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForMaskedLM.from_pretrained(self._model_name, **model_kwargs)
