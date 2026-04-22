@@ -102,7 +102,7 @@ class ModelLoader(ForgeModel):
         ]
 
         text_prompt = self.processor.apply_chat_template(
-            conversation, add_generation_prompt=True
+            conversation, add_generation_prompt=True, tokenize=False
         )
 
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
