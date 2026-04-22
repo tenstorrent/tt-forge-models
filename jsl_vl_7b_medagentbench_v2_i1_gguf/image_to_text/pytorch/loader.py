@@ -9,10 +9,7 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
-from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
-    GGUF_SUPPORTED_ARCHITECTURES,
-)
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 from transformers import (
@@ -51,22 +48,42 @@ def _patch_qwen2vl_support():
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen2vl", GGUF_TO_FAST_CONVERTERS["qwen2"])
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
-    """Wrap load_gguf_checkpoint to add qwen2vl support and fix model_type."""
-    _patch_qwen2vl_support()
-    result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, **kwargs
-    )
-    if result.get("config", {}).get("model_type") == "qwen2vl":
-        result["config"]["model_type"] = "qwen2_5_vl"
-    return result
+def _find_true_load_gguf_checkpoint():
+    """Walk the patch chain to find the true original load_gguf_checkpoint.
+
+    Other loaders may have patched _gguf_utils.load_gguf_checkpoint without
+    **kwargs support.  We traverse the _orig_load_gguf_checkpoint bindings in
+    each wrapper's globals until we reach the real function (name ==
+    'load_gguf_checkpoint').
+    """
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen = set()
+    while fn.__name__ != "load_gguf_checkpoint" and id(fn) not in seen:
+        seen.add(id(fn))
+        _next = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if _next is None:
+            break
+        fn = _next
+    return fn
+
+
+def _make_patched(true_orig):
+    def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+        _patch_qwen2vl_support()
+        result = true_orig(gguf_path, return_tensors=return_tensors, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen2vl":
+            result["config"]["model_type"] = "qwen2_5_vl"
+        return result
+
+    return _patched_load_gguf_checkpoint
 
 
 _patch_qwen2vl_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_patched = _make_patched(_find_true_load_gguf_checkpoint())
+_gguf_utils.load_gguf_checkpoint = _patched
+_config_utils.load_gguf_checkpoint = _patched
+_auto_tokenizer.load_gguf_checkpoint = _patched
+_tok_utils.load_gguf_checkpoint = _patched
 
 
 class ModelVariant(StrEnum):
@@ -129,12 +146,16 @@ class ModelLoader(ForgeModel):
             "Qwen/Qwen2.5-VL-7B-Instruct",
         )
 
-        # Re-apply patch here in case another loader overwrote it during test discovery.
+        # Re-apply patch before loading so it's active when from_pretrained
+        # calls load_gguf_checkpoint.  Build a fresh patched wrapper each time
+        # so that _find_true_load_gguf_checkpoint() resolves against whatever
+        # is currently in the module (another loader may have overwritten it).
         _patch_qwen2vl_support()
-        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _fresh_patched = _make_patched(_find_true_load_gguf_checkpoint())
+        _gguf_utils.load_gguf_checkpoint = _fresh_patched
+        _config_utils.load_gguf_checkpoint = _fresh_patched
+        _auto_tokenizer.load_gguf_checkpoint = _fresh_patched
+        _tok_utils.load_gguf_checkpoint = _fresh_patched
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
