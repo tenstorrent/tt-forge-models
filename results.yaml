@@ -1,0 +1,13 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[whisper_small_indonesian_lora/pytorch-Small_Indonesian_LoRA-single_device-inference]"
+  status: "PASS"
+  date: "20260422_175409"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-22_16-54/hf-bringup-28"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[tweet_topic_21_multi/sequence_classification/pytorch-tweet-topic-21-multi-single_device-inference]"
+  status: "PASS"
+  date: "20260422_213812"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-22_16-54/hf-bringup-28"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[topevolutionwiz/causal_lm/pytorch-TopEvolutionWiz-single_device-inference]"
+  status: "PASS"
+  date: "20260422_230315"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-22_16-54/hf-bringup-28"
