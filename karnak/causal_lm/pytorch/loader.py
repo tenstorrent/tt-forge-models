@@ -4,6 +4,8 @@
 """
 Karnak (Applied-Innovation-Center) model loader implementation for causal language modeling.
 """
+import os
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -83,16 +85,32 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
             config = AutoConfig.from_pretrained(
                 pretrained_model_name, trust_remote_code=True
             )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            config.num_hidden_layers = 4
+            config.num_attention_heads = 16
+            config.num_key_value_heads = 2
+            config.intermediate_size = 1024
+            config.num_local_experts = 8
+            config.num_experts_per_tok = 2
+            config.moe_intermediate_size = 256
+            config.max_window_layers = 4
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            model = AutoModelForCausalLM.from_config(config, **model_kwargs)
+        else:
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, trust_remote_code=True
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        model.eval()
 
         self.config = model.config
         self.model = model
