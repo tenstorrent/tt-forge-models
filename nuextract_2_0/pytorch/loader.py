@@ -43,7 +43,10 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.NUEXTRACT_2_0_8B
 
-    # Sample extraction messages using an image input
+    # NuExtract 2.0's custom chat template only emits image placeholder tokens when
+    # the content list contains only image items (no text alongside).  Including a
+    # text item causes the template to drop the image and emit only the text, which
+    # produces a mismatch between pixel_values and input_ids at runtime.
     messages = [
         {
             "role": "user",
@@ -52,7 +55,6 @@ class ModelLoader(ForgeModel):
                     "type": "image",
                     "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
                 },
-                {"type": "text", "text": "Describe this image."},
             ],
         }
     ]
@@ -113,12 +115,19 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        inputs = self.processor.apply_chat_template(
-            self.messages,
-            tokenize=True,
-            return_dict=True,
+        from qwen_vl_utils import process_vision_info
+
+        text = self.processor.apply_chat_template(
+            self.messages, tokenize=False, add_generation_prompt=True
+        )
+        image_inputs, video_inputs = process_vision_info(self.messages)
+
+        inputs = self.processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
             return_tensors="pt",
-            add_generation_prompt=True,
         )
 
         if dtype_override is not None:
