@@ -138,7 +138,10 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        # The Qwen3-Omni audio encoder expects unpadded features with feature_lens
+        # specifying the actual length per batch element (not Whisper-style padding)
         feature_len = (sampling_rate * duration_seconds) // self._processor.hop_length
         feature_lens = torch.tensor([feature_len], dtype=torch.long)
+        input_features = inputs["input_features"][:, :, :feature_len]
 
-        return [inputs["input_features"], feature_lens]
+        return [input_features, feature_lens]
