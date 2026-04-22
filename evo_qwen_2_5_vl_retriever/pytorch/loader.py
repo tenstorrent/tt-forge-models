@@ -5,7 +5,6 @@
 EvoQwen2.5-VL-Retriever model loader implementation for visual document retrieval tasks.
 """
 import torch
-from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
 from typing import Optional
 from PIL import Image
 
@@ -55,12 +54,16 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        from colpali_engine.models import ColQwen2_5_Processor
+
         self.processor = ColQwen2_5_Processor.from_pretrained(
             self._variant_config.pretrained_model_name
         )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from colpali_engine.models import ColQwen2_5
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"low_cpu_mem_usage": True}
