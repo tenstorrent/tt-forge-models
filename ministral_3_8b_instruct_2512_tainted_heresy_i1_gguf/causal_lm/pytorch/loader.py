@@ -22,6 +22,61 @@ from ....config import (
 )
 
 
+def _patch_gguf_mistral3_support():
+    """Patch transformers to add mistral3 GGUF architecture support.
+
+    transformers doesn't support the 'mistral3' GGUF architecture yet. We register
+    it with the same config mapping as 'mistral' and a llama-compatible tokenizer
+    converter, then remap model_type to 'ministral3' so AutoModelForCausalLM
+    resolves to Ministral3ForCausalLM.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "mistral3" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral3"] = dict(
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral"]
+    )
+    GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUFLlamaConverter
+    if "ministral3" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["ministral3"] = GGUFLlamaConverter
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "mistral3":
+            config["model_type"] = "ministral3"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.tokenization_utils_tokenizers as tok_utils
+
+    for mod in (tok_auto, config_utils, tok_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_gguf_mistral3_support()
+
+
 class ModelVariant(StrEnum):
     """Available Ministral 3 8B Instruct 2512 Tainted Heresy i1 GGUF model variants for causal language modeling."""
 
@@ -32,24 +87,6 @@ class ModelVariant(StrEnum):
 
 class ModelLoader(ForgeModel):
     """Ministral 3 8B Instruct 2512 Tainted Heresy i1 GGUF model loader implementation for causal language modeling tasks."""
-
-    @staticmethod
-    def _fix_gguf_version_detection():
-        """Fix gguf version detection when installed at runtime by RequirementsManager.
-
-        transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
-        is installed later, the mapping is stale and version detection falls back to
-        gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
-        """
-        import transformers.utils.import_utils as _import_utils
-
-        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
-            try:
-                importlib.metadata.version("gguf")
-                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
-                _import_utils.is_gguf_available.cache_clear()
-            except importlib.metadata.PackageNotFoundError:
-                pass
 
     _VARIANTS = {
         ModelVariant.MINISTRAL_3_8B_INSTRUCT_2512_TAINTED_HERESY_I1_Q4_K_M_GGUF: LLMModelConfig(
@@ -84,6 +121,24 @@ class ModelLoader(ForgeModel):
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
+
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix gguf version detection when installed at runtime by RequirementsManager.
+
+        transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
+        is installed later, the mapping is stale and version detection falls back to
+        gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
+        """
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+                _import_utils.is_gguf_available.cache_clear()
+            except importlib.metadata.PackageNotFoundError:
+                pass
 
     def _load_tokenizer(self, dtype_override=None):
         self._fix_gguf_version_detection()
