@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self, dtype_override=None):
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            tokenizer_kwargs = {}
+            tokenizer_kwargs = {"trust_remote_code": True}
             if dtype_override is not None:
                 tokenizer_kwargs["torch_dtype"] = dtype_override
             self.tokenizer = AutoTokenizer.from_pretrained(
@@ -97,10 +97,12 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
+            config = AutoConfig.from_pretrained(
+                self.BASE_MODEL_NAME, trust_remote_code=True
+            )
             if self.num_layers is not None:
                 config.num_hidden_layers = self.num_layers
-            model = AutoModelForCausalLM.from_config(config)
+            model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
             if dtype_override is not None:
                 model = model.to(dtype_override)
         else:
@@ -180,7 +182,9 @@ class ModelLoader(ForgeModel):
     def load_config(self):
         pretrained_model_name = self._variant_config.pretrained_model_name
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            self.config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
+            self.config = AutoConfig.from_pretrained(
+                self.BASE_MODEL_NAME, trust_remote_code=True
+            )
         else:
             self.config = AutoConfig.from_pretrained(
                 pretrained_model_name, gguf_file=self.GGUF_FILE
