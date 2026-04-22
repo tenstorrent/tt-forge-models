@@ -5,6 +5,8 @@
 Llama-3.1-8B-Instruct Dragon Numbers FT model loader implementation for causal language modeling.
 """
 
+import os
+
 from huggingface_hub import snapshot_download
 from transformers import AutoTokenizer, LlamaForCausalLM
 from typing import Optional
@@ -76,11 +78,13 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        # Exclude adapter_config.json so transformers 5.x doesn't redirect to the gated base model.
-        local_dir = snapshot_download(
-            pretrained_model_name,
-            ignore_patterns=["adapter_config.json", "adapter_model.safetensors"],
-        )
+        local_dir = snapshot_download(pretrained_model_name)
+        # Remove adapter_config.json symlink so transformers 5.x doesn't redirect to the gated
+        # base model (meta-llama/Llama-3.1-8B-Instruct). The merged full-model weights are used.
+        for fname in ("adapter_config.json", "adapter_model.safetensors"):
+            p = os.path.join(local_dir, fname)
+            if os.path.islink(p):
+                os.remove(p)
         model = LlamaForCausalLM.from_pretrained(local_dir, **model_kwargs)
         model.eval()
 
