@@ -15,15 +15,17 @@ from typing import Optional
 from ....base import ForgeModel
 
 
-def _get_real_load_gguf_checkpoint(fn):
-    """Traverse __globals__ patch chain to recover the original transformers function.
+def _apply_gguf_load_compat_patch():
+    """Restore load_gguf_checkpoint to accept the model_to_load param from transformers 5.x.
 
-    Other GGUF loaders replace load_gguf_checkpoint with wrappers that lack the
-    model_to_load parameter added in transformers 5.x. Their architecture-registration
-    side effects are already applied at module import, so we can safely bypass the
-    function wrappers and call the real function directly.
+    Other GGUF loaders patch load_gguf_checkpoint with old-style signatures that lack
+    model_to_load. Their architecture-registration side effects are applied at module
+    import time, so bypassing their function wrappers is safe. Must be called at
+    load_model() time (not at module import time) because loaders imported later
+    (alphabetically after 'q') would otherwise overwrite this patch.
     """
-    visited = set()
+    fn = _gguf_utils.load_gguf_checkpoint
+    visited: set = set()
     while True:
         fn_id = id(fn)
         if fn_id in visited:
@@ -33,29 +35,22 @@ def _get_real_load_gguf_checkpoint(fn):
         if orig is None or not callable(orig) or id(orig) in visited:
             break
         fn = orig
-    return fn
+    real_fn = fn
+
+    def _compat(gguf_checkpoint_path, return_tensors=False, model_to_load=None, **kw):
+        return real_fn(
+            gguf_checkpoint_path,
+            return_tensors=return_tensors,
+            model_to_load=model_to_load,
+            **kw,
+        )
+
+    _gguf_utils.load_gguf_checkpoint = _compat
+    _config_utils.load_gguf_checkpoint = _compat
+    _auto_tokenizer.load_gguf_checkpoint = _compat
+    _tok_utils.load_gguf_checkpoint = _compat
 
 
-_real_load_gguf_checkpoint = _get_real_load_gguf_checkpoint(
-    _gguf_utils.load_gguf_checkpoint
-)
-
-
-def _compat_load_gguf_checkpoint(
-    gguf_checkpoint_path, return_tensors=False, model_to_load=None, **kwargs
-):
-    return _real_load_gguf_checkpoint(
-        gguf_checkpoint_path,
-        return_tensors=return_tensors,
-        model_to_load=model_to_load,
-        **kwargs,
-    )
-
-
-_gguf_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _compat_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -123,6 +118,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _apply_gguf_load_compat_patch()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
