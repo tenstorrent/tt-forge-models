@@ -76,15 +76,30 @@ class ModelLoader(ForgeModel):
 
         compressed-tensors does not implement CPU MXFP4 decompression. This patch
         returns zero weights of the correct decompressed shape so the model can
-        forward-pass on CPU for compile-only tracing.
+        forward-pass on CPU for compile-only tracing. All non-compression parameters
+        (e.g. bias) are passed through unchanged so replace_direct_state_dict does
+        not delete them.
         """
         try:
             from compressed_tensors.compressors.mxfp4.base import MXFP4PackedCompressor
 
+            _MXFP4_COMPRESSED_KEYS = {
+                "weight_packed",
+                "weight_scale",
+                "weight_global_scale",
+                "weight_zero_point",
+            }
+
             def _decompress_zeros(cls, state_dict, scheme):
                 packed = state_dict["weight_packed"]
                 m, n = packed.shape
-                return {"weight": torch.zeros(m, n * 2, dtype=torch.bfloat16)}
+                result = {
+                    k: v
+                    for k, v in state_dict.items()
+                    if k not in _MXFP4_COMPRESSED_KEYS
+                }
+                result["weight"] = torch.zeros(m, n * 2, dtype=torch.bfloat16)
+                return result
 
             MXFP4PackedCompressor.decompress = classmethod(_decompress_zeros)
         except ImportError:
