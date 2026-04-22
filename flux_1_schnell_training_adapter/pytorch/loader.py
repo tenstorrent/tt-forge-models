@@ -4,10 +4,11 @@
 """
 FLUX.1-schnell Training Adapter (ostris/FLUX.1-schnell-training-adapter) model loader.
 
-This is a LoRA de-distillation adapter for the black-forest-labs/FLUX.1-schnell
-base model. It is designed to be stacked during LoRA fine-tuning to preserve
+This is a LoRA de-distillation adapter for the FLUX.1-schnell base model.
+It is designed to be stacked during LoRA fine-tuning to preserve
 step-distillation properties of schnell. The adapter loads the base FLUX.1-schnell
-pipeline and applies the LoRA weights.
+pipeline (lzyvegetable/FLUX.1-schnell, a publicly accessible mirror of the gated
+black-forest-labs/FLUX.1-schnell) and applies the LoRA weights.
 
 Available variants:
 - FLUX_1_SCHNELL_TRAINING_ADAPTER: ostris/FLUX.1-schnell-training-adapter
@@ -30,7 +31,7 @@ from ...config import (
 )
 
 
-BASE_REPO_ID = "black-forest-labs/FLUX.1-schnell"
+BASE_REPO_ID = "lzyvegetable/FLUX.1-schnell"
 ADAPTER_REPO_ID = "ostris/FLUX.1-schnell-training-adapter"
 ADAPTER_WEIGHT_NAME = "pytorch_lora_weights.safetensors"
 
