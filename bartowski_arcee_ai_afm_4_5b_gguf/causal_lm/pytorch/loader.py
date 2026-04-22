@@ -20,6 +20,70 @@ from ....config import (
 )
 
 
+def _patch_transformers_arcee_gguf():
+    """Monkey-patch transformers to add arcee GGUF architecture support.
+
+    The AFM-4.5B model uses the 'arcee' architecture identifier in its GGUF
+    metadata. Transformers lacks GGUF loading support for the arcee architecture.
+    The model is Qwen2.5-based, so we map it to the qwen2 model type.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "arcee" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("arcee")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["arcee"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": None,
+        "attention.value_length": None,
+        "vocab_size": "vocab_size",
+    }
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "arcee" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["arcee"] = GGUFQwen2Converter
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+        result = orig_load(gguf_path, return_tensors=return_tensors, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "arcee":
+            config["model_type"] = "qwen2"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_patch_transformers_arcee_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available bartowski arcee-ai AFM-4.5B GGUF model variants for causal language modeling."""
 
