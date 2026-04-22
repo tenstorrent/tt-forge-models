@@ -77,27 +77,62 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _find_true_load_gguf_checkpoint(fn):
+        """Traverse patch-chain to find the true transformers load_gguf_checkpoint.
+
+        Many loaders monkey-patch load_gguf_checkpoint with an old signature
+        that drops model_to_load. Patches store the previous version as a module
+        global (via co_names) rather than a closure (co_freevars), so we check
+        both locations to walk the chain until we reach the function whose
+        __qualname__ is 'load_gguf_checkpoint'.
+        """
+        visited = set()
+        while id(fn) not in visited:
+            visited.add(id(fn))
+            if getattr(fn, "__qualname__", "") == "load_gguf_checkpoint":
+                return fn
+            nxt = None
+            # Check closure variables first
+            if hasattr(fn, "__code__") and fn.__code__.co_freevars and fn.__closure__:
+                clos = dict(
+                    zip(
+                        fn.__code__.co_freevars,
+                        [c.cell_contents for c in fn.__closure__],
+                    )
+                )
+                nxt = next(
+                    (
+                        v
+                        for k, v in clos.items()
+                        if callable(v)
+                        and any(x in k.lower() for x in ("orig_load", "orig_gguf"))
+                    ),
+                    None,
+                )
+            # Then check module globals referenced by name in the function body
+            if nxt is None and hasattr(fn, "__code__") and hasattr(fn, "__globals__"):
+                for name in fn.__code__.co_names:
+                    if any(x in name.lower() for x in ("orig_load", "orig_gguf")):
+                        v = fn.__globals__.get(name)
+                        if callable(v):
+                            nxt = v
+                            break
+            if nxt:
+                fn = nxt
+                continue
+            break
+        return fn
+
     def load_model(self, *, dtype_override=None, **kwargs):
         import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
-        # Other loaders patch load_gguf_checkpoint at import time with an old
-        # signature that lacks model_to_load. Wrap the current version so that
-        # from_pretrained's call with model_to_load=dummy_model doesn't fail.
+        # Other loaders patch load_gguf_checkpoint with an old signature that
+        # drops model_to_load. Traverse the patch chain to restore the true
+        # transformers function, which from_pretrained calls with model_to_load.
         _current_load_gguf = _gguf_utils.load_gguf_checkpoint
-
-        def _safe_load_gguf_checkpoint(
-            gguf_path, return_tensors=False, model_to_load=None
-        ):
-            try:
-                return _current_load_gguf(
-                    gguf_path,
-                    return_tensors=return_tensors,
-                    model_to_load=model_to_load,
-                )
-            except TypeError:
-                return _current_load_gguf(gguf_path, return_tensors=return_tensors)
-
-        _gguf_utils.load_gguf_checkpoint = _safe_load_gguf_checkpoint
+        true_fn = self._find_true_load_gguf_checkpoint(_current_load_gguf)
+        _gguf_utils.load_gguf_checkpoint = true_fn
 
         try:
             pretrained_model_name = self._variant_config.pretrained_model_name
