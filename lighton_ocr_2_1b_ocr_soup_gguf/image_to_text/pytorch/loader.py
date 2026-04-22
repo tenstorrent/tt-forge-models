@@ -6,6 +6,7 @@ LightOnOCR-2-1B ocr-soup GGUF model loader implementation for image-to-text OCR 
 """
 
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoProcessor, AutoConfig, LightOnOcrForConditionalGeneration
 from typing import Optional
 
@@ -83,9 +84,23 @@ class ModelLoader(ForgeModel):
         # GGUF stores qwen3 architecture; pass explicit config from the base
         # multimodal model so the correct LightOnOcrConfig is used.
         config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
-        model = LightOnOcrForConditionalGeneration.from_pretrained(
-            pretrained_model_name, config=config, **model_kwargs
-        )
+
+        # Some GGUF loaders patch _gguf_utils.load_gguf_checkpoint with a
+        # wrapper that doesn't accept the model_to_load kwarg added in newer
+        # transformers. Wrap the current function to absorb that kwarg.
+        _saved_fn = _gguf_utils.load_gguf_checkpoint
+
+        def _compat(gguf_path, return_tensors=False, **_kw):
+            return _saved_fn(gguf_path, return_tensors=return_tensors)
+
+        _gguf_utils.load_gguf_checkpoint = _compat
+        try:
+            model = LightOnOcrForConditionalGeneration.from_pretrained(
+                pretrained_model_name, config=config, **model_kwargs
+            )
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _saved_fn
+
         model.eval()
         return model
 
