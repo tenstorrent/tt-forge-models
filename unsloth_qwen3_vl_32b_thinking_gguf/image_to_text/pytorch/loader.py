@@ -60,20 +60,19 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+    # Transformers does not support qwen3vl GGUF loading yet; use the base HF model.
+    BASE_MODEL = "Qwen/Qwen3-VL-32B-Thinking"
 
+    def load_model(self, *, dtype_override=None, **kwargs):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-32B-Thinking")
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            self.BASE_MODEL, **model_kwargs
         )
         model.eval()
 
