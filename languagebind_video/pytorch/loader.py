@@ -18,6 +18,17 @@ _LANGUAGEBIND_REPO = "https://github.com/PKU-YuanGroup/LanguageBind.git"
 _LANGUAGEBIND_COMMIT = "7070c53375661cdb235801176b564b45f96f0648"
 
 
+def _patch_torchaudio_audio_backend():
+    """Stub torchaudio.set_audio_backend removed in torchaudio>=2.1 that LanguageBind uses."""
+    try:
+        import torchaudio
+
+        if not hasattr(torchaudio, "set_audio_backend"):
+            torchaudio.set_audio_backend = lambda backend: None
+    except ImportError:
+        pass
+
+
 def _patch_torchvision_functional_tensor():
     """Provide torchvision.transforms.functional_tensor removed in torchvision>=0.16."""
     import sys
@@ -67,6 +78,7 @@ def _ensure_languagebind():
         )
     if cache_dir not in sys.path:
         sys.path.insert(0, cache_dir)
+    _patch_torchaudio_audio_backend()
     _patch_torchvision_functional_tensor()
     _patch_transformers_expand_mask()
 
