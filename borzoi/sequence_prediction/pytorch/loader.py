@@ -13,7 +13,6 @@ from borzoi_pytorch import Borzoi
 from borzoi_pytorch.config_borzoi import BorzoiConfig
 from borzoi_pytorch.pytorch_borzoi_utils import TargetLengthCrop
 from transformers import AutoConfig, AutoModel
-from typing import Optional
 
 AutoConfig.register("borzoi", BorzoiConfig, exist_ok=True)
 AutoModel.register(BorzoiConfig, Borzoi, exist_ok=True)
@@ -53,11 +52,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.BORZOI_REPLICATE_0
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(self, variant=None):
         super().__init__(variant)
 
     @classmethod
-    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+    def _get_model_info(cls, variant=None) -> ModelInfo:
         if variant is None:
             variant = cls.DEFAULT_VARIANT
 
@@ -70,21 +69,20 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        # Borzoi's forward() calls x.float() before the final head, making it
+        # incompatible with bfloat16. Always load as float32.
+        kwargs.pop("torch_dtype", None)
 
-        model = Borzoi.from_pretrained(model_name, **model_kwargs)
+        model = Borzoi.from_pretrained(model_name, **kwargs)
         model.crop = TargetLengthCrop(_TEST_BINS)
         model.eval()
 
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         # Borzoi expects one-hot encoded DNA sequences of shape
         # (batch_size, 4, seq_len) where 4 channels represent A, C, G, T.
         random_indices = torch.randint(0, 4, (1, _TEST_SEQ_LEN))
@@ -92,9 +90,6 @@ class ModelLoader(ForgeModel):
         one_hot.scatter_(2, random_indices.unsqueeze(-1), 1.0)
         # Transpose to (batch, 4, seq_len) for Conv1d
         one_hot = one_hot.permute(0, 2, 1)
-
-        if dtype_override is not None:
-            one_hot = one_hot.to(dtype=dtype_override)
 
         return one_hot
 
