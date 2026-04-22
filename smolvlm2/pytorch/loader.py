@@ -75,7 +75,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForImageTextToText.from_pretrained(model_name, **model_kwargs)
+        model = AutoModelForImageTextToText.from_pretrained(
+            model_name, ignore_mismatched_sizes=True, **model_kwargs
+        )
         model.eval()
 
         if self.processor is None:
