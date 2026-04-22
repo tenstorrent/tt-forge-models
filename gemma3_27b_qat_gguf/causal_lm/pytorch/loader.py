@@ -11,18 +11,6 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
-# transformers v5.2.0 falls back to gguf.__version__ when "gguf" is absent from
-# PACKAGE_DISTRIBUTION_MAPPING; gguf 0.18.0 doesn't set that attribute, causing
-# packaging.version.InvalidVersion.  Populate it from package metadata instead.
-if importlib.util.find_spec("gguf") is not None:
-    import gguf as _gguf_pkg
-
-    if not hasattr(_gguf_pkg, "__version__"):
-        try:
-            _gguf_pkg.__version__ = importlib.metadata.version("gguf")
-        except importlib.metadata.PackageNotFoundError:
-            pass
-
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -88,7 +76,24 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _ensure_gguf_version() -> None:
+        # transformers v5.2.0 falls back to gguf.__version__ when "gguf" is absent
+        # from PACKAGE_DISTRIBUTION_MAPPING; gguf 0.18.0 doesn't set that attribute,
+        # causing packaging.version.InvalidVersion.  Must run at call time (not module
+        # import time) so the patch applies to the live module after pip installs gguf
+        # and RequirementsManager purges the old module from sys.modules.
+        if importlib.util.find_spec("gguf") is not None:
+            import gguf as _gguf_pkg
+
+            if not hasattr(_gguf_pkg, "__version__"):
+                try:
+                    _gguf_pkg.__version__ = importlib.metadata.version("gguf")
+                except importlib.metadata.PackageNotFoundError:
+                    pass
+
     def _load_tokenizer(self, dtype_override=None):
+        self._ensure_gguf_version()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -180,6 +185,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._ensure_gguf_version()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
