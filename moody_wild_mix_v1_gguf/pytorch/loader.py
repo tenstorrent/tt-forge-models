@@ -31,9 +31,9 @@ from ...config import (
 
 REPO_ID = "Gthalmie1/moody-wild-mix-v1-gguf"
 
-# Lumina-Image-2.0 architecture constants
+# This model uses hidden_size=3840 with a 2560-dim text encoder (Gemma-3-4B).
 IN_CHANNELS = 16
-CAP_FEAT_DIM = 2304  # Gemma-2-2b hidden size
+CAP_FEAT_DIM = 2560
 
 
 class ModelVariant(StrEnum):
@@ -95,6 +95,87 @@ class ModelLoader(ForgeModel):
             _diffusers_import_utils._gguf_version = importlib.metadata.version("gguf")
         except (ImportError, importlib.metadata.PackageNotFoundError):
             pass
+
+        # The standard convert_lumina2_to_diffusers hardcodes q=2304, k=v=768
+        # for the 2B Lumina model. This model uses hidden_size=3840 with equal
+        # Q/K/V dims. Patch the mapping fn to detect dimensions dynamically.
+        import diffusers.loaders.single_file_model as _sfm
+
+        def _patched_convert_lumina2(checkpoint, **kwargs):
+            import diffusers.loaders.single_file_utils as _sfu
+
+            converted_state_dict = {}
+            checkpoint.pop("norm_final.weight", None)
+            keys = list(checkpoint.keys())
+            for k in keys:
+                if "model.diffusion_model." in k:
+                    checkpoint[
+                        k.replace("model.diffusion_model.", "")
+                    ] = checkpoint.pop(k)
+            LUMINA_KEY_MAP = {
+                "cap_embedder": "time_caption_embed.caption_embedder",
+                "t_embedder.mlp.0": "time_caption_embed.timestep_embedder.linear_1",
+                "t_embedder.mlp.2": "time_caption_embed.timestep_embedder.linear_2",
+                "attention": "attn",
+                ".out.": ".to_out.0.",
+                "k_norm": "norm_k",
+                "q_norm": "norm_q",
+                "w1": "linear_1",
+                "w2": "linear_2",
+                "w3": "linear_3",
+                "adaLN_modulation.1": "norm1.linear",
+            }
+            ATTENTION_NORM_MAP = {
+                "attention_norm1": "norm1.norm",
+                "attention_norm2": "norm2",
+            }
+            CONTEXT_REFINER_MAP = {
+                "context_refiner.0.attention_norm1": "context_refiner.0.norm1",
+                "context_refiner.0.attention_norm2": "context_refiner.0.norm2",
+                "context_refiner.1.attention_norm1": "context_refiner.1.norm1",
+                "context_refiner.1.attention_norm2": "context_refiner.1.norm2",
+            }
+            FINAL_LAYER_MAP = {
+                "final_layer.adaLN_modulation.1": "norm_out.linear_1",
+                "final_layer.linear": "norm_out.linear_2",
+            }
+
+            def _convert_attn(tensor, key):
+                total = tensor.shape[0]
+                # Standard 2B split: q=2304 (hidden), k=v=768 (text cross-attn)
+                if total == 2304 + 768 + 768:
+                    q_dim, k_dim, v_dim = 2304, 768, 768
+                elif total % 3 == 0:
+                    dim = total // 3
+                    q_dim, k_dim, v_dim = dim, dim, dim
+                else:
+                    raise ValueError(f"Unknown QKV split for dim {total}")
+                to_q, to_k, to_v = torch.split(tensor, [q_dim, k_dim, v_dim], dim=0)
+                return {
+                    key.replace("qkv", "to_q"): to_q,
+                    key.replace("qkv", "to_k"): to_k,
+                    key.replace("qkv", "to_v"): to_v,
+                }
+
+            for key in keys:
+                dk = key
+                for k, v in CONTEXT_REFINER_MAP.items():
+                    dk = dk.replace(k, v)
+                for k, v in FINAL_LAYER_MAP.items():
+                    dk = dk.replace(k, v)
+                for k, v in ATTENTION_NORM_MAP.items():
+                    dk = dk.replace(k, v)
+                for k, v in LUMINA_KEY_MAP.items():
+                    dk = dk.replace(k, v)
+                if "qkv" in dk:
+                    converted_state_dict.update(_convert_attn(checkpoint.pop(key), dk))
+                else:
+                    converted_state_dict[dk] = checkpoint.pop(key)
+            return converted_state_dict
+
+        _sfm.SINGLE_FILE_LOADABLE_CLASSES["Lumina2Transformer2DModel"][
+            "checkpoint_mapping_fn"
+        ] = _patched_convert_lumina2
 
         from diffusers import GGUFQuantizationConfig, Lumina2Transformer2DModel
 
