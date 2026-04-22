@@ -8,6 +8,7 @@ import importlib
 import os
 import sys
 import textwrap
+import types
 from pathlib import Path
 from typing import Optional
 from unittest.mock import patch
@@ -31,6 +32,33 @@ if not hasattr(transformers.cache_utils, "SlidingWindowCache"):
     sys.modules[
         "transformers.cache_utils"
     ].SlidingWindowCache = transformers.cache_utils.SlidingWindowCache
+
+
+def _rms_norm_fn_stub(x, weight, bias=None, eps=1e-6, **kwargs):
+    input_dtype = x.dtype
+    x = x.to(torch.float32)
+    variance = x.pow(2).mean(-1, keepdim=True)
+    x = x * torch.rsqrt(variance + eps)
+    result = weight * x.to(input_dtype)
+    if bias is not None:
+        result = result + bias
+    return result
+
+
+def _inject_flash_attn_stubs():
+    if "flash_attn" not in sys.modules:
+        layer_norm_mod = types.ModuleType("flash_attn.ops.triton.layer_norm")
+        layer_norm_mod.rms_norm_fn = _rms_norm_fn_stub
+        sys.modules["flash_attn"] = types.ModuleType("flash_attn")
+        sys.modules["flash_attn.ops"] = types.ModuleType("flash_attn.ops")
+        sys.modules["flash_attn.ops.triton"] = types.ModuleType("flash_attn.ops.triton")
+        sys.modules["flash_attn.ops.triton.layer_norm"] = layer_norm_mod
+        sys.modules["flash_attn.bert_padding"] = types.ModuleType(
+            "flash_attn.bert_padding"
+        )
+
+
+_inject_flash_attn_stubs()
 
 from ....base import ForgeModel
 from ....config import (
