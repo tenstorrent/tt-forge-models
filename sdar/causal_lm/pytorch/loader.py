@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
-from transformers.dynamic_module_utils import get_imports
+from transformers.dynamic_module_utils import get_imports, get_relative_imports
 
 from ....base import ForgeModel
 from ....config import (
@@ -24,11 +24,18 @@ from ....config import (
 )
 
 
+_MISSING_MODULES = {"fused_linear_diffusion_cross_entropy"}
+
+
 def _fixed_get_imports(filename: str | os.PathLike) -> list[str]:
     imports = get_imports(filename)
     if not torch.cuda.is_available() and "flash_attn" in imports:
         imports.remove("flash_attn")
     return imports
+
+
+def _fixed_get_relative_imports(filename: str | os.PathLike) -> list[str]:
+    return [m for m in get_relative_imports(filename) if m not in _MISSING_MODULES]
 
 
 class ModelVariant(StrEnum):
@@ -106,7 +113,12 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        with patch("transformers.dynamic_module_utils.get_imports", _fixed_get_imports):
+        with patch(
+            "transformers.dynamic_module_utils.get_imports", _fixed_get_imports
+        ), patch(
+            "transformers.dynamic_module_utils.get_relative_imports",
+            _fixed_get_relative_imports,
+        ):
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name,
                 trust_remote_code=True,
