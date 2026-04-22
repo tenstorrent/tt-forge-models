@@ -10,6 +10,27 @@ from typing import Optional
 import torch
 from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
+
+def _compute_default_rope_parameters(config, device=None, seq_len=None, **kwargs):
+    # Standard RoPE without any scaling, for transformers 5.x compatibility.
+    # Older versions had "default" in ROPE_INIT_FUNCTIONS; 5.x dropped it.
+    head_dim = (
+        getattr(config, "head_dim", None)
+        or config.hidden_size // config.num_attention_heads
+    )
+    base = getattr(config, "rope_theta", 10000.0)
+    partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+    dim = int(head_dim * partial_rotary_factor)
+    inv_freq = 1.0 / (
+        base ** (torch.arange(0, dim, 2, dtype=torch.int64).float().to(device) / dim)
+    )
+    return inv_freq, 1.0
+
+
+if "default" not in ROPE_INIT_FUNCTIONS:
+    ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
 
 from ....base import ForgeModel
 from ....config import (
