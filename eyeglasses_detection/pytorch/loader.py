@@ -7,7 +7,7 @@ Eyeglasses Detection model loader implementation
 
 from typing import Optional
 from dataclasses import dataclass
-from transformers import ViTForImageClassification
+from transformers import ViTForImageClassification, ViTImageProcessor
 
 from ...config import (
     ModelConfig,
@@ -19,7 +19,6 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from ...tools.utils import VisionPreprocessor
 from datasets import load_dataset
 
 
@@ -79,9 +78,6 @@ class ModelLoader(ForgeModel):
 
         self.model = model
 
-        if self._preprocessor is not None:
-            self._preprocessor.set_cached_model(model)
-
         if dtype_override is not None:
             model = model.to(dtype_override)
 
@@ -94,18 +90,12 @@ class ModelLoader(ForgeModel):
 
         if self._preprocessor is None:
             model_name = self._variant_config.pretrained_model_name
-            source = self._variant_config.source
+            self._preprocessor = ViTImageProcessor.from_pretrained(model_name)
 
-            self._preprocessor = VisionPreprocessor(
-                model_source=source,
-                model_name=model_name,
-            )
+        inputs = self._preprocessor(images=image, return_tensors="pt").pixel_values
+        inputs = inputs.repeat(batch_size, 1, 1, 1)
 
-            if hasattr(self, "model") and self.model is not None:
-                self._preprocessor.set_cached_model(self.model)
+        if dtype_override is not None:
+            inputs = inputs.to(dtype_override)
 
-        return self._preprocessor.preprocess(
-            image=image,
-            dtype_override=dtype_override,
-            batch_size=batch_size,
-        )
+        return inputs
