@@ -11,8 +11,30 @@ using the DeepSeek V3 MoE architecture with Multi-head Latent Attention.
 from typing import Optional
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import DynamicCache
 
 from ....base import ForgeModel
+
+
+def _patch_dynamic_cache():
+    # transformers 5.x removed get_usable_length; restore it for DeepSeek-R1 remote code
+    if not hasattr(DynamicCache, "get_usable_length"):
+
+        def get_usable_length(self, new_seq_length: int, layer_idx: int = 0) -> int:
+            max_length = self.get_max_cache_shape()
+            previous_seq_length = self.get_seq_length(layer_idx)
+            if (
+                max_length is not None
+                and max_length > 0
+                and previous_seq_length + new_seq_length > max_length
+            ):
+                return max_length - new_seq_length
+            return previous_seq_length
+
+        DynamicCache.get_usable_length = get_usable_length
+
+
+_patch_dynamic_cache()
 from ....config import (
     Framework,
     ModelGroup,
