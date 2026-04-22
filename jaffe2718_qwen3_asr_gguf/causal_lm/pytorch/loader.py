@@ -8,6 +8,30 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers import Qwen3Config, Qwen3ForCausalLM
+from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+from transformers.models.auto.modeling_auto import MODEL_FOR_CAUSAL_LM_MAPPING
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_qwen3_asr_gguf_support():
+    """Register qwen3-asr GGUF architecture so transformers can load it as qwen3."""
+    if "qwen3-asr" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen3-asr")
+    cfg_map = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.get("config", {})
+    if "qwen3-asr" not in cfg_map:
+        cfg_map["qwen3-asr"] = dict(cfg_map.get("qwen3", {}))
+    if "qwen3-asr" not in CONFIG_MAPPING._extra_content:
+        CONFIG_MAPPING._extra_content["qwen3-asr"] = Qwen3Config
+    if "qwen3-asr" not in MODEL_FOR_CAUSAL_LM_MAPPING._extra_content:
+        MODEL_FOR_CAUSAL_LM_MAPPING._extra_content["qwen3-asr"] = Qwen3ForCausalLM
+    if "qwen3-asr" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3-asr"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
+
+
+_patch_qwen3_asr_gguf_support()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -108,17 +132,15 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if self.tokenizer.chat_template is not None:
+            messages = [{"role": "user", "content": self.sample_text}]
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
