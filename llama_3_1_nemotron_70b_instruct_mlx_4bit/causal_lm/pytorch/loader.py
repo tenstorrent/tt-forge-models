@@ -81,9 +81,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
 
         if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config.torch_dtype = (
+                dtype_override if dtype_override is not None else torch.bfloat16
+            )
             model = AutoModelForCausalLM.from_config(config)
-            if dtype_override is not None:
-                model = model.to(dtype_override)
         else:
             model_kwargs = {"config": config, "ignore_mismatched_sizes": True}
             if dtype_override is not None:
