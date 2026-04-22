@@ -105,11 +105,14 @@ class ModelLoader(ForgeModel):
             include_spacing_input=True,
         )
 
+        from monai.utils.enums import TraceKeys
+
         weights_path = hf_hub_download(
             repo_id=self._variant_config.pretrained_model_name,
             filename=self._WEIGHTS_FILENAME,
         )
-        state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
+        with torch.serialization.safe_globals([TraceKeys]):
+            state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
         if isinstance(state_dict, dict) and "unet_state_dict" in state_dict:
             state_dict = state_dict["unet_state_dict"]
         model.load_state_dict(state_dict)
