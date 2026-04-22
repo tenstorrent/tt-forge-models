@@ -110,7 +110,10 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        return inputs
+        return {
+            "input_ids": inputs["input_ids"],
+            "attention_mask": inputs["attention_mask"],
+        }
 
     def decode_output(self, co_out):
         outputs = co_out[0]
