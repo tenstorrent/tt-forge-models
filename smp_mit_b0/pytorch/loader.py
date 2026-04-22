@@ -8,7 +8,6 @@ import torch
 from typing import Optional
 from PIL import Image
 from torchvision import transforms
-from datasets import load_dataset
 
 from ...config import (
     ModelConfig,
@@ -151,8 +150,10 @@ class ModelLoader(ForgeModel):
             torch.Tensor: Preprocessed input tensor.
         """
         if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            import numpy as np
+
+            rng = np.random.default_rng(42)
+            image = Image.fromarray(rng.integers(0, 256, (224, 224, 3), dtype=np.uint8))
         return self.input_preprocess(
             image=image,
             dtype_override=dtype_override,
