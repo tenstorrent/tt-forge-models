@@ -6,10 +6,12 @@ InternVL-Chat-V1-5 model loader implementation for multimodal visual question an
 """
 
 import torch
+import torch.nn as nn
 import torchvision.transforms as T
 from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
 from transformers import AutoModel, AutoTokenizer
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 
 from ...tools.utils import get_file
@@ -172,6 +174,45 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         model_kwargs |= kwargs
+
+        # Patch InternVisionEncoder to avoid torch.linspace + .item() which fails when
+        # transformers initializes the model under torch.device("meta") context.
+        _EncoderLayer = get_class_from_dynamic_module(
+            "modeling_intern_vit.InternVisionEncoderLayer",
+            pretrained_model_name,
+        )
+        _Encoder = get_class_from_dynamic_module(
+            "modeling_intern_vit.InternVisionEncoder",
+            pretrained_model_name,
+        )
+
+        def _patched_encoder_init(self, config):
+            nn.Module.__init__(self)
+            self.config = config
+            n = int(config.num_hidden_layers)
+            end = float(config.drop_path_rate)
+            dpr = [end * i / max(1, n - 1) for i in range(n)]
+            self.layers = nn.ModuleList(
+                [_EncoderLayer(config, dpr[idx]) for idx in range(n)]
+            )
+            self.gradient_checkpointing = True
+
+        _Encoder.__init__ = _patched_encoder_init
+
+        # InternVLChatModel doesn't call post_init() (required by transformers 5.x for
+        # all_tied_weights_keys). Patch __init__ to call it after model construction.
+        _ChatModel = get_class_from_dynamic_module(
+            "modeling_internvl_chat.InternVLChatModel",
+            pretrained_model_name,
+        )
+        _orig_chat_init = _ChatModel.__init__
+
+        def _patched_chat_init(self, config, *args, **kw):
+            _orig_chat_init(self, config, *args, **kw)
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.post_init()
+
+        _ChatModel.__init__ = _patched_chat_init
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
