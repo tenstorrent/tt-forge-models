@@ -40,11 +40,13 @@ def _patch_step35_support():
         GGUF_TO_FAST_CONVERTERS.setdefault("step35", GGUF_TO_FAST_CONVERTERS["llama"])
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+def _patched_load_gguf_checkpoint(
+    gguf_path, return_tensors=False, model_to_load=None, **kwargs
+):
     _patch_step35_support()
-    result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, **kwargs
-    )
+    # Don't forward model_to_load or extra kwargs — other loaders in the patch chain
+    # (e.g. dmind_3_mini_i1_gguf) may not accept them.
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     config = result.get("config", {})
     if config.get("model_type") == "step35":
         config["model_type"] = "llama"
