@@ -57,7 +57,10 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
-        kwargs = {"trust_remote_code": True}
+        # use_fast=False avoids a Siglip2 fast-processor bug where tiled images
+        # reach normalize with shape [N_tiles, 3, H, W] and cause a channel
+        # mismatch (512 vs 3) when broadcasting the RGB mean.
+        kwargs = {"trust_remote_code": True, "use_fast": False}
         if dtype_override is not None:
             kwargs["torch_dtype"] = dtype_override
 
