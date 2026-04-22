@@ -76,27 +76,51 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+        # Other loaders patch load_gguf_checkpoint at import time with an old
+        # signature that lacks model_to_load. Wrap the current version so that
+        # from_pretrained's call with model_to_load=dummy_model doesn't fail.
+        _current_load_gguf = _gguf_utils.load_gguf_checkpoint
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        def _safe_load_gguf_checkpoint(
+            gguf_path, return_tensors=False, model_to_load=None
+        ):
+            try:
+                return _current_load_gguf(
+                    gguf_path,
+                    return_tensors=return_tensors,
+                    model_to_load=model_to_load,
+                )
+            except TypeError:
+                return _current_load_gguf(gguf_path, return_tensors=return_tensors)
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        _gguf_utils.load_gguf_checkpoint = _safe_load_gguf_checkpoint
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        try:
+            pretrained_model_name = self._variant_config.pretrained_model_name
+
+            if self.tokenizer is None:
+                self._load_tokenizer(dtype_override=dtype_override)
+
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.GGUF_FILE
+
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _current_load_gguf
 
         self.config = model.config
         self.model = model
