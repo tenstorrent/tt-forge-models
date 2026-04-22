@@ -80,6 +80,9 @@ class ModelLoader(ForgeModel):
         model = AutoModel.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
+        # MagiModel has no standard forward(); wire the detection path so
+        # the framework can call model(pixel_values=..., pixel_mask=...).
+        model.forward = model._get_detection_transformer_output
         model.eval()
         self.model = model
         return model
