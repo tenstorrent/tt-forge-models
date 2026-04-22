@@ -31,8 +31,8 @@ class EnguardStaticPipelineTorchModel(nn.Module):
     """Wraps a Model2Vec StaticModelPipeline as a torch.nn.Module.
 
     The pipeline is: token embedding lookup -> attention-masked mean pooling ->
-    optional L2 normalization -> sklearn classifier head (scaler + logistic
-    regression), reimplemented in pure torch for hardware compilation.
+    optional L2 normalization -> sklearn classifier head (scaler + linear or MLP),
+    reimplemented in pure torch for hardware compilation.
     """
 
     def __init__(self, pipeline):
@@ -42,21 +42,28 @@ class EnguardStaticPipelineTorchModel(nn.Module):
         self.embedding = nn.Embedding.from_pretrained(embedding_tensor, freeze=True)
         self.normalize = bool(static_model.normalize)
 
-        mean, scale, weight, bias = _extract_head_params(pipeline.head)
+        mean, scale, layers = _extract_head_params(pipeline.head)
         self.register_buffer("scaler_mean", torch.from_numpy(mean).float())
         self.register_buffer("scaler_scale", torch.from_numpy(scale).float())
 
-        num_classes, embedding_dim = weight.shape
-        self.classifier = nn.Linear(embedding_dim, num_classes)
-        with torch.no_grad():
-            self.classifier.weight.copy_(torch.from_numpy(weight).float())
-            self.classifier.bias.copy_(torch.from_numpy(bias).float())
+        # Build classifier as a Sequential to handle both linear and MLP heads
+        linear_layers = []
+        for i, (weight, bias) in enumerate(layers):
+            linear = nn.Linear(weight.shape[1], weight.shape[0])
+            with torch.no_grad():
+                linear.weight.copy_(torch.from_numpy(weight).float())
+                linear.bias.copy_(torch.from_numpy(bias).float())
+            linear_layers.append(linear)
+            if i < len(layers) - 1:
+                linear_layers.append(nn.ReLU())
+        self.classifier = nn.Sequential(*linear_layers)
 
     def forward(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor
     ) -> torch.Tensor:
         token_embeddings = self.embedding(input_ids)
-        mask = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+        dtype = token_embeddings.dtype
+        mask = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).to(dtype)
         summed = torch.sum(token_embeddings * mask, dim=1)
         counts = torch.clamp(mask.sum(dim=1), min=1e-9)
         pooled = summed / counts
@@ -68,12 +75,12 @@ class EnguardStaticPipelineTorchModel(nn.Module):
 
 
 def _extract_head_params(head):
-    """Extract (mean, scale, weight, bias) from an sklearn classification head.
+    """Extract (mean, scale, layers) from an sklearn classification head.
 
     Handles both bare classifiers and sklearn Pipelines, with or without a
-    StandardScaler preprocessing step. For binary LogisticRegression (single
-    row of coefficients) the returned weight/bias are expanded to two-class
-    form so argmax matches sklearn.predict.
+    StandardScaler preprocessing step. Supports LogisticRegression and
+    MLPClassifier. Returns layers as a list of (weight, bias) pairs suitable
+    for building a sequential torch model.
     """
     steps = getattr(head, "steps", None)
     if steps is None:
@@ -90,20 +97,33 @@ def _extract_head_params(head):
             None,
         )
 
-    weight = np.asarray(estimator.coef_, dtype=np.float32)
-    bias = np.asarray(estimator.intercept_, dtype=np.float32)
-    if weight.shape[0] == 1:
-        weight = np.vstack([-weight, weight])
-        bias = np.concatenate([-bias, bias])
+    if hasattr(estimator, "coefs_"):
+        # MLPClassifier: list of weight matrices and bias vectors per layer
+        layers = [
+            (
+                np.asarray(W, dtype=np.float32).T,
+                np.asarray(b, dtype=np.float32),
+            )
+            for W, b in zip(estimator.coefs_, estimator.intercepts_)
+        ]
+        num_features = layers[0][0].shape[1]
+    else:
+        # LogisticRegression: single weight matrix
+        weight = np.asarray(estimator.coef_, dtype=np.float32)
+        bias = np.asarray(estimator.intercept_, dtype=np.float32)
+        if weight.shape[0] == 1:
+            weight = np.vstack([-weight, weight])
+            bias = np.concatenate([-bias, bias])
+        layers = [(weight, bias)]
+        num_features = weight.shape[1]
 
-    num_features = weight.shape[1]
     if scaler is not None:
         mean = np.asarray(scaler.mean_, dtype=np.float32)
         scale = np.asarray(scaler.scale_, dtype=np.float32)
     else:
         mean = np.zeros(num_features, dtype=np.float32)
         scale = np.ones(num_features, dtype=np.float32)
-    return mean, scale, weight, bias
+    return mean, scale, layers
 
 
 class ModelVariant(StrEnum):
@@ -153,11 +173,34 @@ class ModelLoader(ForgeModel):
 
     def _load_pipeline(self):
         if self._pipeline is None:
-            from model2vec.inference import StaticModelPipeline
+            import sys
 
-            self._pipeline = StaticModelPipeline.from_pretrained(
-                self._variant_config.pretrained_model_name
-            )
+            # The worktree root contains a model2vec/ directory that shadows the
+            # installed model2vec package. Temporarily prioritize site-packages so
+            # the real model2vec (with inference support) is imported instead.
+            site_pkgs = [p for p in sys.path if "site-packages" in p]
+            other_paths = [p for p in sys.path if "site-packages" not in p]
+            stale = [
+                k
+                for k in list(sys.modules.keys())
+                if k == "model2vec" or k.startswith("model2vec.")
+            ]
+            saved_modules = {k: sys.modules.pop(k) for k in stale}
+            old_path = sys.path[:]
+            sys.path[:] = site_pkgs + other_paths
+            try:
+                from model2vec.inference import StaticModelPipeline
+
+                self._pipeline = StaticModelPipeline.from_pretrained(
+                    self._variant_config.pretrained_model_name
+                )
+            finally:
+                sys.path[:] = old_path
+                # Restore worktree model2vec so other loaders still work
+                for k in list(sys.modules.keys()):
+                    if k == "model2vec" or k.startswith("model2vec."):
+                        del sys.modules[k]
+                sys.modules.update(saved_modules)
         return self._pipeline
 
     def load_model(self, *, dtype_override=None, **kwargs):
