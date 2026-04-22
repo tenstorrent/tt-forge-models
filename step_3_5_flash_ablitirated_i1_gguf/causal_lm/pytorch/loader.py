@@ -44,9 +44,9 @@ def _patched_load_gguf_checkpoint(
     gguf_path, return_tensors=False, model_to_load=None, **kwargs
 ):
     _patch_step35_support()
-    # Don't forward model_to_load or extra kwargs — other loaders in the patch chain
-    # (e.g. dmind_3_mini_i1_gguf) may not accept them.
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
     config = result.get("config", {})
     if config.get("model_type") == "step35":
         config["model_type"] = "llama"
