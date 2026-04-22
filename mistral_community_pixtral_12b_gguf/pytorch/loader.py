@@ -6,7 +6,7 @@ Mistral Community Pixtral 12B GGUF model loader implementation for multimodal vi
 """
 
 from PIL import Image
-from transformers import LlavaForConditionalGeneration, AutoProcessor
+from transformers import LlavaForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ...base import ForgeModel
@@ -88,6 +88,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.gguf_file
+        model_kwargs["config"] = AutoConfig.from_pretrained(self.PROCESSOR_MODEL)
 
         model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
