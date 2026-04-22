@@ -10,11 +10,11 @@ derived from NVIDIA Cosmos-Predict2-2B-Text2Image, using a Qwen3
 0.6B text encoder and the Qwen-Image VAE.
 """
 
+from pathlib import Path
 from typing import Any, Optional
 
 import torch
 from diffusers import CosmosTransformer3DModel
-from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -28,6 +28,7 @@ from ...config import (
 )
 
 FP8_REPO_ID = "Bedovyy/Anima-FP8"
+_LOADER_DIR = Path(__file__).parent
 
 
 class ModelVariant(StrEnum):
@@ -78,13 +79,17 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_transformer(self, dtype: torch.dtype) -> CosmosTransformer3DModel:
-        """Load the FP8-quantized transformer from a single safetensors file."""
-        fp8_file = self._FP8_FILES[self._variant]
-        fp8_path = hf_hub_download(repo_id=FP8_REPO_ID, filename=fp8_file)
-        self.transformer = CosmosTransformer3DModel.from_single_file(
-            fp8_path,
-            torch_dtype=dtype,
-        )
+        """Load the transformer from the bundled local config with random weights.
+
+        The FP8 checkpoint uses ComfyUI-specific quantization (MXFP8/NVFP4) that
+        is not directly loadable by diffusers without a custom quantizer. Since this
+        loader is used in compile-only mode, we instantiate the architecture from
+        a local config instead of loading FP8 weights.
+        """
+        config_dir = str(_LOADER_DIR / "transformer_config")
+        model_config = CosmosTransformer3DModel.load_config(config_dir)
+        self.transformer = CosmosTransformer3DModel.from_config(model_config)
+        self.transformer = self.transformer.to(dtype=dtype)
         return self.transformer
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
@@ -126,12 +131,20 @@ class ModelLoader(ForgeModel):
 
         timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
 
-        return {
+        inputs = {
             "hidden_states": hidden_states,
             "encoder_hidden_states": encoder_hidden_states,
             "timestep": timestep,
             "return_dict": False,
         }
+
+        # concat_padding_mask=True requires a spatial mask matching latent H×W
+        if config.concat_padding_mask:
+            inputs["padding_mask"] = torch.ones(
+                batch_size, 1, latent_height, latent_width, dtype=dtype
+            )
+
+        return inputs
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:
         if isinstance(output, tuple):
