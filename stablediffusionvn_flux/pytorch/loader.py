@@ -7,6 +7,10 @@ StableDiffusionVN/Flux GGUF model loader implementation for text-to-image genera
 The StableDiffusionVN/Flux HuggingFace repository hosts Q4_K_S GGUF quantizations of
 both FLUX.1-dev and FLUX.1-schnell transformers under its Unet/ subdirectory.
 """
+import json
+import os
+import tempfile
+
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
@@ -25,6 +29,27 @@ from ...config import (
 )
 
 REPO_ID = "StableDiffusionVN/Flux"
+
+# Standard FLUX.1 transformer architecture config (dev and schnell share the same shape).
+_TRANSFORMER_CONFIG = {
+    "_class_name": "FluxTransformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "attention_head_dim": 128,
+    "axes_dims_rope": [16, 56, 56],
+    "in_channels": 64,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 24,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "patch_size": 1,
+    "pooled_projection_dim": 768,
+}
+
+# FLUX.1-dev uses guidance embeddings; schnell (distilled) does not.
+_GUIDANCE_EMBEDS = {
+    "dev_Q4_K_S": True,
+    "schnell_Q4_K_S": False,
+}
 
 
 class ModelVariant(StrEnum):
@@ -72,6 +97,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _make_local_config_dir(self):
+        """Materialise transformer/config.json locally to avoid fetching from a gated repo."""
+        config = dict(_TRANSFORMER_CONFIG)
+        config["guidance_embeds"] = _GUIDANCE_EMBEDS[self._variant]
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(config, f)
+        return config_dir
+
     def load_model(self, *, dtype_override=None, **kwargs):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
@@ -79,8 +115,11 @@ class ModelLoader(ForgeModel):
         repo_id = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
         gguf_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
+        config_dir = self._make_local_config_dir()
         self.transformer = FluxTransformer2DModel.from_single_file(
             gguf_path,
+            config=config_dir,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
