@@ -9,8 +9,6 @@ import torch
 from typing import Optional
 from dataclasses import dataclass
 
-from chronos import ChronosBoltPipeline
-
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -98,6 +96,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The ChronosBoltModelForForecasting instance.
         """
+        from chronos import ChronosBoltPipeline
+
         cfg = self._variant_config
 
         pipeline = ChronosBoltPipeline.from_pretrained(
