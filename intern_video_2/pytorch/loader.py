@@ -88,6 +88,14 @@ def _patch_transformers_compat():
 
         mu.prune_linear_layer = prune_linear_layer
 
+    import transformers.tokenization_utils as tu
+
+    for name in ("_is_control", "_is_punctuation", "_is_whitespace"):
+        if not hasattr(tu, name):
+            from transformers import tokenization_python as tp
+
+            setattr(tu, name, getattr(tp, name))
+
 
 def _inject_flash_attn_stub():
     """Inject a minimal flash_attn stub so the model's module-level imports succeed.
