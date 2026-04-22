@@ -21,6 +21,64 @@ from ....config import (
 )
 
 
+def _patch_pangu_embedded_gguf_support():
+    """Register pangu-embedded GGUF architecture as a llama alias.
+
+    The openPangu-Embedded GGUF file uses 'pangu-embedded' as its architecture
+    identifier.  Transformers does not recognise this architecture, so we register
+    its config field mapping (identical to llama), add it to the tokenizer
+    converter table, and remap model_type → 'llama' so that AutoModelForCausalLM
+    resolves to LlamaForCausalLM.  The model also uses attention biases so we
+    set attention_bias=True in the patched config.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+    import transformers.configuration_utils as _config_utils
+    import transformers.models.auto.tokenization_auto as _auto_tokenizer
+    import transformers.tokenization_utils_tokenizers as _tok_utils
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+    )
+
+    if "pangu-embedded" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("pangu-embedded")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["pangu-embedded"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": "head_dim",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    if "pangu-embedded" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["pangu-embedded"] = GGUF_TO_FAST_CONVERTERS["llama"]
+
+    orig_load = _gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "pangu-embedded":
+            result["config"]["model_type"] = "llama"
+            result["config"]["attention_bias"] = True
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
 class ModelVariant(StrEnum):
     """Available mradermacher/openPangu-Embedded-7B-DeepDiver-i1-GGUF model variants for causal language modeling."""
 
@@ -79,6 +137,7 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self, dtype_override=None):
         self._fix_gguf_package_map()
+        _patch_pangu_embedded_gguf_support()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -94,6 +153,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         self._fix_gguf_package_map()
+        _patch_pangu_embedded_gguf_support()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -173,6 +233,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self._fix_gguf_package_map()
+        _patch_pangu_embedded_gguf_support()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
