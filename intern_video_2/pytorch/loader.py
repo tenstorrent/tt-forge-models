@@ -205,7 +205,10 @@ class ModelLoader(ForgeModel):
 
         BertTokenizer.from_pretrained("bert-large-uncased")
 
-        model_kwargs = {"trust_remote_code": True}
+        # low_cpu_mem_usage=False: the model's __init__ calls .item() on tensors
+        # (to build drop-path schedules), which fails on meta tensors. Disabling
+        # meta-device loading keeps everything on CPU during instantiation.
+        model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
