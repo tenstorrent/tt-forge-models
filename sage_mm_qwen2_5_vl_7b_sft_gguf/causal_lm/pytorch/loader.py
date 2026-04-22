@@ -8,9 +8,9 @@ Note: The qwen2vl GGUF architecture is not yet supported by the transformers
 GGUF loader, so we load from the HF-native checkpoint and extract the causal LM.
 """
 import torch
+import torch.nn as nn
 from transformers import (
     Qwen2_5_VLForConditionalGeneration,
-    Qwen2ForCausalLM,
     AutoTokenizer,
     AutoConfig,
 )
@@ -26,6 +26,31 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+class _TextOnlyWrapper(nn.Module):
+    """Wraps the language model and lm_head from Qwen2_5_VL for text-only inference.
+
+    Avoids using Qwen2ForCausalLM as a container for Qwen2_5_VLTextModel because
+    the two have subtle incompatibilities (different attention, rotary embeddings,
+    config types) that can cause dtype mismatches at the lm_head boundary.
+    """
+
+    def __init__(self, language_model, lm_head):
+        super().__init__()
+        self.model = language_model
+        self.lm_head = lm_head
+
+    def forward(self, input_ids=None, attention_mask=None, **kwargs):
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+        )
+        hidden_states = outputs[0]
+        # Cast to weight dtype to guard against internal float32 upcasts in
+        # Qwen2_5_VLRMSNorm or SDPA that do not always restore the original dtype.
+        hidden_states = hidden_states.to(self.lm_head.weight.dtype)
+        return self.lm_head(hidden_states)
 
 
 class ModelVariant(StrEnum):
@@ -72,12 +97,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -88,33 +109,34 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
-        model_kwargs = {}
+        model_kwargs = {"dtype": "auto"}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        # Load the full conditional generation model, then extract the causal LM
-        # because the base repo uses Qwen2_5_VLForConditionalGeneration (multimodal).
         full_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        text_config = full_model.config.text_config
+
+        language_model = full_model.model.language_model
+        lm_head = full_model.lm_head
+
         if self.num_layers is not None:
-            text_config.num_hidden_layers = self.num_layers
-        model = Qwen2ForCausalLM(text_config)
-        model.model = full_model.model.language_model
-        model.lm_head = full_model.lm_head
+            language_model.layers = language_model.layers[: self.num_layers]
+            language_model.config.num_hidden_layers = self.num_layers
+
+        model = _TextOnlyWrapper(language_model, lm_head)
         model.eval()
 
-        self.config = text_config
+        self.config = full_model.config.text_config
         self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         max_length = self._variant_config.max_length
 
