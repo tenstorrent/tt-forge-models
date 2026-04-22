@@ -4,6 +4,8 @@
 """
 Llama 3.1 Nemotron 70B Instruct MLX 4-bit model loader implementation for causal language modeling.
 """
+import os
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -60,12 +62,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -78,19 +76,24 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
+        config = AutoConfig.from_pretrained(pretrained_model_name)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            model = AutoModelForCausalLM.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {"config": config, "ignore_mismatched_sizes": True}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+
+        model.eval()
 
         self.config = model.config
         self.model = model
