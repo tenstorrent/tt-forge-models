@@ -18,6 +18,37 @@ _LANGUAGEBIND_REPO = "https://github.com/PKU-YuanGroup/LanguageBind.git"
 _LANGUAGEBIND_COMMIT = "7070c53375661cdb235801176b564b45f96f0648"
 
 
+def _patch_clip_tokenizer_vocab_args():
+    """Fix CLIPTokenizer compat: transformers>=5 renamed vocab_file->vocab, merges_file->merges.
+
+    LanguageBind passes vocab_file/merges_file as positional args (which map to the new
+    'vocab'/'merges' params), while from_pretrained also stuffs 'vocab'/'merges' into
+    **kwargs, causing "multiple values" errors. Strip the duplicates from kwargs.
+    """
+    from transformers import CLIPTokenizer
+    import inspect
+
+    sig = inspect.signature(CLIPTokenizer.__init__)
+    params = list(sig.parameters.keys())
+    if "vocab_file" in params:
+        return
+
+    original_init = CLIPTokenizer.__init__
+
+    def _compat_init(self, *args, **kwargs):
+        if args and "vocab" in kwargs:
+            kwargs.pop("vocab")
+        if len(args) > 1 and "merges" in kwargs:
+            kwargs.pop("merges")
+        if "vocab_file" in kwargs and "vocab" not in kwargs:
+            kwargs["vocab"] = kwargs.pop("vocab_file")
+        if "merges_file" in kwargs and "merges" not in kwargs:
+            kwargs["merges"] = kwargs.pop("merges_file")
+        original_init(self, *args, **kwargs)
+
+    CLIPTokenizer.__init__ = _compat_init
+
+
 def _patch_torchaudio_audio_backend():
     """Stub torchaudio.set_audio_backend removed in torchaudio>=2.1 that LanguageBind uses."""
     try:
@@ -81,6 +112,7 @@ def _ensure_languagebind():
     _patch_torchaudio_audio_backend()
     _patch_torchvision_functional_tensor()
     _patch_transformers_expand_mask()
+    _patch_clip_tokenizer_vocab_args()
 
 
 from ...base import ForgeModel
