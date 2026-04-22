@@ -135,7 +135,12 @@ class ModelLoader(ForgeModel):
         model = UniDepthV1.from_pretrained(pretrained_model_name)
         model.eval()
 
-        self._shape_constraints = model.shape_constraints
+        img_h, img_w = model.image_shape
+        self._shape_constraints = {
+            "ratio_bounds": [0.5, 2.0],
+            "pixels_min": img_h * img_w,
+            "pixels_max": img_h * img_w,
+        }
 
         wrapper = UniDepthV1Wrapper(model)
         wrapper.eval()
