@@ -7,6 +7,14 @@ CLIPA model loader implementation for image-text similarity using OpenCLIP.
 import torch
 import torch.nn.functional as F
 from typing import Optional
+from PIL import Image
+from transformers import PreTrainedTokenizerBase
+
+# transformers 5.x removed batch_encode_plus; restore it as an alias for __call__
+if not hasattr(PreTrainedTokenizerBase, "batch_encode_plus"):
+    PreTrainedTokenizerBase.batch_encode_plus = lambda self, text, **kwargs: self(
+        text, **kwargs
+    )
 
 from ...base import ForgeModel
 from ...config import (
@@ -18,7 +26,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -101,9 +108,7 @@ class ModelLoader(ForgeModel):
             )
             self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
 
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (224, 224))
 
         self.text_prompts = ["a photo of a cat", "a photo of a dog"]
 
