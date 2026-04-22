@@ -2,10 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-HunyuanImage 2.1 ComfyUI model loader implementation.
-
-Loads single-file safetensors transformer from Comfy-Org/HunyuanImage_2.1_ComfyUI.
-Supports the distilled variant for faster inference.
+HunyuanImage 2.1 distilled transformer model loader.
 
 Available variants:
 - DISTILLED_BF16: HunyuanImage 2.1 distilled transformer (bf16)
@@ -15,7 +12,6 @@ from typing import Optional
 
 import torch
 from diffusers import HunyuanImageTransformer2DModel  # type: ignore[import]
-from huggingface_hub import hf_hub_download  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -28,7 +24,7 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "Comfy-Org/HunyuanImage_2.1_ComfyUI"
+REPO_ID = "hunyuanvideo-community/HunyuanImage-2.1-Distilled-Diffusers"
 
 
 class ModelVariant(StrEnum):
@@ -38,7 +34,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """HunyuanImage 2.1 ComfyUI model loader using single-file safetensors."""
+    """HunyuanImage 2.1 distilled transformer model loader."""
 
     _VARIANTS = {
         ModelVariant.DISTILLED_BF16: ModelConfig(
@@ -72,13 +68,9 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        model_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename="split_files/diffusion_models/hunyuanimage2.1_distilled_bf16.safetensors",
-        )
-
-        self._transformer = HunyuanImageTransformer2DModel.from_single_file(
-            model_path,
+        self._transformer = HunyuanImageTransformer2DModel.from_pretrained(
+            REPO_ID,
+            subfolder="transformer",
             torch_dtype=dtype,
         )
         self._transformer.eval()
@@ -115,11 +107,14 @@ class ModelLoader(ForgeModel):
         )
         encoder_attention_mask = torch.ones(batch_size, text_seq_len, dtype=torch.bool)
 
+        guidance = torch.tensor([3.5], dtype=dtype).expand(batch_size)
+
         inputs = {
             "hidden_states": hidden_states,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
             "encoder_attention_mask": encoder_attention_mask,
+            "guidance": guidance,
         }
 
         return inputs
