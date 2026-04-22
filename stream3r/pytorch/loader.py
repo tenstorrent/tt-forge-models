@@ -94,8 +94,8 @@ class ModelLoader(ForgeModel):
         model = STream3R.from_pretrained(repo_id)
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        model = model.to(dtype)
 
         return model
 
