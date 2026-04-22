@@ -70,6 +70,13 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             model = model.to(dtype=dtype_override)
+            # Pi3's forward explicitly casts intermediate tensors to float32 for
+            # the head computations (point_head, conf_head, camera_head) using
+            # .float() inside autocast(enabled=False). Keep these heads in float32
+            # to match the float32 inputs they receive during forward.
+            model.point_head.to(dtype=torch.float32)
+            model.conf_head.to(dtype=torch.float32)
+            model.camera_head.to(dtype=torch.float32)
 
         model.eval()
 
