@@ -15,6 +15,8 @@ from typing import Any, Optional
 
 import torch
 from diffusers import ZImagePipeline
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -92,10 +94,24 @@ class ModelLoader(ForgeModel):
         )
 
         lora_file = _LORA_FILES[self._variant]
-        self._pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=lora_file,
-        )
+        lora_path = hf_hub_download(LORA_REPO, filename=lora_file)
+        raw_state_dict = load_file(lora_path)
+
+        # Keep only LoRA weights; the files also contain diff/diff_b delta weights
+        # that the diffusers conversion utility does not handle and would raise ValueError.
+        # Add default alpha = rank (scale = 1.0) for each missing .alpha key.
+        state_dict = {
+            k: v
+            for k, v in raw_state_dict.items()
+            if k.endswith(".lora_down.weight") or k.endswith(".lora_up.weight")
+        }
+        for k, v in list(state_dict.items()):
+            if k.endswith(".lora_down.weight"):
+                alpha_key = k[: -len(".lora_down.weight")] + ".alpha"
+                if alpha_key not in raw_state_dict:
+                    state_dict[alpha_key] = torch.tensor(float(v.shape[0]))
+
+        self._pipe.load_lora_weights(state_dict)
         self._pipe.fuse_lora()
 
         return self._pipe
