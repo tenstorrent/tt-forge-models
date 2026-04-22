@@ -6,6 +6,7 @@ MediX R1 8B i1 GGUF model loader implementation for image to text.
 """
 
 from transformers import Qwen3VLForConditionalGeneration, AutoProcessor, AutoConfig
+from PIL import Image
 from typing import Optional
 
 from ....base import ForgeModel
@@ -44,9 +45,7 @@ class ModelLoader(ForgeModel):
 
     BASE_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 
-    sample_image = (
-        "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
-    )
+    sample_image = Image.new("RGB", (224, 224), color=(128, 128, 128))
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
