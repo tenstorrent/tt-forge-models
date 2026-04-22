@@ -4,9 +4,24 @@
 """
 Felladrin GPT-OSS 20B Derestricted MXFP4 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
+import transformers.utils.import_utils as _transformers_import_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _refresh_gguf_availability():
+    """Refresh transformers' stale package distribution map so is_gguf_available() works.
+
+    transformers caches importlib.metadata.packages_distributions() at import time.
+    When gguf is installed later (via RequirementsManager), the stale cache misses it,
+    causing is_gguf_available() to return 'N/A' and fail version parsing.
+    """
+    _transformers_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+        importlib.metadata.packages_distributions()
+    )
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -62,6 +77,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _refresh_gguf_availability()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -154,6 +170,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _refresh_gguf_availability()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
