@@ -12,10 +12,9 @@ Requires the map-anything repository to be cloned at /tmp/map_anything_repo.
 """
 import os
 import sys
+from typing import Optional
 
 import torch
-from datasets import load_dataset
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
@@ -122,10 +121,19 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: A batch of images as pixel values [B, 3, H, W].
         """
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"].resize((518, 518))
-
+        from PIL import Image
+        import requests
+        from io import BytesIO
         from torchvision.transforms.functional import to_tensor
+
+        url = "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/481px-Cat03.jpg"
+        try:
+            response = requests.get(url, timeout=30)
+            image = (
+                Image.open(BytesIO(response.content)).convert("RGB").resize((518, 518))
+            )
+        except Exception:
+            image = Image.new("RGB", (518, 518), color=(128, 128, 128))
 
         pixel_values = to_tensor(image).unsqueeze(0)
 
