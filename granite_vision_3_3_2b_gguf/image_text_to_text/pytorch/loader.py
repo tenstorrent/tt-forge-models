@@ -36,6 +36,7 @@ class ModelLoader(ForgeModel):
             max_length=128,
         ),
     }
+    DEFAULT_VARIANT = ModelVariant.GRANITE_VISION_3_3_2B_GGUF
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
