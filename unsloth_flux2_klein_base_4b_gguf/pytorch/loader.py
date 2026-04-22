@@ -9,6 +9,9 @@ unsloth/FLUX.2-klein-base-4B-GGUF. The GGUF transformer is loaded via diffusers'
 Flux2Transformer2DModel.from_single_file.
 """
 
+import json
+import os
+import tempfile
 from typing import Optional
 
 import torch
@@ -27,6 +30,25 @@ from ...config import (
 )
 
 GGUF_REPO = "unsloth/FLUX.2-klein-base-4B-GGUF"
+
+# Derived from GGUF tensor shapes; guidance_embeds=False since no guidance_in tensor is present.
+_TRANSFORMER_CONFIG = {
+    "_class_name": "Flux2Transformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "patch_size": 1,
+    "in_channels": 128,
+    "num_layers": 5,
+    "num_single_layers": 20,
+    "attention_head_dim": 128,
+    "num_attention_heads": 24,
+    "joint_attention_dim": 7680,
+    "timestep_guidance_channels": 256,
+    "mlp_ratio": 3.0,
+    "axes_dims_rope": [32, 32, 32, 32],
+    "rope_theta": 2000,
+    "eps": 1e-6,
+    "guidance_embeds": False,
+}
 
 
 class ModelVariant(StrEnum):
@@ -81,18 +103,25 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the GGUF-quantized FLUX.2-klein-base-4B transformer.
+    def _make_local_config_dir(self):
+        """Write transformer/config.json to a temp dir so from_single_file avoids a gated repo lookup."""
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
 
-        Returns:
-            torch.nn.Module: The FLUX.2-klein-base-4B transformer model instance.
-        """
+    def load_model(self, *, dtype_override=None, **kwargs):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        config_dir = self._make_local_config_dir()
 
         self.transformer = Flux2Transformer2DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+            config=config_dir,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
@@ -100,11 +129,6 @@ class ModelLoader(ForgeModel):
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the FLUX.2-klein-base-4B transformer.
-
-        Returns:
-            dict: Input tensors for the Flux2Transformer2DModel.
-        """
         if self.transformer is None:
             self.load_model(dtype_override=dtype_override)
 
@@ -156,16 +180,12 @@ class ModelLoader(ForgeModel):
         text_ids = torch.cartesian_prod(t, h, w, l)
         text_ids = text_ids.unsqueeze(0).expand(batch_size, -1, -1).to(dtype=dtype)
 
-        # Guidance
-        guidance = torch.full([batch_size], self.guidance_scale, dtype=dtype)
-
         # Timestep
         timestep = torch.tensor([1.0 / 1000], dtype=dtype).expand(batch_size)
 
         inputs = {
             "hidden_states": latents,
             "timestep": timestep,
-            "guidance": guidance,
             "encoder_hidden_states": prompt_embeds,
             "txt_ids": text_ids,
             "img_ids": latent_ids,
