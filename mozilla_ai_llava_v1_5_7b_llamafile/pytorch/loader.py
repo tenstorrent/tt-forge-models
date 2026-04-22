@@ -78,6 +78,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["ignore_mismatched_sizes"] = True
 
         model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
