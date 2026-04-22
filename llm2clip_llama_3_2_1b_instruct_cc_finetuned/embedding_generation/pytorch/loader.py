@@ -5,8 +5,17 @@
 LLM2CLIP-Llama-3.2-1B-Instruct-CC-Finetuned model loader implementation for text embedding generation.
 """
 import torch
+import transformers.models.llama.modeling_llama as _llama_module
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 from typing import Optional
+
+# LlamaFlashAttention2 and LlamaSdpaAttention were removed in transformers>=4.46
+# when all attention variants were unified into LlamaAttention. The remote code
+# for this model still imports them, so we provide aliases to unblock the import.
+if not hasattr(_llama_module, "LlamaFlashAttention2"):
+    _llama_module.LlamaFlashAttention2 = _llama_module.LlamaAttention
+if not hasattr(_llama_module, "LlamaSdpaAttention"):
+    _llama_module.LlamaSdpaAttention = _llama_module.LlamaAttention
 
 from ....base import ForgeModel
 from ....config import (
