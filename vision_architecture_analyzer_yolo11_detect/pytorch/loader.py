@@ -12,7 +12,6 @@ from typing import Optional
 from datasets import load_dataset
 from huggingface_hub import hf_hub_download
 from torchvision import transforms
-from ultralytics import YOLO
 
 from ...base import ForgeModel
 from ...config import (
@@ -61,6 +60,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from ultralytics import YOLO
         filename = self._variant_config.pretrained_model_name
         model_path = hf_hub_download(
             "guillherms/vision-architecture-analyzer-yolo11-detect", filename
