@@ -54,6 +54,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import torch
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -68,6 +69,10 @@ class ModelLoader(ForgeModel):
         model = AutoModelForSequenceClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        # DeBERTa q_bias/v_bias are initialized as float32 in __init__ and are
+        # not converted by from_pretrained's torch_dtype, so cast explicitly.
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
         return model
 
