@@ -4,31 +4,7 @@
 """
 RNAErnie model loader implementation for masked language modeling on RNA sequences.
 """
-import sys
-import types
-
-from transformers import AutoModelForMaskedLM
 from typing import Optional
-
-
-def _get_rna_tokenizer_class():
-    # multimolecule.__init__ imports from models which has a broken transformers
-    # dependency (check_model_inputs missing in transformers>=5.x). We bypass it
-    # by registering a stub module so only the tokenisers subpackage is loaded.
-    if "multimolecule" not in sys.modules:
-        import importlib.util
-
-        spec = importlib.util.find_spec("multimolecule")
-        if spec is not None:
-            stub = types.ModuleType("multimolecule")
-            stub.__path__ = list(spec.submodule_search_locations)
-            stub.__package__ = "multimolecule"
-            sys.modules["multimolecule"] = stub
-
-    from multimolecule.tokenisers.rna.tokenization_rna import RnaTokenizer
-
-    return RnaTokenizer
-
 
 from ....base import ForgeModel
 from ....config import (
@@ -40,6 +16,15 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_transformers_for_multimolecule():
+    # multimolecule uses check_model_inputs which was removed/not yet added in
+    # certain transformers versions. Patch it as a no-op decorator if missing.
+    import transformers.utils.generic as tug
+
+    if not hasattr(tug, "check_model_inputs"):
+        tug.check_model_inputs = lambda fn: fn
 
 
 class ModelVariant(StrEnum):
@@ -77,7 +62,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self):
-        RnaTokenizer = _get_rna_tokenizer_class()
+        _patch_transformers_for_multimolecule()
+        from multimolecule.tokenisers.rna.tokenization_rna import RnaTokenizer
+
         self.tokenizer = RnaTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
         )
@@ -87,14 +74,16 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
+        _patch_transformers_for_multimolecule()
+        from multimolecule.models.rnaernie.modeling_rnaernie import RnaErnieForMaskedLM
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForMaskedLM.from_pretrained(
+        model = RnaErnieForMaskedLM.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
             **model_kwargs,
         )
 
