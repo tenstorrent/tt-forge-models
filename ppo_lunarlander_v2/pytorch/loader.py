@@ -69,8 +69,22 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The PPO policy network.
         """
+        import stable_baselines3.common.policies as sb3_policies
+        import stable_baselines3.common.preprocessing as sb3_prep
         from huggingface_sb3 import load_from_hub
         from stable_baselines3 import PPO
+
+        # SB3's preprocess_obs calls obs.float() internally, which breaks non-float32
+        # dtypes. Patch it to preserve the input dtype so bfloat16 inputs work.
+        _original_preprocess = sb3_prep.preprocess_obs
+
+        def _dtype_preserving_preprocess(obs, observation_space, normalize_images=True):
+            input_dtype = obs.dtype
+            result = _original_preprocess(obs, observation_space, normalize_images)
+            return result.to(input_dtype)
+
+        sb3_prep.preprocess_obs = _dtype_preserving_preprocess
+        sb3_policies.preprocess_obs = _dtype_preserving_preprocess
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
