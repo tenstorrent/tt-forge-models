@@ -83,6 +83,7 @@ class ModelLoader(ForgeModel):
             fp8_path,
             config=_TRANSFORMER_CONFIG_DIR,
             torch_dtype=dtype,
+            low_cpu_mem_usage=False,
         )
         self._transformer.eval()
         return self._transformer
