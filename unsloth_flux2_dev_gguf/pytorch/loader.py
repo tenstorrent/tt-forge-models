@@ -11,6 +11,10 @@ Flux2Transformer2DModel.from_single_file.
 
 from typing import Optional
 
+import json
+import tempfile
+from pathlib import Path
+
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import Flux2Transformer2DModel
@@ -92,11 +96,34 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
         model_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
 
-        self.transformer = Flux2Transformer2DModel.from_single_file(
-            model_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        # FLUX.2-dev repo is gated; provide config directly to avoid HF lookup.
+        # Values match the GGUF tensor shapes and Flux2Transformer2DModel defaults.
+        model_config = {
+            "_class_name": "Flux2Transformer2DModel",
+            "patch_size": 1,
+            "in_channels": 128,
+            "num_layers": 8,
+            "num_single_layers": 48,
+            "attention_head_dim": 128,
+            "num_attention_heads": 48,
+            "joint_attention_dim": 15360,
+            "timestep_guidance_channels": 256,
+            "mlp_ratio": 3.0,
+            "axes_dims_rope": [32, 32, 32, 32],
+            "rope_theta": 2000,
+            "eps": 1e-6,
+            "guidance_embeds": True,
+        }
+        with tempfile.TemporaryDirectory() as config_dir:
+            config_path = Path(config_dir) / "config.json"
+            config_path.write_text(json.dumps(model_config))
+
+            self.transformer = Flux2Transformer2DModel.from_single_file(
+                model_path,
+                config=config_dir,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         return self.transformer
 
