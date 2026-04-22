@@ -27,6 +27,11 @@ from ...config import (
     StrEnum,
 )
 
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
+
 
 class ModelVariant(StrEnum):
     """Available Wan Animate model variants."""
@@ -44,13 +49,9 @@ class ModelLoader(ForgeModel):
     }
     DEFAULT_VARIANT = ModelVariant.WAN22_ANIMATE_14B
 
-    DEFAULT_PROMPT = (
-        "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"
-    )
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[DiffusionPipeline] = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -66,50 +67,51 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(
-        self,
-        dtype_override: Optional[torch.dtype] = None,
-        device_map: Optional[str] = None,
-        low_cpu_mem_usage: bool = True,
-    ) -> DiffusionPipeline:
-        pipe_kwargs = {
-            "torch_dtype": (
-                dtype_override if dtype_override is not None else torch.float32
-            ),
-            "device_map": device_map,
-            "low_cpu_mem_usage": low_cpu_mem_usage,
-        }
-
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **pipe_kwargs,
-        )
-
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
-
-        return self.pipeline
-
     def load_model(
         self,
         *,
         dtype_override: Optional[torch.dtype] = None,
-        device_map: Optional[str] = None,
-        low_cpu_mem_usage: bool = True,
         **kwargs,
     ):
-        if self.pipeline is None:
-            return self._load_pipeline(
-                dtype_override=dtype_override,
-                device_map=device_map,
-                low_cpu_mem_usage=low_cpu_mem_usage,
-            )
+        if self._transformer is not None:
+            if dtype_override is not None:
+                self._transformer = self._transformer.to(dtype=dtype_override)
+            return self._transformer
 
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        return self.pipeline
+        pipeline = DiffusionPipeline.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            torch_dtype=dtype,
+            low_cpu_mem_usage=True,
+        )
+
+        self._transformer = pipeline.transformer
+        self._transformer.eval()
+        return self._transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {"prompt": prompt_value}
+        if self._transformer is None:
+            self.load_model()
+
+        dtype = torch.bfloat16
+        config = self._transformer.config
+
+        return {
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
+        }
