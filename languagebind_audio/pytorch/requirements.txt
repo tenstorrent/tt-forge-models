@@ -1,2 +1,1 @@
-languagebind @ file:languagebind_audio/pytorch/languagebind_pkg
 soundfile

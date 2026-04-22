@@ -4,12 +4,30 @@
 """
 LanguageBind Audio model loader implementation for audio-text similarity.
 """
+import importlib
+import os
+import subprocess
+import sys
 import tempfile
 
 import numpy as np
 import soundfile as sf
 import torch
 from typing import Optional
+
+
+def _ensure_languagebind():
+    try:
+        import languagebind  # noqa: F401
+    except ImportError:
+        pkg_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "languagebind_pkg"
+        )
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--quiet", pkg_dir]
+        )
+        importlib.invalidate_caches()
+
 
 from ...base import ForgeModel
 from ...config import (
@@ -57,6 +75,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        _ensure_languagebind()
         from languagebind import LanguageBindAudioTokenizer, LanguageBindAudioProcessor
 
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -67,6 +86,7 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def _load_model_config(self):
+        _ensure_languagebind()
         from languagebind import LanguageBindAudioConfig
 
         return LanguageBindAudioConfig.from_pretrained(
@@ -74,6 +94,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _ensure_languagebind()
         from languagebind import LanguageBindAudio
 
         pretrained_model_name = self._variant_config.pretrained_model_name
