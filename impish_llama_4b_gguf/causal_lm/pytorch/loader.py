@@ -12,19 +12,23 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
-# Some GGUF loaders patch load_gguf_checkpoint with a signature that omits
-# model_to_load, which transformers 5.x now passes. Wrap it so this loader is
-# not affected.
-_prev_gguf_load = _gguf_utils.load_gguf_checkpoint
-if "model_to_load" not in inspect.signature(_prev_gguf_load).parameters:
 
-    def _compat_gguf_load(
-        path, return_tensors=False, model_to_load=None, _fn=_prev_gguf_load
-    ):
-        return _fn(path, return_tensors=return_tensors)
+def _ensure_gguf_compat():
+    """Wrap load_gguf_checkpoint to accept model_to_load if missing (transformers 5.x).
 
-    _gguf_utils.load_gguf_checkpoint = _compat_gguf_load
-del _prev_gguf_load
+    Other GGUF loaders may patch load_gguf_checkpoint at import time without the
+    model_to_load kwarg that transformers 5.x now passes. Call this immediately
+    before any from_pretrained() invocation to ensure the current patch is
+    compatible regardless of import order.
+    """
+    current = _gguf_utils.load_gguf_checkpoint
+    if "model_to_load" not in inspect.signature(current).parameters:
+
+        def _compat(path, return_tensors=False, model_to_load=None, _fn=current):
+            return _fn(path, return_tensors=return_tensors)
+
+        _gguf_utils.load_gguf_checkpoint = _compat
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -85,6 +89,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
+        _ensure_gguf_compat()
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
@@ -112,6 +117,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        _ensure_gguf_compat()
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
@@ -172,6 +178,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _ensure_gguf_compat()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
