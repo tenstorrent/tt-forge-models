@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(pretrained_model_name)
         config.quantization_config = None
 
-        model = Qwen2_5_VLForConditionalGeneration.from_config(config)
+        model = Qwen2_5_VLForConditionalGeneration(config)
         if dtype_override is not None:
             model = model.to(dtype_override)
         model.eval()
