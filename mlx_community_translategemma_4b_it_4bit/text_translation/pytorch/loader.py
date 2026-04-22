@@ -8,7 +8,7 @@ A 4-bit MLX-quantized variant of google/translategemma-4b-it, a Gemma3
 conditional generation model fine-tuned for multilingual translation.
 """
 import torch
-from transformers import AutoTokenizer, Gemma3ForConditionalGeneration
+from transformers import AutoConfig, AutoTokenizer, Gemma3ForConditionalGeneration
 from typing import Optional
 
 from ....base import ForgeModel
@@ -88,8 +88,13 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # MLX quantization format is incompatible with transformers; clear it so
+        # the model loads with standard (dequantized) weight shapes.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.quantization_config = None
+
         model = Gemma3ForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
         self.model = model
