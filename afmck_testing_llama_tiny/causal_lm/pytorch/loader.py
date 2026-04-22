@@ -91,6 +91,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        model.resize_token_embeddings(self.tokenizer.vocab_size)
         model.eval()
 
         return model
