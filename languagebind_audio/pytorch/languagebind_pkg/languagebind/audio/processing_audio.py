@@ -22,7 +22,21 @@ if hasattr(torchaudio, "set_audio_backend"):
 
 
 def torchaudio_loader(path):
-    return torchaudio.load(path)
+    # torchaudio 2.9+ routes torchaudio.load through torchcodec which requires
+    # FFmpeg shared libraries not always present.  Fall back to soundfile for
+    # WAV/FLAC/OGG files that don't need FFmpeg.
+    try:
+        return torchaudio.load(path)
+    except (OSError, RuntimeError):
+        import soundfile as sf
+
+        data, sr = sf.read(path, dtype="float32")
+        waveform = torch.from_numpy(data)
+        if waveform.ndim == 1:
+            waveform = waveform.unsqueeze(0)
+        else:
+            waveform = waveform.T
+        return waveform, sr
 
 
 def int16_to_float32_torch(x):
