@@ -8,7 +8,6 @@ TerraCodec neural image compression model loader implementation.
 from typing import Optional
 
 import torch
-from terracodec import terracodec_v1_fp_s2l2a
 
 from ...base import ForgeModel
 from ...config import (
@@ -52,6 +51,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the TerraCodec model instance."""
+        from terracodec import terracodec_v1_fp_s2l2a
+
         model = terracodec_v1_fp_s2l2a(pretrained=True, compression=10)
         model.eval()
 
