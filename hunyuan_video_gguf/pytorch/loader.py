@@ -151,12 +151,16 @@ class ModelLoader(ForgeModel):
             batch_size, config.pooled_projection_dim, dtype=dtype
         )
 
+        # Guidance scale tensor required when guidance_embeds=True (the default).
+        guidance = torch.tensor([3.5], dtype=dtype).expand(batch_size)
+
         inputs = {
             "hidden_states": hidden_states,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
             "encoder_attention_mask": encoder_attention_mask,
             "pooled_projections": pooled_projections,
+            "guidance": guidance,
         }
 
         return inputs
