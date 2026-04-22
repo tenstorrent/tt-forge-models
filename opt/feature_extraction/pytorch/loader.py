@@ -5,7 +5,7 @@
 OPT model loader implementation for feature extraction with LoRA.
 """
 from transformers import AutoTokenizer
-from peft import AutoPeftModelForCausalLM
+from peft import AutoPeftModelForFeatureExtraction
 from typing import Optional
 
 from ....base import ForgeModel
@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoPeftModelForCausalLM.from_pretrained(
+        model = AutoPeftModelForFeatureExtraction.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model = model.merge_and_unload()
