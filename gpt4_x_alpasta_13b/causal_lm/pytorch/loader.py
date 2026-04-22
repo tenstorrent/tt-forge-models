@@ -61,12 +61,13 @@ class ModelLoader(ForgeModel):
     def _load_tokenizer(self, dtype_override=None):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
+        # tokenizer_config.json has empty strings for special tokens due to encoding
+        # issues in the original model repo, so we provide them explicitly.
         self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
+            pretrained_model_name,
+            bos_token="<s>",
+            eos_token="</s>",
+            unk_token="<unk>",
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
