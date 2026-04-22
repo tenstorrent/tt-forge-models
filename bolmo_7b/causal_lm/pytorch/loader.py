@@ -8,6 +8,24 @@ Bolmo-7B causal LM model loader implementation.
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
+import transformers.utils.generic as _tug
+
+# modeling_bolmo.py uses @check_model_inputs() (factory-style) but transformers
+# 5.4+ exposes it as a direct decorator. Patch to support both call styles.
+_orig_check_model_inputs = _tug.check_model_inputs
+
+
+def _check_model_inputs_compat(*args, **kwargs):
+    if args and callable(args[0]):
+        return _orig_check_model_inputs(args[0])
+
+    def _decorator(func):
+        return _orig_check_model_inputs(func)
+
+    return _decorator
+
+
+_tug.check_model_inputs = _check_model_inputs_compat
 
 from ....base import ForgeModel
 from ....config import (
