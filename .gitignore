@@ -1,1 +1,4 @@
 *.pyc
+.cache/
+.local_venv/
+results.yaml
