@@ -128,6 +128,24 @@ class ModelLoader(ForgeModel):
 
         return model
 
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+        return shard_specs
+
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the Chronos007 70B model.
 
