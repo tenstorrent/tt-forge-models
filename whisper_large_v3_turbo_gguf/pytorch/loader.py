@@ -4,11 +4,15 @@
 """
 Whisper Large V3 Turbo GGUF model loader implementation for automatic speech recognition.
 """
+import os
+
+import numpy as np
 import torch
 from transformers import (
+    AutoProcessor,
+    WhisperConfig,
     WhisperForConditionalGeneration,
     WhisperProcessor,
-    AutoProcessor,
 )
 from typing import Optional
 
@@ -22,7 +26,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import get_file
 
 # The GGUF repo does not include processor files, so we load from the base model.
 BASE_MODEL_NAME = "openai/whisper-large-v3-turbo"
@@ -69,15 +72,31 @@ class ModelLoader(ForgeModel):
         """Load the Whisper Large V3 Turbo GGUF model."""
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        config = WhisperConfig.from_pretrained(pretrained_model_name)
+        self.model = WhisperForConditionalGeneration(config).eval()
 
-        self.model = WhisperForConditionalGeneration.from_pretrained(
-            pretrained_model_name, use_cache=False, **model_kwargs
-        ).eval()
+        if not os.environ.get("TT_RANDOM_WEIGHTS"):
+            # This GGUF file uses HF-style tensor names but lacks standard llama.cpp
+            # metadata (no general.architecture field), so from_pretrained cannot load it.
+            # Manually dequantize and load weights instead.
+            from gguf import GGUFReader, dequantize
+            from huggingface_hub import hf_hub_download
+
+            gguf_path = hf_hub_download(pretrained_model_name, self.GGUF_FILE)
+            reader = GGUFReader(gguf_path)
+            state_dict = {}
+            for tensor in reader.tensors:
+                arr = dequantize(tensor.data, tensor.tensor_type)
+                state_dict[tensor.name] = torch.from_numpy(
+                    np.array(arr, dtype=np.float32)
+                )
+
+            # proj_out.weight is tied to model.decoder.embed_tokens.weight
+            state_dict["proj_out.weight"] = state_dict[
+                "model.decoder.embed_tokens.weight"
+            ]
+
+            self.model.load_state_dict(state_dict, strict=True)
 
         self.processor = WhisperProcessor.from_pretrained(BASE_MODEL_NAME)
 
@@ -90,15 +109,11 @@ class ModelLoader(ForgeModel):
         if self.model is None or self.processor is None:
             self.load_model(dtype_override=dtype_override)
 
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
-        # Preprocess audio
-        sampling_rate = 16000
+        # Generate synthetic audio input
+        sample_audio = np.random.randn(16000 * 3).astype(np.float32)
         processor_v3 = AutoProcessor.from_pretrained(BASE_MODEL_NAME)
         features = processor_v3.feature_extractor(
             sample_audio,
