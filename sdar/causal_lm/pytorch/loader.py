@@ -5,15 +5,16 @@
 SDAR (Synergy of Diffusion and AutoRegression) model loader implementation for causal language modeling.
 """
 import os
+import sys
+import textwrap
 from typing import Optional
 from unittest.mock import patch
 
-import sys
-
 import torch
 import transformers.cache_utils
+import transformers.dynamic_module_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
-from transformers.dynamic_module_utils import get_imports, get_relative_imports
+from transformers.dynamic_module_utils import get_cached_module_file, get_imports
 
 # transformers 5.x removed SlidingWindowCache; inject a stub so the model's remote code loads.
 if not hasattr(transformers.cache_utils, "SlidingWindowCache"):
@@ -26,17 +27,25 @@ if not hasattr(transformers.cache_utils, "SlidingWindowCache"):
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
+_STUB_CONTENT = textwrap.dedent(
+    """
+    import torch.nn as nn
 
-_MISSING_MODULES = {"fused_linear_diffusion_cross_entropy"}
+    class FusedLinearDiffusionCrossEntropyLoss(nn.Module):
+        pass
+"""
+).lstrip()
+
+_MISSING_MODULE_FILES = {"fused_linear_diffusion_cross_entropy.py"}
 
 
 def _fixed_get_imports(filename: str | os.PathLike) -> list[str]:
@@ -46,8 +55,22 @@ def _fixed_get_imports(filename: str | os.PathLike) -> list[str]:
     return imports
 
 
-def _fixed_get_relative_imports(filename: str | os.PathLike) -> list[str]:
-    return [m for m in get_relative_imports(filename) if m not in _MISSING_MODULES]
+def _patched_get_cached_module_file(
+    pretrained_model_name_or_path, module_file, **kwargs
+):
+    if os.path.basename(module_file) in _MISSING_MODULE_FILES:
+        # Create a stub file in the same directory as the main module.
+        main_path = get_cached_module_file(
+            pretrained_model_name_or_path, "modeling_sdar.py", **kwargs
+        )
+        stub_path = os.path.join(
+            os.path.dirname(main_path), os.path.basename(module_file)
+        )
+        if not os.path.exists(stub_path):
+            with open(stub_path, "w") as f:
+                f.write(_STUB_CONTENT)
+        return stub_path
+    return get_cached_module_file(pretrained_model_name_or_path, module_file, **kwargs)
 
 
 class ModelVariant(StrEnum):
@@ -128,8 +151,8 @@ class ModelLoader(ForgeModel):
         with patch(
             "transformers.dynamic_module_utils.get_imports", _fixed_get_imports
         ), patch(
-            "transformers.dynamic_module_utils.get_relative_imports",
-            _fixed_get_relative_imports,
+            "transformers.dynamic_module_utils.get_cached_module_file",
+            _patched_get_cached_module_file,
         ):
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name,
