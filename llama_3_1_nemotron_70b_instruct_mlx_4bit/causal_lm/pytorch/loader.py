@@ -4,18 +4,19 @@
 """
 Llama 3.1 Nemotron 70B Instruct MLX 4-bit model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -78,19 +79,18 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
+        hf_config = AutoConfig.from_pretrained(pretrained_model_name)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            hf_config.num_hidden_layers = self.num_layers
+        # MLX quantization_config lacks quant_method; transformers cannot load these
+        # weights, so instantiate from config with random weights instead.
+        if hasattr(hf_config, "quantization_config"):
+            del hf_config.quantization_config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(hf_config).eval()
+
+        if dtype_override is not None:
+            model = model.to(dtype_override)
 
         self.config = model.config
         self.model = model
