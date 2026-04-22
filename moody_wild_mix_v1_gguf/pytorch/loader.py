@@ -82,6 +82,17 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Load the GGUF-quantized Lumina2 transformer."""
+        # gguf is installed at test time via requirements.txt; diffusers caches
+        # its availability at import time, so patch the flag after installation.
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        try:
+            import gguf  # noqa: F401
+
+            _diffusers_import_utils._gguf_available = True
+        except ImportError:
+            pass
+
         from diffusers import GGUFQuantizationConfig, Lumina2Transformer2DModel
 
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
