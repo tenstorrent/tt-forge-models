@@ -122,14 +122,35 @@ class ModelLoader(ForgeModel):
             GGUFQuantizationConfig,
             HunyuanVideo15Transformer3DModel,
         )
+        from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
+        from diffusers.loaders.single_file_utils import (
+            convert_hunyuan_video_transformer_to_diffusers,
+        )
+
+        # diffusers 0.37.x omits HunyuanVideo15Transformer3DModel from the
+        # SINGLE_FILE_LOADABLE_CLASSES registry, which causes from_single_file to
+        # raise ValueError.  Register it here using the same conversion function as
+        # the 1.0 model; the function is a no-op when the GGUF already carries
+        # diffusers-native key names (detected by _should_convert_state_dict_to_diffusers).
+        if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
+            SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
+                "checkpoint_mapping_fn": convert_hunyuan_video_transformer_to_diffusers,
+                "default_subfolder": "transformer",
+            }
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
+        # Provide the transformer config explicitly so from_single_file does not
+        # fall back to auto-detecting the model type from checkpoint keys (which
+        # fails for HunyuanVideo 1.5 GGUF files whose keys are already in
+        # diffusers format and are not recognised by infer_diffusers_model_type).
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            config="hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_i2v",
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
