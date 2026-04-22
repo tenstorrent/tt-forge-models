@@ -10,6 +10,7 @@ and CLIP-aligned embeddings that can be used for zero-shot video-text
 retrieval and video classification.
 """
 
+import os
 import sys
 import types
 from typing import Optional
@@ -17,6 +18,14 @@ from typing import Optional
 import torch
 import torch.nn as nn
 from transformers import AutoModel
+
+# Worktree root, two levels above this file (intern_video_2/pytorch/loader.py).
+# InternVideo2's remote build_bert uses a bare relative path
+# "configs/config_bert_large.json", so we must run from a directory that
+# contains that file.
+_WORKTREE_ROOT = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+)
 
 from ...base import ForgeModel
 from ...config import (
@@ -229,11 +238,14 @@ class ModelLoader(ForgeModel):
                 if not (isinstance(c, torch.device) and str(c) == "meta")
             ]
 
+        _old_cwd = os.getcwd()
         try:
             PreTrainedModel.get_init_context = _gic_no_meta
+            os.chdir(_WORKTREE_ROOT)
             with torch.device("cpu"):
                 model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         finally:
+            os.chdir(_old_cwd)
             PreTrainedModel.get_init_context = classmethod(_orig_gic)
 
         model.eval()
