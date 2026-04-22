@@ -58,13 +58,36 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _fix_self_attn_return_count(model):
+        """Wrap each decoder layer's self_attn to return the 2-tuple expected by transformers 5.x.
+
+        Some model loaders install a 4.x-compat LlamaAttention that returns
+        (attn_output, attn_weights, past_key_value). LlamaDecoderLayer.forward in
+        transformers 5.x unpacks exactly 2 values, causing 'too many values to unpack'.
+        """
+        for layer in model.model.layers:
+            orig = layer.self_attn.forward
+
+            def _wrap(f):
+                def _fwd(*args, **kwargs):
+                    result = f(*args, **kwargs)
+                    if isinstance(result, tuple) and len(result) > 2:
+                        return result[0], result[1]
+                    return result
+
+                return _fwd
+
+            layer.self_attn.forward = _wrap(orig)
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        # Load tokenizer from base model since the adapter repo is gated
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self.BASE_MODEL_NAME, **tokenizer_kwargs
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -91,6 +114,8 @@ class ModelLoader(ForgeModel):
         adapter_name = self._variant_config.pretrained_model_name
         model = PeftModel.from_pretrained(base_model, adapter_name)
         model = model.merge_and_unload()
+
+        self._fix_self_attn_return_count(model)
 
         for param in model.parameters():
             param.requires_grad = False
