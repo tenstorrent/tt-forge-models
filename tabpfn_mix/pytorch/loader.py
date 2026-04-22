@@ -42,7 +42,8 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.TABPFN_MIX_1_0_CLASSIFIER
 
     # In-context learning parameters
-    _N_FEATURES = 4
+    # n_features=100 matches the pretrained model's embedding layer (Linear(100, 512))
+    _N_FEATURES = 100
     _N_SUPPORT = 8
     _N_QUERY = 2
     _N_CLASSES = 3
