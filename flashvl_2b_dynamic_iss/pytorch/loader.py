@@ -9,6 +9,7 @@ from typing import Optional
 
 from PIL import Image
 from transformers import AutoModel, AutoTokenizer, CLIPImageProcessor
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
 from ...base import ForgeModel
 from ...config import (
@@ -74,6 +75,15 @@ class ModelLoader(ForgeModel):
 
         if self.tokenizer is None or self.image_processor is None:
             self._load_processors()
+
+        # FlashVLDynamicISSConfig.__init__ requires positional args, but transformers 5.x
+        # calls self.__class__() with no args in to_diff_dict(). Setting has_no_defaults_at_init
+        # tells transformers to skip that default-instance creation.
+        config_cls = get_class_from_dynamic_module(
+            "configuration_FlashVLDynamicISS.FlashVLDynamicISSConfig",
+            pretrained_model_name,
+        )
+        config_cls.has_no_defaults_at_init = True
 
         model_kwargs = {
             "trust_remote_code": True,
