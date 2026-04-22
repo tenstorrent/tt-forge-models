@@ -9,7 +9,6 @@ embedding computation with minimal resource requirements.
 """
 import torch
 import torch.nn as nn
-from model2vec import StaticModel
 from typing import Optional
 
 from third_party.tt_forge_models.config import (
@@ -27,7 +26,7 @@ from third_party.tt_forge_models.base import ForgeModel
 class Model2VecTorchModel(nn.Module):
     """Wraps a Model2Vec StaticModel as a torch.nn.Module for hardware compilation."""
 
-    def __init__(self, static_model: StaticModel):
+    def __init__(self, static_model):
         super().__init__()
         embedding_tensor = torch.from_numpy(static_model.embedding.copy()).float()
         self.embedding = nn.Embedding.from_pretrained(embedding_tensor, freeze=True)
@@ -94,6 +93,8 @@ class ModelLoader(ForgeModel):
 
     def _load_static_model(self):
         if self._static_model is None:
+            from model2vec import StaticModel
+
             model_name = self._variant_config.pretrained_model_name
             self._static_model = StaticModel.from_pretrained(model_name)
         return self._static_model
