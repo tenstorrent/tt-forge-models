@@ -112,6 +112,12 @@ class ModelLoader(ForgeModel):
             latent_model_input = latent_model_input.to(dtype_override)
             timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
+            added_cond_kwargs = {
+                k: v.to(dtype_override) if hasattr(v, "to") else v
+                for k, v in added_cond_kwargs.items()
+            }
+            if timestep_cond is not None:
+                timestep_cond = timestep_cond.to(dtype_override)
 
         inputs = {
             "sample": latent_model_input,
