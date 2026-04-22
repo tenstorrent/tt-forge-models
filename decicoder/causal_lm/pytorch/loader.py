@@ -5,7 +5,8 @@
 DeciCoder model loader implementation for causal language modeling.
 """
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer, LlamaForCausalLM
+from transformers.models.llama.configuration_llama import LlamaConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +19,25 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+class _DeciCoderConfig(LlamaConfig):
+    """Local config subclass for DeciCoder — avoids trust_remote_code and the
+    incompatible custom modeling code that only works with transformers<5.0."""
+
+    model_type = "decicoder"
+
+    def __init__(
+        self,
+        naive_attention_prefill: bool = False,
+        naive_attention_decode_batched: bool = True,
+        naive_attention_decode_single: bool = False,
+        **kwargs,
+    ):
+        self.naive_attention_prefill = naive_attention_prefill
+        self.naive_attention_decode_batched = naive_attention_decode_batched
+        self.naive_attention_decode_single = naive_attention_decode_single
+        super().__init__(**kwargs)
 
 
 class ModelVariant(StrEnum):
@@ -78,14 +98,16 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {"trust_remote_code": True}
+        # Load config via our local subclass to avoid trust_remote_code and the
+        # incompatible custom modeling_decicoder.py (written for transformers<5.0).
+        config = _DeciCoderConfig.from_pretrained(pretrained_model_name)
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        model = LlamaForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         return model
