@@ -115,6 +115,7 @@ class ModelLoader(ForgeModel):
             local_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
+            config=BASE_PIPELINE,
         )
 
         self.pipeline = StableDiffusionPipeline.from_pretrained(
