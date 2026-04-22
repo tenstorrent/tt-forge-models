@@ -125,18 +125,20 @@ class ModelLoader(ForgeModel):
 
         # HunyuanVideo15Transformer3DModel is not registered in diffusers'
         # SINGLE_FILE_LOADABLE_CLASSES, so patch the registry before calling
-        # from_single_file. Use a pass-through converter because the GGUF
-        # library already maps keys to diffusers names; applying the HunyuanVideo
-        # base converter would produce dimension mismatches for the cfg_distilled
-        # variant (2048 vs 3072 attention dim).
+        # from_single_file. Use the standard HunyuanVideo converter for correct key
+        # mapping (GGUF → diffusers names). The base HunyuanVideo config fetched via
+        # fetch_diffusers_config has 24 heads (3072-dim), but HunyuanVideo 1.5 uses
+        # 16 heads (2048-dim), so pass explicit architecture params as kwargs —
+        # from_single_file merges them into diffusers_model_config before creating
+        # the model (single_file_model.py lines 437-438).
         from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
-
-        def _passthrough_converter(checkpoint, **kwargs):
-            return checkpoint
+        from diffusers.loaders.single_file_utils import (
+            convert_hunyuan_video_transformer_to_diffusers,
+        )
 
         if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
             SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
-                "checkpoint_mapping_fn": _passthrough_converter,
+                "checkpoint_mapping_fn": convert_hunyuan_video_transformer_to_diffusers,
                 "default_subfolder": "transformer",
             }
 
@@ -149,6 +151,15 @@ class ModelLoader(ForgeModel):
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
+            num_attention_heads=16,
+            attention_head_dim=128,
+            num_layers=54,
+            in_channels=65,
+            out_channels=32,
+            text_embed_dim=3584,
+            text_embed_2_dim=1472,
+            image_embed_dim=1152,
+            task_type="i2v",
         )
 
         return self._transformer
