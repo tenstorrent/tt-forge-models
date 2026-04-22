@@ -82,12 +82,46 @@ class ModelLoader(ForgeModel):
         )
         return self.processor
 
+    @staticmethod
+    def _patch_rope_init_functions():
+        # transformers>=5.0 removed "default" from ROPE_INIT_FUNCTIONS; the
+        # model's trust_remote_code still does a dict lookup for that key.
+        from transformers import modeling_rope_utils
+
+        if "default" not in modeling_rope_utils.ROPE_INIT_FUNCTIONS:
+            import torch
+
+            def _default_rope(config=None, device=None, seq_len=None, **rope_kwargs):
+                if rope_kwargs:
+                    base, dim = rope_kwargs["base"], rope_kwargs["dim"]
+                else:
+                    base = config.rope_theta
+                    factor = getattr(config, "partial_rotary_factor", 1.0)
+                    head_dim = getattr(
+                        config,
+                        "head_dim",
+                        config.hidden_size // config.num_attention_heads,
+                    )
+                    dim = int(head_dim * factor)
+                inv_freq = 1.0 / (
+                    base
+                    ** (
+                        torch.arange(0, dim, 2, dtype=torch.int64).float().to(device)
+                        / dim
+                    )
+                )
+                return inv_freq, 1.0
+
+            modeling_rope_utils.ROPE_INIT_FUNCTIONS["default"] = _default_rope
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._patch_rope_init_functions()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
