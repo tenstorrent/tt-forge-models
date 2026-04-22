@@ -57,6 +57,8 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
 
         # Sample table data
+        # Use object dtype to avoid Arrow-backed string arrays in newer pandas,
+        # which cannot hold the Cell namedtuples the TAPAS tokenizer assigns.
         self.table = pd.DataFrame(
             {
                 "Player": [
@@ -74,7 +76,7 @@ class ModelLoader(ForgeModel):
                     "Real Madrid",
                 ],
             }
-        )
+        ).astype(object)
         self.queries = ["How many goals does Lionel Messi have?"]
 
     @classmethod
