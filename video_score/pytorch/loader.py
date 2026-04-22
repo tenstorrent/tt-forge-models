@@ -127,6 +127,18 @@ class ModelLoader(ForgeModel):
             if _saved_mantis is not None:
                 sys.modules["mantis"] = _saved_mantis
 
+        # mantis-vl 0.0.5 tie_weights() doesn't accept the recompute_mapping
+        # kwarg added in transformers>=5.0; patch for compatibility.
+        import inspect
+
+        _orig_tw = Idefics2ForSequenceClassification.tie_weights
+        if "recompute_mapping" not in inspect.signature(_orig_tw).parameters:
+
+            def _compat_tie_weights(self, **kwargs):
+                return _orig_tw(self)
+
+            Idefics2ForSequenceClassification.tie_weights = _compat_tie_weights
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.processor is None:
