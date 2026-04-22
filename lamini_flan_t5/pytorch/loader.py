@@ -37,7 +37,7 @@ class ModelLoader(ForgeModel):
             max_length=512,
         ),
         ModelVariant.LAMINI_FLAN_T5_248M_XENOVA: LLMModelConfig(
-            pretrained_model_name="Xenova/LaMini-Flan-T5-248M",
+            pretrained_model_name="MBZUAI/LaMini-Flan-T5-248M",
             max_length=512,
         ),
     }
