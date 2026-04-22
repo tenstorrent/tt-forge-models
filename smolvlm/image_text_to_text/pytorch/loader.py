@@ -8,7 +8,7 @@ SmolVLM model loader implementation for image-text-to-text generation.
 from typing import Optional
 
 from PIL import Image
-from transformers import AutoModelForVision2Seq, AutoProcessor
+from transformers import AutoProcessor
 
 from ....base import ForgeModel
 from ....config import (
@@ -72,6 +72,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SmolVLM model instance."""
+        from transformers import AutoModelForVision2Seq
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.processor is None:
