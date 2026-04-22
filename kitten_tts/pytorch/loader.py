@@ -68,7 +68,43 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _ensure_espeakng_data():
+        """Ensure espeak-ng data is accessible at the path compiled into espeakng_loader.
+
+        The espeakng_loader wheel bundles espeak-ng compiled against a
+        GitHub Actions runner path. On non-CI machines that path doesn't exist,
+        so we create a symlink from the compiled-in path to the bundled data.
+        """
+        import os
+        import subprocess
+
+        try:
+            import espeakng_loader
+
+            lib_path = espeakng_loader.get_library_path()
+            data_path = espeakng_loader.get_data_path()
+
+            # Find the hardcoded prefix path compiled into the binary
+            result = subprocess.run(
+                ["strings", lib_path], capture_output=True, text=True, timeout=10
+            )
+            for line in result.stdout.splitlines():
+                # The lib directory compiled into the binary (e.g.
+                # /home/runner/.../espeak-ng/_dynamic/lib)
+                if line.startswith("/") and line.endswith("/lib") and "espeak" in line:
+                    hardcoded_data = os.path.join(
+                        os.path.dirname(line), "share", "espeak-ng-data"
+                    )
+                    if not os.path.exists(hardcoded_data):
+                        os.makedirs(os.path.dirname(hardcoded_data), exist_ok=True)
+                        os.symlink(data_path, hardcoded_data)
+                    break
+        except Exception:
+            pass  # best-effort; let espeak_Initialize raise if still broken
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._ensure_espeakng_data()
         from kittentts import KittenTTS
 
         self.tts_model = KittenTTS(self._variant_config.pretrained_model_name)
