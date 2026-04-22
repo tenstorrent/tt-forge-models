@@ -6,7 +6,8 @@ EnViT5 model loader implementation
 """
 
 import torch
-from transformers import AutoTokenizer, T5ForConditionalGeneration
+from tokenizers import Tokenizer as HFTokenizer
+from transformers import PreTrainedTokenizerFast, T5ForConditionalGeneration
 from typing import Optional
 
 from ...base import ForgeModel
@@ -58,16 +59,13 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            use_fast=False,
-            **tokenizer_kwargs
+        # transformers 5.x has a bug in convert_to_native_format where it accesses
+        # vocab[0] on a string-keyed dict for Unigram tokenizers. Loading through
+        # the tokenizers library directly bypasses this code path.
+        backend = HFTokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name
         )
-
+        self.tokenizer = PreTrainedTokenizerFast(tokenizer_object=backend)
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
