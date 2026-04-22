@@ -8,6 +8,16 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -18,6 +28,47 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_olmo2_gguf_support():
+    """Register olmo2 GGUF architecture in transformers config mapping.
+
+    transformers 5.2.0 lacks olmo2 in GGUF_CONFIG_MAPPING. OLMo 2 uses
+    LLaMA-style GGUF keys. rope_theta is fixed up in _patched_load_gguf_checkpoint
+    to match Olmo2Config's rope_parameters dict format.
+    """
+    if "olmo2" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_CONFIG_MAPPING["olmo2"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+    GGUF_SUPPORTED_ARCHITECTURES.append("olmo2")
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Wrap load_gguf_checkpoint to add olmo2 support and fix rope_parameters."""
+    _patch_olmo2_gguf_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    config = result.get("config", {})
+    if config.get("model_type") == "olmo2" and "rope_theta" in config:
+        rope_theta = config.pop("rope_theta")
+        config["rope_parameters"] = {"rope_type": "default", "rope_theta": rope_theta}
+    return result
+
+
+_patch_olmo2_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
