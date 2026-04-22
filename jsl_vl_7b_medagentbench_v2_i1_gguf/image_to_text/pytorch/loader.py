@@ -129,6 +129,13 @@ class ModelLoader(ForgeModel):
             "Qwen/Qwen2.5-VL-7B-Instruct",
         )
 
+        # Re-apply patch here in case another loader overwrote it during test discovery.
+        _patch_qwen2vl_support()
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
