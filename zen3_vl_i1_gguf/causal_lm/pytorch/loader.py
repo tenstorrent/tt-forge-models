@@ -62,6 +62,12 @@ def _patch_transformers_qwen3vl_gguf():
 
     gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
+    import transformers.configuration_utils as config_utils
+    import transformers.models.auto.tokenization_auto as tok_auto
+
+    config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    tok_auto.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 
 _patch_transformers_qwen3vl_gguf()
 from ....config import (
