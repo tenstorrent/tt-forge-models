@@ -4,6 +4,8 @@
 """
 AIDO.RNA model loader implementation for embedding generation on RNA sequences.
 """
+import sys
+import types
 from typing import Optional
 
 from ....base import ForgeModel
@@ -16,6 +18,51 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _mock_lamindb_setup():
+    """Pre-populate sys.modules with a stub lamindb_setup.
+
+    modelgenerator -> bionty -> lamindb_setup -> Django is the import chain.
+    Django's lazy proxy objects conflict with the test runner's module cleanup,
+    so we short-circuit the chain here. The actual model (AIDO.RNA) never uses
+    lamindb functionality; bionty only checks _check_instance_setup() which
+    returns False when no lamin instance is configured.
+    """
+    if "lamindb_setup" in sys.modules:
+        return
+
+    from pathlib import Path
+
+    def _make(name, parent=None):
+        mod = types.ModuleType(name)
+        mod.__path__ = []
+        mod.__package__ = name
+        sys.modules[name] = mod
+        if parent is not None:
+            setattr(parent, name.rsplit(".", 1)[-1], mod)
+        return mod
+
+    pkg = _make("lamindb_setup")
+    pkg.__version__ = "1.9.1"
+
+    check = _make("lamindb_setup._check_setup", pkg)
+    check._check_instance_setup = lambda *a, **kw: False
+
+    core = _make("lamindb_setup.core", pkg)
+
+    upath = _make("lamindb_setup.core.upath", core)
+    upath.UPath = Path
+
+    errors = _make("lamindb_setup.errors", pkg)
+    errors.InstanceNotSetupError = type("InstanceNotSetupError", (Exception,), {})
+
+    _make("lamindb_setup.types", pkg)
+    _make("lamindb_setup._django", pkg)
+    _make("lamindb_setup._connect_instance", pkg)
+    _make("lamindb_setup._delete", pkg)
+    _make("lamindb_setup._disconnect", pkg)
+    _make("lamindb_setup._entry_points", pkg)
 
 
 class ModelVariant(StrEnum):
@@ -62,6 +109,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _mock_lamindb_setup()
+
         from modelgenerator.tasks import Embed
 
         backbone = self._VARIANT_TO_BACKBONE[self._variant]
@@ -84,4 +133,4 @@ class ModelLoader(ForgeModel):
             {"sequences": [rna_sequence]}
         )
 
-        return transformed_batch
+        return (transformed_batch,)

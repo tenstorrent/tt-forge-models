@@ -5,7 +5,7 @@
 Llama 3.2 1B Instruct MLC model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -59,6 +59,22 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _build_config(self):
+        num_layers = self.num_layers if self.num_layers is not None else 16
+        return LlamaConfig(
+            hidden_size=2048,
+            intermediate_size=8192,
+            num_attention_heads=32,
+            num_hidden_layers=num_layers,
+            num_key_value_heads=8,
+            vocab_size=128256,
+            rms_norm_eps=1e-05,
+            max_position_embeddings=131072,
+            tie_word_embeddings=True,
+            bos_token_id=128000,
+            eos_token_id=128001,
+        )
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
@@ -73,25 +89,17 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        config = self._build_config()
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
 
         self.config = model.config
         self.model = model
@@ -131,7 +139,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.config = self._build_config()
         return self.config

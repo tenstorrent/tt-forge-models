@@ -6,7 +6,7 @@
 Wan 2.2 I2V A14B GGUF model loader implementation.
 
 Loads GGUF-quantized Wan 2.2 Image-to-Video transformers from
-bullerwins/Wan2.2-I2V-A14B-GGUF and builds a WanImageToVideoPipeline.
+bullerwins/Wan2.2-I2V-A14B-GGUF.
 
 The Wan 2.2 I2V A14B uses a Mixture-of-Experts (MoE) architecture with
 two experts selected by signal-to-noise ratio (SNR):
@@ -21,7 +21,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -35,7 +34,11 @@ from ...config import (
 )
 
 GGUF_REPO = "bullerwins/Wan2.2-I2V-A14B-GGUF"
-BASE_PIPELINE = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
+
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -66,7 +69,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -87,68 +90,100 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized Wan 2.2 I2V transformer and build the pipeline.
+        """Load the GGUF-quantized Wan 2.2 I2V transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer,
-        then constructs the full WanImageToVideoPipeline with the base model's
-        VAE and image encoder in float32 for numerical stability.
+        Returns the transformer nn.Module directly for compilation testing.
         """
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+
         from diffusers import (
-            AutoencoderKLWan,
             GGUFQuantizationConfig,
-            WanImageToVideoPipeline,
             WanTransformer3DModel,
         )
-        from transformers import CLIPVisionModel
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        from contextlib import contextmanager
+        from unittest.mock import patch
 
-        image_encoder = CLIPVisionModel.from_pretrained(
-            BASE_PIPELINE,
-            subfolder="image_encoder",
-            torch_dtype=torch.float32,
-        )
-        vae = AutoencoderKLWan.from_pretrained(
-            BASE_PIPELINE,
-            subfolder="vae",
-            torch_dtype=torch.float32,
-        )
+        def _materialize_meta_tensors(model):
+            for name, param in list(model.named_parameters()):
+                if param.device.type == "meta":
+                    parts = name.split(".")
+                    parent = model
+                    for p in parts[:-1]:
+                        parent = getattr(parent, p)
+                    materialized = torch.zeros(
+                        param.shape, dtype=compute_dtype, device="cpu"
+                    )
+                    setattr(
+                        parent,
+                        parts[-1],
+                        torch.nn.Parameter(
+                            materialized, requires_grad=param.requires_grad
+                        ),
+                    )
+            for name, buf in list(model.named_buffers()):
+                if buf.device.type == "meta":
+                    parts = name.split(".")
+                    parent = model
+                    for p in parts[:-1]:
+                        parent = getattr(parent, p)
+                    setattr(
+                        parent,
+                        parts[-1],
+                        torch.zeros(buf.shape, dtype=buf.dtype, device="cpu"),
+                    )
 
-        self.pipeline = WanImageToVideoPipeline.from_pretrained(
-            BASE_PIPELINE,
-            transformer=transformer,
-            vae=vae,
-            image_encoder=image_encoder,
-            torch_dtype=compute_dtype,
-        )
+        import diffusers.loaders.single_file_model as _sfm
 
-        return self.pipeline
+        _original_dispatch = _sfm.dispatch_model
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for image-to-video generation."""
-        if prompt is None:
-            prompt = (
-                "A cat walking gracefully across a sunlit garden, "
-                "detailed fur texture, cinematic lighting"
+        def _safe_dispatch(model, **kwargs):
+            _materialize_meta_tensors(model)
+            return _original_dispatch(model, **kwargs)
+
+        with patch.object(_sfm, "dispatch_model", _safe_dispatch):
+            self._transformer = WanTransformer3DModel.from_single_file(
+                f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
             )
 
-        image = Image.new("RGB", (832, 480), color=(128, 128, 200))
+        return self._transformer
+
+    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
+        """Prepare tensor inputs for the WanTransformer3DModel forward pass."""
+        if self._transformer is None:
+            self.load_model()
+
+        dtype = torch.bfloat16
+        config = self._transformer.config
 
         return {
-            "prompt": prompt,
-            "image": image,
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }

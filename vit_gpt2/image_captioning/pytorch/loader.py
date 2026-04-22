@@ -79,6 +79,8 @@ class ModelLoader(ForgeModel):
 
         if self.processor is None:
             self.processor = ViTImageProcessor.from_pretrained(pretrained_model_name)
+        if self.tokenizer is None:
+            self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
 
         image_path = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         image = Image.open(str(image_path)).convert("RGB")
@@ -91,7 +93,13 @@ class ModelLoader(ForgeModel):
         if batch_size > 1:
             pixel_values = pixel_values.repeat(batch_size, 1, 1, 1)
 
-        return {"pixel_values": pixel_values}
+        decoder_input_ids = torch.full(
+            (batch_size, 1),
+            self.tokenizer.bos_token_id,
+            dtype=torch.long,
+        )
+
+        return {"pixel_values": pixel_values, "decoder_input_ids": decoder_input_ids}
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
