@@ -7,7 +7,7 @@ VideoChatFlash-Qwen model loader implementation for multimodal video/image condi
 
 from typing import Optional
 
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from ...base import ForgeModel
 from ...config import (
@@ -78,6 +78,14 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        config = AutoConfig.from_pretrained(str(model_name), trust_remote_code=True)
+        # Newer transformers stores rope_theta inside rope_parameters; patch for older custom model code
+        if not hasattr(config, "rope_theta") and hasattr(config, "rope_parameters"):
+            rope_params = config.rope_parameters
+            if isinstance(rope_params, dict):
+                config.rope_theta = rope_params.get("rope_theta", 1000000.0)
+        model_kwargs["config"] = config
 
         model = AutoModel.from_pretrained(str(model_name), **model_kwargs)
         model.eval()
