@@ -86,10 +86,14 @@ class ModelLoader(ForgeModel):
     def _patch_rope_init_functions():
         # transformers>=5.0 removed "default" from ROPE_INIT_FUNCTIONS; the
         # model's trust_remote_code still does a dict lookup for that key.
-        from transformers import modeling_rope_utils
+        # Additionally, transformers>=5.0 _init_weights expects a
+        # compute_default_rope_parameters method on the rotary embedding module
+        # for rope_type=="default"; older custom code never defines that method,
+        # so we patch _init_weights to fall back to the dict entry.
+        import torch
+        from transformers import modeling_rope_utils, modeling_utils
 
         if "default" not in modeling_rope_utils.ROPE_INIT_FUNCTIONS:
-            import torch
 
             def _default_rope(config=None, device=None, seq_len=None, **rope_kwargs):
                 if rope_kwargs:
@@ -113,6 +117,23 @@ class ModelLoader(ForgeModel):
                 return inv_freq, 1.0
 
             modeling_rope_utils.ROPE_INIT_FUNCTIONS["default"] = _default_rope
+
+        # Patch _init_weights so that custom RotaryEmbedding subclasses that
+        # lack compute_default_rope_parameters fall back to ROPE_INIT_FUNCTIONS.
+        _orig_init_weights = modeling_utils.PreTrainedModel._init_weights
+
+        def _patched_init_weights(self, module):
+            if (
+                "RotaryEmbedding" in module.__class__.__name__
+                and hasattr(module, "original_inv_freq")
+                and getattr(module, "rope_type", None) == "default"
+                and not hasattr(module, "compute_default_rope_parameters")
+            ):
+                rope_fn = modeling_rope_utils.ROPE_INIT_FUNCTIONS["default"]
+                module.compute_default_rope_parameters = lambda cfg: rope_fn(cfg)
+            _orig_init_weights(self, module)
+
+        modeling_utils.PreTrainedModel._init_weights = _patched_init_weights
 
     def load_model(self, *, dtype_override=None, **kwargs):
         self._patch_rope_init_functions()
