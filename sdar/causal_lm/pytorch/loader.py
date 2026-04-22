@@ -75,7 +75,8 @@ def _eager_flex_attention(
     attn_weights = torch.nn.functional.softmax(
         attn_weights, dim=-1, dtype=torch.float32
     ).to(query.dtype)
-    attn_output = torch.matmul(attn_weights, value).transpose(1, 2).contiguous()
+    # Keep output in (batch, num_heads, seq_len, head_dim) to match flex_attention output format.
+    attn_output = torch.matmul(attn_weights, value)
     return attn_output, None
 
 
