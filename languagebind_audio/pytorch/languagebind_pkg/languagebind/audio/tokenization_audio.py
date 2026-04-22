@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 from transformers import CLIPTokenizer
 from transformers.utils import logging
 
@@ -25,6 +28,7 @@ PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
 PRETRAINED_INIT_CONFIGURATION = {
     "lb203/LanguageBind-Audio": {},
 }
+
 
 class LanguageBindAudioTokenizer(CLIPTokenizer):
     """
@@ -56,22 +60,28 @@ class LanguageBindAudioTokenizer(CLIPTokenizer):
     model_input_names = ["input_ids", "attention_mask"]
 
     def __init__(
-            self,
-            vocab_file,
-            merges_file,
-            errors="replace",
-            unk_token="<|endoftext|>",
-            bos_token="<|startoftext|>",
-            eos_token="<|endoftext|>",
-            pad_token="<|endoftext|>",  # hack to enable padding
-            **kwargs,
+        self,
+        vocab_file=None,
+        merges_file=None,
+        errors="replace",
+        unk_token="<|endoftext|>",
+        bos_token="<|startoftext|>",
+        eos_token="<|endoftext|>",
+        pad_token="<|endoftext|>",  # hack to enable padding
+        **kwargs,
     ):
+        # transformers 5.x passes both vocab_file/merges_file (paths) and
+        # vocab/merges (loaded content) as separate kwargs.  Passing vocab_file
+        # positionally would collide with the 'vocab' kwarg, so absorb the
+        # legacy file-path args and let 'vocab'/'merges' flow through **kwargs.
+        if "vocab" not in kwargs and vocab_file is not None:
+            kwargs["vocab"] = vocab_file
+        if "merges" not in kwargs and merges_file is not None:
+            kwargs["merges"] = merges_file
         super(LanguageBindAudioTokenizer, self).__init__(
-            vocab_file,
-            merges_file,
-            errors,
-            unk_token,
-            bos_token,
-            eos_token,
-            pad_token,  # hack to enable padding
-            **kwargs,)
+            unk_token=unk_token,
+            bos_token=bos_token,
+            eos_token=eos_token,
+            pad_token=pad_token,
+            **kwargs,
+        )
