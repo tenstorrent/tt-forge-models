@@ -127,7 +127,7 @@ class ModelLoader(ForgeModel):
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.variant in (
+        if self._variant in (
             ModelVariant.DEEPSEEK_OCR_UNSLOTH,
             ModelVariant.DEEPSEEK_OCR_JALEA96_BNB_4BIT_NF4,
         ):
