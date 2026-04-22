@@ -135,7 +135,7 @@ class ModelLoader(ForgeModel):
 
         # Seq2seq models need decoder_input_ids for the forward pass.
         # The verbalization model targets Ukrainian, so start decoding from uk_XX.
-        target_lang_id = self._tokenizer.lang_code_to_id["uk_XX"]
+        target_lang_id = self._tokenizer.convert_tokens_to_ids("uk_XX")
         inputs["decoder_input_ids"] = torch.tensor([[target_lang_id]])
 
         if dtype_override is not None:
