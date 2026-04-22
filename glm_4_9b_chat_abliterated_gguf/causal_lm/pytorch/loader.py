@@ -34,33 +34,10 @@ def _patch_transformers_chatglm_gguf():
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
-    if "chatglm" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
-
-    # 1. Register chatglm as a supported architecture
-    GGUF_SUPPORTED_ARCHITECTURES.append("chatglm")
-
-    # 2. Add config mapping for chatglm -> glm4 config fields
-    GGUF_TO_TRANSFORMERS_MAPPING["config"]["chatglm"] = {
-        "context_length": "max_position_embeddings",
-        "block_count": "num_hidden_layers",
-        "feed_forward_length": "intermediate_size",
-        "embedding_length": "hidden_size",
-        "rope.dimension_count": None,
-        "rope.freq_base": "rope_theta",
-        "attention.head_count": "num_attention_heads",
-        "attention.head_count_kv": "num_key_value_heads",
-        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
-        "attention.key_length": "head_dim",
-        "attention.value_length": None,
-        "vocab_size": "vocab_size",
-    }
-
-    # 3. Register chatglm tokenizer converter with merge-fixing logic.
     # ChatGLM vocabularies contain tokens with literal spaces, so the
-    # space-delimited GGUF merge strings sometimes split into 3 parts
-    # instead of the expected 2. We resolve the ambiguity by checking
-    # which split produces tokens that exist in the vocabulary.
+    # space-delimited GGUF merge strings sometimes split into 3+ parts
+    # instead of the expected 2. This converter resolves the ambiguity by
+    # checking which split produces tokens that exist in the vocabulary.
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
         GGUFQwen2Converter,
@@ -99,8 +76,37 @@ def _patch_transformers_chatglm_gguf():
             )
             return tokenizer
 
+    # Register for "chatglm" key (original GGUF architecture name)
     if "chatglm" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["chatglm"] = GGUFChatGLMConverter
+
+    # Always register for "glm4" as well: the patched load_gguf_checkpoint remaps
+    # model_type from "chatglm" to "glm4", so convert_gguf_tokenizer is called with
+    # "glm4". Other GLM loaders (e.g. glm_4_32b) may register GGUFQwen2Converter
+    # for "glm4", which cannot handle the 3-tuple merges present in this model.
+    GGUF_TO_FAST_CONVERTERS["glm4"] = GGUFChatGLMConverter
+
+    if "chatglm" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Remaining setup already done by another GLM loader
+
+    # 1. Register chatglm as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("chatglm")
+
+    # 2. Add config mapping for chatglm -> glm4 config fields
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["chatglm"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+        "vocab_size": "vocab_size",
+    }
 
     # 4. Patch load_gguf_checkpoint to remap model_type and compute partial_rotary_factor
     orig_load = gguf_utils.load_gguf_checkpoint
