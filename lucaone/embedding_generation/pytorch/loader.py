@@ -6,6 +6,7 @@ LucaOne model loader implementation for embedding generation on
 nucleic acid (DNA/RNA) and protein sequences.
 """
 
+import torch
 from transformers import AutoModel, AutoTokenizer
 from typing import Optional
 
@@ -73,8 +74,9 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer()
 
         model_kwargs = dict(kwargs)
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs["torch_dtype"] = (
+            dtype_override if dtype_override is not None else torch.bfloat16
+        )
         # LucaOne requires custom code and embedding-mode kwargs; these must
         # not be overridden by callers.
         model_kwargs["trust_remote_code"] = True
@@ -84,6 +86,7 @@ class ModelLoader(ForgeModel):
         model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
+        model = model.to(model_kwargs["torch_dtype"])
         model.eval()
 
         return model
