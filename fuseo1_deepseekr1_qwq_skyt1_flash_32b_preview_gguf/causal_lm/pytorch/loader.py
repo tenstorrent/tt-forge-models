@@ -4,10 +4,34 @@
 """
 FuseO1 DeepSeekR1 QwQ SkyT1 Flash 32B Preview GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+import importlib.util
 from typing import Optional
 
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.utils.import_utils as _import_utils
+from packaging import version as _packaging_version
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+
+def _safe_is_gguf_available(min_version=_import_utils.GGUF_MIN_VERSION):
+    """Replacement for is_gguf_available that handles runtime gguf installation."""
+    if importlib.util.find_spec("gguf") is None:
+        return False
+    try:
+        gguf_version = importlib.metadata.version("gguf")
+    except importlib.metadata.PackageNotFoundError:
+        return False
+    try:
+        return _packaging_version.parse(gguf_version) >= _packaging_version.parse(
+            min_version
+        )
+    except _packaging_version.InvalidVersion:
+        return False
+
+
+_gguf_utils.is_gguf_available = _safe_is_gguf_available
 
 from ....base import ForgeModel
 from ....config import (
