@@ -21,7 +21,7 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from diffusers import Kandinsky3UNet
+from diffusers import AutoPipelineForText2Image
 
 
 class ModelVariant(StrEnum):
@@ -78,12 +78,11 @@ class ModelLoader(ForgeModel):
             load_kwargs["torch_dtype"] = dtype_override
         load_kwargs |= kwargs
 
-        self.unet = Kandinsky3UNet.from_pretrained(
+        pipe = AutoPipelineForText2Image.from_pretrained(
             self._variant_config.pretrained_model_name,
-            subfolder="unet",
-            use_safetensors=True,
             **load_kwargs,
         )
+        self.unet = pipe.unet
         return self.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
