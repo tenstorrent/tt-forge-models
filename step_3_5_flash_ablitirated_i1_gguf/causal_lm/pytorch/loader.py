@@ -42,8 +42,14 @@ def _patch_step35_support():
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     _patch_step35_support()
     result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
-    if result.get("config", {}).get("model_type") == "step35":
-        result["config"]["model_type"] = "llama"
+    config = result.get("config", {})
+    if config.get("model_type") == "step35":
+        config["model_type"] = "llama"
+        # step35 may encode per-layer head counts as lists; LlamaConfig expects scalars
+        for key in ("num_attention_heads", "num_key_value_heads"):
+            val = config.get(key)
+            if isinstance(val, list) and val:
+                config[key] = val[0]
     return result
 
 
