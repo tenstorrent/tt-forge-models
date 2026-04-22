@@ -4,12 +4,45 @@
 """
 LanguageBind Video model loader implementation for video-text similarity.
 """
+import os
+import subprocess
+import sys
 import tempfile
 
 import cv2
 import numpy as np
 import torch
 from typing import Optional
+
+_LANGUAGEBIND_REPO = "https://github.com/PKU-YuanGroup/LanguageBind.git"
+_LANGUAGEBIND_COMMIT = "7070c53375661cdb235801176b564b45f96f0648"
+
+
+def _ensure_languagebind():
+    """Clone LanguageBind repo if not importable (repo has no setup.py/pyproject.toml)."""
+    try:
+        import languagebind  # noqa: F401
+
+        return
+    except ImportError:
+        pass
+
+    cache_dir = os.path.join(
+        os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
+        "languagebind_repo",
+    )
+    if not os.path.isdir(cache_dir):
+        subprocess.run(
+            ["git", "clone", "--filter=blob:none", _LANGUAGEBIND_REPO, cache_dir],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", cache_dir, "checkout", _LANGUAGEBIND_COMMIT],
+            check=True,
+        )
+    if cache_dir not in sys.path:
+        sys.path.insert(0, cache_dir)
+
 
 from ...base import ForgeModel
 from ...config import (
@@ -61,6 +94,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        _ensure_languagebind()
         from languagebind import LanguageBindVideoTokenizer, LanguageBindVideoProcessor
 
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -71,6 +105,7 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def _load_model_config(self):
+        _ensure_languagebind()
         from languagebind import LanguageBindVideoConfig
 
         return LanguageBindVideoConfig.from_pretrained(
@@ -78,6 +113,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _ensure_languagebind()
         from languagebind import LanguageBindVideo
 
         pretrained_model_name = self._variant_config.pretrained_model_name
