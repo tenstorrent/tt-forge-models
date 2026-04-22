@@ -52,12 +52,12 @@ def _patch_qwen3vl_support():
 
 def _find_orig_load_fn():
     """Traverse the chain of patched load_gguf_checkpoint functions to find
-    the one that accepts model_to_load (i.e. the actual transformers original).
+    the actual transformers original (identified by its __module__).
 
     Several other model loaders replace _gguf_utils.load_gguf_checkpoint with
-    restricted-signature wrappers.  We follow their _orig_load_gguf_checkpoint
-    closure references until we reach a function whose signature includes
-    model_to_load or **kwargs.
+    restricted-signature wrappers. We follow their _orig_load_gguf_checkpoint
+    globals references until we reach the function defined in
+    'transformers.modeling_gguf_pytorch_utils'.
     """
     fn = _gguf_utils.load_gguf_checkpoint
     seen = set()
@@ -66,14 +66,10 @@ def _find_orig_load_fn():
         if fn_id in seen:
             break
         seen.add(fn_id)
-        try:
-            sig = inspect.signature(fn)
-            params = sig.parameters
-            if "model_to_load" in params or any(
-                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
-            ):
-                return fn
-        except (ValueError, TypeError):
+        if (
+            getattr(fn, "__module__", None)
+            == "transformers.modeling_gguf_pytorch_utils"
+        ):
             return fn
         # Follow the _orig_load_gguf_checkpoint pointer stored in the function's globals
         orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
