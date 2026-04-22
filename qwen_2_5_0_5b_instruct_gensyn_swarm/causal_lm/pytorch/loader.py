@@ -38,6 +38,10 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.SMALL_AQUATIC_FROG
 
+    # The fine-tuned model ships a broken single-token vocabulary; fall back to
+    # the base model's tokenizer which has the full Qwen2.5 vocab.
+    _TOKENIZER_FALLBACK = "Qwen/Qwen2.5-0.5B-Instruct"
+
     sample_text = "Give me a short introduction to large language model."
 
     def __init__(
@@ -64,10 +68,14 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
-
+        if tokenizer.vocab_size <= 1:
+            tokenizer = AutoTokenizer.from_pretrained(
+                self._TOKENIZER_FALLBACK, **tokenizer_kwargs
+            )
+        self.tokenizer = tokenizer
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
