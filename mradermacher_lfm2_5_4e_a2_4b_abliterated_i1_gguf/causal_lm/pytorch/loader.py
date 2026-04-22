@@ -16,6 +16,7 @@ from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
 
 from ....base import ForgeModel
 from ....config import (
@@ -56,6 +57,8 @@ def _patch_lfm2moe_support():
             )
     if "lfm2" in _gguf_utils.TENSOR_PROCESSORS:
         _gguf_utils.TENSOR_PROCESSORS["lfm2moe"] = _gguf_utils.TENSOR_PROCESSORS["lfm2"]
+    if "lfm2_moe" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = GGUFLlamaConverter
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
