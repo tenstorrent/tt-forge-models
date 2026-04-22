@@ -94,12 +94,22 @@ class ModelLoader(ForgeModel):
             model: The loaded model instance
         """
 
-        from transformers import WhisperForConditionalGeneration, WhisperProcessor
+        from transformers import (
+            WhisperConfig,
+            WhisperForConditionalGeneration,
+            WhisperProcessor,
+        )
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        # Explicitly pass WhisperConfig to avoid AutoConfig lookup failures for
+        # models (e.g. qualcomm/Whisper-Tiny-En) that lack a model_type in config.json.
+        model_kwargs.setdefault(
+            "config", WhisperConfig.from_pretrained(self._model_name)
+        )
 
         self._model = WhisperForConditionalGeneration.from_pretrained(
             self._model_name, use_cache=False, **model_kwargs
