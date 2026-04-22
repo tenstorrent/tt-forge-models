@@ -8,7 +8,13 @@ import os
 from typing import Optional
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
+    LlamaConfig,
+    LlamaForCausalLM,
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -44,8 +50,8 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "nvidia_Llama-3_3-Nemotron-Super-49B-v1-Q4_K_M.gguf"
 
-    # Base non-GGUF model used for config/tokenizer when TT_RANDOM_WEIGHTS=1
-    BASE_MODEL_NAME = "nvidia/Llama-3.3-Nemotron-Super-49B-v1"
+    # Tokenizer-only model used in TT_RANDOM_WEIGHTS mode (standard Llama tokenizer, no custom code).
+    BASE_TOKENIZER_NAME = "nvidia/Llama-3.3-Nemotron-Super-49B-v1"
 
     sample_text = "Give me a short introduction to large language model."
 
@@ -68,14 +74,30 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _make_random_weights_config(self):
+        # Nemotron-Super-49B is derived from Llama-3.3-70B.  The custom
+        # nemotron-nas model code uses a transformers 4.44.x API
+        # (NEED_SETUP_CACHE_CLASSES_MAPPING) that was removed in 5.x, so we
+        # build an equivalent LlamaConfig directly instead of calling
+        # AutoConfig.from_pretrained with trust_remote_code=True.
+        config = LlamaConfig(
+            hidden_size=8192,
+            intermediate_size=28672,
+            num_attention_heads=64,
+            num_key_value_heads=8,
+            num_hidden_layers=80,
+            vocab_size=128256,
+            max_position_embeddings=131072,
+            rope_theta=500000.0,
+            rms_norm_eps=1e-5,
+        )
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+        return config
+
     def _load_tokenizer(self, dtype_override=None):
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            tokenizer_kwargs = {"trust_remote_code": True}
-            if dtype_override is not None:
-                tokenizer_kwargs["torch_dtype"] = dtype_override
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.BASE_MODEL_NAME, **tokenizer_kwargs
-            )
+            self.tokenizer = AutoTokenizer.from_pretrained(self.BASE_TOKENIZER_NAME)
         else:
             tokenizer_kwargs = {}
             if dtype_override is not None:
@@ -97,12 +119,8 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            config = AutoConfig.from_pretrained(
-                self.BASE_MODEL_NAME, trust_remote_code=True
-            )
-            if self.num_layers is not None:
-                config.num_hidden_layers = self.num_layers
-            model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+            config = self._make_random_weights_config()
+            model = LlamaForCausalLM(config)
             if dtype_override is not None:
                 model = model.to(dtype_override)
         else:
@@ -182,9 +200,7 @@ class ModelLoader(ForgeModel):
     def load_config(self):
         pretrained_model_name = self._variant_config.pretrained_model_name
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            self.config = AutoConfig.from_pretrained(
-                self.BASE_MODEL_NAME, trust_remote_code=True
-            )
+            self.config = self._make_random_weights_config()
         else:
             self.config = AutoConfig.from_pretrained(
                 pretrained_model_name, gguf_file=self.GGUF_FILE
