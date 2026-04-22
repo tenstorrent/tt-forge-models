@@ -1,0 +1,5 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[distilbart/pytorch-mnli-12-1-single_device-inference]"
+  status: "PASS"
+  date: "20260422_151108"
+  branch: "ip-172-31-30-236-tt-xla-dev/ubuntu/hf-bringup-7"
