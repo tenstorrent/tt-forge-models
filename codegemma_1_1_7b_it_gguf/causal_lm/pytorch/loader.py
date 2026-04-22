@@ -6,6 +6,42 @@ CodeGemma 1.1 7B IT GGUF model loader implementation for causal language modelin
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+
+
+def _patch_transformers_gguf_gemma_v1():
+    # transformers 5.x only supports gemma2/gemma3 GGUF loading, not the original gemma v1
+    # architecture. CodeGemma 1.1 uses gemma v1, so we register it here.
+    from transformers.integrations.ggml import (
+        GGUF_CONFIG_MAPPING,
+        GGUFGemmaConverter,
+        GGUF_TO_FAST_CONVERTERS,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        TENSOR_PROCESSORS,
+        Gemma2TensorProcessor,
+    )
+
+    if "gemma" not in GGUF_CONFIG_MAPPING:
+        GGUF_CONFIG_MAPPING["gemma"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.key_length": "head_dim",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+        }
+        GGUF_TO_FAST_CONVERTERS["gemma"] = GGUFGemmaConverter
+        TENSOR_PROCESSORS["gemma"] = Gemma2TensorProcessor
+        gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("gemma")
+
+
+_patch_transformers_gguf_gemma_v1()
 from typing import Optional
 
 from ....base import ForgeModel
