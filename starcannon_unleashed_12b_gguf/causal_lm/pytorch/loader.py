@@ -5,26 +5,8 @@
 Starcannon-Unleashed 12B GGUF model loader implementation for causal language modeling.
 """
 import torch
-import transformers.configuration_utils as _config_utils
-import transformers.modeling_gguf_pytorch_utils as _gguf_utils
-import transformers.models.auto.tokenization_auto as _auto_tokenizer
-import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
-
-# Some GGUF loaders patch load_gguf_checkpoint without accepting the `model_to_load`
-# kwarg added in newer transformers. Re-wrap to stay compatible.
-_prev_load_gguf = _gguf_utils.load_gguf_checkpoint
-
-
-def _compat_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
-    return _prev_load_gguf(gguf_path, return_tensors=return_tensors)
-
-
-_gguf_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _compat_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
@@ -94,6 +76,24 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # Some GGUF loaders patch load_gguf_checkpoint globally without accepting the
+        # `model_to_load` kwarg added in newer transformers.  Re-patch right before
+        # loading so we accept (and drop) the extra kwarg regardless of import order.
+        import transformers.configuration_utils as _config_utils
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        import transformers.models.auto.tokenization_auto as _auto_tokenizer
+        import transformers.tokenization_utils_tokenizers as _tok_utils
+
+        _prev = _gguf_utils.load_gguf_checkpoint
+
+        def _compat(gguf_path, return_tensors=False, model_to_load=None):
+            return _prev(gguf_path, return_tensors=return_tensors)
+
+        _gguf_utils.load_gguf_checkpoint = _compat
+        _config_utils.load_gguf_checkpoint = _compat
+        _auto_tokenizer.load_gguf_checkpoint = _compat
+        _tok_utils.load_gguf_checkpoint = _compat
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
