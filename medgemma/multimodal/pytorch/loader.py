@@ -93,13 +93,44 @@ class ModelLoader(ForgeModel):
             self._load_processor(dtype_override)
 
         model_kwargs = {}
-        if dtype_override is not None:
+        # BNB 4-bit models manage dtype internally; passing torch_dtype bypasses
+        # the Params4bit loading path and prevents quant_state initialization
+        if (
+            dtype_override is not None
+            and self._variant != ModelVariant.UNSLOTH_MEDGEMMA_4B_IT_BNB_4BIT
+        ):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        if self._variant == ModelVariant.UNSLOTH_MEDGEMMA_4B_IT_BNB_4BIT:
+            import torch
+            import bitsandbytes as bnb
+            from bitsandbytes.nn.modules import Params4bit
+
+            # On CPU, float-typed Linear4bit layers need explicit quantization
+            # since bitsandbytes only auto-quantizes when moving to CUDA.
+            for _, module in model.named_modules():
+                if isinstance(module, bnb.nn.Linear4bit) and not isinstance(
+                    module.weight, Params4bit
+                ):
+                    quant_type = getattr(module, "quant_type", "nf4")
+                    blocksize = getattr(module, "blocksize", None) or 64
+                    compress_statistics = getattr(module, "compress_statistics", True)
+                    quant_storage = getattr(module, "quant_storage", torch.uint8)
+                    module.weight = Params4bit(
+                        module.weight.data,
+                        requires_grad=False,
+                        quant_type=quant_type,
+                        blocksize=blocksize,
+                        compress_statistics=compress_statistics,
+                        quant_storage=quant_storage,
+                    )
+                    module.weight.module = module
+                    module.weight._quantize("cpu")
 
         model.eval()
         self.model = model
