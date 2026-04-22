@@ -1,1 +1,2 @@
 sentencepiece
+gguf>=0.10.0
