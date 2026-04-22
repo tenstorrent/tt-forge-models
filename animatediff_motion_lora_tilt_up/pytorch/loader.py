@@ -114,7 +114,7 @@ class ModelLoader(ForgeModel):
         )
         timestep = torch.randint(0, 1000, (1,))
         encoder_hidden_states = torch.randn(
-            (batch_size, 77, cross_attention_dim),
+            (batch_size * num_frames, 77, cross_attention_dim),
             dtype=dtype,
         )
 
