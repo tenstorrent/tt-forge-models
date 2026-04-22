@@ -5,7 +5,7 @@
 InternVL3.5 GGUF model loader implementation for image to text.
 """
 
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoConfig, AutoModelForImageTextToText, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -98,6 +98,16 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(
+            self._HF_PROCESSORS[self._variant],
+            trust_remote_code=True,
+        )
+
+        # The GGUF checkpoint resolves to Qwen3Config (the LLM backbone), which
+        # AutoModelForImageTextToText cannot map to an image-to-text class. Pre-load
+        # the full InternVL config from the base HF model so the right class is used.
+        # This also allows random_weights.py to skip the GGUF download when
+        # TT_RANDOM_WEIGHTS=1.
+        model_kwargs["config"] = AutoConfig.from_pretrained(
             self._HF_PROCESSORS[self._variant],
             trust_remote_code=True,
         )
