@@ -7,7 +7,8 @@ SEAL VQA 7B model loader implementation for multimodal visual question answering
 
 from typing import Optional
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import LlamaConfig, LlamaForCausalLM
 
 from ....base import ForgeModel
 from ....config import (
@@ -20,6 +21,24 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import cast_input_to_type
+
+
+class _LlavaSearchConfig(LlamaConfig):
+    """LlamaConfig alias for the llava_search model type used by craigwu/seal_vqa_7b."""
+
+    model_type = "llava_search"
+
+
+class _LlavaSearchLlamaForCausalLM(LlamaForCausalLM):
+    """LlamaForCausalLM subclass bound to _LlavaSearchConfig for auto-mapping."""
+
+    config_class = _LlavaSearchConfig
+
+
+AutoConfig.register("llava_search", _LlavaSearchConfig, exist_ok=True)
+AutoModelForCausalLM.register(
+    _LlavaSearchConfig, _LlavaSearchLlamaForCausalLM, exist_ok=True
+)
 
 
 class ModelVariant(StrEnum):
