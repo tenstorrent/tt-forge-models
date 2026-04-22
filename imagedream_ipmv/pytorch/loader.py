@@ -13,10 +13,12 @@ Repository: https://huggingface.co/ashawkey/imagedream-ipmv-diffusers
 Paper: https://arxiv.org/abs/2312.02201
 """
 
+import importlib.util
+import os
+import sys
 from typing import Any, Optional
 
 import torch
-from diffusers import DiffusionPipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -37,13 +39,24 @@ LATENT_HEIGHT = 32
 LATENT_WIDTH = 32
 CONTEXT_DIM = 1024
 CAMERA_DIM = 16
-# CLIP ViT-L/14 image encoder produces 257 tokens (1 CLS + 16x16 patch tokens).
+# image encoder (CLIP ViT-H/14) produces 257 tokens with hidden_size=1280.
 IP_NUM_TOKENS = 257
+IP_EMBED_DIM = 1280
 # ImageDream uses num_frames=4 plus one extra view for the conditioning image.
 NUM_FRAMES = 4
 ACTUAL_NUM_FRAMES = NUM_FRAMES + 1
 # Classifier-free guidance doubles the batch.
 CFG_MULTIPLIER = 2
+
+
+def _load_mv_unet_module():
+    """Load the local patched mv_unet module and register it in sys.modules."""
+    mv_unet_path = os.path.join(os.path.dirname(__file__), "mv_unet.py")
+    spec = importlib.util.spec_from_file_location("mv_unet", mv_unet_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["mv_unet"] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 class ModelVariant(StrEnum):
@@ -55,8 +68,8 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """ImageDream IPMV multi-view UNet loader.
 
-    Loads the full MVDreamPipeline (a custom diffusers pipeline bundled with
-    the HuggingFace repository) and returns the MultiViewUNetModel UNet. The
+    Loads MultiViewUNetModel directly from the HuggingFace repository using a
+    locally bundled mv_unet.py (patched to make xformers/kiui optional). The
     UNet's forward pass takes keyword arguments describing latents, timesteps,
     text context, multi-view camera parameters, and optional image-prompt
     conditioning.
@@ -71,7 +84,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[DiffusionPipeline] = None
+        self._unet = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -86,19 +99,16 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype: torch.dtype) -> DiffusionPipeline:
-        if self.pipeline is None:
-            self.pipeline = DiffusionPipeline.from_pretrained(
-                self._variant_config.pretrained_model_name,
-                custom_pipeline=self._variant_config.pretrained_model_name,
-                torch_dtype=dtype,
-                trust_remote_code=True,
-            )
-        return self.pipeline
-
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        dtype = dtype_override if dtype_override is not None else torch.float32
-        return self._load_pipeline(dtype).unet
+        if self._unet is None:
+            dtype = dtype_override if dtype_override is not None else torch.float32
+            mv_unet = _load_mv_unet_module()
+            self._unet = mv_unet.MultiViewUNetModel.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                subfolder="unet",
+                torch_dtype=dtype,
+            )
+        return self._unet
 
     def load_inputs(
         self, dtype_override: Optional[torch.dtype] = None, **kwargs
@@ -113,7 +123,7 @@ class ModelLoader(ForgeModel):
         timesteps = torch.zeros(batch, dtype=dtype)
         context = torch.randn(batch, 77, CONTEXT_DIM, dtype=dtype)
         camera = torch.randn(batch, CAMERA_DIM, dtype=dtype)
-        ip = torch.randn(batch, IP_NUM_TOKENS, CONTEXT_DIM, dtype=dtype)
+        ip = torch.randn(batch, IP_NUM_TOKENS, IP_EMBED_DIM, dtype=dtype)
         # ip_img is not repeated per-frame: one latent per CFG branch.
         ip_img = torch.randn(
             CFG_MULTIPLIER, LATENT_CHANNELS, LATENT_HEIGHT, LATENT_WIDTH, dtype=dtype
