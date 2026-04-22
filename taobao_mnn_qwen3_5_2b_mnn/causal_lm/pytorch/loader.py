@@ -76,8 +76,7 @@ class ModelLoader(ForgeModel):
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name,
-            trust_remote_code=True,
+            "Qwen/Qwen3.5-2B",
             **model_kwargs,
         )
         model.eval()
