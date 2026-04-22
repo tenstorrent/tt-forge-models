@@ -220,14 +220,6 @@ class ModelLoader(ForgeModel):
         )
         latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
 
-        # Create synthetic canny control image as tensor
-        control_image = torch.randn(
-            batch_size * num_images_per_prompt,
-            (height_latent // 2) * (width_latent // 2),
-            num_channels_latents * 4,
-            dtype=dtype,
-        )
-
         # Prepare guidance
         if do_classifier_free_guidance:
             guidance = torch.full([batch_size], self.guidance_scale, dtype=dtype)
@@ -243,7 +235,6 @@ class ModelLoader(ForgeModel):
             "encoder_hidden_states": prompt_embeds,
             "txt_ids": text_ids,
             "img_ids": latent_image_ids,
-            "control_image": control_image,
             "joint_attention_kwargs": {},
         }
 
