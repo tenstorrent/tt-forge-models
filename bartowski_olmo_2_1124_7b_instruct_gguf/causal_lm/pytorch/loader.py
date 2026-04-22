@@ -16,7 +16,11 @@ from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
-from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+from transformers.integrations.ggml import (
+    GGUF_CONFIG_MAPPING,
+    GGUF_TO_FAST_CONVERTERS,
+    GGUFGPTConverter,
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -51,6 +55,8 @@ def _patch_olmo2_gguf_support():
         "vocab_size": "vocab_size",
     }
     GGUF_SUPPORTED_ARCHITECTURES.append("olmo2")
+    if "olmo2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["olmo2"] = GGUFGPTConverter
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
