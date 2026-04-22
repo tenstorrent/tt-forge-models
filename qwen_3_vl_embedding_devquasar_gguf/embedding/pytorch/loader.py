@@ -9,6 +9,32 @@ import torch.nn.functional as F
 from transformers import AutoModel, AutoProcessor
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers import Qwen3Config, Qwen3Model
+from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+from transformers.models.auto.modeling_auto import MODEL_MAPPING
+
+
+def _patch_qwen3vl_gguf_support():
+    """Register qwen3vl GGUF architecture so transformers can load it as qwen3.
+
+    The qwen3vl GGUF only contains text backbone weights with the same naming
+    convention as qwen3. Using _extra_content avoids module-path resolution
+    that would fail for the non-existent 'transformers.models.qwen3vl'.
+    """
+    if "qwen3vl" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    cfg_map = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.get("config", {})
+    if "qwen3vl" not in cfg_map:
+        cfg_map["qwen3vl"] = dict(cfg_map.get("qwen3", {}))
+    if "qwen3vl" not in CONFIG_MAPPING._extra_content:
+        CONFIG_MAPPING._extra_content["qwen3vl"] = Qwen3Config
+    if "qwen3vl" not in MODEL_MAPPING._extra_content:
+        MODEL_MAPPING._extra_content["qwen3vl"] = Qwen3Model
+
+
+_patch_qwen3vl_gguf_support()
+
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
