@@ -12,7 +12,9 @@ Available variants:
 - LCM_LORA_SDXL: latent-consistency/lcm-lora-sdxl text-to-image generation
 """
 
-from typing import Optional
+from typing import Any, Optional
+
+import torch
 
 from ...base import ForgeModel
 from ...config import (
@@ -63,34 +65,24 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the LCM-LoRA SDXL pipeline.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
+        """Load and return the UNet from the LCM-LoRA SDXL pipeline.
 
         Returns:
-            AutoPipelineForText2Image: The LCM-LoRA SDXL pipeline instance.
+            torch.nn.Module: The UNet model used for denoising.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.pipeline = load_pipe(pretrained_model_name)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
-    def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the LCM-LoRA SDXL model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override input dtype.
+    def load_inputs(self, dtype_override=None, **kwargs):
+        """Load and return sample inputs for the LCM-LoRA SDXL UNet.
 
         Returns:
-            list: Input tensors for the UNet:
-                - latent_model_input (torch.Tensor)
-                - timestep (torch.Tensor)
-                - prompt_embeds (torch.Tensor)
-                - added_cond_kwargs (dict)
+            dict: Keyword arguments for the UNet forward method.
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -99,14 +91,29 @@ class ModelLoader(ForgeModel):
             latent_model_input,
             timesteps,
             prompt_embeds,
-            timestep_cond,
+            _timestep_cond,
             added_cond_kwargs,
-            add_time_ids,
+            _add_time_ids,
         ) = lcm_lora_sdxl_preprocessing(self.pipeline, self.prompt)
+
+        timestep = timesteps[0]
 
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
+
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        """Unpack UNet output to the sample tensor."""
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        if hasattr(fwd_output, "sample"):
+            return fwd_output.sample
+        return fwd_output
