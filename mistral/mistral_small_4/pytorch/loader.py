@@ -89,6 +89,8 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override)
 
+        import torch
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -98,6 +100,19 @@ class ModelLoader(ForgeModel):
         model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # Cast any remaining FP8 parameters to BF16: safetensors may load FP8
+        # weights even when quantization_config=None, causing grouped matmul
+        # failures on the TT backend (Float8_e4m3fn is not supported).
+        target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        fp8_types = {torch.float8_e4m3fn, torch.float8_e5m2}
+        for param in model.parameters():
+            if param.dtype in fp8_types:
+                param.data = param.data.to(target_dtype)
+        for module in model.modules():
+            for name, buf in module._buffers.items():
+                if buf is not None and buf.dtype in fp8_types:
+                    module._buffers[name] = buf.to(target_dtype)
 
         model.eval()
         self.model = model
