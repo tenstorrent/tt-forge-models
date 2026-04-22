@@ -5,8 +5,10 @@
 FlashVL-2B-Dynamic-ISS model loader implementation for multimodal visual question answering.
 """
 
+import copy
 from typing import Optional
 
+import torch
 from PIL import Image
 from transformers import AutoModel, AutoTokenizer, CLIPImageProcessor
 from transformers.dynamic_module_utils import get_class_from_dynamic_module
@@ -122,6 +124,50 @@ class ModelLoader(ForgeModel):
         image_file = get_file(self.default_image_url)
         image = Image.open(image_file).convert("RGB")
 
-        messages = [{"role": "user", "content": self.default_query}]
+        pixel_values = self.image_processor(
+            images=image, return_tensors="pt"
+        ).pixel_values
 
-        return {"pil_image": image, "messages": messages}
+        # Tokenize with IMAGE_TOKEN_INDEX placeholders matching the model's expected format.
+        # The model uses IMAGE_TOKEN_INDEX=-200 for the first token of each image and
+        # IMAGE_PAD_TOKEN_INDEX=-201 for the remaining (image_token_num - 1) = 575 tokens.
+        _IMAGE_TOKEN_INDEX = -200
+        _IMAGE_PAD_TOKEN_INDEX = -201
+        _IMAGE_TOKEN_NUM = 576
+
+        tok = copy.deepcopy(self.tokenizer)
+        tok.add_tokens(["<image>"], special_tokens=True)
+        image_token_id = tok.convert_tokens_to_ids("<image>")
+        tok.chat_template = (
+            "{% for message in messages %}"
+            "{{'<|im_start|>' + message['role'] + '\\n' + message['content'] + '<|im_end|>' + '\\n'}}"
+            "{% endfor %}"
+            "{% if add_generation_prompt %}{{ '<|im_start|>assistant\\n' }}{% endif %}"
+        )
+
+        system_ids = tok.apply_chat_template(
+            [{"role": "system", "content": "You are a helpful assistant."}]
+        )
+        user_ids_raw = tok.apply_chat_template(
+            [{"role": "user", "content": f"<image>\n{self.default_query}"}],
+            add_generation_prompt=True,
+        )
+
+        expanded = []
+        for tid in user_ids_raw:
+            if tid == image_token_id:
+                expanded.append(_IMAGE_TOKEN_INDEX)
+                expanded.extend([_IMAGE_PAD_TOKEN_INDEX] * (_IMAGE_TOKEN_NUM - 1))
+            else:
+                expanded.append(tid)
+
+        input_ids = torch.tensor([system_ids + expanded], dtype=torch.long)
+
+        if batch_size > 1:
+            input_ids = input_ids.repeat(batch_size, 1)
+            pixel_values = pixel_values.repeat(batch_size, 1, 1, 1)
+
+        if dtype_override is not None:
+            pixel_values = pixel_values.to(dtype_override)
+
+        return {"input_ids": input_ids, "pixel_values": pixel_values}
