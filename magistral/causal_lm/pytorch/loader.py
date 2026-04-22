@@ -5,7 +5,15 @@
 Magistral model loader implementation for causal language modeling.
 """
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.models.mistral3 import Mistral3Config
+from transformers.models.mistral3.modeling_mistral3 import (
+    Mistral3ForConditionalGeneration,
+)
 from typing import Optional
+
+# mistral3 is only registered for image-text-to-text, not causal LM; register it so
+# AutoModelForCausalLM.from_pretrained works for text-only Magistral checkpoints.
+AutoModelForCausalLM.register(Mistral3Config, Mistral3ForConditionalGeneration)
 
 from ....base import ForgeModel
 from ....config import (
