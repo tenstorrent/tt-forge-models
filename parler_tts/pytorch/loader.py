@@ -64,6 +64,8 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
+        self._num_codebooks = None
+        self._pad_token_id = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -93,6 +95,15 @@ class ModelLoader(ForgeModel):
         }
         try:
             from parler_tts import ParlerTTSForConditionalGeneration
+            from parler_tts.configuration_parler_tts import ParlerTTSConfig
+            from transformers import AutoConfig
+
+            # Register the custom parler_tts config so AutoConfig.from_pretrained
+            # can resolve model_type="parler_tts" from the checkpoint config.json.
+            try:
+                AutoConfig.register("parler_tts", ParlerTTSConfig)
+            except ValueError:
+                pass  # already registered
         finally:
             sys.path = original_path
             sys.modules.update(cached)
@@ -109,23 +120,33 @@ class ModelLoader(ForgeModel):
         full_model = ParlerTTSForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        self._num_codebooks = full_model.decoder.num_codebooks
+        self._pad_token_id = full_model.generation_config.pad_token_id
         model = ParlerTTSWrapper(full_model)
         model.eval()
         return model
 
     def load_inputs(self, dtype_override=None):
+        import torch
+
         description = (
             "A female speaker with a slightly low-pitched voice delivers her words"
             " quite expressively, in a very confined sounding environment with clear"
             " audio quality. She speaks very fast."
         )
-        prompt = "Hey, how are you doing today?"
 
         description_tokens = self.tokenizer(description, return_tensors="pt")
-        prompt_tokens = self.tokenizer(prompt, return_tensors="pt")
+
+        # decoder_input_ids must be shape (batch_size * num_codebooks, seq_len)
+        # with audio codebook pad tokens — NOT text tokens.
+        num_codebooks = self._num_codebooks or 9
+        pad_token_id = self._pad_token_id or 1024
+        decoder_input_ids = (
+            torch.ones(num_codebooks, 1, dtype=torch.long) * pad_token_id
+        )
 
         return (
             description_tokens["input_ids"],
             description_tokens["attention_mask"],
-            prompt_tokens["input_ids"],
+            decoder_input_ids,
         )
