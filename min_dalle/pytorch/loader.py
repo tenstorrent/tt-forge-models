@@ -65,7 +65,23 @@ class ModelLoader(ForgeModel):
         )
 
     def _init_pipeline(self, dtype: torch.dtype):
-        from min_dalle import MinDalle
+        import pathlib
+        import sys
+
+        # The local min_dalle/ model directory shadows the installed min-dalle
+        # package. Remove the model root from sys.path and purge cached local
+        # module entries so the real site-packages package is found instead.
+        _model_root = str(pathlib.Path(__file__).parent.parent.parent)
+        _saved_path = sys.path[:]
+        for _k in [
+            k for k in sys.modules if k == "min_dalle" or k.startswith("min_dalle.")
+        ]:
+            del sys.modules[_k]
+        sys.path = [p for p in _saved_path if p and p != _model_root]
+        try:
+            from min_dalle import MinDalle
+        finally:
+            sys.path[:] = _saved_path
 
         # is_reusable=False so we can initialize only the encoder below,
         # avoiding the (mega) decoder / VQ-GAN detokenizer downloads we
