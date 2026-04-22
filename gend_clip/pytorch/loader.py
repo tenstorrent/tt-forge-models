@@ -104,15 +104,6 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the GenD CLIP model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the input dtype.
-            batch_size: Optional batch size (default 1).
-
-        Returns:
-            dict: Input tensors containing pixel values.
-        """
         if self.processor is None:
             self.processor = CLIPProcessor.from_pretrained(
                 "openai/clip-vit-large-patch14"
@@ -121,16 +112,15 @@ class ModelLoader(ForgeModel):
         image = Image.new("RGB", (224, 224))
 
         inputs = self.processor(images=image, return_tensors="pt")
+        pixel_values = inputs["pixel_values"]
 
         if batch_size > 1:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]):
-                    inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+            pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
 
         if dtype_override is not None:
-            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+            pixel_values = pixel_values.to(dtype_override)
 
-        return inputs
+        return pixel_values
 
     def post_process(self, outputs):
         """Post-process model outputs to extract classification probabilities.
