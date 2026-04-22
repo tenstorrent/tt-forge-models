@@ -91,8 +91,9 @@ def stable_diffusion_preprocessing_xl_refiner(
         tuple: (latent_model_input, timesteps, prompt_embeds, timestep_cond, added_cond_kwargs, add_time_ids)
     """
     # Set default height and width
-    height = height or pipe.default_sample_size * pipe.vae_scale_factor
-    width = width or pipe.default_sample_size * pipe.vae_scale_factor
+    default_sample_size = pipe.unet.config.sample_size
+    height = height or default_sample_size * pipe.vae_scale_factor
+    width = width or default_sample_size * pipe.vae_scale_factor
     original_size = original_size or (height, width)
     target_size = target_size or (height, width)
 
@@ -147,13 +148,23 @@ def stable_diffusion_preprocessing_xl_refiner(
     else:
         text_encoder_projection_dim = pipe.text_encoder_2.config.projection_dim
 
+    neg_original_size = (
+        negative_original_size if negative_original_size is not None else original_size
+    )
+    neg_target_size = (
+        negative_target_size if negative_target_size is not None else target_size
+    )
+
     add_time_ids, negative_add_time_ids = pipe._get_add_time_ids(
         original_size,
         crops_coords_top_left,
         target_size,
         aesthetic_score,
         negative_aesthetic_score,
-        dtype=prompt_embeds.dtype,
+        neg_original_size,
+        negative_crops_coords_top_left,
+        neg_target_size,
+        prompt_embeds.dtype,
         text_encoder_projection_dim=text_encoder_projection_dim,
     )
 
