@@ -180,10 +180,27 @@ class ModelLoader(ForgeModel):
                 ],
             },
         ]
-        # transformers>=5.0 requires the processor itself to have a chat template;
-        # Idefics2Processor doesn't, so delegate to the underlying tokenizer.
+        # TIGER-Lab/VideoScore is based on Idefics2 but its tokenizer_config
+        # has no chat_template set.  Supply the standard Idefics2 template so
+        # the call works with transformers>=5.0 which no longer falls back to a
+        # built-in default when the attribute is missing.
+        _IDEFICS2_CHAT_TEMPLATE = (
+            "{% for message in messages %}"
+            "{{message['role'].capitalize()}}"
+            "{% if message['content'][0]['type'] == 'image' %}{{':'}}"
+            "{% else %}{{': '}}{% endif %}"
+            "{% for line in message['content'] %}"
+            "{% if line['type'] == 'image' %}{{ '<image>' }}"
+            "{% elif line['type'] == 'text' %}{{ line['text'] }}{% endif %}"
+            "{% endfor %}<end_of_utterance>\n"
+            "{% endfor %}"
+            "{% if add_generation_prompt %}{{ 'Assistant:' }}{% endif %}"
+        )
         text = self.processor.tokenizer.apply_chat_template(
-            messages, add_generation_prompt=False, tokenize=False
+            messages,
+            add_generation_prompt=False,
+            tokenize=False,
+            chat_template=_IDEFICS2_CHAT_TEMPLATE,
         )
 
         inputs = self.processor(
