@@ -105,4 +105,4 @@ class ModelLoader(ForgeModel):
             pixel_values = pixel_values.to(dtype_override)
             input_boxes_tensor = input_boxes_tensor.to(dtype_override)
 
-        return pixel_values, input_boxes_tensor
+        return {"pixel_values": pixel_values, "input_boxes": input_boxes_tensor}
