@@ -46,11 +46,6 @@ class ModelLoader(ForgeModel):
     }
     DEFAULT_VARIANT = ModelVariant.SKYREELS_V2_DF_1_3B_540P
 
-    DEFAULT_PROMPT = (
-        "A graceful white swan swimming in a serene lake at dawn, "
-        "soft golden light reflecting on the water, cinematic composition"
-    )
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipeline: Optional[SkyReelsV2DiffusionForcingPipeline] = None
@@ -68,31 +63,77 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_pipeline(self, dtype: torch.dtype) -> SkyReelsV2DiffusionForcingPipeline:
+        self.pipeline = SkyReelsV2DiffusionForcingPipeline.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            torch_dtype=dtype,
+        )
+        return self.pipeline
+
     def load_model(
         self,
         *,
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the SkyReels-V2 Diffusion Forcing pipeline.
+        """Load the SkyReels-V2 Diffusion Forcing transformer.
 
         Returns:
-            SkyReelsV2DiffusionForcingPipeline ready for inference.
+            SkyReelsV2Transformer3DModel (torch.nn.Module) ready for inference.
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        self.pipeline = SkyReelsV2DiffusionForcingPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
+        if self.pipeline is None:
+            self._load_pipeline(dtype)
+
+        return self.pipeline.transformer
+
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare synthetic inputs for the SkyReels-V2 transformer forward pass."""
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        if self.pipeline is None:
+            self._load_pipeline(dtype)
+
+        return self._load_transformer_inputs(dtype)
+
+    def _load_transformer_inputs(self, dtype: torch.dtype) -> dict:
+        batch_size = 1
+        config = self.pipeline.transformer.config
+
+        # patch_size is [p_t, p_h, p_w]; spatial dims must be divisible by p_h, p_w
+        p_h, p_w = config.patch_size[1], config.patch_size[2]
+        in_channels = config.in_channels  # 16
+        text_dim = config.text_dim  # 4096
+
+        latent_frames = 1
+        latent_height = p_h * 2  # 4, minimal valid spatial size
+        latent_width = p_w * 2  # 4
+
+        hidden_states = torch.randn(
+            batch_size,
+            in_channels,
+            latent_frames,
+            latent_height,
+            latent_width,
+            dtype=dtype,
         )
+        timestep = torch.randint(0, 1000, (batch_size,), dtype=torch.long)
+        encoder_hidden_states = torch.randn(batch_size, 8, text_dim, dtype=dtype)
 
-        return self.pipeline
+        return {
+            "hidden_states": hidden_states,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+            "fps": [0] * batch_size,  # fps category index: 0=16fps, 1=other
+            "return_dict": False,
+        }
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for the SkyReels-V2 Diffusion Forcing pipeline.
-
-        Returns:
-            Dict with prompt for the pipeline.
-        """
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {"prompt": prompt_value}
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if isinstance(output, tuple):
+            return output[0]
+        if hasattr(output, "sample"):
+            return output.sample
+        return output
