@@ -217,6 +217,23 @@ class ModelLoader(ForgeModel):
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # GGUF loading doesn't populate rope_scaling for Qwen2.5-VL, so
+        # rope_parameters is missing 'mrope_section' which the attention
+        # forward pass requires for multi-position RoPE.
+        text_cfg = getattr(model.config, "text_config", model.config)
+        rope_params = getattr(text_cfg, "rope_parameters", None) or {}
+        if "mrope_section" not in rope_params:
+            rope_theta = getattr(text_cfg, "rope_theta", 1000000.0)
+            rope_params = {
+                "type": "mrope",
+                "mrope_section": [16, 24, 24],
+                "rope_theta": rope_theta,
+                "rope_type": "default",
+            }
+            text_cfg.rope_parameters = rope_params
+            text_cfg.rope_scaling = dict(rope_params)
+
         model.eval()
 
         return model
