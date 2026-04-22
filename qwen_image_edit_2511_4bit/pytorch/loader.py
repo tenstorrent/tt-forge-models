@@ -37,6 +37,32 @@ class ModelVariant(StrEnum):
     QWEN_IMAGE_EDIT_2511_4BIT = "Edit_2511_4bit"
 
 
+def _dequantize_bnb_model(model: torch.nn.Module, dtype: torch.dtype) -> None:
+    """Replace bitsandbytes Linear4bit layers with dequantized nn.Linear layers in-place."""
+    import bitsandbytes.functional as F
+    import bitsandbytes.nn as bnb
+
+    for name, module in list(model.named_modules()):
+        if not isinstance(module, bnb.Linear4bit):
+            continue
+        weight = F.dequantize_nf4(module.weight, module.weight.quant_state).to(dtype)
+        new_linear = torch.nn.Linear(
+            module.in_features,
+            module.out_features,
+            bias=module.bias is not None,
+            dtype=dtype,
+        )
+        new_linear.weight = torch.nn.Parameter(weight)
+        if module.bias is not None:
+            new_linear.bias = torch.nn.Parameter(module.bias.to(dtype))
+        # Traverse to the parent module and replace the child
+        parts = name.split(".")
+        parent = model
+        for part in parts[:-1]:
+            parent = getattr(parent, part)
+        setattr(parent, parts[-1], new_linear)
+
+
 class ModelLoader(ForgeModel):
     """ovedrive/Qwen-Image-Edit-2511-4bit model loader for the NF4-quantized diffusion transformer."""
 
@@ -67,14 +93,30 @@ class ModelLoader(ForgeModel):
     def _load_transformer(
         self, dtype: torch.dtype = torch.float32
     ) -> QwenImageTransformer2DModel:
-        """Load the NF4-quantized diffusion transformer."""
-        self._transformer = QwenImageTransformer2DModel.from_pretrained(
-            REPO_ID,
-            subfolder="transformer",
-            torch_dtype=dtype,
-            device_map="cpu",
+        """Load the NF4-quantized diffusion transformer and dequantize for TT execution."""
+        from diffusers.quantizers.bitsandbytes import bnb_quantizer
+
+        # Bypass the CUDA GPU check: this model ships with BnB NF4 weights which
+        # we dequantize immediately after loading for Tenstorrent execution.
+        original_validate = bnb_quantizer.BnB4BitDiffusersQuantizer.validate_environment
+        bnb_quantizer.BnB4BitDiffusersQuantizer.validate_environment = (
+            lambda *a, **kw: None
         )
-        self._transformer.eval()
+        try:
+            transformer = QwenImageTransformer2DModel.from_pretrained(
+                REPO_ID,
+                subfolder="transformer",
+                torch_dtype=dtype,
+                device_map="cpu",
+            )
+        finally:
+            bnb_quantizer.BnB4BitDiffusersQuantizer.validate_environment = (
+                original_validate
+            )
+
+        _dequantize_bnb_model(transformer, dtype)
+        transformer.eval()
+        self._transformer = transformer
         return self._transformer
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
@@ -95,7 +137,7 @@ class ModelLoader(ForgeModel):
 
         Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = kwargs.get("batch_size", 1)
 
         # From model config: in_channels=64 (img_in linear input dimension)
