@@ -26,6 +26,8 @@ class ModelVariant(StrEnum):
     XLM_BASE = "Xlm_Base"
     ROBERTA_BASE = "Roberta_Base"
     SECUREBERT = "SecureBERT"
+    ROBECZECH_BASE = "Robeczech_Base"
+    ICEBERT = "IceBERT"
     ANONYMOUS_PINEAPPLE_ROBERTA_BASE = "Anonymous_Pineapple_Roberta_Base"
 
 
