@@ -4,7 +4,6 @@
 """
 GLiClass model loader implementation for zero-shot text classification.
 """
-from gliclass import GLiClassModel
 from transformers import AutoTokenizer
 from typing import Optional
 
@@ -80,6 +79,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        from gliclass import GLiClassModel
 
         model = GLiClassModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
