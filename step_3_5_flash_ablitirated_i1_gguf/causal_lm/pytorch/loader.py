@@ -10,6 +10,7 @@ from typing import Optional
 
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.modeling_utils as _modeling_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
@@ -56,10 +57,15 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
 
 
 _patch_step35_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+for _mod in (
+    _gguf_utils,
+    _config_utils,
+    _modeling_utils,
+    _auto_tokenizer,
+    _tok_utils,
+):
+    if hasattr(_mod, "load_gguf_checkpoint"):
+        _mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
