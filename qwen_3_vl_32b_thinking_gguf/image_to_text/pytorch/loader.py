@@ -88,6 +88,12 @@ def _patch_transformers_qwen3vl_gguf():
                 if k in _QWEN3VL_TEXT_CONFIG_FIELDS
             }
             config["text_config"] = text_config
+            # GGUF files for Qwen3VL only contain the text LM weights; the
+            # vision encoder uses defaults but out_hidden_size must match the
+            # text model's hidden_size for the vision-to-text projection.
+            hidden_size = text_config.get("hidden_size")
+            if hidden_size is not None:
+                config["vision_config"] = {"out_hidden_size": hidden_size}
             config["model_type"] = "qwen3_vl"
         return result
 
