@@ -5,7 +5,7 @@
 BERT model loader implementation for masked language modeling.
 """
 
-from transformers import BertForMaskedLM, BertTokenizer, AutoConfig
+from transformers import BertConfig, BertForMaskedLM, BertTokenizer
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -226,7 +226,7 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Bert model.
         """
-        self.config = AutoConfig.from_pretrained(
+        self.config = BertConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
 
