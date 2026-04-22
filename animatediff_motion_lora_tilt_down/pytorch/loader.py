@@ -91,15 +91,20 @@ class ModelLoader(ForgeModel):
         )
 
         self.pipeline.load_lora_weights(LORA_REPO)
+        self.pipeline.to(dtype)
 
-        return self.pipeline.unet.to(dtype)
+        return self.pipeline.unet
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare synthetic UNet inputs for tilt-down motion inference.
 
         Returns:
             dict with sample, timestep, and encoder_hidden_states tensors.
         """
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
         batch_size = 1
         num_frames = 16
         height = 64
@@ -109,10 +114,12 @@ class ModelLoader(ForgeModel):
 
         sample = torch.randn(
             (batch_size, in_channels, num_frames, height // 8, width // 8),
+            dtype=dtype,
         )
         timestep = torch.randint(0, 1000, (1,))
         encoder_hidden_states = torch.randn(
             (batch_size, 77, cross_attention_dim),
+            dtype=dtype,
         )
 
         return {
