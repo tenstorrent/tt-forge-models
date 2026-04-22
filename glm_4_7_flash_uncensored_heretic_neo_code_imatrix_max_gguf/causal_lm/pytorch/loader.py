@@ -87,6 +87,23 @@ def _patch_transformers_deepseek2_gguf():
             if hasattr(mod, "load_gguf_checkpoint"):
                 mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # Patch get_gguf_hf_weights_map to remap deepseek_v2 -> deepseek2 so gguf-py
+    # can look up the tensor name mapping (gguf uses deepseek2, transformers uses deepseek_v2).
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    if not getattr(gguf_utils.get_gguf_hf_weights_map, "_deepseek2_patched", False):
+        patched_get_gguf_hf_weights_map._deepseek2_patched = True
+        gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
 
 _patch_transformers_deepseek2_gguf()
 from ....config import (
@@ -180,7 +197,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
