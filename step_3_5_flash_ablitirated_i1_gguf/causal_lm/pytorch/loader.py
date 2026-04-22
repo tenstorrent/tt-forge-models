@@ -126,6 +126,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
@@ -147,6 +148,7 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
+            _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
             config = AutoConfig.from_pretrained(
                 pretrained_model_name, gguf_file=self.GGUF_FILE
             )
@@ -160,6 +162,7 @@ class ModelLoader(ForgeModel):
                 config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
@@ -202,6 +205,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
