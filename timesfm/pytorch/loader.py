@@ -8,7 +8,6 @@ TimesFM 2.5 model loader implementation for time series forecasting.
 from typing import Optional
 
 import torch
-from transformers import TimesFm2_5ModelForPrediction
 
 from ...config import (
     ModelConfig,
@@ -57,6 +56,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the TimesFM 2.5 model."""
+        from transformers import TimesFm2_5ModelForPrediction
+
         model = TimesFm2_5ModelForPrediction.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype_override or torch.float32,
