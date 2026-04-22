@@ -9,7 +9,6 @@ via XLM-RoBERTa with a linear projection into CLIP embedding space.
 """
 
 import torch
-from multilingual_clip import pt_multilingual_clip
 from transformers import AutoTokenizer
 from typing import Optional
 
@@ -89,6 +88,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from multilingual_clip import pt_multilingual_clip
+
         if self.tokenizer is None:
             self._load_tokenizer()
 
