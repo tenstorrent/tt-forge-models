@@ -84,6 +84,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        model.resize_token_embeddings(len(self.processor.tokenizer))
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
