@@ -99,28 +99,36 @@ def _patch_transformers_nemotron_h_moe_gguf():
         seen = set()
         current = fn
         while True:
-            if not callable(current) or current.__name__ == "load_gguf_checkpoint":
-                return current
             fn_id = id(current)
-            if fn_id in seen or not hasattr(current, "__code__"):
+            if (
+                fn_id in seen
+                or not callable(current)
+                or not hasattr(current, "__code__")
+            ):
                 return current
             seen.add(fn_id)
+            # The real transformers function lives in this module
+            if (
+                getattr(current, "__module__", "")
+                == "transformers.modeling_gguf_pytorch_utils"
+            ):
+                return current
             try:
                 if "model_to_load" in inspect.signature(current).parameters:
                     return current
             except (ValueError, TypeError):
                 pass
-            # Check closure variables
+            # Walk closure variables — loaders use "orig_load" or "_orig_load_gguf_checkpoint"
             freevars = current.__code__.co_freevars
             cells = current.__closure__ or ()
             next_fn = None
             for i, varname in enumerate(freevars):
                 if i >= len(cells):
                     break
-                if "load_gguf_checkpoint" in varname:
+                if "load_gguf_checkpoint" in varname or "orig_load" in varname:
                     try:
                         v = cells[i].cell_contents
-                        if callable(v):
+                        if callable(v) and id(v) not in seen:
                             next_fn = v
                             break
                     except ValueError:
