@@ -5,7 +5,8 @@
 Unslothai Kaggle model loader implementation for feature extraction.
 """
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, PretrainedConfig
+from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +19,22 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+# unslothai/kaggle has num_attention_heads=0 so compute_default_rope_parameters
+# raises ZeroDivisionError via the falsy `head_dim=0 or 0//0` expression.
+# Patch the staticmethod to short-circuit for zero-attention-head configs.
+_orig_compute_rope = LlamaRotaryEmbedding.compute_default_rope_parameters
+
+
+@staticmethod  # type: ignore[misc]
+def _safe_compute_rope_parameters(config, device=None, seq_len=None, **kwargs):
+    if not getattr(config, "num_attention_heads", 1):
+        return torch.zeros(0, dtype=torch.float32), 1.0
+    return _orig_compute_rope(config, device=device, seq_len=seq_len, **kwargs)
+
+
+LlamaRotaryEmbedding.compute_default_rope_parameters = _safe_compute_rope_parameters
 
 
 class ModelVariant(StrEnum):
@@ -41,7 +58,6 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -57,17 +73,6 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
-
-        return self.tokenizer
-
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -76,25 +81,31 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # The unslothai/kaggle config has all-zero dimensions (vocab_size=0,
+        # hidden_size=0, num_attention_heads=0, num_hidden_layers=0).
+        # LlamaConfig.__init__ in transformers>=4.40 computes head_dim as
+        # hidden_size // num_attention_heads, raising ZeroDivisionError.
+        # Inject head_dim=0 into the raw config dict to bypass the division.
+        config_dict, _ = PretrainedConfig.get_config_dict(pretrained_model_name)
+        if config_dict.get("num_attention_heads", 0) == 0:
+            config_dict.setdefault("head_dim", 0)
+        model_type = config_dict.pop("model_type", "llama")
+        config = AutoConfig.for_model(model_type, **config_dict)
+
+        model = AutoModel.from_pretrained(
+            pretrained_model_name, config=config, **model_kwargs
+        )
         model.eval()
 
         return model
 
     def load_inputs(self, dtype_override=None):
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        inputs = self.tokenizer(
-            self.sample_text,
-            padding=True,
-            truncation=True,
-            return_tensors="pt",
-        )
-
+        # unslothai/kaggle has vocab_size=0 and hidden_size=0; normal tokenized
+        # inputs cause IndexError in the embedding layer.  Use an empty sequence
+        # (length 0) so all tensor operations on empty tensors succeed.
+        inputs = {"input_ids": torch.zeros(1, 0, dtype=torch.long)}
         if dtype_override is not None:
             for key, value in inputs.items():
                 if isinstance(value, torch.Tensor) and value.dtype == torch.float32:
                     inputs[key] = value.to(dtype_override)
-
         return inputs
