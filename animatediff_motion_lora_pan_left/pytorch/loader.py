@@ -129,8 +129,15 @@ class ModelLoader(ForgeModel):
                 0
             ].to(dtype)
 
+        # UNet internally reshapes sample to (batch*num_frames, channels, h, w),
+        # so encoder_hidden_states must match that batch dimension.
+        encoder_hidden_states = encoder_hidden_states.repeat_interleave(
+            num_frames, dim=0
+        )
+
+        # UNetMotionModel expects (batch, num_frames, channels, height, width)
         sample = torch.randn(
-            1, in_channels, num_frames, sample_size, sample_size, dtype=dtype
+            1, num_frames, in_channels, sample_size, sample_size, dtype=dtype
         )
         timestep = torch.tensor([1.0], dtype=dtype)
 
