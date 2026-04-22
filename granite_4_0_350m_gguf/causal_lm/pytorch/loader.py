@@ -53,6 +53,11 @@ def _patch_granite_support():
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     _patch_granite_support()
     result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    config = result.get("config", {})
+    if config.get("model_type") == "granite":
+        kv_heads = config.get("num_key_value_heads")
+        if isinstance(kv_heads, list):
+            config["num_key_value_heads"] = kv_heads[0]
     return result
 
 
