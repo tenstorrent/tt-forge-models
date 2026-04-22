@@ -161,8 +161,8 @@ class ModelLoader(ForgeModel):
                 self.classifier = RegressionHead(config)
                 self.post_init()
 
-            def forward(self, input_values):
-                outputs = self.wav2vec2(input_values)
+            def forward(self, input_values, attention_mask=None):
+                outputs = self.wav2vec2(input_values, attention_mask=attention_mask)
                 hidden_states = outputs[0]
                 hidden_states = torch.mean(hidden_states, dim=1)
                 logits = self.classifier(hidden_states)
@@ -224,8 +224,8 @@ class ModelLoader(ForgeModel):
                 self.gender = ModelHead(config, 3)
                 self.init_weights()
 
-            def forward(self, input_values):
-                outputs = self.wav2vec2(input_values)
+            def forward(self, input_values, attention_mask=None):
+                outputs = self.wav2vec2(input_values, attention_mask=attention_mask)
                 hidden_states = outputs[0]
                 hidden_states = torch.mean(hidden_states, dim=1)
                 logits_age = self.age(hidden_states)
