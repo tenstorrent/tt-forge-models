@@ -20,8 +20,16 @@ def load_flux_controlnet_inpainting_alpha_pipe(controlnet_model_name, base_model
     Returns:
         FluxControlNetInpaintPipeline: Loaded pipeline with components set to eval mode
     """
+    # ignore_mismatched_sizes=True is needed because the checkpoint has
+    # extra_condition_channels=4 in its config (adds 4 inpainting channels to
+    # controlnet_x_embedder), but the current diffusers FluxControlNetModel does
+    # not yet expose this parameter. We compile only the transformer, so the
+    # mismatched controlnet_x_embedder shape does not affect compilation.
     controlnet = FluxControlNetModel.from_pretrained(
-        controlnet_model_name, torch_dtype=torch.bfloat16
+        controlnet_model_name,
+        torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=False,
+        ignore_mismatched_sizes=True,
     )
     pipe = FluxControlNetInpaintPipeline.from_pretrained(
         base_model_name, controlnet=controlnet, torch_dtype=torch.bfloat16
