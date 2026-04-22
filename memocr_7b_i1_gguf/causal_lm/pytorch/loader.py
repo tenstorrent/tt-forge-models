@@ -107,6 +107,9 @@ class ModelLoader(ForgeModel):
         model = Qwen2ForCausalLM(text_config)
         model.model = full_model.model.language_model
         model.lm_head = full_model.lm_head
+        # Qwen2_5_VLTextModel may upcast hidden states to float32 internally,
+        # so cast the whole assembled model to float32 for dtype consistency.
+        model.to(torch.float32)
         model.eval()
 
         self.config = text_config
