@@ -143,5 +143,7 @@ class ModelLoader(ForgeModel):
         feature_len = (sampling_rate * duration_seconds) // self._processor.hop_length
         feature_lens = torch.tensor([feature_len], dtype=torch.long)
         input_features = inputs["input_features"][:, :, :feature_len]
+        if dtype_override is not None:
+            input_features = input_features.to(dtype_override)
 
         return [input_features, feature_lens]
