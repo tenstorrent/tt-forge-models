@@ -69,6 +69,7 @@ class ModelLoader(ForgeModel):
         return self._processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import torch
         from transformers import Wav2Vec2ConformerModel
 
         model_kwargs = {}
@@ -80,8 +81,7 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **model_kwargs
         )
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
+        model.to(dtype_override if dtype_override is not None else torch.float32)
 
         return model
 
