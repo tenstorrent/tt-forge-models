@@ -107,12 +107,22 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            # transformers 5.x uses rope_type instead of type; normalize for older model code
+            if (
+                config.rope_scaling is not None
+                and "rope_type" in config.rope_scaling
+                and "type" not in config.rope_scaling
+            ):
+                if config.rope_scaling["rope_type"] == "default":
+                    config.rope_scaling = None
+                else:
+                    config.rope_scaling["type"] = config.rope_scaling["rope_type"]
             if self.num_layers is not None:
-                config = AutoConfig.from_pretrained(
-                    pretrained_model_name, trust_remote_code=True
-                )
                 config.num_hidden_layers = self.num_layers
-                model_kwargs["config"] = config
+            model_kwargs["config"] = config
 
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
