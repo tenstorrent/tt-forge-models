@@ -14,6 +14,7 @@ Available variants:
 - SEEDVR2_7B_SHARP: Sharper 7B variant (seedvr2_ema_7b_sharp.pth)
 """
 
+import os
 import sys
 from typing import Optional
 
@@ -30,6 +31,31 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+SEEDVR_REPO_PATH = "/tmp/seedvr_repo"
+
+
+def _ensure_seedvr_importable():
+    """Clone the SeedVR GitHub repo for model code and configs."""
+    if not os.path.isdir(SEEDVR_REPO_PATH):
+        import subprocess
+
+        subprocess.check_call(
+            [
+                "git",
+                "clone",
+                "--filter=blob:none",
+                "https://github.com/ByteDance-Seed/SeedVR.git",
+                SEEDVR_REPO_PATH,
+            ]
+        )
+
+    if SEEDVR_REPO_PATH not in sys.path:
+        # Remove any stale 'utils' module that might shadow the SeedVR utils package
+        sys.modules.pop("utils", None)
+        sys.modules.pop("utils.utils", None)
+        sys.path.insert(0, SEEDVR_REPO_PATH)
+
 
 # NaDiT model input dimensions for testing
 # The model operates in latent space: patch_size [1, 2, 2],
@@ -115,24 +141,21 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the SeedVR2 NaDiT model.
 
-        Downloads the model repository, imports the custom NaDiT architecture,
-        and loads the pretrained weights.
+        Downloads the model weights from HuggingFace and clones the SeedVR
+        GitHub repo for model code and configs.
 
         Returns:
             torch.nn.Module: The NaDiT diffusion transformer model.
         """
         from omegaconf import OmegaConf
 
+        _ensure_seedvr_importable()
         repo_path = self._get_repo_path()
-
-        # Add repo to path for custom module imports
-        if repo_path not in sys.path:
-            sys.path.insert(0, repo_path)
 
         from utils.utils import instantiate_from_config
 
         config_rel, ckpt_rel = _VARIANT_CHECKPOINTS[self._variant]
-        config = OmegaConf.load(f"{repo_path}/{config_rel}")
+        config = OmegaConf.load(f"{SEEDVR_REPO_PATH}/{config_rel}")
 
         # Instantiate the NaDiT model from config
         model = instantiate_from_config(config.model.dit)
