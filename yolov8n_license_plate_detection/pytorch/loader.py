@@ -10,7 +10,6 @@ in vehicle images for traffic monitoring and surveillance use cases.
 from typing import Optional
 
 from huggingface_hub import hf_hub_download
-from ultralytics import YOLO
 from torchvision import transforms
 from datasets import load_dataset
 
@@ -60,6 +59,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from ultralytics import YOLO
         filename = self._variant_config.pretrained_model_name
         model_path = hf_hub_download("Koushim/yolov8-license-plate-detection", filename)
         yolo_model = YOLO(model_path)
