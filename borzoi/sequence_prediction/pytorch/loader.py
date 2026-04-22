@@ -9,8 +9,13 @@ from DNA sequence at 32bp resolution. It takes 524kb input DNA sequences
 and outputs predicted gene expression tracks.
 """
 import torch
-from transformers import AutoModel
+from borzoi_pytorch import Borzoi
+from borzoi_pytorch.config_borzoi import BorzoiConfig
+from transformers import AutoConfig, AutoModel
 from typing import Optional
+
+AutoConfig.register("borzoi", BorzoiConfig, exist_ok=True)
+AutoModel.register(BorzoiConfig, Borzoi, exist_ok=True)
 
 from third_party.tt_forge_models.config import (
     ModelInfo,
@@ -66,9 +71,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(
-            model_name, trust_remote_code=True, **model_kwargs
-        )
+        model = Borzoi.from_pretrained(model_name, **model_kwargs)
         model.eval()
 
         return model
