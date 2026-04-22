@@ -13,7 +13,6 @@ from typing import Optional
 from datasets import load_dataset
 from huggingface_hub import hf_hub_download
 from torchvision import transforms
-from ultralytics import YOLO
 
 from ...base import ForgeModel
 from ...config import (
@@ -79,6 +78,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from ultralytics import YOLO
         variant_name = self._variant_config.pretrained_model_name
         weights_path = hf_hub_download(
             repo_id=self._HF_REPO_ID, filename=f"{variant_name}.pt"
