@@ -87,7 +87,18 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    def _refresh_gguf_availability(self):
+        import importlib.metadata as _meta
+        import transformers.utils.import_utils as _imp_utils
+
+        if "gguf" not in _imp_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            _imp_utils.PACKAGE_DISTRIBUTION_MAPPING.update(
+                _meta.packages_distributions()
+            )
+            _imp_utils.is_gguf_available.cache_clear()
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._refresh_gguf_availability()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -154,6 +165,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._refresh_gguf_availability()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
