@@ -7,6 +7,14 @@ DanbotNL model loader implementation for natural language to Danbooru tag transl
 
 from typing import Optional
 
+import transformers.utils as _transformers_utils
+
+# transformers>=5.x renamed CHAT_TEMPLATE_NAME to CHAT_TEMPLATE_FILE; patch for remote code compat
+if not hasattr(_transformers_utils, "CHAT_TEMPLATE_NAME") and hasattr(
+    _transformers_utils, "CHAT_TEMPLATE_FILE"
+):
+    _transformers_utils.CHAT_TEMPLATE_NAME = _transformers_utils.CHAT_TEMPLATE_FILE
+
 from transformers import AutoModelForPreTraining, AutoProcessor
 
 from ....base import ForgeModel
@@ -57,8 +65,31 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
+        # transformers>=5.x changed _get_arguments_from_pretrained to accept processor_dict;
+        # the remote code was written for the old 2-arg signature, so patch it before loading.
+        try:
+            from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+            processor_class = get_class_from_dynamic_module(
+                "processor_danbot_nl.DanbotNLProcessor",
+                pretrained_model_name,
+            )
+            _orig = processor_class._get_arguments_from_pretrained.__func__
+
+            @classmethod
+            def _compat_get_args(
+                cls, pretrained_model_name_or_path, processor_dict=None, **kwargs
+            ):
+                return _orig(cls, pretrained_model_name_or_path, **kwargs)
+
+            processor_class._get_arguments_from_pretrained = _compat_get_args
+        except Exception:
+            pass
+
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            pretrained_model_name,
             trust_remote_code=True,
         )
         return self.processor
