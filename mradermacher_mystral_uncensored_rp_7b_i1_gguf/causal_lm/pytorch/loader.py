@@ -5,10 +5,42 @@
 mradermacher Mystral Uncensored RP 7B i1 GGUF model loader for causal language modeling.
 """
 
+import inspect
 from typing import Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+
+def _ensure_gguf_loader_accepts_model_to_load():
+    """Ensure load_gguf_checkpoint accepts model_to_load (added in transformers 5.2.0).
+
+    Other loaders may monkey-patch load_gguf_checkpoint with an older signature
+    that lacks model_to_load, causing a TypeError when transformers calls it.
+    """
+    current = _gguf_utils.load_gguf_checkpoint
+    sig_params = inspect.signature(current).parameters
+    if "model_to_load" in sig_params:
+        return
+    # **kwargs accepts model_to_load implicitly — no wrapping needed
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_params.values()):
+        return
+    _wrapped = current
+
+    def _compat(gguf_checkpoint_path, return_tensors=False, model_to_load=None):
+        return _wrapped(gguf_checkpoint_path, return_tensors=return_tensors)
+
+    _gguf_utils.load_gguf_checkpoint = _compat
+    _config_utils.load_gguf_checkpoint = _compat
+    _auto_tokenizer.load_gguf_checkpoint = _compat
+    _tok_utils.load_gguf_checkpoint = _compat
+
+
+_ensure_gguf_loader_accepts_model_to_load()
 
 from ....base import ForgeModel
 from ....config import (
