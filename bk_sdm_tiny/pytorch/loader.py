@@ -46,6 +46,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.pipe = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -59,32 +60,57 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the BK-SDM-Tiny pipeline from Hugging Face.
+        """Load and return the BK-SDM-Tiny UNet from Hugging Face.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use torch.bfloat16.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained BK-SDM-Tiny pipeline.
+            UNet2DConditionModel: The pre-trained BK-SDM-Tiny UNet.
         """
         dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionPipeline.from_pretrained(
+        self.pipe = StableDiffusionPipeline.from_pretrained(
             self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
         )
-        return pipe
+        return self.pipe.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the BK-SDM-Tiny model.
+        """Load and return sample inputs for the BK-SDM-Tiny UNet.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+            dtype_override: Optional torch.dtype to override the input dtype.
+            batch_size: Optional batch size for the inputs.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Dictionary containing sample, timestep, and encoder_hidden_states.
         """
-        prompt = [
-            "a tropical bird sitting on a branch of a tree",
-        ] * batch_size
-        return prompt
+        dtype = dtype_override or torch.bfloat16
+
+        prompt = ["a tropical bird sitting on a branch of a tree"] * batch_size
+        text_inputs = self.pipe.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipe.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        encoder_hidden_states = self.pipe.text_encoder(text_inputs.input_ids)[0].to(
+            dtype=dtype
+        )
+
+        vae_scale_factor = 2 ** (len(self.pipe.vae.config.block_out_channels) - 1)
+        latent_height = 512 // vae_scale_factor
+        latent_width = 512 // vae_scale_factor
+        num_channels = self.pipe.unet.config.in_channels
+
+        sample = torch.randn(
+            batch_size, num_channels, latent_height, latent_width, dtype=dtype
+        )
+        timestep = torch.tensor([1], dtype=dtype)
+
+        return {
+            "sample": sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+        }
