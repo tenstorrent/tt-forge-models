@@ -34,7 +34,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.TRANSLATEGEMMA_4B_IT_4BIT: LLMModelConfig(
-            pretrained_model_name="mlx-community/translategemma-4b-it-4bit",
+            pretrained_model_name="google/translategemma-4b-it",
         ),
     }
 
