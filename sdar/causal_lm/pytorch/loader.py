@@ -185,12 +185,20 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
+        with patch(
+            "transformers.dynamic_module_utils.get_imports", _fixed_get_imports
+        ), patch(
+            "transformers.dynamic_module_utils.get_cached_module_file",
+            _patched_get_cached_module_file,
+        ):
             config = AutoConfig.from_pretrained(
                 pretrained_model_name, trust_remote_code=True
             )
+        if not hasattr(config, "pad_token_id"):
+            config.pad_token_id = None
+        if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         with patch(
             "transformers.dynamic_module_utils.get_imports", _fixed_get_imports
