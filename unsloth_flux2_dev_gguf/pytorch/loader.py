@@ -93,11 +93,12 @@ class ModelLoader(ForgeModel):
         """
         # diffusers caches gguf availability at import time; since gguf is installed
         # via requirements.txt after diffusers is already imported, patch the cache.
-        import gguf
+        import importlib.metadata
+
         import diffusers.utils.import_utils as _dutils
 
         _dutils._gguf_available = True
-        _dutils._gguf_version = gguf.__version__
+        _dutils._gguf_version = importlib.metadata.version("gguf")
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         gguf_file = _GGUF_FILES[self._variant]
