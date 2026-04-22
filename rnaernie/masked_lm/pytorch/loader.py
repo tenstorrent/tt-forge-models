@@ -4,8 +4,31 @@
 """
 RNAErnie model loader implementation for masked language modeling on RNA sequences.
 """
-from transformers import AutoTokenizer, AutoModelForMaskedLM
+import sys
+import types
+
+from transformers import AutoModelForMaskedLM
 from typing import Optional
+
+
+def _get_rna_tokenizer_class():
+    # multimolecule.__init__ imports from models which has a broken transformers
+    # dependency (check_model_inputs missing in transformers>=5.x). We bypass it
+    # by registering a stub module so only the tokenisers subpackage is loaded.
+    if "multimolecule" not in sys.modules:
+        import importlib.util
+
+        spec = importlib.util.find_spec("multimolecule")
+        if spec is not None:
+            stub = types.ModuleType("multimolecule")
+            stub.__path__ = list(spec.submodule_search_locations)
+            stub.__package__ = "multimolecule"
+            sys.modules["multimolecule"] = stub
+
+    from multimolecule.tokenisers.rna.tokenization_rna import RnaTokenizer
+
+    return RnaTokenizer
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -54,9 +77,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self):
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        RnaTokenizer = _get_rna_tokenizer_class()
+        self.tokenizer = RnaTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
         )
         return self.tokenizer
 
