@@ -8,7 +8,47 @@ coder3101 Ministral-3-8B-Reasoning-2512-heretic GGUF model loader for causal lan
 from typing import Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
+
+
+def _patch_mistral3_support():
+    """Register mistral3 as an alias for mistral in the GGUF loader.
+
+    Ministral 3.x GGUF files declare architecture as 'mistral3', which
+    transformers 5.x does not yet recognise.  The model structure is
+    identical to 'mistral', so we alias all mappings accordingly.
+    """
+    if "mistral3" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "mistral" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "mistral3",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"],
+            )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    _patch_mistral3_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "mistral3":
+        result["config"]["model_type"] = "mistral"
+    return result
+
+
+_patch_mistral3_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
