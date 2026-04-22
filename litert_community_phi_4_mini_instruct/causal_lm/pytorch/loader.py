@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LITERT_COMMUNITY_PHI_4_MINI_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="litert-community/Phi-4-mini-instruct",
+            pretrained_model_name="microsoft/Phi-4-mini-instruct",
             max_length=128,
         ),
     }
