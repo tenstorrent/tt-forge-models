@@ -93,6 +93,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+        # Disable FP8 quantization: the TT backend does not support FP8 matmuls
+        model_kwargs.setdefault("quantization_config", None)
         model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
