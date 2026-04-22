@@ -100,7 +100,7 @@ class ModelLoader(ForgeModel):
             {
                 "role": "user",
                 "content": [
-                    {"type": "image"},
+                    {"type": "image", "image": image},
                     {"type": "text", "text": "Can you describe this image?"},
                 ],
             },
@@ -112,7 +112,6 @@ class ModelLoader(ForgeModel):
             tokenize=True,
             return_dict=True,
             return_tensors="pt",
-            images=[image],
         )
 
         if batch_size > 1:
