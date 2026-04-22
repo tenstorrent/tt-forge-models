@@ -19,11 +19,15 @@ _LANGUAGEBIND_COMMIT = "7070c53375661cdb235801176b564b45f96f0648"
 
 
 def _patch_clip_tokenizer_vocab_args():
-    """Fix CLIPTokenizer compat: transformers>=5 renamed vocab_file->vocab, merges_file->merges.
+    """Fix CLIPTokenizer compat for transformers>=5.
 
-    LanguageBind passes vocab_file/merges_file as positional args (which map to the new
-    'vocab'/'merges' params), while from_pretrained also stuffs 'vocab'/'merges' into
-    **kwargs, causing "multiple values" errors. Strip the duplicates from kwargs.
+    transformers 5.x changed CLIPTokenizer.__init__ signature:
+      - Renamed vocab_file->vocab and merges_file->merges
+      - Removed 'errors' as a named positional parameter
+
+    LanguageBind calls super().__init__ with 7 positional args matching the old
+    signature (vocab_file, merges_file, errors, unk_token, bos_token, eos_token,
+    pad_token). This shim maps them to the new 6-param signature.
     """
     from transformers import CLIPTokenizer
     import inspect
@@ -34,16 +38,26 @@ def _patch_clip_tokenizer_vocab_args():
         return
 
     original_init = CLIPTokenizer.__init__
+    _OLD_POSITIONAL = (
+        "vocab",
+        "merges",
+        "errors",
+        "unk_token",
+        "bos_token",
+        "eos_token",
+        "pad_token",
+    )
 
     def _compat_init(self, *args, **kwargs):
-        if args and "vocab" in kwargs:
-            kwargs.pop("vocab")
-        if len(args) > 1 and "merges" in kwargs:
-            kwargs.pop("merges")
+        if len(args) >= 3:
+            named = dict(zip(_OLD_POSITIONAL, args))
+            kwargs = {**named, **kwargs}
+            args = args[len(_OLD_POSITIONAL) :]
         if "vocab_file" in kwargs and "vocab" not in kwargs:
             kwargs["vocab"] = kwargs.pop("vocab_file")
         if "merges_file" in kwargs and "merges" not in kwargs:
             kwargs["merges"] = kwargs.pop("merges_file")
+        kwargs.pop("errors", None)
         original_init(self, *args, **kwargs)
 
     CLIPTokenizer.__init__ = _compat_init
