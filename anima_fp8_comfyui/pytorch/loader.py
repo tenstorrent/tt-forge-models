@@ -127,10 +127,15 @@ class ModelLoader(ForgeModel):
 
         timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
 
+        padding_mask = torch.ones(
+            batch_size, 1, latent_height, latent_width, dtype=dtype
+        )
+
         return {
             "hidden_states": hidden_states,
             "encoder_hidden_states": encoder_hidden_states,
             "timestep": timestep,
+            "padding_mask": padding_mask,
             "return_dict": False,
         }
 
