@@ -80,6 +80,7 @@ class StochasticTimeEmbedding(nn.Module):
     def forward(self, t):
         t_flat = t.reshape(-1)
         t_emb = self.timesteps(t_flat)
+        t_emb = t_emb.to(dtype=self.embedding.linear_1.weight.dtype)
         return self.embedding(t_emb)
 
 
