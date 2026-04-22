@@ -195,6 +195,12 @@ class ModelLoader(ForgeModel):
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        # The model's remote __init__ loads bert-base-uncased with local_files_only=True,
+        # so we must pre-cache it before invoking from_pretrained.
+        from transformers import BertTokenizer
+
+        BertTokenizer.from_pretrained("bert-base-uncased")
+
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
