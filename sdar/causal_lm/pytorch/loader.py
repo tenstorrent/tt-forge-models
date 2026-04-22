@@ -4,9 +4,13 @@
 """
 SDAR (Synergy of Diffusion and AutoRegression) model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import os
 from typing import Optional
+from unittest.mock import patch
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.dynamic_module_utils import get_imports
 
 from ....base import ForgeModel
 from ....config import (
@@ -18,6 +22,13 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _fixed_get_imports(filename: str | os.PathLike) -> list[str]:
+    imports = get_imports(filename)
+    if not torch.cuda.is_available() and "flash_attn" in imports:
+        imports.remove("flash_attn")
+    return imports
 
 
 class ModelVariant(StrEnum):
@@ -95,12 +106,13 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name,
-            trust_remote_code=True,
-            attn_implementation="eager",
-            **model_kwargs,
-        ).eval()
+        with patch("transformers.dynamic_module_utils.get_imports", _fixed_get_imports):
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name,
+                trust_remote_code=True,
+                attn_implementation="eager",
+                **model_kwargs,
+            ).eval()
 
         self.config = model.config
         self.model = model
