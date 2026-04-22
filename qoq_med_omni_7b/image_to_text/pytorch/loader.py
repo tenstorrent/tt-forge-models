@@ -94,12 +94,23 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
+        # Pre-load config to patch hidden_size at top level for compatibility with
+        # transformers v5, where Qwen2_5_VLConfig moved hidden_size into text_config.
+        # The remote model code (modeling_time_series_qwen2_5_vl.py) accesses
+        # config.hidden_size directly, which fails without this patch.
+        if "config" not in model_kwargs:
             config = AutoConfig.from_pretrained(
                 pretrained_model_name, trust_remote_code=True
             )
-            config.num_hidden_layers = self.num_layers
+            if not hasattr(config, "hidden_size") and hasattr(
+                config, "get_text_config"
+            ):
+                config.hidden_size = config.get_text_config().hidden_size
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+        elif self.num_layers is not None:
+            model_kwargs["config"].num_hidden_layers = self.num_layers
 
         self.processor = AutoProcessor.from_pretrained(
             pretrained_model_name, trust_remote_code=True
