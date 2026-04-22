@@ -18,7 +18,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from diffusers import StableDiffusionPipeline
+from .src.model_utils import load_pipe, stable_diffusion_preprocessing
 
 
 class ModelVariant(StrEnum):
@@ -30,7 +30,6 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """DreamShaper 7 model loader implementation."""
 
-    # Dictionary of available model variants
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="Lykon/dreamshaper-7",
@@ -39,25 +38,14 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.BASE
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
+    prompt = "portrait photo of muscular bearded guy in a worn mech suit, light bokeh, intricate, elegant, sharp focus, soft lighting, vibrant colors"
 
-        Args:
-            variant: Optional string specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
+    def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
-        """Get model information for dashboard and metrics reporting.
-
-        Args:
-            variant: Optional variant name string. If None, uses DEFAULT_VARIANT.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
         return ModelInfo(
             model="DreamShaper 7",
             variant=variant,
@@ -68,32 +56,40 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the DreamShaper 7 pipeline from Hugging Face.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use torch.bfloat16.
+        """Load and return the UNet from the DreamShaper 7 pipeline.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained DreamShaper 7 pipeline object.
+            torch.nn.Module: The UNet model used for denoising.
         """
-        dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
-        )
-        return pipe
+        self.pipeline = load_pipe(self._variant_config.pretrained_model_name)
 
-    def load_inputs(self, dtype_override=None, batch_size=1, **kwargs):
-        """Load and return sample text prompts for the DreamShaper 7 model.
+        if dtype_override is not None:
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+        return self.pipeline.unet
+
+    def load_inputs(self, dtype_override=None, **kwargs):
+        """Load and return sample inputs for the DreamShaper 7 UNet model.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments for the UNet forward method.
         """
-        prompt = [
-            "portrait photo of muscular bearded guy in a worn mech suit, light bokeh, intricate, elegant, sharp focus, soft lighting, vibrant colors",
-        ] * batch_size
-        return prompt
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        (
+            latent_model_input,
+            timestep,
+            encoder_hidden_states,
+        ) = stable_diffusion_preprocessing(self.pipeline, self.prompt)
+
+        if dtype_override is not None:
+            latent_model_input = latent_model_input.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            encoder_hidden_states = encoder_hidden_states.to(dtype_override)
+
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+        }
