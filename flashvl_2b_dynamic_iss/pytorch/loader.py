@@ -147,8 +147,8 @@ class ModelLoader(ForgeModel):
 
         def _apply_template(tok, messages, **kwargs):
             result = tok.apply_chat_template(messages, **kwargs)
-            if isinstance(result, dict):
-                ids = result["input_ids"]
+            if hasattr(result, "input_ids"):
+                ids = result.input_ids
                 return ids.tolist() if hasattr(ids, "tolist") else list(ids)
             return list(result)
 
