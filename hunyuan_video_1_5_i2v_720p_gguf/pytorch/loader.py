@@ -124,21 +124,48 @@ class ModelLoader(ForgeModel):
         )
 
         # HunyuanVideo15Transformer3DModel is not registered in diffusers'
-        # SINGLE_FILE_LOADABLE_CLASSES, so patch the registry before calling
-        # from_single_file. Use the standard HunyuanVideo converter for correct key
-        # mapping (GGUF → diffusers names). The base HunyuanVideo config fetched via
-        # fetch_diffusers_config has 24 heads (3072-dim), but HunyuanVideo 1.5 uses
-        # 16 heads (2048-dim), so pass explicit architecture params as kwargs —
-        # from_single_file merges them into diffusers_model_config before creating
-        # the model (single_file_model.py lines 437-438).
+        # SINGLE_FILE_LOADABLE_CLASSES. Register it with a custom converter that:
+        # 1. Runs the base HunyuanVideo key converter (GGUF → diffusers names).
+        # 2. Remaps HunyuanVideo 1.5 module names that differ from the base model
+        #    (byt5_in→context_embedder_2, vision_in→image_embedder, etc.).
+        # Pass explicit architecture kwargs to override the wrong config fetched from
+        # hunyuanvideo-community/HunyuanVideo (24 heads, 3072-dim, patch_size=2) with
+        # the correct HunyuanVideo 1.5 params (single_file_model.py lines 437-438).
         from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
         from diffusers.loaders.single_file_utils import (
             convert_hunyuan_video_transformer_to_diffusers,
         )
 
+        _HV15_EXTRA_REMAPS = (
+            ("byt5_in.net.0.proj", "context_embedder_2.linear_1"),
+            ("byt5_in.net.2", "context_embedder_2.linear_2"),
+            ("byt5_in.fc3", "context_embedder_2.linear_3"),
+            ("byt5_in.layernorm", "context_embedder_2.norm"),
+            ("cond_type_embedding", "cond_type_embed"),
+            ("time_text_embed.timestep_embedder", "time_embed.timestep_embedder"),
+            ("vision_in.proj.0", "image_embedder.norm_in"),
+            ("vision_in.proj.1", "image_embedder.linear_1"),
+            ("vision_in.proj.3", "image_embedder.linear_2"),
+            ("vision_in.proj.4", "image_embedder.norm_out"),
+        )
+
+        def _convert_hv15_transformer(checkpoint, **kw):
+            checkpoint = convert_hunyuan_video_transformer_to_diffusers(
+                checkpoint, **kw
+            )
+            result = {}
+            for key, value in checkpoint.items():
+                new_key = key
+                for old_prefix, new_prefix in _HV15_EXTRA_REMAPS:
+                    if key == old_prefix or key.startswith(old_prefix + "."):
+                        new_key = new_prefix + key[len(old_prefix) :]
+                        break
+                result[new_key] = value
+            return result
+
         if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
             SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
-                "checkpoint_mapping_fn": convert_hunyuan_video_transformer_to_diffusers,
+                "checkpoint_mapping_fn": _convert_hv15_transformer,
                 "default_subfolder": "transformer",
             }
 
@@ -156,6 +183,8 @@ class ModelLoader(ForgeModel):
             num_layers=54,
             in_channels=65,
             out_channels=32,
+            patch_size=1,
+            patch_size_t=1,
             text_embed_dim=3584,
             text_embed_2_dim=1472,
             image_embed_dim=1152,
