@@ -5,9 +5,11 @@
 Ovis2 multimodal model loader implementation for image-text-to-text generation.
 """
 
+import sys
 import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
+from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from typing import Optional
 
 from ...base import ForgeModel
@@ -69,6 +71,7 @@ class ModelLoader(ForgeModel):
         model_kwargs = {
             "trust_remote_code": True,
             "multimodal_max_length": 8192,
+            "attn_implementation": "eager",
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -76,7 +79,28 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.bfloat16
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        # transformers 5.x removed is_parallelizable from PreTrainedModel, but the
+        # model's remote code reads it. Add the attribute back as a default.
+        if not hasattr(PreTrainedModel, "is_parallelizable"):
+            PreTrainedModel.is_parallelizable = False
+
+        # transformers 5.x natively registers "aimv2", so the model's remote
+        # configuration code conflicts when it tries to re-register it. Patch
+        # CONFIG_MAPPING.register to allow re-registration during load.
+        _orig_register = CONFIG_MAPPING.register
+        CONFIG_MAPPING.register = lambda k, v, exist_ok=False: _orig_register(
+            k, v, exist_ok=True
+        )
+        try:
+            config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+            # Model config hardcodes flash_attention_2 which requires flash_attn>=2.6.3.
+            # Disable it so the model can be instantiated without flash_attn.
+            config.llm_attn_implementation = None
+            model = AutoModelForCausalLM.from_pretrained(
+                model_name, config=config, **model_kwargs
+            )
+        finally:
+            CONFIG_MAPPING.register = _orig_register
         model.eval()
 
         self.model = model
@@ -90,6 +114,19 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.model is None:
             self._load_model_instance()
+
+        # transformers 5.x loads Ovis2's tokenizer as TokenizersBackend (generic fast
+        # tokenizer base class) rather than Qwen2TokenizerFast. Patch the conversation
+        # formatter's type allowlist so preprocess_inputs doesn't reject it.
+        for name, mod in sys.modules.items():
+            if "configuration_ovis" not in name:
+                continue
+            cls = getattr(mod, "QwenConversationFormatter", None)
+            if cls is not None:
+                types = getattr(cls, "support_tokenizer_types", None)
+                if types is not None and "TokenizersBackend" not in types:
+                    cls.support_tokenizer_types = types + ["TokenizersBackend"]
+                break
 
         image_path = get_file(self.sample_image)
         image = Image.open(str(image_path)).convert("RGB")
@@ -107,6 +144,7 @@ class ModelLoader(ForgeModel):
         inputs = {
             "input_ids": input_ids.unsqueeze(0),
             "attention_mask": attention_mask.unsqueeze(0),
+            "labels": None,
         }
 
         if pixel_values is not None:
