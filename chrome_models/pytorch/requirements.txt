@@ -1,0 +1,1 @@
+ai-edge-litert>=1.1.0
