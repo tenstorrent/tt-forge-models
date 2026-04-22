@@ -95,14 +95,14 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the DMD2 pipeline for this instance's variant.
+        """Load and return the DMD2 UNet for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            DiffusionPipeline: The DMD2 pipeline instance with distilled UNet.
+            UNet2DConditionModel: The DMD2 distilled UNet module.
         """
         repo_name = self._variant_config.pretrained_model_name
         ckpt_name = self._CKPT_NAMES[self._variant]
@@ -114,19 +114,19 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the DMD2 model.
+        """Load and return sample inputs for the DMD2 UNet model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            list: Input tensors that can be fed to the model:
-                - latent_model_input (torch.Tensor): Latent input for the UNet
-                - timesteps (torch.Tensor): Timestep tensor
-                - prompt_embeds (torch.Tensor): Encoded prompt embeddings
+            dict: Keyword arguments for UNet forward pass:
+                - sample (torch.Tensor): Latent input for the UNet
+                - timestep (torch.Tensor): Single timestep tensor
+                - encoder_hidden_states (torch.Tensor): Encoded prompt embeddings
                 - added_cond_kwargs (dict): Additional conditioning inputs
         """
         # Ensure pipeline is initialized
@@ -155,4 +155,9 @@ class ModelLoader(ForgeModel):
             timesteps = timesteps.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        return {
+            "sample": latent_model_input,
+            "timestep": timesteps[0],
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
