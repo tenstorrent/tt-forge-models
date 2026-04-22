@@ -16,7 +16,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import WanPipeline, WanTransformer3DModel  # type: ignore[import]
-from diffusers.quantizers import GGUFQuantizationConfig  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -91,6 +90,8 @@ class ModelLoader(ForgeModel):
         Returns:
             WanPipeline instance with GGUF-quantized transformer.
         """
+        from diffusers.quantizers import GGUFQuantizationConfig  # type: ignore[import]
+
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         gguf_file = _GGUF_FILES[self._variant]
 
