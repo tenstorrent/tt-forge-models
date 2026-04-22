@@ -85,9 +85,6 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         return model
 
     def load_inputs(self, dtype_override=None):
