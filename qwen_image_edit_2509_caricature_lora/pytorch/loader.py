@@ -16,7 +16,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import QwenImageEditPlusPipeline  # type: ignore[import]
 from PIL import Image  # type: ignore[import]
 
 from ...base import ForgeModel
@@ -53,7 +52,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[QwenImageEditPlusPipeline] = None
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -79,6 +78,8 @@ class ModelLoader(ForgeModel):
         Returns:
             QwenImageEditPlusPipeline with LoRA weights merged.
         """
+        from diffusers import QwenImageEditPlusPipeline  # type: ignore[import]
+
         dtype = dtype_override if dtype_override is not None else torch.float32
 
         self.pipeline = QwenImageEditPlusPipeline.from_pretrained(
