@@ -170,8 +170,9 @@ class ModelLoader(ForgeModel):
         model = AsymmetricCroCo3DStereo.from_pretrained(repo_id)
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        # The model uses hardcoded .float() casts internally (in patch_embed and
+        # the downstream head), making it incompatible with bfloat16 weights.
+        # Keep the model in float32 regardless of dtype_override.
 
         return model
 
@@ -184,7 +185,7 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Dict with 'view1' and 'view2' keys for model(**inputs) unpacking.
         """
-        dtype = dtype_override or torch.float32
+        dtype = torch.float32  # model requires float32 (hardcoded casts internally)
         height, width = 384, 512
 
         view1 = {
