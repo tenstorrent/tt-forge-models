@@ -100,11 +100,21 @@ class ModelLoader(ForgeModel):
         """
         import diffusers.utils.import_utils as _diffusers_import_utils
 
-        if not _diffusers_import_utils._gguf_available:
+        if (
+            not _diffusers_import_utils._gguf_available
+            or _diffusers_import_utils._gguf_version == "N/A"
+        ):
+            import importlib.metadata
             import importlib.util
 
             if importlib.util.find_spec("gguf") is not None:
-                _diffusers_import_utils._gguf_available = True
+                try:
+                    _diffusers_import_utils._gguf_version = importlib.metadata.version(
+                        "gguf"
+                    )
+                    _diffusers_import_utils._gguf_available = True
+                except importlib.metadata.PackageNotFoundError:
+                    pass
 
         from diffusers import (
             GGUFQuantizationConfig,
