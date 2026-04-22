@@ -52,7 +52,7 @@ class TabPFNWrapper(nn.Module):
         Returns:
             Tensor: Class probability predictions (n_test_samples, n_classes).
         """
-        probas = self.classifier.predict_proba(X_test.numpy())
+        probas = self.classifier.predict_proba(X_test.float().numpy())
         return torch.tensor(probas, dtype=X_test.dtype)
 
 
