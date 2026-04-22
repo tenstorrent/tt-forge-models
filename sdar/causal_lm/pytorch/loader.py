@@ -4,9 +4,11 @@
 """
 SDAR (Synergy of Diffusion and AutoRegression) model loader implementation for causal language modeling.
 """
+import importlib
 import os
 import sys
 import textwrap
+from pathlib import Path
 from typing import Optional
 from unittest.mock import patch
 
@@ -14,7 +16,12 @@ import torch
 import transformers.cache_utils
 import transformers.dynamic_module_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
-from transformers.dynamic_module_utils import get_cached_module_file, get_imports
+from transformers.dynamic_module_utils import (
+    TRANSFORMERS_DYNAMIC_MODULE_NAME,
+    _sanitize_module_name,
+    get_cached_module_file,
+    get_imports,
+)
 
 # transformers 5.x removed SlidingWindowCache; inject a stub so the model's remote code loads.
 if not hasattr(transformers.cache_utils, "SlidingWindowCache"):
@@ -59,17 +66,26 @@ def _patched_get_cached_module_file(
     pretrained_model_name_or_path, module_file, **kwargs
 ):
     if os.path.basename(module_file) in _MISSING_MODULE_FILES:
-        # Create a stub file in the same directory as the main module.
-        main_path = get_cached_module_file(
-            pretrained_model_name_or_path, "modeling_sdar.py", **kwargs
+        # Compute the transformers_modules path directly to avoid recursion.
+        submodule = os.path.sep.join(
+            map(_sanitize_module_name, pretrained_model_name_or_path.split("/"))
         )
-        stub_path = os.path.join(
-            os.path.dirname(main_path), os.path.basename(module_file)
-        )
-        if not os.path.exists(stub_path):
-            with open(stub_path, "w") as f:
-                f.write(_STUB_CONTENT)
-        return stub_path
+        spec = importlib.util.find_spec(TRANSFORMERS_DYNAMIC_MODULE_NAME)
+        base_dir = Path(spec.submodule_search_locations[0]) if spec else None
+        if base_dir is None:
+            # transformers_modules not yet created; fall through to let it fail naturally
+            return get_cached_module_file(
+                pretrained_model_name_or_path, module_file, **kwargs
+            )
+        submodule_path = base_dir / submodule
+        # Find the commit-hash subdirectory (created by loading the main module file).
+        for commit_dir in sorted(submodule_path.iterdir()):
+            if commit_dir.is_dir():
+                stub_path = commit_dir / os.path.basename(module_file)
+                if not stub_path.exists():
+                    stub_path.write_text(_STUB_CONTENT)
+                importlib.invalidate_caches()
+                return str(stub_path)
     return get_cached_module_file(pretrained_model_name_or_path, module_file, **kwargs)
 
 
