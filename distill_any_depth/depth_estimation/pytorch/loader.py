@@ -6,8 +6,8 @@ Distill-Any-Depth model loader implementation for monocular depth estimation.
 """
 
 import torch
+from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation
-from datasets import load_dataset
 from typing import Optional
 
 from ....config import (
@@ -81,8 +81,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (640, 480))
 
         inputs = self.processor(images=image, return_tensors="pt")
 
