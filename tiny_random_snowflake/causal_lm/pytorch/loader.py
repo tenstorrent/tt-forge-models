@@ -9,6 +9,20 @@ from typing import Optional
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.cache_utils import DynamicCache
+
+
+def _patch_transformers_v5_compat():
+    """Add get_usable_length shim removed in transformers v5 for Arctic model compatibility."""
+    if not hasattr(DynamicCache, "get_usable_length"):
+
+        def _get_usable_length(self, new_seq_length, layer_idx=0):
+            return self.get_seq_length(layer_idx)
+
+        DynamicCache.get_usable_length = _get_usable_length
+
+
+_patch_transformers_v5_compat()
 
 from ....base import ForgeModel
 from ....config import (
@@ -64,6 +78,33 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_arctic_tokenizer_class():
+        """Patch ArcticTokenizer in sys.modules for transformers v5 compatibility."""
+        import sys
+        from transformers.models.llama import LlamaTokenizer
+
+        for mod_name, mod in list(sys.modules.items()):
+            if "tokenization_arctic" not in mod_name:
+                continue
+            arctic_cls = getattr(mod, "ArcticTokenizer", None)
+            if arctic_cls is None:
+                continue
+
+            def _patched_init(self_tok, vocab_file=None, **kwargs):
+                vocab = kwargs.pop("vocab", vocab_file)
+                for drop in (
+                    "sp_model_kwargs",
+                    "add_bos_token",
+                    "add_eos_token",
+                    "spaces_between_special_tokens",
+                ):
+                    kwargs.pop(drop, None)
+                LlamaTokenizer.__init__(self_tok, vocab=vocab, **kwargs)
+
+            arctic_cls.__init__ = _patched_init
+            break
+
     def _load_tokenizer(self, dtype_override=None):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -71,9 +112,15 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **tokenizer_kwargs
-        )
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name, trust_remote_code=True, **tokenizer_kwargs
+            )
+        except TypeError:
+            self._patch_arctic_tokenizer_class()
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name, trust_remote_code=True, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
