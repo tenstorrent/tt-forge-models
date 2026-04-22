@@ -39,9 +39,11 @@ def _patch_step35_support():
         GGUF_TO_FAST_CONVERTERS.setdefault("step35", GGUF_TO_FAST_CONVERTERS["llama"])
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     _patch_step35_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
     config = result.get("config", {})
     if config.get("model_type") == "step35":
         config["model_type"] = "llama"
