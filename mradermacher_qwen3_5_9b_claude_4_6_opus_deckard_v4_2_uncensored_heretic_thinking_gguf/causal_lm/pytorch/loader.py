@@ -9,6 +9,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import inspect
+
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
@@ -37,10 +39,53 @@ def _patch_qwen35_support():
         )
 
 
+def _find_real_load_gguf_checkpoint(func):
+    """Trace the patching chain (via globals and closures) to find the original transformers function."""
+    visited = set()
+    current = func
+    while current:
+        fid = id(current)
+        if fid in visited:
+            return None
+        visited.add(fid)
+        if (
+            getattr(current, "__qualname__", None) == "load_gguf_checkpoint"
+            and getattr(current, "__module__", None)
+            == "transformers.modeling_gguf_pytorch_utils"
+        ):
+            return current
+        globs = getattr(current, "__globals__", {})
+        next_func = None
+        for name in ("_orig_load_gguf_checkpoint", "orig_load", "_orig"):
+            candidate = globs.get(name)
+            if callable(candidate) and candidate is not current:
+                next_func = candidate
+                break
+        if next_func is None:
+            try:
+                cv = inspect.getclosurevars(current)
+                for name in ("_orig_load_gguf_checkpoint", "orig_load", "_orig"):
+                    candidate = cv.nonlocals.get(name)
+                    if callable(candidate) and candidate is not current:
+                        next_func = candidate
+                        break
+            except TypeError:
+                pass
+        current = next_func
+    return None
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
-    """Wrap load_gguf_checkpoint to add qwen35 support, fix model_type, and accept model_to_load."""
+    """Wrap load_gguf_checkpoint to add qwen35 support, fix model_type, and forward model_to_load."""
     _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    model_to_load = kwargs.get("model_to_load", None)
+    real_func = _find_real_load_gguf_checkpoint(_orig_load_gguf_checkpoint)
+    if real_func is not None:
+        result = real_func(
+            gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+        )
+    else:
+        result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
     return result
@@ -124,6 +169,12 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        _patch_qwen35_support()
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
@@ -140,6 +191,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        model_kwargs["ignore_mismatched_sizes"] = True
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
