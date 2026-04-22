@@ -7,7 +7,6 @@ T5 model loader implementation for summarization.
 """
 
 from typing import Optional
-from transformers.models.t5.modeling_flax_t5 import shift_tokens_right
 
 from ....base import ForgeModel
 from ....config import (
@@ -135,6 +134,7 @@ class ModelLoader(ForgeModel):
         """
 
         from transformers import T5Config
+        from transformers.models.t5.modeling_flax_t5 import shift_tokens_right
 
         # Ensure tokenizer is loaded
         if self._tokenizer is None:
