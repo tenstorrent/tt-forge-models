@@ -104,9 +104,6 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-        gguf_file = self._GGUF_FILES[self._variant]
-
         model_kwargs = {"low_cpu_mem_usage": True}
 
         if dtype_override is not None:
@@ -114,10 +111,10 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = gguf_file
 
+        # transformers does not support qwen2vl GGUF loading; load from base model
         model = Qwen2VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            self._PROCESSOR_MODEL, **model_kwargs
         )
         model.eval()
         model = Wrapper(model)
