@@ -6,6 +6,7 @@ FLUX.2-klein-4B-NVFP4 model loader implementation for text-to-image generation.
 """
 import torch
 from diffusers.models import Flux2Transformer2DModel
+from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -58,13 +59,16 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         filename = "flux-2-klein-4b-nvfp4.safetensors"
+        local_path = hf_hub_download(
+            repo_id=self._variant_config.pretrained_model_name, filename=filename
+        )
 
         load_kwargs = {}
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
         self.transformer = Flux2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{self._variant_config.pretrained_model_name}/resolve/main/{filename}",
+            local_path,
             **load_kwargs,
         )
 
