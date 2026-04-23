@@ -70,33 +70,55 @@ def _fix_gguf_load_compat():
     Some other model loaders monkey-patch load_gguf_checkpoint with a signature
     that pre-dates the model_to_load parameter. When transformers internally
     calls load_gguf_checkpoint(..., model_to_load=dummy_model) the broken patch
-    raises TypeError.  We traverse the closure chain to find the real function
+    raises TypeError.  We find the real function (in closures or module globals)
     and replace the module attribute with a properly-forwarding wrapper.
     """
     import transformers.modeling_gguf_pytorch_utils as gguf_utils_mod
 
+    def _is_compat(fn):
+        try:
+            params = inspect.signature(fn).parameters
+            return "model_to_load" in params or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+            )
+        except (ValueError, TypeError):
+            return False
+
     current = gguf_utils_mod.load_gguf_checkpoint
-    if "model_to_load" in inspect.signature(current).parameters:
+    if _is_compat(current):
         return
 
-    def _find_real(fn, depth=0):
-        if depth > 10:
+    def _find_real(fn, visited=None):
+        if visited is None:
+            visited = set()
+        fn_id = id(fn)
+        if fn_id in visited:
             return None
-        try:
-            if "model_to_load" in inspect.signature(fn).parameters:
-                return fn
-        except (ValueError, TypeError):
-            return None
+        visited.add(fn_id)
+
+        if _is_compat(fn):
+            return fn
+
+        # Check closures
         if hasattr(fn, "__closure__") and fn.__closure__:
             for cell in fn.__closure__:
                 try:
                     c = cell.cell_contents
                     if callable(c):
-                        result = _find_real(c, depth + 1)
+                        result = _find_real(c, visited)
                         if result is not None:
                             return result
                 except ValueError:
                     pass
+
+        # Check module globals — broken patches store _orig as a module-level global,
+        # not as a closure variable.
+        if hasattr(fn, "__globals__"):
+            for name, val in fn.__globals__.items():
+                if callable(val) and "gguf" in name.lower() and id(val) not in visited:
+                    if _is_compat(val):
+                        return val
+
         return None
 
     real_fn = _find_real(current)
