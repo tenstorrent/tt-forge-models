@@ -5,8 +5,15 @@
 groxaxo Qwen3.5-27B heretic AWQ W4A16 model loader implementation for causal language modeling.
 """
 
+import os
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
+    Qwen3_5ForCausalLM,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -61,12 +68,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
 
         return self.tokenizer
@@ -77,26 +80,35 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-
-        model_kwargs["device_map"] = "cpu"
-
-        if self.num_layers is not None:
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
             config = AutoConfig.from_pretrained(pretrained_model_name)
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-            else:
+            if self.num_layers is not None:
                 config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            model = Qwen3_5ForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
 
-        model_kwargs |= kwargs
+            model_kwargs["device_map"] = "cpu"
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(pretrained_model_name)
+                if hasattr(config, "text_config"):
+                    config.text_config.num_hidden_layers = self.num_layers
+                else:
+                    config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
 
+            model_kwargs |= kwargs
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+
+        model.eval()
         self.config = model.config
         self.model = model
         return model
