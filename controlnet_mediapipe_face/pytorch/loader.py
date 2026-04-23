@@ -77,7 +77,7 @@ class ModelLoader(ForgeModel):
         )
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
         return self.pipeline.unet
 
@@ -114,6 +114,12 @@ class ModelLoader(ForgeModel):
             latent_model_input = latent_model_input.to(dtype_override)
             timesteps = timesteps.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
+            down_block_additional_residuals = tuple(
+                r.to(dtype_override) for r in down_block_additional_residuals
+            )
+            mid_block_additional_residual = mid_block_additional_residual.to(
+                dtype_override
+            )
 
         return [
             latent_model_input,
