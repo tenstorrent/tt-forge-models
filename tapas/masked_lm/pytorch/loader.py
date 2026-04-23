@@ -27,9 +27,12 @@ def _patch_tapas_tokenizer_for_pandas3():
     pandas 3.0 removed the positional fallback for Series.__getitem__ with
     integer keys on a string-indexed Series.  The TAPAS tokenizer uses
     row[col_index] (integer) on rows from iterrows() whose index is the
-    string column names, causing KeyError.  Patching once per process.
+    string column names, causing KeyError.  Two functions need patching:
+    the module-level _get_column_values and the TapasTokenizer instance method.
+    Patching once per process.
     """
     import transformers.models.tapas.tokenization_tapas as _tapas
+    from transformers import TapasTokenizer
 
     if getattr(_tapas, "_patched_for_pandas3", False):
         return
@@ -37,14 +40,27 @@ def _patch_tapas_tokenizer_for_pandas3():
     _normalize = _tapas.normalize_for_match
     _get_numeric = _tapas._get_numeric_values
 
-    def _patched_get_column_values(table, col_index):
+    # Patch module-level function used by add_numeric_table_values
+    def _patched_module_get_column_values(table, col_index):
         index_to_values = {}
         for row_index, row in table.iterrows():
             text = _normalize(row.iloc[col_index].text)
             index_to_values[row_index] = list(_get_numeric(text))
         return index_to_values
 
-    _tapas._get_column_values = _patched_get_column_values
+    _tapas._get_column_values = _patched_module_get_column_values
+
+    # Patch instance method used by _get_numeric_column_ranks
+    def _patched_instance_get_column_values(self, table, col_index):
+        table_numeric_values = {}
+        for row_index, row in table.iterrows():
+            cell = row.iloc[col_index]
+            if cell.numeric_value is not None:
+                table_numeric_values[row_index] = cell.numeric_value
+        return table_numeric_values
+
+    TapasTokenizer._get_column_values = _patched_instance_get_column_values
+
     _tapas._patched_for_pandas3 = True
 
 
