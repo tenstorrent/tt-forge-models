@@ -10,7 +10,15 @@ from typing import Optional
 
 
 def _patch_gguf_utils_for_qwen3omnimoe():
-    """Patch transformers GGUF utils to support qwen3omnimoe architecture as qwen3_moe."""
+    """Patch transformers GGUF utils to support qwen3omnimoe (Qwen3-Omni MoE) architecture.
+
+    The GGUF architecture name "qwen3omnimoe" is not registered in transformers.  We add
+    it to the config/tensor-processor mappings and wrap load_gguf_checkpoint so the
+    parsed model_type is remapped to "qwen3_omni_moe" (which IS registered).
+    configuration_utils.py imports load_gguf_checkpoint by value, so we must patch the
+    reference there as well.
+    """
+    import transformers.configuration_utils as config_utils
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
     from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
     from transformers.modeling_gguf_pytorch_utils import (
@@ -18,18 +26,38 @@ def _patch_gguf_utils_for_qwen3omnimoe():
         Qwen2MoeTensorProcessor,
     )
 
-    arch = "qwen3omnimoe"
-    target = "qwen3_moe"
+    gguf_arch = "qwen3omnimoe"
+    hf_model_type = "qwen3_omni_moe"
+    base_arch = "qwen3_moe"
 
-    if arch not in GGUF_CONFIG_MAPPING:
-        # GGUF_CONFIG_MAPPING is the same object as GGUF_TO_TRANSFORMERS_MAPPING["config"]
-        GGUF_CONFIG_MAPPING[arch] = GGUF_CONFIG_MAPPING[target].copy()
-        TENSOR_PROCESSORS[arch] = TENSOR_PROCESSORS.get(
+    if gguf_arch not in GGUF_CONFIG_MAPPING:
+        # Allow the architecture-supported check to pass.
+        GGUF_CONFIG_MAPPING[gguf_arch] = GGUF_CONFIG_MAPPING[base_arch].copy()
+        # Also register under the target HF model_type so gguf-key prefixes work
+        # after the architecture string replacement happens.
+        GGUF_CONFIG_MAPPING[hf_model_type] = GGUF_CONFIG_MAPPING[base_arch].copy()
+
+        TENSOR_PROCESSORS[gguf_arch] = TENSOR_PROCESSORS.get(
             "qwen3moe", Qwen2MoeTensorProcessor
         )
         gguf_utils.GGUF_SUPPORTED_ARCHITECTURES = list(
             gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].keys()
         )
+
+        # Wrap load_gguf_checkpoint to remap model_type in the returned config dict.
+        _orig_load = gguf_utils.load_gguf_checkpoint
+
+        def _patched_load(*args, **kwargs):
+            result = _orig_load(*args, **kwargs)
+            if isinstance(result, dict):
+                cfg = result.get("config", {})
+                if cfg.get("model_type") == gguf_arch:
+                    cfg["model_type"] = hf_model_type
+            return result
+
+        # Patch both the module attribute and the reference imported by configuration_utils.
+        gguf_utils.load_gguf_checkpoint = _patched_load
+        config_utils.load_gguf_checkpoint = _patched_load
 
 
 _patch_gguf_utils_for_qwen3omnimoe()
@@ -116,10 +144,6 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(
             pretrained_model_name, gguf_file=self.GGUF_FILE
         )
-        # qwen3omnimoe is the GGUF architecture name for Qwen3-Omni MoE; remap to
-        # qwen3_moe so that AutoModelForCausalLM resolves to Qwen3MoeForCausalLM.
-        if getattr(config, "model_type", None) == "qwen3omnimoe":
-            config.model_type = "qwen3_moe"
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
