@@ -5,7 +5,7 @@
 Tiny Random InternLM2 model loader implementation for causal language modeling.
 """
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
 from ....config import (
@@ -93,8 +93,17 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # The custom modeling_internlm2.py expects rope_scaling["type"] (old format),
+        # but newer transformers configs use rope_scaling["rope_type"]. Since
+        # rope_type="default" means standard RoPE (no scaling), set it to None.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if config.rope_scaling is not None and "type" not in config.rope_scaling:
+            config.rope_scaling = None
+
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
