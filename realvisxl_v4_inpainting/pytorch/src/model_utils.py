@@ -27,7 +27,7 @@ def load_realvisxl_v4_inpainting_pipe(pretrained_model_name):
         StableDiffusionXLInpaintPipeline: Loaded pipeline with components set to eval mode
     """
     pipe = StableDiffusionXLInpaintPipeline.from_pretrained(
-        pretrained_model_name, torch_dtype=torch.float32
+        pretrained_model_name, torch_dtype=torch.float32, variant="fp16"
     )
 
     pipe.to("cpu")
@@ -165,15 +165,20 @@ def realvisxl_v4_inpainting_preprocessing(
     latents = latents * pipe.scheduler.init_noise_sigma
 
     # 4. Prepare mask and masked image latents
+    init_image = pipe.image_processor.preprocess(image, height=height, width=width)
+    init_image = init_image.to(dtype=torch.float32)
+    mask_tensor = pipe.mask_processor.preprocess(mask_image, height=height, width=width)
+    masked_image = init_image * (mask_tensor < 0.5)
     mask, masked_image_latents = pipe.prepare_mask_latents(
-        mask=mask_image,
-        masked_image=image,
+        mask=mask_tensor,
+        masked_image=masked_image,
         batch_size=batch_size * num_images_per_prompt,
         height=height,
         width=width,
         dtype=prompt_embeds.dtype,
         device=device,
         do_classifier_free_guidance=do_classifier_free_guidance,
+        generator=None,
     )
 
     # 5. Prepare additional conditioning
@@ -182,34 +187,42 @@ def realvisxl_v4_inpainting_preprocessing(
         text_encoder_projection_dim = int(pooled_prompt_embeds.shape[-1])
     else:
         text_encoder_projection_dim = pipe.text_encoder_2.config.projection_dim
-    add_time_ids = pipe._get_add_time_ids(
+
+    neg_original_size = (
+        negative_original_size if negative_original_size is not None else original_size
+    )
+    neg_target_size = (
+        negative_target_size if negative_target_size is not None else target_size
+    )
+    neg_crops_coords = negative_crops_coords_top_left
+
+    add_time_ids, add_neg_time_ids = pipe._get_add_time_ids(
         original_size,
         crops_coords_top_left,
         target_size,
+        6.0,
+        2.5,
+        neg_original_size,
+        neg_crops_coords,
+        neg_target_size,
         dtype=prompt_embeds.dtype,
         text_encoder_projection_dim=text_encoder_projection_dim,
     )
-    if negative_original_size is not None and negative_target_size is not None:
-        negative_add_time_ids = pipe._get_add_time_ids(
-            negative_original_size,
-            negative_crops_coords_top_left,
-            negative_target_size,
-            dtype=prompt_embeds.dtype,
-            text_encoder_projection_dim=text_encoder_projection_dim,
-        )
-    else:
-        negative_add_time_ids = add_time_ids
+    add_time_ids = add_time_ids.repeat(batch_size * num_images_per_prompt, 1)
 
     if do_classifier_free_guidance:
         prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
         add_text_embeds = torch.cat(
             [negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0
         )
-        add_time_ids = torch.cat([negative_add_time_ids, add_time_ids], dim=0)
+        add_neg_time_ids = add_neg_time_ids.repeat(
+            batch_size * num_images_per_prompt, 1
+        )
+        add_time_ids = torch.cat([add_neg_time_ids, add_time_ids], dim=0)
 
     prompt_embeds = prompt_embeds.to(device)
     add_text_embeds = add_text_embeds.to(device)
-    add_time_ids = add_time_ids.to(device).repeat(batch_size * num_images_per_prompt, 1)
+    add_time_ids = add_time_ids.to(device)
 
     added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
 
