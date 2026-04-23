@@ -14,7 +14,7 @@ Available variants:
 - DISTILL_8_STEPS_2602: 8-step ComfyUI-converted LoRA (2602 variant, 320 MB)
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional
 
 import torch
 from diffusers import DiffusionPipeline
@@ -83,15 +83,8 @@ class ModelLoader(ForgeModel):
     def _load_pipeline(
         self,
         dtype_override: Optional[torch.dtype] = None,
-    ) -> DiffusionPipeline:
-        """Load Z-Image base pipeline and fuse ComfyUI-converted distill LoRA weights.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            DiffusionPipeline: Pipeline with distill LoRA weights fused.
-        """
+    ) -> None:
+        """Load Z-Image base pipeline and fuse ComfyUI-converted distill LoRA weights."""
         pipe_dtype = dtype_override if dtype_override is not None else torch.float32
 
         self.pipeline = DiffusionPipeline.from_pretrained(
@@ -106,10 +99,7 @@ class ModelLoader(ForgeModel):
             weight_name=weight_name,
         )
         self.pipeline.fuse_lora(lora_scale=0.8)
-
         self.pipeline.to("cpu")
-
-        return self.pipeline
 
     def load_model(
         self,
@@ -117,34 +107,65 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load and return the Z-Image pipeline with ComfyUI distill LoRA.
+        """Load Z-Image pipeline and return the transformer submodule.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            DiffusionPipeline: The Z-Image pipeline with ComfyUI distill LoRA fused.
+            ZImageTransformer2DModel: The core transformer module.
         """
         if self.pipeline is None:
-            return self._load_pipeline(dtype_override=dtype_override)
-
-        if dtype_override is not None:
+            self._load_pipeline(dtype_override=dtype_override)
+        elif dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype=dtype_override)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None) -> Dict[str, Any]:
-        """Load and return sample inputs for the Z-Image model.
+    def load_inputs(
+        self,
+        dtype_override: Optional[torch.dtype] = None,
+        **kwargs,
+    ) -> list:
+        """Prepare inputs for the Z-Image transformer's forward method.
 
         Args:
-            prompt: Optional text prompt. Defaults to DEFAULT_PROMPT.
+            dtype_override: Optional torch.dtype override.
 
         Returns:
-            dict: Input kwargs for the pipeline.
+            list: [latent_list, timestep, prompt_embeds] matching transformer forward(x, t, cap_feats).
         """
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {
-            "prompt": prompt_value,
-            "guidance_scale": 1.0,
-            "num_inference_steps": 8,
-        }
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        transformer = self.pipeline.transformer
+        dtype = next(transformer.parameters()).dtype
+
+        # Encode text prompt into variable-length embeddings (list of tensors)
+        with torch.no_grad():
+            prompt_embeds, _ = self.pipeline.encode_prompt(
+                prompt=self.DEFAULT_PROMPT,
+                device="cpu",
+                do_classifier_free_guidance=False,
+            )
+
+        # Build random latent in pipeline-expected shape
+        in_channels = transformer.in_channels
+        vae_scale_factor = self.pipeline.vae_scale_factor
+        height, width = 1024, 1024
+        h = 2 * (height // (vae_scale_factor * 2))
+        w = 2 * (width // (vae_scale_factor * 2))
+
+        latent = torch.randn(1, in_channels, h, w, dtype=dtype)
+        # Pipeline unbinds along batch dim after adding temporal dim
+        latent_list = list(latent.unsqueeze(2).unbind(dim=0))
+
+        # Normalized timestep in [0, 1] (pipeline computes (1000 - t) / 1000)
+        timestep = torch.tensor([0.5], dtype=dtype)
+
+        if dtype_override is not None:
+            latent_list = [t.to(dtype_override) for t in latent_list]
+            timestep = timestep.to(dtype_override)
+            prompt_embeds = [pe.to(dtype_override) for pe in prompt_embeds]
+
+        return [latent_list, timestep, prompt_embeds]
