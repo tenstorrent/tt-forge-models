@@ -35,7 +35,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="AntonV/mamba2-780m-hf",
         ),
         ModelVariant.MAMBA2_2_7B: ModelConfig(
-            pretrained_model_name="state-spaces/mamba2-2.7b",
+            pretrained_model_name="AntonV/mamba2-2.7b-hf",
         ),
     }
 
@@ -43,9 +43,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.MAMBA2_780M
 
     # Variant-specific tokenizer overrides (when model repo lacks a tokenizer)
-    _TOKENIZER_OVERRIDES = {
-        ModelVariant.MAMBA2_2_7B: "EleutherAI/gpt-neox-20b",
-    }
+    _TOKENIZER_OVERRIDES = {}
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
