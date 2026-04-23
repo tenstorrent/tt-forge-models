@@ -8,8 +8,7 @@ DeepSeek Coder model loader implementation for causal language modeling.
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
-from unittest.mock import patch
-import os
+import gptqmodel  # noqa: F401 - must be imported before from_pretrained enters meta context
 from ....tools.utils import generate_no_cache, pad_inputs
 from ....base import ForgeModel
 from ....config import (
@@ -170,7 +169,7 @@ class ModelLoader(ForgeModel):
                 messages,
                 add_generation_prompt=True,
                 return_tensors="pt",
-            )
+            ).input_ids
         padded_inputs, seq_len = pad_inputs(inputs)
         self.seq_len = seq_len
 
