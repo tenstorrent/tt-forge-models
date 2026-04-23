@@ -20,6 +20,9 @@ from ....config import (
     StrEnum,
 )
 
+GGUF_REPO = "ibm-granite/granite-vision-3.3-2b-GGUF"
+BASE_MODEL = "ibm-granite/granite-vision-3.3-2b"
+
 
 class ModelVariant(StrEnum):
     """Available Granite Vision 3.3 2B GGUF model variants for image-text-to-text tasks."""
@@ -32,7 +35,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GRANITE_VISION_3_3_2B_GGUF: LLMModelConfig(
-            pretrained_model_name="ibm-granite/granite-vision-3.3-2b-GGUF",
+            pretrained_model_name=GGUF_REPO,
             max_length=128,
         ),
     }
@@ -63,9 +66,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             kwargs["torch_dtype"] = dtype_override
 
-        self.processor = AutoProcessor.from_pretrained(
-            "ibm-granite/granite-vision-3.3-2b", **kwargs
-        )
+        self.processor = AutoProcessor.from_pretrained(BASE_MODEL, **kwargs)
 
         return self.processor
 
@@ -80,8 +81,6 @@ class ModelLoader(ForgeModel):
             importlib.metadata.packages_distributions()
         )
 
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
@@ -91,8 +90,13 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
+        # Load config from the base model so transformers sees the full
+        # multimodal config instead of the causal-LM config embedded in the
+        # GGUF file (which only contains the language backbone weights).
+        model_kwargs["config"] = AutoConfig.from_pretrained(BASE_MODEL)
+
         model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            self._variant_config.pretrained_model_name, **model_kwargs
         ).eval()
 
         self.config = model.config
@@ -132,8 +136,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            gguf_file=self.GGUF_FILE,
-        )
+        self.config = AutoConfig.from_pretrained(BASE_MODEL)
         return self.config
