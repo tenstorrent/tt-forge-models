@@ -5,20 +5,10 @@
 NeuTTS Air Q8 GGUF model loader implementation for text-to-speech tasks.
 """
 import torch
+from contextlib import contextmanager
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from typing import Optional
-
-# Wrap the monkey-patched load_gguf_checkpoint chain to forward unknown kwargs
-# (e.g. model_to_load added in newer transformers) that older patches drop.
-_gguf_chain = _gguf_utils.load_gguf_checkpoint
-
-
-def _compat_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
-    return _gguf_chain(gguf_path, return_tensors=return_tensors)
-
-
-_gguf_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
 
 from ...base import ForgeModel
 from ...config import (
@@ -30,6 +20,27 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+@contextmanager
+def _gguf_compat_ctx():
+    """Wrap the current load_gguf_checkpoint to drop unknown kwargs like model_to_load.
+
+    Other GGUF loaders monkey-patch load_gguf_checkpoint with signatures that
+    don't accept **kwargs.  Newer transformers passes model_to_load, which
+    causes TypeError.  Apply an outermost wrapper at call time so it is always
+    the active patch when we enter this context.
+    """
+    _prev = _gguf_utils.load_gguf_checkpoint
+
+    def _compat(gguf_path, return_tensors=False, **kwargs):
+        return _prev(gguf_path, return_tensors=return_tensors)
+
+    _gguf_utils.load_gguf_checkpoint = _compat
+    try:
+        yield
+    finally:
+        _gguf_utils.load_gguf_checkpoint = _prev
 
 
 class ModelVariant(StrEnum):
@@ -79,9 +90,10 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        with _gguf_compat_ctx():
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -100,15 +112,17 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            with _gguf_compat_ctx():
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _gguf_compat_ctx():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -135,7 +149,8 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        with _gguf_compat_ctx():
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
