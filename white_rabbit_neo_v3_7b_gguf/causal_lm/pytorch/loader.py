@@ -72,17 +72,6 @@ def _find_real_load_gguf_checkpoint(fn):
         current = next_fn
 
 
-def _patched_load_gguf_checkpoint(
-    gguf_checkpoint_path, return_tensors=False, model_to_load=None, **kwargs
-):
-    real_fn = _find_real_load_gguf_checkpoint(_gguf_utils.load_gguf_checkpoint)
-    return real_fn(
-        gguf_checkpoint_path,
-        return_tensors=return_tensors,
-        model_to_load=model_to_load,
-    )
-
-
 class ModelVariant(StrEnum):
     """Available WhiteRabbitNeo-V3-7B GGUF model variants for causal language modeling."""
 
@@ -158,7 +147,18 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         _saved_fn = _gguf_utils.load_gguf_checkpoint
-        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _real_fn = _find_real_load_gguf_checkpoint(_saved_fn)
+
+        def _patched(
+            gguf_checkpoint_path, return_tensors=False, model_to_load=None, **kw
+        ):
+            return _real_fn(
+                gguf_checkpoint_path,
+                return_tensors=return_tensors,
+                model_to_load=model_to_load,
+            )
+
+        _gguf_utils.load_gguf_checkpoint = _patched
         try:
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
