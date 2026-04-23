@@ -64,14 +64,16 @@ def _patch_transformers_glm4moe_gguf():
         "expert_group_used_count": "topk_group",
     }
 
-    # 3. Register glm4moe tokenizer converter (BPE-based, same as qwen2/glm4)
+    # 3. Register tokenizer converter under glm4_moe (the remapped model_type).
+    # The tokenizer loader reads architecture from config["model_type"] after
+    # load_gguf_checkpoint returns, so it sees "glm4_moe" not "glm4moe".
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
         GGUFQwen2Converter,
     )
 
-    if "glm4moe" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["glm4moe"] = GGUFQwen2Converter
+    if "glm4_moe" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["glm4_moe"] = GGUFQwen2Converter
 
     # 4. Patch load_gguf_checkpoint to remap model_type and compute partial_rotary_factor
     orig_load = gguf_utils.load_gguf_checkpoint
