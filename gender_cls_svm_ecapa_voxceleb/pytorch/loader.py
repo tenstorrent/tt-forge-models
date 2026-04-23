@@ -60,7 +60,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load the SpeechBrain ECAPA-TDNN embedding backbone."""
         from speechbrain.inference.speaker import EncoderClassifier
 
@@ -70,20 +70,14 @@ class ModelLoader(ForgeModel):
         model = classifier.mods.embedding_model
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         """Generate sample Fbank feature input for the ECAPA-TDNN embedding model.
 
         Returns pre-computed features of shape (batch, time_steps, n_mels)
         equivalent to 1 second of 16kHz audio processed through Fbank features.
         """
         features = torch.randn(1, 101, 80)
-
-        if dtype_override is not None:
-            features = features.to(dtype_override)
 
         return [features]
