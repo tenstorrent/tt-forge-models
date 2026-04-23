@@ -74,9 +74,33 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     return result
 
 
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Patch get_gguf_hf_weights_map to handle Qwen3VLConfig.
+
+    Qwen3VLConfig has num_hidden_layers inside text_config, not at the top level.
+    gguf-py uses 'qwen3vl' (no underscore) while transformers uses 'qwen3_vl'.
+    """
+    config = hf_model.config
+    if model_type is None:
+        model_type = config.model_type
+    if model_type == "qwen3_vl":
+        model_type = "qwen3vl"
+        if num_layers is None and hasattr(config, "text_config"):
+            num_layers = config.text_config.num_hidden_layers
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
 _patch_qwen3vl_support()
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 class ModelVariant(StrEnum):
