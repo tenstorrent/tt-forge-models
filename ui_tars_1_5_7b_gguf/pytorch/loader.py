@@ -33,7 +33,8 @@ def _patch_qwen2vl_gguf_support():
 
     transformers does not yet include qwen2vl in its GGUF conversion tables.
     We add it by copying the qwen2 config mapping, which shares the same text
-    config structure as the VL variant.
+    config structure as the VL variant. We also patch get_gguf_hf_weights_map
+    to handle Qwen2VLConfig's nested text_config.num_hidden_layers.
     """
     if "qwen2vl" in GGUF_SUPPORTED_ARCHITECTURES:
         return
@@ -48,6 +49,23 @@ def _patch_qwen2vl_gguf_support():
 
     if "qwen2vl" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen2vl"] = GGUFQwen2Converter
+
+    _orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type in ("qwen2vl", "qwen2_vl"):
+            model_type = "qwen2vl"
+            if num_layers is None:
+                num_layers = hf_model.config.text_config.num_hidden_layers
+        return _orig_get_gguf_hf_weights_map(
+            hf_model, processor, model_type, num_layers, qual_name
+        )
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 _patch_qwen2vl_gguf_support()
