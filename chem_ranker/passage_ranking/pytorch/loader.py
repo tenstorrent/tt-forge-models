@@ -11,8 +11,101 @@ a relevance score suitable for reranking candidate molecules against an anchor.
 Reference: https://huggingface.co/Derify/ChemRanker-alpha-sim
 """
 import torch
+import transformers.models.modernbert.modeling_modernbert as _modernbert
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers.models.modernbert.configuration_modernbert import (
+    ModernBertConfig as _ModernBertConfig,
+)
+from transformers.models.modernbert.modeling_modernbert import (
+    ModernBertPreTrainedModel as _ModernBertPreTrainedModel,
+)
 from typing import Optional
+
+# Compatibility shims for API changes in transformers 5.x.
+# MODERNBERT_ATTENTION_FUNCTION was a dict of old-style attention functions that accepted a
+# combined qkv tensor.  ALL_ATTENTION_FUNCTIONS uses a new signature (query, key, value
+# separately, heads already transposed).  We provide a wrapper that adapts the old
+# calling convention to plain torch SDPA so the frozen cached model file still works.
+if not hasattr(_modernbert, "MODERNBERT_ATTENTION_FUNCTION"):
+    import torch.nn.functional as _F
+
+    def _compat_sdpa_attn_forward(
+        module,
+        qkv=None,
+        attention_mask=None,
+        sliding_window_mask=None,
+        position_ids=None,
+        local_attention=(-1, -1),
+        bs=None,
+        dim=None,
+        **kwargs,
+    ):
+        # qkv: (bs, seq_len, 3, num_heads, head_dim)
+        query, key, value = qkv.unbind(dim=2)
+        # -> (bs, num_heads, seq_len, head_dim)
+        query = query.transpose(1, 2)
+        key = key.transpose(1, 2)
+        value = value.transpose(1, 2)
+
+        if hasattr(module, "rotary_emb") and position_ids is not None:
+            layer_types = getattr(module.rotary_emb, "layer_types", [])
+            layer_type = next(
+                (
+                    lt
+                    for lt in layer_types
+                    if "full" in lt.lower() or "global" in lt.lower()
+                ),
+                (layer_types[0] if layer_types else "full_attention"),
+            )
+            cos, sin = module.rotary_emb(query, position_ids, layer_type=layer_type)
+            query, key = _modernbert.apply_rotary_pos_emb(
+                query, key, cos, sin, unsqueeze_dim=1
+            )
+
+        attn_out = _F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            attn_mask=attention_mask,
+            dropout_p=0.0,
+            scale=query.shape[-1] ** -0.5,
+        )
+        # -> (bs, seq_len, dim)
+        bs_actual, _, seq_len, _ = attn_out.shape
+        attn_out = attn_out.transpose(1, 2).contiguous().view(bs_actual, seq_len, -1)
+        return (attn_out,)
+
+    _modernbert.MODERNBERT_ATTENTION_FUNCTION = {"sdpa": _compat_sdpa_attn_forward}
+
+if not hasattr(_modernbert, "_unpad_modernbert_input"):
+
+    def _unpad_modernbert_input(inputs, attention_mask, position_ids=None, labels=None):
+        raise NotImplementedError("flash_attention_2 unpadding not supported")
+
+    _modernbert._unpad_modernbert_input = _unpad_modernbert_input
+
+if not hasattr(_modernbert, "_pad_modernbert_output"):
+
+    def _pad_modernbert_output(inputs, indices, batch, seqlen):
+        raise NotImplementedError("flash_attention_2 padding not supported")
+
+    _modernbert._pad_modernbert_output = _pad_modernbert_output
+
+# global_rope_theta was replaced by default_theta dict in transformers 5.x
+if not hasattr(_ModernBertConfig, "global_rope_theta"):
+
+    @property
+    def _global_rope_theta(self):
+        dt = getattr(self, "default_theta", {})
+        if isinstance(dt, dict):
+            return dt.get("global", 160000.0)
+        return float(dt)
+
+    _ModernBertConfig.global_rope_theta = _global_rope_theta
+
+# _maybe_set_compile was removed from ModernBertPreTrainedModel in transformers 5.x
+if not hasattr(_ModernBertPreTrainedModel, "_maybe_set_compile"):
+    _ModernBertPreTrainedModel._maybe_set_compile = lambda self: None
 
 from ....base import ForgeModel
 from ....config import (
