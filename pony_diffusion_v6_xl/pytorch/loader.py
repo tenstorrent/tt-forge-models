@@ -36,6 +36,7 @@ class ModelVariant(StrEnum):
     BAKANAYATSU_PONY_DIFFUSION_V6_XL_FOR_ANIME = (
         "Bakanayatsu_Pony-Diffusion-V6-XL-for-Anime"
     )
+    PONY_DIFFUSION_V6_XL_FOR_ANIME = "Pony_Diffusion_V6_XL_for_Anime"
 
 
 class ModelLoader(ForgeModel):
