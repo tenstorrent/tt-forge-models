@@ -17,7 +17,7 @@ Available variants:
 from typing import Optional
 
 import torch
-from diffusers import LTXPipeline, LTXVideoTransformer3DModel
+from diffusers import GGUFQuantizationConfig, LTXPipeline, LTXVideoTransformer3DModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -81,6 +81,7 @@ class ModelLoader(ForgeModel):
 
         transformer = LTXVideoTransformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
+            quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
         )
 
@@ -117,8 +118,8 @@ class ModelLoader(ForgeModel):
         num_images_per_prompt = 1
 
         # Compute latent dimensions
-        vae_spatial = self.pipe.vae_scale_factor_spatial
-        vae_temporal = self.pipe.vae_scale_factor_temporal
+        vae_spatial = self.pipe.vae_spatial_compression_ratio
+        vae_temporal = self.pipe.vae_temporal_compression_ratio
 
         latent_height = height // vae_spatial
         latent_width = width // vae_spatial
