@@ -11,6 +11,42 @@ from transformers import (
 )
 from typing import Optional
 
+
+def _patch_transformers_qwen3vlmoe_gguf():
+    """Monkey-patch transformers to add GGUF support for the qwen3vlmoe architecture.
+
+    Transformers 5.x has Qwen3VLMoeForConditionalGeneration but lacks GGUF loading
+    support for the 'qwen3vlmoe' architecture identifier used in GGUF metadata.
+    We bridge the gap by registering the config and tensor processor mappings.
+    The gguf-py library already defines MODEL_ARCH.QWEN3VLMOE so tensor name
+    resolution works once the architecture is registered.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_CONFIG_MAPPING,
+        TENSOR_PROCESSORS,
+        Qwen2MoeTensorProcessor,
+    )
+    from transformers.integrations.ggml import GGUF_CONFIG_DEFAULTS_MAPPING
+
+    if "qwen3vlmoe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    # Text config field mappings mirror qwen3_moe (the LM backbone is identical)
+    GGUF_CONFIG_MAPPING["qwen3vlmoe"] = dict(GGUF_CONFIG_MAPPING["qwen3_moe"])
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vlmoe")
+
+    # norm_topk_prob must be True for llama.cpp compatibility (same as qwen3_moe)
+    GGUF_CONFIG_DEFAULTS_MAPPING["qwen3vlmoe"] = dict(
+        GGUF_CONFIG_DEFAULTS_MAPPING.get("qwen3_moe", {})
+    )
+
+    # Qwen2MoeTensorProcessor handles the MoE expert weight merging for text layers
+    TENSOR_PROCESSORS["qwen3vlmoe"] = Qwen2MoeTensorProcessor
+
+
+_patch_transformers_qwen3vlmoe_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
