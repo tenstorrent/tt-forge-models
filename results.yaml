@@ -1,0 +1,5 @@
+results:
+- test_name: "<frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute"
+  status: "MAX_FAILED_ATTEMPTS"
+  date: "20260423_030952"
+  branch: "ip-172-31-30-236-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-8"
