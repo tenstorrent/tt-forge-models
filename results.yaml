@@ -7,3 +7,7 @@ results:
   status: "PASS"
   date: "20260423_070923"
   branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-2"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[gemma_3_270m_it_json_fixer_gguf/causal_lm/pytorch-270M_IT_JSON_Fixer_Q4_K_M-single_device-inference]"
+  status: "PASS"
+  date: "20260423_073838"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-2"
