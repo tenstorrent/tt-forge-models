@@ -81,7 +81,68 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: Wrapped Vocos model that decodes mel features to audio.
         """
-        from vocos import Vocos
+        import sys
+
+        # vocos.feature_extractors imports `from encodec import EncodecModel` at module
+        # level. The worktree root is in sys.path and the local encodec/ model directory
+        # shadows the pip-installed encodec audio library. Reorder sys.path temporarily
+        # to put site-packages first so vocos resolves the correct encodec package.
+        original_path = sys.path.copy()
+        site_pkgs = [p for p in sys.path if "site-packages" in p]
+        other = [p for p in sys.path if "site-packages" not in p]
+        sys.path[:] = site_pkgs + other
+        try:
+            from vocos import Vocos
+            import torchaudio
+            import vocos.feature_extractors as _vfe
+
+            # vocos 0.1.0 MelSpectrogramFeatures lacks f_min/f_max/norm/mel_scale.
+            # Patch it to accept and forward these to torchaudio.transforms.MelSpectrogram.
+            class _PatchedMelSpectrogramFeatures(_vfe.FeatureExtractor):
+                def __init__(
+                    self,
+                    sample_rate=24000,
+                    n_fft=1024,
+                    hop_length=256,
+                    n_mels=100,
+                    padding="center",
+                    f_min=0.0,
+                    f_max=None,
+                    norm=None,
+                    mel_scale="htk",
+                ):
+                    super().__init__()
+                    if padding not in ["center", "same"]:
+                        raise ValueError("Padding must be 'center' or 'same'.")
+                    self.padding = padding
+                    self.mel_spec = torchaudio.transforms.MelSpectrogram(
+                        sample_rate=sample_rate,
+                        n_fft=n_fft,
+                        hop_length=hop_length,
+                        n_mels=n_mels,
+                        center=padding == "center",
+                        power=1,
+                        f_min=f_min,
+                        f_max=f_max,
+                        norm=norm,
+                        mel_scale=mel_scale,
+                    )
+
+                def forward(self, audio, **kwargs):
+                    import torch
+                    from vocos.feature_extractors import safe_log
+
+                    if self.padding == "same":
+                        pad = self.mel_spec.win_length - self.mel_spec.hop_length
+                        audio = torch.nn.functional.pad(
+                            audio, (pad // 2, pad // 2), mode="reflect"
+                        )
+                    mel = self.mel_spec(audio)
+                    return safe_log(mel)
+
+            _vfe.MelSpectrogramFeatures = _PatchedMelSpectrogramFeatures
+        finally:
+            sys.path[:] = original_path
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
