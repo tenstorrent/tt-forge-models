@@ -57,15 +57,15 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"use_safetensors": True}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
-
-        self.transformer = FluxTransformer2DModel.from_pretrained(
+        # Load via from_config (random weights) to avoid bitsandbytes 4-bit
+        # quantization which requires CUDA. Sufficient for compile-only testing.
+        config = FluxTransformer2DModel.load_config(
             self._variant_config.pretrained_model_name,
             subfolder="transformer",
-            **load_kwargs,
         )
+        config.pop("quantization_config", None)
+
+        self.transformer = FluxTransformer2DModel.from_config(config)
 
         if dtype_override is not None:
             self.transformer = self.transformer.to(dtype_override)
