@@ -31,10 +31,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GEMMA_3_1B_IT_Q4F16_1_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/gemma-3-1b-it-q4f16_1-MLC",
+            pretrained_model_name="ggml-org/gemma-3-1b-it-GGUF",
             max_length=128,
         ),
     }
+
+    GGUF_FILE = "gemma-3-1b-it-Q4_K_M.gguf"
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_1B_IT_Q4F16_1_MLC
 
@@ -63,6 +65,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -82,9 +85,12 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -163,6 +169,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
         return self.config
