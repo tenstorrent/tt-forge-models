@@ -18,6 +18,7 @@ import tempfile
 
 import torch
 from diffusers.models import FluxTransformer2DModel
+from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -32,7 +33,6 @@ from ...config import (
 )
 
 REPO_ID = "arcticlatent/flux1"
-_REPO_BASE_URL = f"https://huggingface.co/{REPO_ID}/resolve/main"
 
 # Standard FLUX.1 transformer architecture (shared by Dev, Schnell and Kontext).
 _TRANSFORMER_CONFIG = {
@@ -117,10 +117,17 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         config_dir = self._make_local_config_dir()
 
-        safetensor_url = f"{_REPO_BASE_URL}/{self._SAFETENSOR_PATHS[self._variant]}"
+        # Use hf_hub_download to avoid URL parsing bugs in diffusers 0.37.1
+        # that double-prepend resolve/main/ when a full HTTPS URL is passed.
+        # Use /tmp cache dir to avoid issues with full HF_HOME disk.
+        local_path = hf_hub_download(
+            repo_id=REPO_ID,
+            filename=self._SAFETENSOR_PATHS[self._variant],
+            cache_dir="/tmp/hf_forge_cache",
+        )
 
         self._transformer = FluxTransformer2DModel.from_single_file(
-            safetensor_url,
+            local_path,
             config=config_dir,
             subfolder="transformer",
             torch_dtype=dtype,
