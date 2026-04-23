@@ -10,6 +10,7 @@ derived from NVIDIA Cosmos-Predict2-2B-Text2Image, using a Qwen3
 0.6B text encoder and the Qwen-Image VAE.
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -28,6 +29,7 @@ from ...config import (
 )
 
 FP8_REPO_ID = "Bedovyy/Anima-FP8"
+_MODEL_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "model_config")
 
 
 class ModelVariant(StrEnum):
@@ -78,14 +80,36 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_transformer(self, dtype: torch.dtype) -> CosmosTransformer3DModel:
-        """Load the FP8-quantized transformer from a single safetensors file."""
+        """Load the FP8-quantized transformer from a single safetensors file.
+
+        NVFP4-quantized layers (uint8 packed weights) are kept at random
+        initialization because diffusers has no NVFP4 dequantization path.
+        This is sufficient for compile-only testing.
+        """
+        import safetensors.torch as st
+        from diffusers.loaders.single_file_utils import (
+            convert_cosmos_transformer_checkpoint_to_diffusers,
+        )
+
         fp8_file = self._FP8_FILES[self._variant]
         fp8_path = hf_hub_download(repo_id=FP8_REPO_ID, filename=fp8_file)
-        self.transformer = CosmosTransformer3DModel.from_single_file(
-            fp8_path,
-            config="nvidia/Cosmos-Predict2-2B-Text2Image",
-            torch_dtype=dtype,
-        )
+
+        raw_ckpt = st.load_file(fp8_path)
+        diffusers_ckpt = convert_cosmos_transformer_checkpoint_to_diffusers(raw_ckpt)
+
+        self.transformer = CosmosTransformer3DModel.from_config(_MODEL_CONFIG_DIR)
+        self.transformer = self.transformer.to(dtype)
+
+        model_sd = self.transformer.state_dict()
+        load_sd = {}
+        for key, tensor in diffusers_ckpt.items():
+            if key not in model_sd:
+                continue
+            if tensor.shape == model_sd[key].shape:
+                load_sd[key] = tensor.to(dtype)
+            # uint8 = NVFP4-packed layer; leave randomly initialised
+
+        self.transformer.load_state_dict(load_sd, strict=False)
         return self.transformer
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
@@ -127,10 +151,15 @@ class ModelLoader(ForgeModel):
 
         timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
 
+        padding_mask = torch.ones(
+            batch_size, 1, latent_height, latent_width, dtype=dtype
+        )
+
         return {
             "hidden_states": hidden_states,
             "encoder_hidden_states": encoder_hidden_states,
             "timestep": timestep,
+            "padding_mask": padding_mask,
             "return_dict": False,
         }
 
