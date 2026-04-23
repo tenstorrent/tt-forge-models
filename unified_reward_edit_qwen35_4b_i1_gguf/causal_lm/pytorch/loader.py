@@ -67,12 +67,13 @@ def _patch_qwen35_support():
 
 
 def _find_base_load_gguf_checkpoint(fn):
-    """Walk the _orig_load_gguf_checkpoint closure chain to find the real transformers function.
+    """Walk the _orig_load_gguf_checkpoint chain to find the real transformers function.
 
-    Multiple GGUF loaders chain-patch load_gguf_checkpoint by capturing the previous
-    version as _orig_load_gguf_checkpoint. Some older patches have the signature
-    (gguf_path, return_tensors=False) without model_to_load. We walk the chain until
-    we find the function named 'load_gguf_checkpoint' (the real transformers original).
+    Multiple GGUF loaders chain-patch load_gguf_checkpoint. Each captures the previous
+    value as the module-level global _orig_load_gguf_checkpoint. Some older patches use
+    signature (gguf_path, return_tensors=False) without model_to_load, which breaks
+    tensor loading. Walk via fn.__globals__ until the function named 'load_gguf_checkpoint'
+    (the unpatched transformers original that accepts model_to_load) is found.
     """
     seen = set()
     while True:
@@ -82,17 +83,10 @@ def _find_base_load_gguf_checkpoint(fn):
         seen.add(fn_id)
         if fn.__name__ == "load_gguf_checkpoint":
             return fn
-        if fn.__closure__:
-            closure_vars = {}
-            for var, cell in zip(fn.__code__.co_freevars, fn.__closure__):
-                try:
-                    closure_vars[var] = cell.cell_contents
-                except ValueError:
-                    pass
-            next_fn = closure_vars.get("_orig_load_gguf_checkpoint")
-            if next_fn is not None and id(next_fn) not in seen:
-                fn = next_fn
-                continue
+        next_fn = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if next_fn is not None and id(next_fn) not in seen:
+            fn = next_fn
+            continue
         return fn
 
 
