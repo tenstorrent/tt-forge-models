@@ -72,7 +72,25 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The TinyTimeMixerForPrediction model instance.
         """
+        import transformers.utils as _tu
+
+        if not hasattr(_tu, "download_url"):
+            _tu.download_url = lambda *args, **kwargs: None
+        if not hasattr(_tu, "is_offline_mode"):
+            _tu.is_offline_mode = lambda: False
+        if not hasattr(_tu, "is_remote_url"):
+            _tu.is_remote_url = lambda url: url.startswith(("http://", "https://"))
+
         from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
+
+        _orig_ttm_init = TinyTimeMixerForPrediction.__init__
+
+        def _patched_ttm_init(self, config, *args, **kwargs):
+            _orig_ttm_init(self, config, *args, **kwargs)
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.post_init()
+
+        TinyTimeMixerForPrediction.__init__ = _patched_ttm_init
 
         cfg = self._variant_config
 
