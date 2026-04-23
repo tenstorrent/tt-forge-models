@@ -168,15 +168,26 @@ class ModelLoader(ForgeModel):
             model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
-        # AWQ variants: load on CPU with quantization_config removed
-        # so that weights are loaded as plain tensors.
+        # AWQ and mlx-community variants: strip quantization_config so weights are
+        # loaded as plain tensors (mlx uses a non-standard quant format transformers
+        # doesn't recognise).
         is_awq = pretrained_model_name == "stelterlab/Qwen3-Coder-30B-A3B-Instruct-AWQ"
-        if is_awq:
-            model_kwargs["device_map"] = "cpu"
+        is_mlx = "mlx-community" in pretrained_model_name
+        if is_awq or is_mlx:
+            if is_awq:
+                model_kwargs["device_map"] = "cpu"
             config = AutoConfig.from_pretrained(pretrained_model_name)
             if self.num_layers is not None:
-                config.num_hidden_layers = self.num_layers
-            delattr(config, "quantization_config")
+                if hasattr(config, "text_config"):
+                    config.text_config.num_hidden_layers = self.num_layers
+                    if hasattr(config.text_config, "layer_types"):
+                        config.text_config.layer_types = config.text_config.layer_types[
+                            : self.num_layers
+                        ]
+                else:
+                    config.num_hidden_layers = self.num_layers
+            if hasattr(config, "quantization_config"):
+                delattr(config, "quantization_config")
             model_kwargs["config"] = config
         elif self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
