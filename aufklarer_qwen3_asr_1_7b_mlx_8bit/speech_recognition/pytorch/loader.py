@@ -80,9 +80,14 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # The base Qwen3-ASR model that holds the processor/tokenizer files missing
+    # from the MLX-quantized upload (preprocessor_config.json is absent there).
+    _BASE_MODEL_NAME = "Qwen/Qwen3-ASR-1.7B"
+
     def _load_model_wrapper(self, dtype_override=None):
         """Load the qwen_asr model wrapper and cache processor."""
         from qwen_asr import Qwen3ASRModel
+        from transformers import AutoConfig, AutoModel, AutoProcessor
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -90,11 +95,30 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["dtype"] = torch.float32
 
-        self._model_wrapper = Qwen3ASRModel.from_pretrained(
+        # Strip MLX quantization_config which lacks quant_method and is not
+        # supported by the transformers quantizer; load as plain bfloat16 instead.
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
+
+        model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name,
             device_map="cpu",
-            max_new_tokens=50,
+            config=config,
             **model_kwargs,
+        )
+
+        # The MLX upload omits preprocessor_config.json so load the processor
+        # from the canonical base model which has identical audio/text configs.
+        processor = AutoProcessor.from_pretrained(
+            self._BASE_MODEL_NAME, fix_mistral_regex=True
+        )
+
+        self._model_wrapper = Qwen3ASRModel(
+            backend="transformers",
+            model=model,
+            processor=processor,
+            max_new_tokens=50,
         )
         self._processor = self._model_wrapper.processor
 
@@ -123,9 +147,13 @@ class ModelLoader(ForgeModel):
             text=[text], audio=[audio], return_tensors="pt", padding=True
         )
 
+        input_features = inputs["input_features"]
+        if dtype_override is not None:
+            input_features = input_features.to(dtype_override)
+
         return [
             inputs["input_ids"],
             inputs["attention_mask"],
-            inputs["input_features"],
+            input_features,
             inputs["feature_attention_mask"],
         ]
