@@ -8,7 +8,52 @@ Hermes 4.3 36B GGUF model loader implementation for causal language modeling.
 from typing import Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
+
+
+def _patch_seed_oss_support():
+    """Register seed_oss GGUF architecture using qwen2-style config mappings.
+
+    seed_oss is a registered transformers model type but lacks GGUF config
+    mappings; its parameter names match the qwen2 layout.
+    """
+    if "seed_oss" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("seed_oss")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen2" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["seed_oss"] = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen2"]
+            )
+    if "qwen2" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["seed_oss"] = GGUF_TO_FAST_CONVERTERS["qwen2"]
+    if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
+        if "qwen2" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
+                "seed_oss"
+            ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen2"]
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    """Wrap load_gguf_checkpoint to add seed_oss architecture support."""
+    _patch_seed_oss_support()
+    return _orig_load_gguf_checkpoint(*args, **kwargs)
+
+
+_patch_seed_oss_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
