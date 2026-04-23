@@ -141,18 +141,15 @@ class ModelLoader(ForgeModel):
         transformer = self.pipeline.transformer
         dtype = next(transformer.parameters()).dtype
 
-        # Encode text prompt into variable-length embeddings (list of tensors)
-        with torch.no_grad():
-            prompt_embeds, _ = self.pipeline.encode_prompt(
-                prompt=self.DEFAULT_PROMPT,
-                device="cpu",
-                do_classifier_free_guidance=False,
-            )
+        # Use dummy caption embeddings to avoid expensive text-encoder inference on CPU.
+        # cap_feat_dim=2560 from transformer config; 64 tokens is a realistic sequence length.
+        cap_feat_dim = transformer.config.cap_feat_dim
+        prompt_embeds = [torch.randn(64, cap_feat_dim, dtype=dtype)]
 
-        # Build random latent in pipeline-expected shape
+        # Build random latent using 512x512 to keep the spatial token count manageable.
         in_channels = transformer.in_channels
         vae_scale_factor = self.pipeline.vae_scale_factor
-        height, width = 1024, 1024
+        height, width = 512, 512
         h = 2 * (height // (vae_scale_factor * 2))
         w = 2 * (width // (vae_scale_factor * 2))
 
