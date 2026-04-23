@@ -105,11 +105,14 @@ class ModelLoader(ForgeModel):
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
+        from huggingface_hub import hf_hub_download
+
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
+        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
         unet = UNet2DConditionModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            gguf_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
