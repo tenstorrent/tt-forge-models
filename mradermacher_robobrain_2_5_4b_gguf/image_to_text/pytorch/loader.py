@@ -79,11 +79,17 @@ def _patch_transformers_qwen3vl_gguf():
     orig_weights_map = gguf_utils.get_gguf_hf_weights_map
 
     def _patched_get_gguf_hf_weights_map(hf_model, *args, **kwargs):
-        mt = kwargs.get("model_type")
-        if mt is None and hasattr(hf_model, "config"):
-            mt = hf_model.config.model_type
-        if mt == "qwen3_vl":
-            kwargs["model_type"] = "qwen3vl"
+        # model_type may arrive as args[0] (positional) or kwargs["model_type"]
+        if args:
+            mt = args[0]
+            if mt == "qwen3_vl":
+                args = ("qwen3vl",) + args[1:]
+        else:
+            mt = kwargs.get("model_type")
+            if mt is None and hasattr(hf_model, "config"):
+                mt = hf_model.config.model_type
+            if mt == "qwen3_vl":
+                kwargs["model_type"] = "qwen3vl"
         return orig_weights_map(hf_model, *args, **kwargs)
 
     gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
