@@ -47,7 +47,7 @@ def _patch_qwen35_support():
         )
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to refresh gguf detection and add qwen35 support."""
     import importlib.metadata
     import transformers.utils.import_utils as _import_utils
@@ -56,7 +56,9 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
         importlib.metadata.packages_distributions()
     )
     _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
     return result
