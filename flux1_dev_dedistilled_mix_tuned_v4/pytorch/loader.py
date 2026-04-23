@@ -3,10 +3,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Flux1-Dev-DedistilledMixTuned-v4 model loader implementation for text-to-image generation.
+
+Loads the FLUX.1-dev-based transformer from a single fp8 safetensors checkpoint
+hosted at wikeeyang/Flux1-Dev-DedistilledMixTuned-v4. Uses a local transformer
+config and synthetic inputs to avoid requiring the full gated pipeline.
 """
-import torch
-from diffusers import FluxPipeline, AutoencoderTiny
+import json
+import os
+import tempfile
 from typing import Optional
+
+import torch
+from diffusers.models import FluxTransformer2DModel
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -18,6 +27,26 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+_REPO_ID = "wikeeyang/Flux1-Dev-DedistilledMixTuned-v4"
+_FILENAME = "Flux1-Dev-DedistilledMixTuned-V4-fp8.safetensors"
+
+# Standard FLUX.1-dev transformer architecture config.
+# guidance_embeds=True because this is a guidance-distilled dev variant.
+_TRANSFORMER_CONFIG = {
+    "_class_name": "FluxTransformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "attention_head_dim": 128,
+    "axes_dims_rope": [16, 56, 56],
+    "guidance_embeds": True,
+    "in_channels": 64,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 24,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "patch_size": 1,
+    "pooled_projection_dim": 768,
+}
 
 
 class ModelVariant(StrEnum):
@@ -31,7 +60,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.DEFAULT: ModelConfig(
-            pretrained_model_name="wikeeyang/Flux1-Dev-DedistilledMixTuned-v4",
+            pretrained_model_name=_REPO_ID,
         ),
     }
 
@@ -39,7 +68,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipe = None
+        self._transformer = None
         self.guidance_scale = 3.5
 
     @classmethod
@@ -56,110 +85,77 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype_override=None):
-        pipe_kwargs = {
-            "use_safetensors": True,
-        }
-        if dtype_override is not None:
-            pipe_kwargs["torch_dtype"] = dtype_override
+    def _make_local_config_dir(self) -> str:
+        """Create a temporary directory with the transformer config.json."""
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
 
-        self.pipe = FluxPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, **pipe_kwargs
+    def _load_transformer(
+        self, dtype: torch.dtype = torch.bfloat16
+    ) -> FluxTransformer2DModel:
+        """Load the transformer from the single-file fp8 safetensors checkpoint."""
+        model_path = hf_hub_download(repo_id=_REPO_ID, filename=_FILENAME)
+        config_dir = self._make_local_config_dir()
+
+        self._transformer = FluxTransformer2DModel.from_single_file(
+            model_path,
+            config=config_dir,
+            subfolder="transformer",
+            torch_dtype=dtype,
         )
-
-        vae_kwargs = {}
-        if dtype_override is not None:
-            vae_kwargs["torch_dtype"] = dtype_override
-
-        # Replace VAE with tiny version for efficiency
-        self.pipe.vae = AutoencoderTiny.from_pretrained(
-            "madebyollin/taef1", **vae_kwargs
-        )
-
-        self.pipe.enable_attention_slicing()
-        self.pipe.enable_vae_tiling()
-
-        return self.pipe
+        self._transformer.eval()
+        return self._transformer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        if self.pipe is None:
-            self._load_pipeline(dtype_override=dtype_override)
-
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        if self._transformer is None:
+            return self._load_transformer(dtype)
         if dtype_override is not None:
-            self.pipe.transformer = self.pipe.transformer.to(dtype_override)
-
-        return self.pipe.transformer
+            self._transformer = self._transformer.to(dtype=dtype_override)
+        return self._transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.pipe is None:
-            self._load_pipeline(dtype_override=dtype_override)
+        if self._transformer is None:
+            self._load_transformer(
+                dtype_override if dtype_override is not None else torch.bfloat16
+            )
 
-        # Configuration
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         max_sequence_length = 256
-        prompt = "An astronaut riding a horse in a futuristic city"
-        do_classifier_free_guidance = self.guidance_scale > 1.0
         height = 128
         width = 128
         num_images_per_prompt = 1
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        num_channels_latents = self.pipe.transformer.config.in_channels // 4
+        vae_scale_factor = 8
 
-        # Text encoding for CLIP
-        text_inputs_clip = self.pipe.tokenizer(
-            prompt,
-            padding="max_length",
-            max_length=self.pipe.tokenizer_max_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-        text_input_ids_clip = text_inputs_clip.input_ids
-        pooled_prompt_embeds = self.pipe.text_encoder(
-            text_input_ids_clip, output_hidden_states=False
-        ).pooler_output
-        pooled_prompt_embeds = pooled_prompt_embeds.to(dtype=dtype)
-        pooled_prompt_embeds = pooled_prompt_embeds.repeat(
-            batch_size, num_images_per_prompt
-        )
-        pooled_prompt_embeds = pooled_prompt_embeds.view(
-            batch_size * num_images_per_prompt, -1
-        )
+        num_channels_latents = self._transformer.config.in_channels // 4
+        pooled_projection_dim = self._transformer.config.pooled_projection_dim
+        joint_attention_dim = self._transformer.config.joint_attention_dim
 
-        # Text encoding for T5
-        text_inputs_t5 = self.pipe.tokenizer_2(
-            prompt,
-            padding="max_length",
-            max_length=max_sequence_length,
-            truncation=True,
-            return_length=False,
-            return_overflowing_tokens=False,
-            return_tensors="pt",
+        pooled_prompt_embeds = torch.randn(
+            batch_size * num_images_per_prompt, pooled_projection_dim, dtype=dtype
         )
-        text_input_ids_t5 = text_inputs_t5.input_ids
-        prompt_embeds = self.pipe.text_encoder_2(
-            text_input_ids_t5, output_hidden_states=False
-        )[0]
-        prompt_embeds = prompt_embeds.to(dtype=dtype)
-        _, seq_len_t5, _ = prompt_embeds.shape
-        prompt_embeds = prompt_embeds.repeat(batch_size, num_images_per_prompt, 1)
-        prompt_embeds = prompt_embeds.view(
-            batch_size * num_images_per_prompt, seq_len_t5, -1
+        prompt_embeds = torch.randn(
+            batch_size * num_images_per_prompt,
+            max_sequence_length,
+            joint_attention_dim,
+            dtype=dtype,
         )
+        text_ids = torch.zeros(max_sequence_length, 3, dtype=dtype)
 
-        # Create text IDs
-        text_ids = torch.zeros(prompt_embeds.shape[1], 3).to(dtype=dtype)
+        height_latent = 2 * (int(height) // (vae_scale_factor * 2))
+        width_latent = 2 * (int(width) // (vae_scale_factor * 2))
 
-        # Create latents
-        height_latent = 2 * (int(height) // (self.pipe.vae_scale_factor * 2))
-        width_latent = 2 * (int(width) // (self.pipe.vae_scale_factor * 2))
-
-        shape = (
+        latents = torch.randn(
             batch_size * num_images_per_prompt,
             num_channels_latents,
             height_latent,
             width_latent,
+            dtype=dtype,
         )
-
-        latents = torch.randn(shape, dtype=dtype)
         latents = latents.view(
             batch_size * num_images_per_prompt,
             num_channels_latents,
@@ -175,7 +171,6 @@ class ModelLoader(ForgeModel):
             num_channels_latents * 4,
         )
 
-        # Prepare latent image IDs
         latent_image_ids = torch.zeros(height_latent // 2, width_latent // 2, 3)
         latent_image_ids[..., 1] = (
             latent_image_ids[..., 1] + torch.arange(height_latent // 2)[:, None]
@@ -185,13 +180,12 @@ class ModelLoader(ForgeModel):
         )
         latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
 
-        # Prepare guidance
-        if do_classifier_free_guidance:
+        if self.guidance_scale > 1.0:
             guidance = torch.full([batch_size], self.guidance_scale, dtype=dtype)
         else:
             guidance = None
 
-        inputs = {
+        return {
             "hidden_states": latents,
             "timestep": torch.tensor([1.0], dtype=dtype),
             "guidance": guidance,
@@ -201,5 +195,3 @@ class ModelLoader(ForgeModel):
             "img_ids": latent_image_ids,
             "joint_attention_kwargs": {},
         }
-
-        return inputs
