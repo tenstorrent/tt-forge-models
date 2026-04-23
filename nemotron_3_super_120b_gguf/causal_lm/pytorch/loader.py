@@ -81,6 +81,11 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     )
     if result.get("config", {}).get("model_type") == "nemotron_h_moe":
         result["config"]["model_type"] = "nemotron"
+        # NemotronH stores per-layer kv heads as a list; collapse to the attention-layer value.
+        kv = result["config"].get("num_key_value_heads")
+        if isinstance(kv, list):
+            nonzero = [v for v in kv if v]
+            result["config"]["num_key_value_heads"] = nonzero[0] if nonzero else kv[0]
     return result
 
 
