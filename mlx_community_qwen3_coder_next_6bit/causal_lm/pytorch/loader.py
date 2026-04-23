@@ -100,8 +100,10 @@ class ModelLoader(ForgeModel):
                 config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
 
+        # MLX 6-bit quantized weights have different shapes than the standard
+        # architecture; allow mismatches so the model loads with correct ops.
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
