@@ -4,6 +4,8 @@
 """
 DeepSeek-OCR 8-bit MLX model loader implementation for document OCR tasks.
 """
+import torch
+import torch.nn as nn
 from transformers import AutoTokenizer, AutoModel, AutoConfig
 from transformers.models.llama import modeling_llama as _llama_module
 import transformers.utils.import_utils as _trf_import_utils
@@ -94,6 +96,20 @@ class ModelLoader(ForgeModel):
         model_kwargs["config"] = config
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+
+        # MLX checkpoint stores position_embedding with one fewer row than position_ids
+        # expects (256 vs 257). Expand by duplicating the last row so indices don't OOB.
+        for module in model.modules():
+            emb = getattr(module, "position_embedding", None)
+            ids = getattr(module, "position_ids", None)
+            if not (isinstance(emb, nn.Embedding) and ids is not None):
+                continue
+            max_id = int(ids.max().item())
+            if max_id >= emb.weight.shape[0]:
+                needed = max_id + 1
+                old_w = emb.weight.data
+                pad = old_w[-1:].expand(needed - old_w.shape[0], -1).clone()
+                emb.weight = nn.Parameter(torch.cat([old_w, pad], dim=0))
 
         model.config.return_dict = False
         model.config.use_cache = False
