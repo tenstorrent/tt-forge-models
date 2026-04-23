@@ -99,20 +99,51 @@ class ModelLoader(ForgeModel):
         import transformers.models.auto.tokenization_auto as _auto_tokenizer
         import transformers.tokenization_utils_tokenizers as _tok_utils
 
-        _patched_chain = _gguf_utils.load_gguf_checkpoint
+        _orig_load = _gguf_utils.load_gguf_checkpoint
+        _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
 
-        def _model_to_load_aware(gguf_path, return_tensors=False, model_to_load=None):
-            return _patched_chain(gguf_path, return_tensors=return_tensors)
+        def _traverse_to_real(func, orig_names):
+            seen = set()
+            while (
+                getattr(func, "__module__", "")
+                != "transformers.modeling_gguf_pytorch_utils"
+            ):
+                fid = id(func)
+                if fid in seen:
+                    break
+                seen.add(fid)
+                g = getattr(func, "__globals__", {})
+                nxt = next(
+                    (
+                        g[n]
+                        for n in orig_names
+                        if n in g and callable(g.get(n)) and id(g[n]) != fid
+                    ),
+                    None,
+                )
+                if nxt is None:
+                    break
+                func = nxt
+            return func
+
+        _real_load = _traverse_to_real(
+            _orig_load, ("_orig_load_gguf_checkpoint", "orig_load")
+        )
+        _real_get_map = _traverse_to_real(
+            _orig_get_map, ("orig_get_map", "_orig_get_map")
+        )
 
         for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils):
-            _mod.load_gguf_checkpoint = _model_to_load_aware
+            _mod.load_gguf_checkpoint = _real_load
+        _gguf_utils.get_gguf_hf_weights_map = _real_get_map
         try:
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
             ).eval()
         finally:
             for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils):
-                _mod.load_gguf_checkpoint = _patched_chain
+                _mod.load_gguf_checkpoint = _orig_load
+            _gguf_utils.get_gguf_hf_weights_map = _orig_get_map
 
         self.config = model.config
         self.model = model
