@@ -4,7 +4,13 @@
 """
 Gemma 3 4B IT Heretic Creative GGUF model loader implementation for causal language modeling.
 """
+import functools
+import inspect
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_base as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
@@ -18,6 +24,30 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+
+def _patch_gguf_compat():
+    """Re-wrap load_gguf_checkpoint to accept model_to_load added in transformers 5.2.0.
+
+    Called at model-load time so this wrapper is always outermost, even after
+    other GGUF loaders have applied their own monkey-patches during collection.
+    """
+
+    def _wrap(fn):
+        try:
+            if "model_to_load" in inspect.signature(fn).parameters:
+                return fn
+        except (ValueError, TypeError):
+            pass
+
+        @functools.wraps(fn)
+        def _wrapper(gguf_path, return_tensors=False, model_to_load=None, **kwargs):
+            return fn(gguf_path, return_tensors=return_tensors)
+
+        return _wrapper
+
+    for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils):
+        _mod.load_gguf_checkpoint = _wrap(_mod.load_gguf_checkpoint)
 
 
 class ModelVariant(StrEnum):
@@ -94,6 +124,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        _patch_gguf_compat()
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
@@ -153,6 +184,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _patch_gguf_compat()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
