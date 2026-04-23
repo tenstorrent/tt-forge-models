@@ -128,11 +128,72 @@ class ModelLoader(ForgeModel):
             convert_hunyuan_video_transformer_to_diffusers,
         )
 
+        def _convert_hunyuan_video15_i2v_transformer_to_diffusers(checkpoint, **kwargs):
+            # Apply the base HunyuanVideo conversion (handles double_blocks, txt_in, etc.)
+            state_dict = convert_hunyuan_video_transformer_to_diffusers(
+                checkpoint, **kwargs
+            )
+            # Fix HunyuanVideo15-specific key names that differ from the original model.
+            # time_text_embed.timestep_embedder → time_embed.timestep_embedder
+            renames = {}
+            for key in list(state_dict.keys()):
+                if key.startswith("time_text_embed.timestep_embedder."):
+                    new_key = key.replace(
+                        "time_text_embed.timestep_embedder.",
+                        "time_embed.timestep_embedder.",
+                    )
+                    renames[key] = new_key
+                elif key.startswith("byt5_in.layernorm."):
+                    new_key = key.replace(
+                        "byt5_in.layernorm.", "context_embedder_2.norm."
+                    )
+                    renames[key] = new_key
+                elif key.startswith("byt5_in.net.0.proj."):
+                    new_key = key.replace(
+                        "byt5_in.net.0.proj.", "context_embedder_2.linear_1."
+                    )
+                    renames[key] = new_key
+                elif key.startswith("byt5_in.net.2."):
+                    new_key = key.replace(
+                        "byt5_in.net.2.", "context_embedder_2.linear_2."
+                    )
+                    renames[key] = new_key
+                elif key.startswith("byt5_in.fc3."):
+                    new_key = key.replace(
+                        "byt5_in.fc3.", "context_embedder_2.linear_3."
+                    )
+                    renames[key] = new_key
+                elif key == "cond_type_embedding.weight":
+                    renames[key] = "cond_type_embed.weight"
+                elif key.startswith("vision_in.proj.0."):
+                    new_key = key.replace(
+                        "vision_in.proj.0.", "image_embedder.norm_in."
+                    )
+                    renames[key] = new_key
+                elif key.startswith("vision_in.proj.1."):
+                    new_key = key.replace(
+                        "vision_in.proj.1.", "image_embedder.linear_1."
+                    )
+                    renames[key] = new_key
+                elif key.startswith("vision_in.proj.3."):
+                    new_key = key.replace(
+                        "vision_in.proj.3.", "image_embedder.linear_2."
+                    )
+                    renames[key] = new_key
+                elif key.startswith("vision_in.proj.4."):
+                    new_key = key.replace(
+                        "vision_in.proj.4.", "image_embedder.norm_out."
+                    )
+                    renames[key] = new_key
+            for old_key, new_key in renames.items():
+                state_dict[new_key] = state_dict.pop(old_key)
+            return state_dict
+
         # HunyuanVideo15Transformer3DModel is missing from SINGLE_FILE_LOADABLE_CLASSES
         # in diffusers<=0.37.1; patch it in so from_single_file() works.
         if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
             SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
-                "checkpoint_mapping_fn": convert_hunyuan_video_transformer_to_diffusers,
+                "checkpoint_mapping_fn": _convert_hunyuan_video15_i2v_transformer_to_diffusers,
                 "default_subfolder": "transformer",
             }
 
