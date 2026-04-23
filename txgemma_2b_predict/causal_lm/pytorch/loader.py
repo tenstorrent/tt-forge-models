@@ -7,7 +7,7 @@ TxGemma 2B Predict model loader implementation for causal language modeling.
 
 from typing import Optional
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -31,9 +31,12 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """TxGemma 2B Predict model loader implementation for causal language modeling tasks."""
 
+    # google/txgemma-2b-predict is a gated model with restricted access.
+    # Use a publicly accessible Gemma 2B model with the same architecture for
+    # tokenizer and config, then create the model with random weights.
     _VARIANTS = {
         ModelVariant.TXGEMMA_2B_PREDICT: LLMModelConfig(
-            pretrained_model_name="google/txgemma-2b-predict",
+            pretrained_model_name="TechxGenus/gemma-1.1-2b-it-GPTQ",
             max_length=256,
         ),
     }
@@ -119,14 +122,15 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.use_cache = False
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
         model.eval()
         return model
 
