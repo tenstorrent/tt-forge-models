@@ -42,7 +42,8 @@ def _dequantize_q8_0(data: torch.Tensor) -> torch.Tensor:
     """
     n_blocks = data.numel() // 34
     raw = data.reshape(n_blocks, 34)
-    scale = raw[:, :2].contiguous().view(torch.float16).float()
+    # view(float16) on [n_blocks, 2] uint8 → [n_blocks, 1] float16; reshape to 1-D
+    scale = raw[:, :2].contiguous().view(torch.float16).reshape(n_blocks).float()
     q_values = raw[:, 2:].contiguous().to(torch.int8).float()
     return (q_values * scale.unsqueeze(1)).reshape(n_blocks * 32)
 
