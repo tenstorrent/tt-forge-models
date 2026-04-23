@@ -61,17 +61,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # The GGUF-embedded chat template uses legacy Mistral $prompt syntax which is
+    # invalid Jinja2; replace it with the standard Mistral instruct template.
+    _CHAT_TEMPLATE = (
+        "{{ bos_token }}"
+        "{% for message in messages %}"
+        "{% if message['role'] == 'user' %}[INST] {{ message['content'] }} [/INST]"
+        "{% elif message['role'] == 'assistant' %}{{ message['content'] }}{{ eos_token }} "
+        "{% endif %}"
+        "{% endfor %}"
+    )
+
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
+        tokenizer_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        # Load tokenizer without gguf_file: the GGUF-embedded chat template uses
-        # legacy Mistral $prompt syntax which is invalid Jinja2. The repo's
-        # tokenizer_config.json has a proper Jinja2 template.
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+        self.tokenizer.chat_template = self._CHAT_TEMPLATE
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
