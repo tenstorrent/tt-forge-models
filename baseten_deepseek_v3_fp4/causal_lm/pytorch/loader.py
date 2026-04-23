@@ -13,6 +13,14 @@ TensorRT-LLM to run.
 from typing import Optional
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import DynamicCache
+
+# transformers 5.x removed get_usable_length; patch it back for compatibility
+# with models that still use it in their custom modeling code
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_len, layer_idx=0: self.get_seq_length(layer_idx)
+    )
 
 from ....base import ForgeModel
 from ....config import (
