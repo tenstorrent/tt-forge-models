@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.GEMMA3_4B_IT_LOGIQA_DPO_C_NEW
 
-    BASE_MODEL_NAME = "google/gemma-3-4b-it"
+    BASE_MODEL_NAME = "unsloth/gemma-3-4b-it"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
