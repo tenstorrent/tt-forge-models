@@ -5,6 +5,7 @@
 TranslateGemma 4B IT i1 GGUF model loader implementation for causal language modeling.
 """
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -63,7 +64,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _patch_gguf_utils(self):
         try:
             import gguf as _gguf_mod
 
@@ -73,6 +74,16 @@ class ModelLoader(ForgeModel):
                 _gguf_mod.__version__ = importlib.metadata.version("gguf")
         except Exception:
             pass
+
+        _inner = _gguf_utils.load_gguf_checkpoint
+
+        def _compat(gguf_path, return_tensors=False, **kwargs):
+            return _inner(gguf_path, return_tensors=return_tensors)
+
+        _gguf_utils.load_gguf_checkpoint = _compat
+
+    def _load_tokenizer(self, dtype_override=None):
+        self._patch_gguf_utils()
 
         tokenizer_kwargs = {}
         if dtype_override is not None:
