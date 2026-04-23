@@ -5,6 +5,71 @@
 RoboBrain2.5-4B i1 GGUF model loader implementation for image to text.
 """
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+_QWEN3VL_TEXT_CONFIG_KEYS = {
+    "vocab_size",
+    "hidden_size",
+    "intermediate_size",
+    "num_hidden_layers",
+    "num_attention_heads",
+    "num_key_value_heads",
+    "head_dim",
+    "max_position_embeddings",
+    "rms_norm_eps",
+    "rope_theta",
+}
+
+
+def _patch_qwen3vl_support():
+    """Register qwen3vl GGUF architecture as an alias for qwen3_vl (Qwen3 VL).
+
+    Transformers uses model_type 'qwen3_vl' but GGUF files declare
+    architecture as 'qwen3vl'. We register the mapping and restructure the
+    flat GGUF config into the nested text_config/vision_config that
+    Qwen3VLConfig expects.
+    """
+    if "qwen3vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen3vl",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen3vl", GGUF_TO_FAST_CONVERTERS["qwen3"])
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add qwen3vl support and restructure config."""
+    _patch_qwen3vl_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    config = result.get("config", {})
+    if config.get("model_type") == "qwen3vl":
+        config["model_type"] = "qwen3_vl"
+        text_cfg = {k: config.pop(k) for k in _QWEN3VL_TEXT_CONFIG_KEYS if k in config}
+        if text_cfg:
+            config["text_config"] = text_cfg
+    return result
+
+
+_patch_qwen3vl_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
