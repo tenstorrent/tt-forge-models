@@ -17,7 +17,6 @@ import math
 from typing import Any, Optional
 
 import torch
-from diffsynth_engine import QwenImagePipeline, QwenImagePipelineConfig, fetch_model  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -53,7 +52,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[QwenImagePipeline] = None
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -79,6 +78,8 @@ class ModelLoader(ForgeModel):
         Returns:
             QwenImagePipeline with LoRA weights fused.
         """
+        from diffsynth_engine import QwenImagePipeline, QwenImagePipelineConfig, fetch_model  # type: ignore[import]
+
         config = QwenImagePipelineConfig.basic_config(
             model_path=fetch_model(BASE_MODEL, path="transformer/*.safetensors"),
             encoder_path=fetch_model(BASE_MODEL, path="text_encoder/*.safetensors"),

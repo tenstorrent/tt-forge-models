@@ -10,8 +10,6 @@ opendatalab/DocLayout-YOLO and used by the Pix2Text (P2T) pipeline.
 from typing import Optional
 
 from huggingface_hub import hf_hub_download
-from torchvision import transforms
-from datasets import load_dataset
 
 from ...config import (
     ModelConfig,
@@ -73,6 +71,9 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        from datasets import load_dataset
+        from torchvision import transforms
+
         dataset = load_dataset("huggingface/cats-image", split="test[:1]")
         image = dataset[0]["image"].convert("RGB")
         preprocess = transforms.Compose(
