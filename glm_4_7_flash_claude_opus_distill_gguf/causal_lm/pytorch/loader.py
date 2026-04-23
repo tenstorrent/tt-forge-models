@@ -99,6 +99,29 @@ def _patch_transformers_deepseek2_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # Patch get_gguf_hf_weights_map to remap deepseek_v2 -> deepseek2 for gguf-py
+    # tensor name lookup (MODEL_ARCH_NAMES uses 'deepseek2', not 'deepseek_v2').
+    orig_get_weights_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        effective = (
+            model_type
+            if model_type is not None
+            else getattr(getattr(hf_model, "config", None), "model_type", None)
+        )
+        if effective == "deepseek_v2":
+            model_type = "deepseek2"
+        return orig_get_weights_map(
+            hf_model, processor, model_type, num_layers, qual_name
+        )
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+    for mod in (modeling_utils,):
+        if hasattr(mod, "get_gguf_hf_weights_map"):
+            mod.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
 
 _patch_transformers_deepseek2_gguf()
 
