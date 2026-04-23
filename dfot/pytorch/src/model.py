@@ -79,7 +79,8 @@ class StochasticTimeEmbedding(nn.Module):
 
     def forward(self, t):
         t_flat = t.reshape(-1)
-        t_emb = self.timesteps(t_flat)
+        # SinusoidalEmbedding computes in float32; cast to model dtype before MLP
+        t_emb = self.timesteps(t_flat).to(t.dtype)
         return self.embedding(t_emb)
 
 
