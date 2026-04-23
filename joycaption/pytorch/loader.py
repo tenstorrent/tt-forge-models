@@ -7,7 +7,7 @@ JoyCaption model loader implementation for multimodal conditional generation.
 
 from typing import Optional
 
-from datasets import load_dataset
+from PIL import Image
 from transformers import LlavaForConditionalGeneration, AutoProcessor
 
 from ...base import ForgeModel
@@ -20,7 +20,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import cast_input_to_type
+from ...tools.utils import cast_input_to_type, get_file
 
 
 class ModelVariant(StrEnum):
@@ -103,8 +103,11 @@ class ModelLoader(ForgeModel):
         )
 
         # Load sample image
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.open(
+            get_file(
+                "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
+            )
+        )
 
         # Preprocess
         inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
