@@ -22,6 +22,86 @@ from ....config import (
     StrEnum,
 )
 
+# GGUF text-config fields produced by the qwen3 key mapping
+_QWEN3VL_TEXT_CONFIG_FIELDS = {
+    "max_position_embeddings",
+    "num_hidden_layers",
+    "intermediate_size",
+    "hidden_size",
+    "rope_theta",
+    "num_attention_heads",
+    "num_key_value_heads",
+    "rms_norm_eps",
+    "vocab_size",
+}
+
+
+def _patch_transformers_qwen3vl_gguf():
+    """Monkey-patch transformers to add qwen3vl GGUF architecture support.
+
+    Transformers 5.2.0 knows about qwen3 (text-only) but not qwen3vl (the
+    vision-language variant).  We bridge the gap by registering the
+    architecture in the GGUF tables and post-processing the config dict so
+    that Qwen3VLConfig.from_dict receives a properly nested text_config.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register qwen3vl as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+
+    # 2. Config key mapping – same text fields as qwen3
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    # 3. Tokenizer converter – Qwen3VL reuses the Qwen2/Qwen3 BPE tokenizer
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "qwen3vl" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUFQwen2Converter
+
+    # 4. Post-process the config dict:
+    #    - change model_type from "qwen3vl" to "qwen3_vl"
+    #    - nest text-model fields under text_config so Qwen3VLConfig.from_dict works
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "qwen3vl":
+            config["model_type"] = "qwen3_vl"
+            text_config = {}
+            for field in list(config.keys()):
+                if field in _QWEN3VL_TEXT_CONFIG_FIELDS:
+                    text_config[field] = config.pop(field)
+            if text_config:
+                config["text_config"] = text_config
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_qwen3vl_gguf()
+
 
 class ModelVariant(StrEnum):
     """Available Qwen 3 VL 2B Instruct 1M GGUF model variants for image to text."""
