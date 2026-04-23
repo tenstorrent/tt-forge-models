@@ -23,3 +23,7 @@ results:
   status: "PASS"
   date: "20260423_084710"
   branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-13"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[multilingual_e5_small_ko/embedding_generation/pytorch-multilingual-e5-small-ko-single_device-inference]"
+  status: "PASS"
+  date: "20260423_090520"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-13"
