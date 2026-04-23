@@ -9,6 +9,9 @@ unsloth/FLUX.2-klein-base-4B-GGUF. The GGUF transformer is loaded via diffusers'
 Flux2Transformer2DModel.from_single_file.
 """
 
+import json
+import os
+import tempfile
 from typing import Optional
 
 import torch
@@ -28,6 +31,26 @@ from ...config import (
 )
 
 GGUF_REPO = "unsloth/FLUX.2-klein-base-4B-GGUF"
+
+# Derived from GGUF tensor shapes; avoids the gated black-forest-labs/FLUX.2-dev config lookup.
+_TRANSFORMER_CONFIG = {
+    "_class_name": "Flux2Transformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "attention_head_dim": 128,
+    "axes_dims_rope": [32, 32, 32, 32],
+    "eps": 1e-06,
+    "guidance_embeds": False,
+    "in_channels": 128,
+    "joint_attention_dim": 7680,
+    "mlp_ratio": 3.0,
+    "num_attention_heads": 24,
+    "num_layers": 5,
+    "num_single_layers": 20,
+    "out_channels": None,
+    "patch_size": 1,
+    "rope_theta": 2000,
+    "timestep_guidance_channels": 256,
+}
 
 
 class ModelVariant(StrEnum):
@@ -91,13 +114,17 @@ class ModelLoader(ForgeModel):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        model_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
 
-        local_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
-        self.transformer = Flux2Transformer2DModel.from_single_file(
-            local_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        with tempfile.TemporaryDirectory() as config_dir:
+            with open(os.path.join(config_dir, "config.json"), "w") as f:
+                json.dump(_TRANSFORMER_CONFIG, f)
+            self.transformer = Flux2Transformer2DModel.from_single_file(
+                model_path,
+                config=config_dir,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         return self.transformer
 
