@@ -12,6 +12,7 @@ Available variants:
 - 4BIT: sd3.5_large_4bit_quantized.safetensors
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -43,6 +44,23 @@ LATENT_WIDTH = 64
 JOINT_ATTENTION_DIM = 4096
 POOLED_PROJECTION_DIM = 2048
 MAX_SEQ_LEN = 154
+
+# SD3.5 Large transformer architecture config (38 heads × 64 dim = 2432 hidden size).
+# caption_projection_dim must equal inner_dim (num_attention_heads * attention_head_dim).
+# Used when TT_RANDOM_WEIGHTS=1 to avoid downloading the gated stabilityai repo.
+_SD35_LARGE_CONFIG = {
+    "attention_head_dim": 64,
+    "caption_projection_dim": 2432,
+    "in_channels": 16,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 38,
+    "num_layers": 38,
+    "out_channels": 16,
+    "patch_size": 2,
+    "pooled_projection_dim": 2048,
+    "pos_embed_max_size": 96,
+    "sample_size": 128,
+}
 
 
 class ModelVariant(StrEnum):
@@ -86,19 +104,27 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._transformer is None:
-            checkpoint_path = hf_hub_download(REPO_ID, CHECKPOINT_FILENAME)
-            self._transformer = SD3Transformer2DModel.from_single_file(
-                checkpoint_path,
-                config=TRANSFORMER_CONFIG,
-                subfolder=TRANSFORMER_SUBFOLDER,
-                torch_dtype=dtype,
-            )
+            if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+                # stabilityai/stable-diffusion-3.5-large is gated; use hardcoded
+                # architecture config so compilation can proceed without weights.
+                self._transformer = SD3Transformer2DModel(**_SD35_LARGE_CONFIG)
+                self._transformer = self._transformer.to(dtype=dtype)
+            else:
+                checkpoint_path = hf_hub_download(REPO_ID, CHECKPOINT_FILENAME)
+                self._transformer = SD3Transformer2DModel.from_single_file(
+                    checkpoint_path,
+                    config=TRANSFORMER_CONFIG,
+                    subfolder=TRANSFORMER_SUBFOLDER,
+                    torch_dtype=dtype,
+                )
             self._transformer.eval()
         elif dtype_override is not None:
             self._transformer = self._transformer.to(dtype=dtype_override)
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare synthetic inputs for the SD3.5 transformer.
 
         Returns:
@@ -108,7 +134,7 @@ class ModelLoader(ForgeModel):
                 - encoder_hidden_states: Text encoder outputs [batch, seq_len, dim]
                 - pooled_projections: Pooled text embeddings [batch, pooled_dim]
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = dtype_override if dtype_override is not None else torch.float32
         return {
             "hidden_states": torch.randn(
                 1, LATENT_CHANNELS, LATENT_HEIGHT, LATENT_WIDTH, dtype=dtype
