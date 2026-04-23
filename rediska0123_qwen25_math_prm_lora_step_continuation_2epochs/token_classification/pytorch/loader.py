@@ -5,7 +5,7 @@
 rediska0123 Qwen2.5-Math-PRM LoRA step-continuation (2 epochs) model loader
 implementation for process-reward token classification.
 """
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -98,10 +98,15 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
-        model.eval()
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        config.pad_token_id = self.tokenizer.pad_token_id
 
-        model.config.pad_token_id = self.tokenizer.pad_token_id
+        model = AutoModel.from_pretrained(
+            pretrained_model_name, config=config, **model_kwargs
+        )
+        model.eval()
         self.model = model
 
         return model
