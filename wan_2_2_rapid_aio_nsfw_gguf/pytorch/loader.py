@@ -32,7 +32,26 @@ from ...config import (
 )
 
 GGUF_REPO = "DoorZekor/WAN2.2-14B-Rapid-AllInOne-GGUF-NSFW-v10"
-BASE_MODEL_REPO = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
+
+# Wan 2.2 I2V A14B transformer config (from Wan-AI/Wan2.2-I2V-A14B-Diffusers/transformer/config.json)
+_WAN22_TRANSFORMER_CONFIG = {
+    "added_kv_proj_dim": None,
+    "attention_head_dim": 128,
+    "cross_attn_norm": True,
+    "eps": 1e-06,
+    "ffn_dim": 13824,
+    "freq_dim": 256,
+    "image_dim": None,
+    "in_channels": 36,
+    "num_attention_heads": 40,
+    "num_layers": 40,
+    "out_channels": 16,
+    "patch_size": [1, 2, 2],
+    "pos_embed_seq_len": None,
+    "qk_norm": "rms_norm_across_heads",
+    "rope_max_seq_len": 1024,
+    "text_dim": 4096,
+}
 
 # Small spatial dimensions for compile-only testing
 TRANSFORMER_NUM_FRAMES = 2
@@ -105,10 +124,9 @@ class ModelLoader(ForgeModel):
         if os.environ.get("TT_RANDOM_WEIGHTS") or os.environ.get(
             "TT_COMPILE_ONLY_SYSTEM_DESC"
         ):
-            config = WanTransformer3DModel.load_config(
-                BASE_MODEL_REPO, subfolder="transformer"
+            self._transformer = WanTransformer3DModel.from_config(
+                _WAN22_TRANSFORMER_CONFIG
             )
-            self._transformer = WanTransformer3DModel.from_config(config)
             self._transformer = self._transformer.to(dtype=compute_dtype)
         else:
             import diffusers.utils.import_utils as _diffusers_import_utils
