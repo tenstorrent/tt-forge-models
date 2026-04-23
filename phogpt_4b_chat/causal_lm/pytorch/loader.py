@@ -112,39 +112,51 @@ class ModelLoader(ForgeModel):
                 setattr(llama_module, cls_name, llama_module.LlamaRotaryEmbedding)
 
         # transformers 5.x requires PreTrainedModel subclasses to call self.post_init()
-        # at the end of __init__ to populate all_tied_weights_keys and other attributes.
-        # The MPT custom model code predates this requirement; patch the cached file so it
-        # calls post_init() before invalidating the .pyc cache.
+        # at the end of __init__ to populate all_tied_weights_keys; also tie_weights()
+        # gained a recompute_mapping kwarg. Patch the cached file idempotently.
         modules_root = Path(HF_MODULES_CACHE) / "transformers_modules"
         for modeling_mpt in modules_root.glob("vinai/PhoGPT*/**/modeling_mpt.py"):
             content = modeling_mpt.read_text()
-            if "self.post_init()" in content:
-                continue  # Already patched
+            changed = False
 
-            # MPTModel.__init__ ends with this debug log line
-            content = content.replace(
-                "        log.debug(f\"Using {self.config.init_config['name']} initialization.\")\n\n"
-                "    def get_input_embeddings(self) -> Union[SharedEmbedding, nn.Embedding]:\n"
-                "        return self.wte",
-                "        log.debug(f\"Using {self.config.init_config['name']} initialization.\")\n"
-                "        self.post_init()\n\n"
-                "    def get_input_embeddings(self) -> Union[SharedEmbedding, nn.Embedding]:\n"
-                "        return self.wte",
-            )
-            # MPTForCausalLM.__init__ ends with the logit_scale block
-            content = content.replace(
-                "            self.logit_scale = logit_scale\n\n"
-                "    def get_input_embeddings(self) -> Union[SharedEmbedding, nn.Embedding]:\n"
-                "        return self.transformer.get_input_embeddings()",
-                "            self.logit_scale = logit_scale\n"
-                "        self.post_init()\n\n"
-                "    def get_input_embeddings(self) -> Union[SharedEmbedding, nn.Embedding]:\n"
-                "        return self.transformer.get_input_embeddings()",
-            )
-            modeling_mpt.write_text(content)
-            # Invalidate the .pyc so Python recompiles from the patched source
-            for pyc in (modeling_mpt.parent / "__pycache__").glob("modeling_mpt.*.pyc"):
-                pyc.unlink(missing_ok=True)
+            if "self.post_init()" not in content:
+                # MPTModel.__init__ ends with this debug log line
+                content = content.replace(
+                    "        log.debug(f\"Using {self.config.init_config['name']} initialization.\")\n\n"
+                    "    def get_input_embeddings(self) -> Union[SharedEmbedding, nn.Embedding]:\n"
+                    "        return self.wte",
+                    "        log.debug(f\"Using {self.config.init_config['name']} initialization.\")\n"
+                    "        self.post_init()\n\n"
+                    "    def get_input_embeddings(self) -> Union[SharedEmbedding, nn.Embedding]:\n"
+                    "        return self.wte",
+                )
+                # MPTForCausalLM.__init__ ends with the logit_scale block
+                content = content.replace(
+                    "            self.logit_scale = logit_scale\n\n"
+                    "    def get_input_embeddings(self) -> Union[SharedEmbedding, nn.Embedding]:\n"
+                    "        return self.transformer.get_input_embeddings()",
+                    "            self.logit_scale = logit_scale\n"
+                    "        self.post_init()\n\n"
+                    "    def get_input_embeddings(self) -> Union[SharedEmbedding, nn.Embedding]:\n"
+                    "        return self.transformer.get_input_embeddings()",
+                )
+                changed = True
+
+            # transformers 5.x calls tie_weights(recompute_mapping=False); add **kwargs
+            if "def tie_weights(self) -> None:" in content:
+                content = content.replace(
+                    "    def tie_weights(self) -> None:",
+                    "    def tie_weights(self, **kwargs) -> None:",
+                )
+                changed = True
+
+            if changed:
+                modeling_mpt.write_text(content)
+                # Invalidate the .pyc so Python recompiles from the patched source
+                for pyc in (modeling_mpt.parent / "__pycache__").glob(
+                    "modeling_mpt.*.pyc"
+                ):
+                    pyc.unlink(missing_ok=True)
 
     def _load_tokenizer(self, dtype_override=None):
         pretrained_model_name = self._variant_config.pretrained_model_name
