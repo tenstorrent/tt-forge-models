@@ -7,7 +7,14 @@ FlauBERT is a French language model pretrained on a large and heterogeneous Fren
 """
 import torch
 from transformers import AutoTokenizer, AutoModelForMaskedLM
+from transformers.cache_utils import EncoderDecoderCache
 from typing import Optional
+
+# Workaround for transformers 5.x bug: FlaubertModel.forward uses cache[i] in pre_norm
+# mode, but EncoderDecoderCache is not subscriptable. The attention module correctly
+# handles a full EncoderDecoderCache object, so returning self from __getitem__ is safe.
+if not hasattr(EncoderDecoderCache, "__getitem__"):
+    EncoderDecoderCache.__getitem__ = lambda self, i: self
 
 from third_party.tt_forge_models.config import (
     ModelInfo,
