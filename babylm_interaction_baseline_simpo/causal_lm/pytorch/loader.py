@@ -94,4 +94,7 @@ class ModelLoader(ForgeModel):
             max_length=self._variant_config.max_length,
         )
 
-        return [inputs["input_ids"], inputs["attention_mask"]]
+        return {
+            "input_ids": inputs["input_ids"],
+            "attention_mask": inputs["attention_mask"],
+        }
