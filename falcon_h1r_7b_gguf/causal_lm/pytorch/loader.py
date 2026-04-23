@@ -42,6 +42,7 @@ def _patch_falcon_h1_support():
         "falcon-h1", _FALCON_H1_CONFIG_MAPPING
     )
     GGUF_TO_FAST_CONVERTERS.setdefault("falcon-h1", GGUFGPTConverter)
+    GGUF_TO_FAST_CONVERTERS.setdefault("falcon_h1", GGUFGPTConverter)
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
