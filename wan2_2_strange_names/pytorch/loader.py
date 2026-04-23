@@ -161,7 +161,6 @@ class ModelLoader(ForgeModel):
             BASE_MODEL,
             subfolder="transformer",
             torch_dtype=dtype,
-            low_cpu_mem_usage=False,
         )
 
         lora_file = _LORA_FILES[self._variant]
