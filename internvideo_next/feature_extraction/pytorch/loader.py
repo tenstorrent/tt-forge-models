@@ -13,7 +13,8 @@ and produces dense feature representations.
 from typing import Optional
 
 import torch
-from transformers import AutoModel
+from transformers import AutoConfig, AutoModel
+from transformers import PreTrainedModel
 
 from ....base import ForgeModel
 from ....config import (
@@ -90,9 +91,40 @@ class ModelLoader(ForgeModel):
         Returns:
             model: The loaded InternVideoNext model instance
         """
-        model = AutoModel.from_pretrained(
-            self._model_name, trust_remote_code=True, **kwargs
-        )
+        config = AutoConfig.from_pretrained(self._model_name, trust_remote_code=True)
+        # Disable flash_attn/fused ops which require CUDA-only packages
+        config.model_config["use_flash_attn"] = False
+        config.model_config["use_fused_rmsnorm"] = False
+        config.model_config["use_fused_mlp"] = False
+
+        # Patch get_init_context to avoid meta device: model __init__ calls
+        # .item() on tensors which fails under torch.device("meta") context
+        _orig_get_init_context = PreTrainedModel.get_init_context.__func__
+
+        @classmethod
+        def _patched_get_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            return [
+                ctx
+                for ctx in _orig_get_init_context(
+                    cls, dtype, is_quantized, _is_ds_init_called
+                )
+                if not isinstance(ctx, torch.device)
+            ]
+
+        PreTrainedModel.get_init_context = _patched_get_init_context
+        try:
+            model = AutoModel.from_pretrained(
+                self._model_name,
+                config=config,
+                trust_remote_code=True,
+                **kwargs,
+            )
+        finally:
+            PreTrainedModel.get_init_context = classmethod(
+                lambda cls, dtype, is_quantized, _is_ds_init_called: _orig_get_init_context(
+                    cls, dtype, is_quantized, _is_ds_init_called
+                )
+            )
         model.eval()
 
         if dtype_override is not None:
