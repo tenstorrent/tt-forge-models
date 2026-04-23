@@ -14,7 +14,7 @@ compile-only testing.
 """
 
 import torch
-from transformers import AutoTokenizer, Qwen2Config, Qwen2ForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer, Qwen2Config
 from typing import Optional
 
 from ....base import ForgeModel
@@ -93,7 +93,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = Qwen2ForCausalLM(config, **model_kwargs)
+        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
         model.eval()
 
         return model
