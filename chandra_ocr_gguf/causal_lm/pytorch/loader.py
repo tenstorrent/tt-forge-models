@@ -3,9 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Chandra OCR GGUF model loader implementation for causal language modeling.
+
+Note: The qwen3vl GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the base safetensors checkpoint (datalab-to/chandra)
+and extract the causal LM component.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoConfig,
+    AutoTokenizer,
+    Qwen3VLForConditionalGeneration,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -27,18 +35,20 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Chandra OCR GGUF model loader implementation for causal language modeling tasks."""
+    """Chandra OCR GGUF model loader implementation for causal language modeling tasks.
+
+    Note: Uses the base model (safetensors) instead of GGUF because the
+    qwen3vl GGUF architecture is not yet supported by transformers.
+    """
 
     _VARIANTS = {
         ModelVariant.CHANDRA_OCR_GGUF: LLMModelConfig(
-            pretrained_model_name="prithivMLmods/chandra-OCR-GGUF",
+            pretrained_model_name="datalab-to/chandra",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.CHANDRA_OCR_GGUF
-
-    GGUF_FILE = "chandra-Q4_K_M.gguf"
 
     sample_text = "What is your favorite city?"
 
@@ -65,7 +75,6 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,20 +94,17 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
+        # Load the full conditional generation model directly; pixel_values are
+        # optional so the model can be called with text-only inputs.
+        model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        )
+        if self.num_layers is not None:
+            model.config.text_config.num_hidden_layers = self.num_layers
+        model.eval()
 
-        self.config = model.config
+        self.config = model.config.text_config
         self.model = model
         return model
 
@@ -136,7 +142,6 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        self.config = config.text_config if hasattr(config, "text_config") else config
         return self.config
