@@ -70,6 +70,16 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # gguf is installed dynamically via requirements.txt; transformers caches
+        # packages_distributions() at import time so we refresh it here to
+        # ensure is_gguf_available() can find the version.
+        import importlib.metadata
+        import transformers.utils.import_utils as _tutil
+
+        _tutil.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.processor is None:
