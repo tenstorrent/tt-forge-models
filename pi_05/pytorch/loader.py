@@ -87,33 +87,34 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, episode_index=0):
         """
-        Load and preprocess inputs for action sampling.
+        Create synthetic inputs for action sampling.
         Returns images, image masks, language tokens, language masks, state,
         and a pre-generated noise tensor for deterministic diffusion sampling.
         """
-        from lerobot.policies.factory import make_pre_post_processors
-        from lerobot.datasets.lerobot_dataset import LeRobotDataset
+        import torch
 
-        self.preprocess, self.postprocess_fn = make_pre_post_processors(
-            self.pi_05.config,
-            self.pretrained_model_name,
-            preprocessor_overrides={"device_processor": {"device": "cpu"}},
+        config = self.pi_05.config
+        batch_size = 1
+        h, w = config.image_resolution
+
+        images = []
+        img_masks = []
+        for _ in config.image_features:
+            images.append(torch.zeros(batch_size, 3, h, w))
+            img_masks.append(torch.ones(batch_size, dtype=torch.bool))
+        for _ in range(config.empty_cameras):
+            images.append(torch.full((batch_size, 3, h, w), -1.0))
+            img_masks.append(torch.zeros(batch_size, dtype=torch.bool))
+
+        lang_tokens = torch.zeros(
+            batch_size, config.tokenizer_max_length, dtype=torch.long
         )
-        dataset = LeRobotDataset("lerobot/libero")
-        frame_index = dataset.meta.episodes["dataset_from_index"][episode_index]
-        frame = dict(dataset[frame_index])
-        batch = self.preprocess(frame)
-        (
-            images,
-            img_masks,
-            lang_tokens,
-            lang_masks,
-            state,
-        ) = self.pi_05.preprocess_for_sampling(batch)
-
-        bsize = state.shape[0]
+        lang_masks = torch.ones(
+            batch_size, config.tokenizer_max_length, dtype=torch.bool
+        )
+        state = torch.zeros(batch_size, config.max_state_dim)
         noise = self.pi_05.model.sample_noise(
-            (bsize, self.pi_05.config.chunk_size, self.pi_05.config.max_action_dim),
+            (batch_size, config.chunk_size, config.max_action_dim),
             device=state.device,
         )
 

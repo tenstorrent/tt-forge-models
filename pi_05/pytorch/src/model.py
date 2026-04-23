@@ -87,7 +87,7 @@ def forward(
     if not hasattr(self, "_device_queues"):
         self._device_queues = {}
 
-    device_key = str(state.device)
+    device_key = str(lang_tokens.device)
     if device_key not in self._device_queues:
         self._device_queues[device_key] = deque()
 
@@ -103,7 +103,7 @@ def forward(
         torch.cumsum = _safe_cumsum
         try:
             actions = self.model.sample_actions(
-                images, img_masks, lang_tokens, lang_masks, state, noise=noise, **kwargs
+                images, img_masks, lang_tokens, lang_masks, noise=noise, **kwargs
             )
         finally:
             torch.cumsum = original_cumsum
