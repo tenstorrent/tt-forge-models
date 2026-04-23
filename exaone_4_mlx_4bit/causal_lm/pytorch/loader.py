@@ -76,6 +76,11 @@ class ModelLoader(ForgeModel):
                 mapping[pattern[i % len(pattern)]] for i in range(num_layers)
             ]
         config_dict.pop("transformers_version", None)
+        # Remove MLX-specific quantization_config (no quant_method) that PyTorch
+        # transformers cannot handle; weights are loaded via safetensors in bfloat16.
+        quant_cfg = config_dict.get("quantization_config", {})
+        if isinstance(quant_cfg, dict) and "quant_method" not in quant_cfg:
+            config_dict.pop("quantization_config", None)
         return Exaone4Config(**config_dict)
 
     def _load_tokenizer(self, dtype_override=None):
