@@ -30,7 +30,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.MIXTRAL_8X7B_INSTRUCT_V0_1_LLAMAFILE: LLMModelConfig(
-            pretrained_model_name="mozilla-ai/Mixtral-8x7B-Instruct-v0.1-llamafile",
+            pretrained_model_name="mistralai/Mixtral-8x7B-Instruct-v0.1",
             max_length=256,
         ),
     }
