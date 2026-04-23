@@ -5,6 +5,7 @@
 LaViDa-LLaDA model loader implementation for image-text-to-text tasks.
 """
 
+import contextlib
 import torch
 from PIL import Image
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -23,6 +24,30 @@ from ....config import (
 from ....tools.utils import get_file
 
 IMAGE_TOKEN_INDEX = -200
+
+
+@contextlib.contextmanager
+def _allow_nested_from_pretrained_in_meta_context():
+    # Transformers 5.x always initializes models inside torch.device("meta") context.
+    # Custom models that call from_pretrained inside __init__ (e.g. SigLipVisionTower)
+    # hit a safety check that raises RuntimeError. We patch check_and_set_device_map to
+    # return None instead of raising, letting the nested load proceed on CPU.
+    import transformers.modeling_utils as _tm
+    from transformers.modeling_utils import get_torch_context_manager_or_global_device
+
+    original = _tm.check_and_set_device_map
+
+    def _patched(device_map):
+        if device_map is None:
+            if get_torch_context_manager_or_global_device() == torch.device("meta"):
+                return None
+        return original(device_map)
+
+    _tm.check_and_set_device_map = _patched
+    try:
+        yield
+    finally:
+        _tm.check_and_set_device_map = original
 
 
 class ModelVariant(StrEnum):
@@ -76,14 +101,15 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": False}
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        with _allow_nested_from_pretrained_in_meta_context():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
         model.resize_token_embeddings(len(self.tokenizer))
         model.tie_weights()
         model.eval()
