@@ -5,6 +5,7 @@
 TinyCLIP model loader implementation for image-text similarity.
 """
 import torch
+from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
 from typing import Optional
 
@@ -18,7 +19,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -99,8 +99,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (224, 224))
 
         self.text_prompts = ["a photo of a cat", "a photo of a dog"]
 
