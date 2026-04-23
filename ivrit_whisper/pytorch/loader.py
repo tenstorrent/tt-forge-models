@@ -26,7 +26,6 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -126,17 +125,18 @@ class ModelLoader(ForgeModel):
             inputs: Input tensors that can be fed to the model.
         """
 
-        from transformers import AutoProcessor, WhisperConfig
+        import numpy as np
+        from transformers import AutoProcessor
 
         if self.model is None or self.processor is None:
             self.load_model()
 
-        whisper_config = WhisperConfig.from_pretrained(self._model_name)
-
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
+        # Generate synthetic 30-second audio at 16kHz to match Whisper's receptive field
+        sampling_rate = 16000
+        duration_seconds = 30
+        sample_audio = np.random.randn(sampling_rate * duration_seconds).astype(
+            np.float32
+        )
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
@@ -144,7 +144,7 @@ class ModelLoader(ForgeModel):
         processor = AutoProcessor.from_pretrained(self._model_name)
         features = processor.feature_extractor(
             sample_audio,
-            sampling_rate=processor.feature_extractor.sampling_rate,
+            sampling_rate=sampling_rate,
             return_tensors="pt",
             return_token_timestamps=True,
             return_attention_mask=True,
