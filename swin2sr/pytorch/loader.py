@@ -11,7 +11,7 @@ Transformer architecture.
 from typing import Optional
 
 import torch
-from datasets import load_dataset
+from PIL import Image
 from transformers import AutoImageProcessor, Swin2SRForImageSuperResolution
 
 from ...base import ForgeModel
@@ -82,7 +82,6 @@ class ModelLoader(ForgeModel):
         if self._processor is None:
             self._processor = AutoImageProcessor.from_pretrained(model_name)
 
-        dataset = load_dataset("huggingface/cats-image", split="test")
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (64, 64), color=(128, 128, 128))
         inputs = self._processor(images=image, return_tensors="pt")
         return inputs["pixel_values"]
