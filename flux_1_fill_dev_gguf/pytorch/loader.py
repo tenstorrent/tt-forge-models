@@ -115,6 +115,7 @@ class ModelLoader(ForgeModel):
 
         # FLUX.1-Fill-dev is a gated repo; provide transformer config locally.
         # in_channels=384: 64 noisy + 64 masked-image + 256 packed-mask latents.
+        # out_channels=64: proj_out still predicts the denoised 64-channel latent.
         flux_fill_config = {
             "_class_name": "FluxTransformer2DModel",
             "_diffusers_version": "0.33.1",
@@ -122,6 +123,7 @@ class ModelLoader(ForgeModel):
             "axes_dims_rope": [16, 56, 56],
             "guidance_embeds": True,
             "in_channels": 384,
+            "out_channels": 64,
             "joint_attention_dim": _T5_EMBED_DIM,
             "num_attention_heads": 24,
             "num_layers": 19,
