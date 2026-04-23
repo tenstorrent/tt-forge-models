@@ -14,17 +14,18 @@ Available variants:
 - FLUX2_KLEIN_4B_Q8_0: Q8_0 quantized variant (~4.3 GB)
 """
 
-import torch
 from typing import Optional
+
+import torch
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 from .src.model_utils import load_flux2_klein_gguf_transformer
@@ -83,10 +84,9 @@ class ModelLoader(ForgeModel):
         """
         if self.transformer is None:
             gguf_file = self.GGUF_FILES[self._variant]
-            self.transformer = load_flux2_klein_gguf_transformer(REPO_ID, gguf_file)
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+            self.transformer = load_flux2_klein_gguf_transformer(
+                REPO_ID, gguf_file, torch_dtype=dtype_override
+            )
 
         return self.transformer
 
