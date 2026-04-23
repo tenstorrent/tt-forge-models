@@ -5,7 +5,6 @@
 Qwen 2.5 MLC model loader implementation for causal language modeling.
 """
 import torch
-from mlc_llm import MLCEngine
 from transformers import AutoTokenizer
 from typing import Optional
 
@@ -71,6 +70,8 @@ class ModelLoader(ForgeModel):
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        from mlc_llm import MLCEngine
 
         model = MLCEngine(model=f"HF://{pretrained_model_name}")
 
