@@ -197,6 +197,11 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        # Qwen3.5 is a hybrid-attention model: global-attention layers carry 4x
+        # more heads than local-attention layers.  Mapping the GGUF arch to
+        # qwen3 (which uses a uniform head count) causes size mismatches on
+        # those layers; allow them to be re-initialised rather than crashing.
+        model_kwargs.setdefault("ignore_mismatched_sizes", True)
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
