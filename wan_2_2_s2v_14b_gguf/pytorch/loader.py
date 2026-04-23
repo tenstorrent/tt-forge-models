@@ -84,8 +84,10 @@ class ModelLoader(ForgeModel):
     ):
         """Load the GGUF-quantized Wan 2.2 S2V 14B transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
-        Returns the transformer nn.Module directly for compilation testing.
+        Uses diffusers GGUFQuantizationConfig to load the quantized transformer,
+        then dequantizes all GGUF layers to plain nn.Linear with float weights
+        so that TT-XLA's __torch_function__ override does not encounter the
+        byte-packed GGUF weight tensors during compilation.
         """
         import diffusers.utils.import_utils as _diffusers_import_utils
 
@@ -105,11 +107,31 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES["Q4_0"]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
+        from huggingface_hub import hf_hub_download
+
+        gguf_path = hf_hub_download(
+            repo_id=GGUF_REPO,
+            filename=gguf_file,
+        )
+
         self._transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+            gguf_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
+
+        # GGUFLinear stores weights as packed byte tensors and relies on
+        # GGUFParameter.__torch_function__ to dequantize on-the-fly. The TT-XLA
+        # __torch_function__ override intercepts F.linear before GGUF can
+        # dequantize, causing a dtype mismatch. Convert all GGUFLinear modules
+        # back to plain nn.Linear with float weights before compilation.
+        from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
+
+        _dequantize_gguf_and_restore_linear(self._transformer)
+        # Remove quantizer markers so diffusers' .to() guard doesn't block dtype cast.
+        self._transformer.hf_quantizer = None
+        self._transformer.is_quantized = False
+        self._transformer.to(compute_dtype)
 
         return self._transformer
 
