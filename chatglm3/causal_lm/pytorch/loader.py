@@ -125,6 +125,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # ChatGLMConfig uses seq_length; transformers 5.x raises AttributeError for max_length
+        # use_cache is a generation param that transformers 5.x pops from config init kwargs
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
@@ -132,6 +133,8 @@ class ModelLoader(ForgeModel):
             config.max_length = getattr(
                 config, "seq_length", self._variant_config.max_length
             )
+        if not hasattr(config, "use_cache"):
+            config.use_cache = True
 
         # ChatGLM3 remote __init__ omits post_init(); transformers 5.x needs it for all_tied_weights_keys
         auto_map = getattr(config, "auto_map", {})
