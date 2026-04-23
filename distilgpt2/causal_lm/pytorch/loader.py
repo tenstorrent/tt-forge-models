@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.DISTILGPT2: LLMModelConfig(
-            pretrained_model_name="Xenova/distilgpt2",
+            pretrained_model_name="distilgpt2",
             max_length=256,
         ),
         ModelVariant.FREDZHANG7_ANIME_ANYTHING_PROMPTGEN_V2: LLMModelConfig(
