@@ -201,13 +201,14 @@ class ModelLoader(ForgeModel):
         # Pre-load config from the base Whisper model so that random-weights
         # mode does not need to download/parse the GGUF file just for config.
         config = WhisperConfig.from_pretrained("openai/whisper-large-v3")
+        config.use_cache = False
         model_kwargs["config"] = config
 
         self.processor = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
 
         try:
             model = WhisperForConditionalGeneration.from_pretrained(
-                pretrained_model_name, use_cache=False, **model_kwargs
+                pretrained_model_name, **model_kwargs
             ).eval()
         except ValueError:
             # Whisper GGUF architecture is not supported in the installed
@@ -217,7 +218,7 @@ class ModelLoader(ForgeModel):
                 k: v for k, v in model_kwargs.items() if k != "gguf_file"
             }
             model = WhisperForConditionalGeneration.from_pretrained(
-                "openai/whisper-large-v3", use_cache=False, **fallback_kwargs
+                "openai/whisper-large-v3", **fallback_kwargs
             ).eval()
 
         if dtype_override is not None:
