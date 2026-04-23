@@ -7,13 +7,8 @@ UnifiedReward-Edit-qwen35-4b i1 GGUF model loader implementation for causal lang
 import importlib.metadata
 
 import torch
-import transformers.utils.import_utils as _tx_import_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
-
-_tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
-    importlib.metadata.packages_distributions()
-)
 
 from ....base import ForgeModel
 from ....config import (
@@ -70,7 +65,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _refresh_gguf_detection():
+        import transformers.utils.import_utils as _tx
+
+        _tx.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+        _tx.is_gguf_available.cache_clear()
+
     def _load_tokenizer(self, dtype_override=None):
+        self._refresh_gguf_detection()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -163,6 +166,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._refresh_gguf_detection()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
