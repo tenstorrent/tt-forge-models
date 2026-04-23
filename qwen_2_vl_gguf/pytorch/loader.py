@@ -56,6 +56,16 @@ def _patch_transformers_qwen2vl_gguf():
         config = result.get("config", {})
         if config.get("model_type") == "qwen2vl":
             config["model_type"] = "qwen2_vl"
+            # mrope_section is required by Qwen2VL attention but absent in GGUF metadata
+            config.setdefault(
+                "rope_scaling",
+                {
+                    "type": "mrope",
+                    "mrope_section": [16, 24, 24],
+                    "rope_theta": config.get("rope_theta", 1000000.0),
+                    "rope_type": "default",
+                },
+            )
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
