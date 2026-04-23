@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
         """Load the AnimateDiff pipeline with motion adapter and tilt-down LoRA.
 
         Returns:
-            AnimateDiffPipeline with motion adapter and LoRA weights applied.
+            UNet2DConditionMotionModel (torch.nn.Module) from the pipeline.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -92,20 +92,53 @@ class ModelLoader(ForgeModel):
 
         self.pipeline.load_lora_weights(LORA_REPO)
 
-        return self.pipeline
+        return self.pipeline.unet
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation with tilt-down motion.
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare preprocessed tensor inputs for the AnimateDiff UNet.
 
         Returns:
-            dict with prompt key.
+            list of [latent_sample, timestep, encoder_hidden_states].
         """
-        if prompt is None:
-            prompt = (
-                "A scenic mountain landscape with clouds drifting, "
-                "cinematic tilt down, smooth camera motion"
-            )
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
 
-        return {
-            "prompt": prompt,
-        }
+        dtype = self.pipeline.unet.dtype
+        num_frames = 16
+
+        prompt = (
+            "A scenic mountain landscape with clouds drifting, "
+            "cinematic tilt down, smooth camera motion"
+        )
+
+        text_inputs = self.pipeline.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            text_embeddings = self.pipeline.text_encoder(text_inputs.input_ids)[0]
+
+        # Repeat text embeddings for each frame
+        encoder_hidden_states = text_embeddings.repeat(num_frames, 1, 1).to(dtype)
+
+        in_channels = self.pipeline.unet.config.in_channels
+        sample_size = self.pipeline.unet.config.sample_size
+        latent_sample = torch.randn(
+            num_frames, in_channels, sample_size, sample_size, dtype=dtype
+        )
+        timestep = torch.tensor([1.0], dtype=dtype)
+
+        return [latent_sample, timestep, encoder_hidden_states]
+
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        """Unpack UNet output to the sample tensor."""
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        if hasattr(fwd_output, "sample"):
+            return fwd_output.sample
+        return fwd_output
