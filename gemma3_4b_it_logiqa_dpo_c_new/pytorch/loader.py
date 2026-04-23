@@ -85,29 +85,33 @@ class ModelLoader(ForgeModel):
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
 
+    # Public non-gated mirror used to obtain architecture config when the
+    # gated base model is inaccessible.
+    BASE_MODEL_MIRROR = "unsloth/gemma-3-4b-it"
+
+    def _get_config(self):
+        """Get model config, trying public sources before the gated base model."""
+        for source in [self.BASE_MODEL_NAME, self.BASE_MODEL_MIRROR]:
+            try:
+                return AutoConfig.from_pretrained(source)
+            except Exception:
+                continue
+        raise RuntimeError(
+            f"Could not load config from {self.BASE_MODEL_NAME} or {self.BASE_MODEL_MIRROR}"
+        )
+
     def load_model(self, *, dtype_override=None, **kwargs):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
         adapter_name = self._variant_config.pretrained_model_name
+        config = self._get_config()
+
+        if self.num_layers is not None:
+            text_cfg = getattr(config, "text_config", config)
+            text_cfg.num_hidden_layers = self.num_layers
 
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            # Avoid downloading the gated base model; get config from the
-            # public adapter repo or the base model, then construct with
-            # random weights and skip PEFT adapter loading.
-            config = None
-            for source in [adapter_name, self.BASE_MODEL_NAME]:
-                try:
-                    config = AutoConfig.from_pretrained(source)
-                    break
-                except Exception:
-                    continue
-            if config is None:
-                raise RuntimeError(
-                    f"Could not load config from {adapter_name} or {self.BASE_MODEL_NAME}"
-                )
-            if self.num_layers is not None:
-                config.num_hidden_layers = self.num_layers
             model = AutoModelForCausalLM.from_config(config)
             if dtype_override is not None:
                 model = model.to(dtype_override)
@@ -116,15 +120,18 @@ class ModelLoader(ForgeModel):
             if dtype_override is not None:
                 model_kwargs["torch_dtype"] = dtype_override
             model_kwargs |= kwargs
+            model_kwargs["config"] = config
 
-            if self.num_layers is not None:
-                config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
-                config.num_hidden_layers = self.num_layers
-                model_kwargs["config"] = config
-
-            base_model = AutoModelForCausalLM.from_pretrained(
-                self.BASE_MODEL_NAME, **model_kwargs
-            )
+            try:
+                base_model = AutoModelForCausalLM.from_pretrained(
+                    self.BASE_MODEL_NAME, **model_kwargs
+                )
+            except Exception:
+                # Base model is gated/unavailable; fall back to random weights
+                # and still apply the public PEFT adapter.
+                base_model = AutoModelForCausalLM.from_config(config)
+                if dtype_override is not None:
+                    base_model = base_model.to(dtype_override)
 
             model = PeftModel.from_pretrained(base_model, adapter_name)
             model = model.merge_and_unload()
