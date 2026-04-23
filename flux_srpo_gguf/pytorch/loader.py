@@ -111,6 +111,7 @@ class ModelLoader(ForgeModel):
             transformer=transformer,
             torch_dtype=dtype,
             use_safetensors=True,
+            cache_dir=cache_dir,
         )
 
         return self.pipe
