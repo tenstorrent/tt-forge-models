@@ -115,6 +115,17 @@ class ModelLoader(ForgeModel):
         self, dtype: torch.dtype = torch.bfloat16
     ) -> FluxTransformer2DModel:
         """Load the FLUX.1 transformer from a single-file safetensors checkpoint."""
+        use_random_weights = os.environ.get("TT_RANDOM_WEIGHTS") or os.environ.get(
+            "TT_COMPILE_ONLY_SYSTEM_DESC"
+        )
+        if use_random_weights:
+            config = dict(_TRANSFORMER_CONFIG)
+            config["guidance_embeds"] = self._variant not in _SCHNELL_VARIANTS
+            self._transformer = FluxTransformer2DModel(**config)
+            self._transformer = self._transformer.to(dtype=dtype)
+            self._transformer.eval()
+            return self._transformer
+
         model_path = hf_hub_download(
             repo_id=SINGLE_FILE_REPO,
             filename=_SINGLE_FILES[self._variant],
