@@ -66,15 +66,31 @@ class ModelLoader(ForgeModel):
             if importlib.util.find_spec("gguf") is not None:
                 _diffusers_import_utils._gguf_available = True
 
+        import os
+        import shutil
+
         from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
         from huggingface_hub import hf_hub_download
+        from huggingface_hub.constants import HF_HUB_CACHE
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
+        # Fall back to /tmp when the standard HF cache location lacks space.
+        gguf_size_bytes = 10 * 1024**3
+        try:
+            free_bytes = shutil.disk_usage(HF_HUB_CACHE).free
+        except FileNotFoundError:
+            free_bytes = 0
+        cache_dir = (
+            HF_HUB_CACHE if free_bytes >= gguf_size_bytes else "/tmp/hf_gguf_cache"
+        )
+        os.makedirs(cache_dir, exist_ok=True)
+
         gguf_path = hf_hub_download(
             repo_id=self._variant_config.pretrained_model_name,
             filename=self.GGUF_FILE,
+            cache_dir=cache_dir,
         )
 
         self.transformer = WanTransformer3DModel.from_single_file(
