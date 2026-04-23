@@ -8,9 +8,61 @@ Fine-tuned from microsoft/Phi-4-multimodal-instruct.
 """
 
 import torch
+import transformers.modeling_utils as _modeling_utils
 from transformers import AutoProcessor, AutoModelForCausalLM, AutoConfig
 from transformers.image_utils import load_image
 from typing import Optional
+
+# SlidingWindowCache was removed in transformers 5.x; patch for model remote code compatibility
+try:
+    from transformers.cache_utils import SlidingWindowCache as _  # noqa: F401
+except ImportError:
+    import transformers.cache_utils as _cache_utils
+    from transformers.cache_utils import StaticCache
+
+    class _SlidingWindowCacheStub(StaticCache):
+        pass
+
+    _cache_utils.SlidingWindowCache = _SlidingWindowCacheStub
+
+# peft 0.19+ requires prepare_inputs_for_generation on the inner model when task_type=CAUSAL_LM.
+# The model wraps the inner Phi4MMModel (which lacks this method); patch PeftModelForCausalLM to
+# tolerate the missing attribute since generation is handled by the outer Phi4MMForCausalLM.
+import peft as _peft
+
+
+def _peft_causal_lm_init_compat(
+    self, model, peft_config, adapter_name="default", **kwargs
+):
+    super(_peft.PeftModelForCausalLM, self).__init__(
+        model, peft_config, adapter_name, **kwargs
+    )
+    self.base_model_prepare_inputs_for_generation = getattr(
+        self.base_model, "prepare_inputs_for_generation", None
+    )
+
+
+_peft.PeftModelForCausalLM.__init__ = _peft_causal_lm_init_compat
+
+# transformers 5.x expects _tied_weights_keys as a dict; old model code uses a list.
+# Patch get_expanded_tied_weights_keys to convert list format to empty dict so loading works.
+_orig_get_expanded = _modeling_utils.PreTrainedModel.get_expanded_tied_weights_keys
+
+
+def _get_expanded_tied_weights_keys_compat(self, all_submodels=False):
+    if isinstance(self._tied_weights_keys, list):
+        _orig_keys = self._tied_weights_keys
+        self._tied_weights_keys = {}
+        try:
+            return _orig_get_expanded(self, all_submodels=all_submodels)
+        finally:
+            self._tied_weights_keys = _orig_keys
+    return _orig_get_expanded(self, all_submodels=all_submodels)
+
+
+_modeling_utils.PreTrainedModel.get_expanded_tied_weights_keys = (
+    _get_expanded_tied_weights_keys_compat
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -83,9 +135,33 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # NemoConvSubsampling calls int() on tensors during __init__, which fails with
+        # the meta device context that transformers 5.x always uses. Patch get_init_context
+        # to exclude meta device so concrete tensor values are available during init.
+        _orig_get_init_context = (
+            _modeling_utils.PreTrainedModel.get_init_context.__func__
+        )
+
+        @classmethod  # type: ignore[misc]
+        def _get_init_context_no_meta(cls, dtype, is_quantized, _is_ds_init_called):
+            contexts = _orig_get_init_context(
+                cls, dtype, is_quantized, _is_ds_init_called
+            )
+            return [
+                c
+                for c in contexts
+                if not (isinstance(c, torch.device) and c.type == "meta")
+            ]
+
+        _modeling_utils.PreTrainedModel.get_init_context = _get_init_context_no_meta
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _modeling_utils.PreTrainedModel.get_init_context = classmethod(
+                _orig_get_init_context
+            )
 
         self.config = model.config
         self.model = model
@@ -99,23 +175,8 @@ class ModelLoader(ForgeModel):
             "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/pipeline-cat-chonk.jpeg"
         )
 
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image", "image": image},
-                    {"type": "text", "text": "What is in this image?"},
-                ],
-            },
-        ]
-
-        inputs = self.processor.apply_chat_template(
-            messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
-            return_tensors="pt",
-        )
+        prompt = "<|user|><|image_1|>\nWhat is in this image?<|end|><|assistant|>"
+        inputs = self.processor(prompt, images=[image], return_tensors="pt")
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
