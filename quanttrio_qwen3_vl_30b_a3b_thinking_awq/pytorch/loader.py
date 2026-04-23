@@ -5,6 +5,8 @@
 QuantTrio Qwen3-VL-30B-A3B-Thinking AWQ model loader implementation for image to text.
 """
 
+import os
+
 from transformers import (
     Qwen3VLMoeForConditionalGeneration,
     AutoConfig,
@@ -84,6 +86,9 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The QuantTrio Qwen3-VL-30B-A3B-Thinking AWQ model instance.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        # Redirect HF cache to /tmp (741GB tmpfs) since /data/hf-bringup may be full
+        os.environ["HF_HOME"] = "/tmp/huggingface"
 
         model_kwargs = {}
         if dtype_override is not None:
