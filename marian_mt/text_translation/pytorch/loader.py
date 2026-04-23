@@ -90,6 +90,14 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.OPUS_MT_TR_EN
 
     _SAMPLE_TEXTS = {
+        ModelVariant.OPUS_MT_EN_DRA: ">>ta<< The weather is beautiful today and the sun is shining brightly.",
+        ModelVariant.OPUS_MT_EN_HE: "The weather is beautiful today and the sun is shining brightly.",
+        ModelVariant.OPUS_MT_EN_ID: "The weather is beautiful today and the sun is shining brightly.",
+        ModelVariant.OPUS_MT_EN_MUL: ">>fr<< The weather is beautiful today and the sun is shining brightly.",
+        ModelVariant.OPUS_MT_EU_EN: "Eguraldi ederra da gaur eta eguzkia argi distira egiten ari da.",
+        ModelVariant.OPUS_MT_FR_ES: "Le temps est beau aujourd'hui et le soleil brille.",
+        ModelVariant.OPUS_MT_NL_ES: "Het weer is mooi vandaag en de zon schijnt.",
+        ModelVariant.OPUS_MT_ROA_EN: "Le temps est beau aujourd'hui et le soleil brille.",
         ModelVariant.OPUS_MT_TR_EN: "Merhaba dünya, bugün hava çok güzel.",
         ModelVariant.OPUS_MT_TC_BIG_EN_BG: "The weather is beautiful today and the sun is shining brightly.",
         ModelVariant.OPUS_MT_TC_BIG_EN_KO: "The weather is beautiful today and the sun is shining brightly.",
