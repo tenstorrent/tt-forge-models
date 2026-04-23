@@ -8,6 +8,45 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+
+def _find_real_load_gguf(fn):
+    """Walk the monkey-patch closure chain to find the real transformers load_gguf_checkpoint."""
+    seen = set()
+    while id(fn) not in seen:
+        seen.add(id(fn))
+        if getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+            return fn
+        if fn.__closure__ is None:
+            return fn
+        freevars = getattr(fn.__code__, "co_freevars", ())
+        found = False
+        for i, name in enumerate(freevars):
+            if "load_gguf" in name:
+                try:
+                    val = fn.__closure__[i].cell_contents
+                    if callable(val):
+                        fn = val
+                        found = True
+                        break
+                except ValueError:
+                    pass
+        if not found:
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val) and "load_gguf" in getattr(val, "__name__", ""):
+                        fn = val
+                        found = True
+                        break
+                except ValueError:
+                    pass
+        if not found:
+            return fn
+    return fn
+
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -94,9 +133,22 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Other loaders monkey-patch load_gguf_checkpoint without accepting
+        # model_to_load (added in transformers 5.x). Temporarily install a
+        # wrapper that bypasses those patches and calls the real function.
+        _outer = _gguf_utils.load_gguf_checkpoint
+        _real = _find_real_load_gguf(_outer)
+
+        def _compat_load_gguf(gguf_path, return_tensors=False, **kw):
+            return _real(gguf_path, return_tensors=return_tensors, **kw)
+
+        _gguf_utils.load_gguf_checkpoint = _compat_load_gguf
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _outer
 
         self.config = model.config
         self.model = model
