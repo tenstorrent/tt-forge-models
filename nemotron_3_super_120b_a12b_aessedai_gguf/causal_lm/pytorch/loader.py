@@ -74,6 +74,37 @@ def _apply_gguf_patches():
         )
 
     _gguf_utils.get_gguf_hf_weights_map = _patched_get_map
+
+    # load_gguf_checkpoint returns model_type="nemotron_h_moe" (from the GGUF
+    # general.architecture field) but transformers only knows "nemotron_h".
+    # Wrap load_gguf_checkpoint everywhere it's imported at module level so the
+    # returned config dict always has model_type="nemotron_h".
+    _orig_load_gguf = _gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf(gguf_path, return_tensors=False, model_to_load=None):
+        result = _orig_load_gguf(
+            gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+        )
+        if result.get("config", {}).get("model_type") == "nemotron_h_moe":
+            result["config"]["model_type"] = "nemotron_h"
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf
+
+    # Propagate the patch to all modules that imported load_gguf_checkpoint
+    # at their own module level (top-of-file imports keep a direct reference).
+    for _mod_name in (
+        "transformers.configuration_utils",
+        "transformers.models.auto.tokenization_auto",
+        "transformers.tokenization_utils_tokenizers",
+    ):
+        import sys
+
+        if _mod_name in sys.modules:
+            _mod = sys.modules[_mod_name]
+            if hasattr(_mod, "load_gguf_checkpoint"):
+                _mod.load_gguf_checkpoint = _patched_load_gguf
+
     _gguf_utils._nemotron_h_moe_patched = True
 
 
