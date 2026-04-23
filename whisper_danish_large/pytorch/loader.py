@@ -76,7 +76,11 @@ class ModelLoader(ForgeModel):
         self.model = WhisperForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        self.processor = WhisperProcessor.from_pretrained(pretrained_model_name)
+        try:
+            self.processor = WhisperProcessor.from_pretrained(pretrained_model_name)
+        except OSError:
+            # Repo lacks preprocessor_config.json; use base model's processor
+            self.processor = WhisperProcessor.from_pretrained("openai/whisper-large")
 
         self.model.eval()
         if dtype_override is not None:
