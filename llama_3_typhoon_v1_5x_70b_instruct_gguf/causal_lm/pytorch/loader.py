@@ -4,6 +4,7 @@
 """
 Llama 3 Typhoon v1.5x 70B Instruct GGUF model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -41,6 +42,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.LLAMA_3_TYPHOON_V1_5X_70B_INSTRUCT_Q4_K_M_GGUF
 
     GGUF_FILE = "llama-3-typhoon-v1.5x-70b-instruct.i1-Q4_K_M.gguf"
+    BASE_MODEL = "scb10x/llama-3-typhoon-v1.5x-70b-instruct"
 
     sample_text = "What is your favorite city?"
 
@@ -64,14 +66,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(self.BASE_MODEL)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -83,18 +78,16 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
+        config = AutoConfig.from_pretrained(self.BASE_MODEL)
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -156,7 +149,5 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        self.config = AutoConfig.from_pretrained(self.BASE_MODEL)
         return self.config
