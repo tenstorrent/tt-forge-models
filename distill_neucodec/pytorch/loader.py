@@ -75,18 +75,28 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            torch.nn.Module: The Distill-NeuCodec model instance.
+            torch.nn.Module: The Distill-NeuCodec encoder wrapper.
         """
         from neucodec import DistillNeuCodec
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model = DistillNeuCodec.from_pretrained(pretrained_model_name, **kwargs)
+        codec = DistillNeuCodec.from_pretrained(pretrained_model_name, **kwargs)
 
         if dtype_override is not None:
-            model = model.to(dtype=dtype_override)
+            codec = codec.to(dtype=dtype_override)
 
-        model.eval()
+        codec.eval()
+
+        class DistillNeuCodecEncoder(torch.nn.Module):
+            def __init__(self, model):
+                super().__init__()
+                self.model = model
+
+            def forward(self, audio):
+                return self.model.encode_code(audio)
+
+        model = DistillNeuCodecEncoder(codec)
         self.model = model
         return model
 
