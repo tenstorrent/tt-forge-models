@@ -94,6 +94,8 @@ class ModelLoader(ForgeModel):
         Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
         Returns the transformer nn.Module directly for compilation testing.
         """
+        import sys
+
         import diffusers.utils.import_utils as _diffusers_import_utils
 
         if not _diffusers_import_utils._gguf_available:
@@ -109,6 +111,28 @@ class ModelLoader(ForgeModel):
                     )
                 except importlib.metadata.PackageNotFoundError:
                     pass
+
+        # Patch missing gguf utilities into the quantizer module when diffusers was
+        # imported before gguf was installed (lazy requirements.txt install timing).
+        _gguf_q_mod = sys.modules.get("diffusers.quantizers.gguf.gguf_quantizer")
+        if _gguf_q_mod is not None and not hasattr(
+            _gguf_q_mod, "_replace_with_gguf_linear"
+        ):
+            from diffusers.quantizers.gguf.utils import (
+                GGML_QUANT_SIZES,
+                GGUFParameter,
+                _dequantize_gguf_and_restore_linear,
+                _quant_shape_from_byte_shape,
+                _replace_with_gguf_linear,
+            )
+
+            _gguf_q_mod.GGML_QUANT_SIZES = GGML_QUANT_SIZES
+            _gguf_q_mod.GGUFParameter = GGUFParameter
+            _gguf_q_mod._dequantize_gguf_and_restore_linear = (
+                _dequantize_gguf_and_restore_linear
+            )
+            _gguf_q_mod._quant_shape_from_byte_shape = _quant_shape_from_byte_shape
+            _gguf_q_mod._replace_with_gguf_linear = _replace_with_gguf_linear
 
         from diffusers import (
             GGUFQuantizationConfig,
