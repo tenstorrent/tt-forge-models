@@ -4,6 +4,8 @@
 """
 mradermacher iFlow-ROME GGUF model loader implementation for causal language modeling.
 """
+
+import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -66,6 +68,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        cache_dir = os.environ.get("TT_MODEL_CACHE_DIR", None)
+        if cache_dir is not None:
+            tokenizer_kwargs["cache_dir"] = cache_dir
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -86,11 +91,15 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        cache_dir = os.environ.get("TT_MODEL_CACHE_DIR", None)
+        if cache_dir is not None:
+            model_kwargs["cache_dir"] = cache_dir
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            config_kwargs = {"gguf_file": self.GGUF_FILE}
+            if cache_dir is not None:
+                config_kwargs["cache_dir"] = cache_dir
+            config = AutoConfig.from_pretrained(pretrained_model_name, **config_kwargs)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -160,7 +169,11 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        config_kwargs = {"gguf_file": self.GGUF_FILE}
+        cache_dir = os.environ.get("TT_MODEL_CACHE_DIR", None)
+        if cache_dir is not None:
+            config_kwargs["cache_dir"] = cache_dir
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
         return self.config
