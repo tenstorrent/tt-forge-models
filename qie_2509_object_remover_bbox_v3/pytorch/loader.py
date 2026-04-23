@@ -52,6 +52,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self._transformer = None
+        self._model_dtype = torch.float32
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -84,7 +85,8 @@ class ModelLoader(ForgeModel):
         )
         pipeline.fuse_lora()
 
-        self._transformer = pipeline.transformer.to(dtype=dtype)
+        self._transformer = pipeline.transformer
+        self._model_dtype = next(self._transformer.parameters()).dtype
         self._transformer.eval()
         return self._transformer
 
@@ -93,7 +95,7 @@ class ModelLoader(ForgeModel):
 
         Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = kwargs.get("dtype_override", self._model_dtype)
         batch_size = kwargs.get("batch_size", 1)
 
         # From model config: in_channels=64 (img_in linear input dimension)
