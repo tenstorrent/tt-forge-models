@@ -1,2 +1,2 @@
-qwen-vl-utils[decord]==0.0.8
+qwen-vl-utils==0.0.8
 gguf>=0.10.0
