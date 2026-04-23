@@ -42,7 +42,7 @@ SUPPORTED_SUBFOLDERS = {"transformer", "vae", "audio_vae"}
 
 FP8_CHECKPOINT_URL = "https://huggingface.co/Lightricks/LTX-2.3-fp8/blob/main/ltx-2.3-22b-distilled-fp8.safetensors"
 NVFP4_CHECKPOINT_URL = "https://huggingface.co/Lightricks/LTX-2.3-nvfp4/blob/main/ltx-2.3-22b-dev-nvfp4.safetensors"
-COSMICVIBEZ_DISTILLED_URL = "https://huggingface.co/Cosmicvibez/LTX-2.3/resolve/main/ltx-2.3-22b-distilled.safetensors"
+COSMICVIBEZ_DISTILLED_URL = "https://huggingface.co/Cosmicvibez/LTX-2.3/blob/main/ltx-2.3-22b-distilled.safetensors"
 
 
 class ModelVariant(StrEnum):
