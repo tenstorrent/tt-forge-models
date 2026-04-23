@@ -71,6 +71,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipeline = None
+        self._dtype = torch.bfloat16
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -104,7 +105,8 @@ class ModelLoader(ForgeModel):
             FluxTransformer2DModel with LoRA weights applied (or random weights in
             compile-only mode).
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        self._dtype = dtype
 
         if self._use_random_weights():
             transformer = FluxTransformer2DModel(**_FLUX_DEV_CONFIG)
@@ -133,7 +135,7 @@ class ModelLoader(ForgeModel):
         return self._encoded_inputs()
 
     def _synthetic_inputs(self) -> dict:
-        dtype = torch.float32
+        dtype = self._dtype
         in_channels = _FLUX_DEV_CONFIG["in_channels"]
         num_channels_latents = in_channels // 4
 
@@ -170,7 +172,7 @@ class ModelLoader(ForgeModel):
             "3D Sketchfab, a stylized low-poly fox standing on a grassy "
             "hill, bright studio lighting, turntable render"
         )
-        dtype = torch.float32
+        dtype = self._dtype
         num_channels_latents = self.pipeline.transformer.config.in_channels // 4
         height_latent = 2 * (_HEIGHT // (self.pipeline.vae_scale_factor * 2))
         width_latent = 2 * (_WIDTH // (self.pipeline.vae_scale_factor * 2))
