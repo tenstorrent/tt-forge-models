@@ -11,7 +11,7 @@ Note: The qwen2vl GGUF architecture is not yet supported by the transformers
 GGUF loader, so we load from the HF-native checkpoint instead.
 """
 import torch
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
 
@@ -111,7 +111,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
-        model = Qwen2VLForConditionalGeneration.from_pretrained(
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
