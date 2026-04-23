@@ -112,12 +112,14 @@ def _fix_gguf_load_compat():
                     pass
 
         # Check module globals — broken patches store _orig as a module-level global,
-        # not as a closure variable.
+        # not as a closure variable. Recurse into globals to handle chains of
+        # broken patches where each stores the previous broken patch as _orig.
         if hasattr(fn, "__globals__"):
             for name, val in fn.__globals__.items():
                 if callable(val) and "gguf" in name.lower() and id(val) not in visited:
-                    if _is_compat(val):
-                        return val
+                    result = _find_real(val, visited)
+                    if result is not None:
+                        return result
 
         return None
 
