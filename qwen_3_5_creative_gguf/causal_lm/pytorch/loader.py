@@ -8,6 +8,18 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
+    TENSOR_PROCESSORS,
+    Qwen2MoeTensorProcessor,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -18,6 +30,90 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_qwen35moe_gguf():
+    """Patch transformers to support qwen35moe GGUF architecture.
+
+    qwen35moe GGUF files store MoE experts as separate ffn_gate_exps and
+    ffn_up_exps tensors, but the HF Qwen3_5MoeExperts module uses a fused
+    gate_up_proj parameter. The Qwen2MoeTensorProcessor handles interleaving
+    these into the fused tensor, but only when the tensor_key_mapping contains
+    ffn_gate_exps/ffn_up_exps as keys pointing to gate_up_proj.
+
+    The gguf-py qwen35moe architecture maps gate_up_proj -> ffn_gate_up_exps
+    (a direct mapping), which prevents the fallback that would add the
+    ffn_gate_exps/ffn_up_exps -> gate_up_proj mappings. We fix this by using
+    qwen3moe (which has no direct gate_up_proj mapping) when building the
+    tensor key mapping, triggering the fallback correctly.
+    """
+    if "qwen35moe_creative_patched" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe_creative_patched")
+
+    if "qwen35moe" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
+
+    if "qwen35moe" not in GGUF_TO_TRANSFORMERS_MAPPING.get("config", {}):
+        qwen3moe_config = GGUF_TO_TRANSFORMERS_MAPPING["config"].get("qwen3moe", {})
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35moe"] = dict(qwen3moe_config)
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35moe"][
+            "full_attention_interval"
+        ] = "full_attention_interval"
+
+    TENSOR_PROCESSORS["qwen35moe"] = Qwen2MoeTensorProcessor
+
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen35moe", GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+        )
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_moe_text", GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+        )
+
+    _orig_load = _gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = _orig_load(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen35moe":
+            result["config"]["model_type"] = "qwen3_5_moe_text"
+            config = result["config"]
+            num_layers = config.get("num_hidden_layers", 40)
+            interval = config.pop("full_attention_interval", 4)
+            layer_types = []
+            for i in range(num_layers):
+                if (i + 1) % interval == 0:
+                    layer_types.append("full_attention")
+                else:
+                    layer_types.append("linear_attention")
+            config["layer_types"] = layer_types
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    for mod in (_config_utils, _auto_tokenizer, _tok_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    # Fix get_gguf_hf_weights_map to use qwen3moe architecture for name lookup.
+    # qwen35moe maps gate_up_proj -> ffn_gate_up_exps (direct), which prevents
+    # the fallback that adds ffn_gate_exps/ffn_up_exps -> gate_up_proj mappings.
+    # Using qwen3moe (where gate_up_proj -> None) triggers the fallback correctly.
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe", "qwen35moe"):
+            model_type = "qwen3moe"
+        return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_qwen35moe_gguf()
 
 
 class ModelVariant(StrEnum):
