@@ -6,12 +6,15 @@ UnifiedReward-Edit-qwen-72b i1 GGUF model loader implementation for image to tex
 
 Note: The qwen2vl GGUF architecture is not yet supported by the transformers
 GGUF loader, and dequantizing 963 GGUF tensors for a 72B model takes ~40
-minutes on CPU. We load the Qwen2 text decoder config from the base model
-and instantiate with random weights for compile-only testing.
+minutes on CPU. The base model (CodeGoat24/UnifiedReward-Edit-qwen-72b) is a
+VL model whose text_config is Qwen2_5_VLTextConfig, which AutoModelForCausalLM
+doesn't recognize. We load a clean Qwen2Config from Qwen/Qwen2.5-72B-Instruct
+(same text decoder architecture) with reduced layers and random weights for
+compile-only testing.
 """
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer, Qwen2Config, Qwen2ForCausalLM
 from typing import Optional
 
 from ....base import ForgeModel
@@ -50,7 +53,13 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.UNIFIED_REWARD_EDIT_QWEN_72B_I1_GGUF
 
-    BASE_MODEL = "CodeGoat24/UnifiedReward-Edit-qwen-72b"
+    # Use the pure text model config — same Qwen2 decoder architecture but
+    # AutoModelForCausalLM recognizes Qwen2Config, not Qwen2_5_VLTextConfig.
+    TEXT_MODEL = "Qwen/Qwen2.5-72B-Instruct"
+    TOKENIZER_MODEL = "CodeGoat24/UnifiedReward-Edit-qwen-72b"
+
+    # Reduce from 80 layers to 4 for compile-only testing (full model ~144GB RAM)
+    NUM_LAYERS_COMPILE = 4
 
     sample_text = "Describe this image."
 
@@ -72,10 +81,10 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        full_config = AutoConfig.from_pretrained(self.BASE_MODEL)
-        config = full_config.text_config
+        config = Qwen2Config.from_pretrained(self.TEXT_MODEL)
+        config.num_hidden_layers = self.NUM_LAYERS_COMPILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(self.BASE_MODEL)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.TOKENIZER_MODEL)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -84,14 +93,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
+        model = Qwen2ForCausalLM(config, **model_kwargs)
         model.eval()
 
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(self.BASE_MODEL)
+            self.tokenizer = AutoTokenizer.from_pretrained(self.TOKENIZER_MODEL)
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
