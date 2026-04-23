@@ -110,23 +110,52 @@ class ModelLoader(ForgeModel):
         Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
         Returns the transformer nn.Module directly for compilation testing.
         """
+        import importlib
+        import importlib.metadata
+        import importlib.util
+        import sys
+
         import diffusers.utils.import_utils as _diffusers_import_utils
 
         if not _diffusers_import_utils._gguf_available:
-            import importlib.util
-
             if importlib.util.find_spec("gguf") is not None:
                 _diffusers_import_utils._gguf_available = True
 
         if _diffusers_import_utils._gguf_version == "N/A":
             try:
-                import importlib.metadata
-
                 _diffusers_import_utils._gguf_version = importlib.metadata.version(
                     "gguf"
                 )
             except importlib.metadata.PackageNotFoundError:
                 pass
+
+        # If the diffusers GGUF quantizer was loaded before gguf was installed,
+        # its module-level conditional imports (e.g. _replace_with_gguf_linear)
+        # were skipped.  Patch the quantizer module globals directly so the
+        # already-imported GGUFQuantizer class can find the symbols it needs.
+        if _diffusers_import_utils._gguf_available:
+            import diffusers.quantizers.gguf.gguf_quantizer as _gguf_quantizer_mod
+
+            if not hasattr(_gguf_quantizer_mod, "_replace_with_gguf_linear"):
+                from diffusers.quantizers.gguf.utils import (
+                    GGML_QUANT_SIZES,
+                    GGUFParameter,
+                    _dequantize_gguf_and_restore_linear,
+                    _quant_shape_from_byte_shape,
+                    _replace_with_gguf_linear,
+                )
+
+                _gguf_quantizer_mod.GGML_QUANT_SIZES = GGML_QUANT_SIZES
+                _gguf_quantizer_mod.GGUFParameter = GGUFParameter
+                _gguf_quantizer_mod._dequantize_gguf_and_restore_linear = (
+                    _dequantize_gguf_and_restore_linear
+                )
+                _gguf_quantizer_mod._quant_shape_from_byte_shape = (
+                    _quant_shape_from_byte_shape
+                )
+                _gguf_quantizer_mod._replace_with_gguf_linear = (
+                    _replace_with_gguf_linear
+                )
 
         from diffusers import (
             GGUFQuantizationConfig,
