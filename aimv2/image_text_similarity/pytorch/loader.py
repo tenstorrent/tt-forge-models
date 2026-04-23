@@ -7,8 +7,22 @@ AIMv2 LIT model loader implementation for image-text similarity.
 
 import torch
 from transformers import AutoProcessor, AutoModel
+from transformers.modeling_utils import PreTrainedModel
 from typing import Optional
 from datasets import load_dataset
+
+# AIMv2 uses trust_remote_code and its __init__ doesn't call post_init(), so
+# all_tied_weights_keys is missing in transformers 5.x. Initialize it to {} when absent.
+_orig_adjust_tied = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+
+def _patched_adjust_tied(self, missing_keys):
+    if not hasattr(self, "all_tied_weights_keys"):
+        self.all_tied_weights_keys = {}
+    return _orig_adjust_tied(self, missing_keys)
+
+
+PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust_tied
 
 from ....base import ForgeModel
 from ....config import (
