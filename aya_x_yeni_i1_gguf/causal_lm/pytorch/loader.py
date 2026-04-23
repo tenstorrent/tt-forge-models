@@ -16,6 +16,7 @@ from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
 
 
 def _patch_command_r_support():
@@ -42,6 +43,8 @@ def _patch_command_r_support():
     _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
         "command-r"
     ] = cohere_config_mapping
+    GGUF_TO_FAST_CONVERTERS["command-r"] = GGUFLlamaConverter
+    GGUF_TO_FAST_CONVERTERS["cohere"] = GGUFLlamaConverter
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
