@@ -6,12 +6,11 @@
 Wan 2.1 VACE 1.3B GGUF model loader implementation.
 
 Loads GGUF-quantized Wan 2.1 VACE 1.3B transformers from
-samuelchristlie/Wan2.1-VACE-1.3B-GGUF and builds a WanVACEPipeline.
+samuelchristlie/Wan2.1-VACE-1.3B-GGUF.
 
 The Wan 2.1 VACE (Video All-in-one Creation Engine) model supports
-versatile video creation and editing tasks including reference-to-video
-generation. This loader uses GGUF-quantized weights for reduced memory
-usage with the smaller 1.3B parameter variant.
+versatile video creation and editing tasks. This loader uses GGUF-quantized
+weights for reduced memory usage with the smaller 1.3B parameter variant.
 
 Available variants:
 - WAN21_VACE_1_3B_Q4_K_M: Q4_K_M quantization
@@ -21,16 +20,15 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -66,7 +64,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -87,61 +85,58 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized Wan 2.1 VACE 1.3B transformer and build the pipeline.
+        """Load the GGUF-quantized Wan 2.1 VACE 1.3B transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer,
-        then constructs the full WanVACEPipeline with the base model's VAE in
-        float32 for numerical stability.
+        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
+        Returns the transformer as a torch.nn.Module.
         """
-        from diffusers import (
-            AutoencoderKLWan,
-            GGUFQuantizationConfig,
-            WanTransformer3DModel,
-            WanVACEPipeline,
-        )
+        from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        transformer = WanTransformer3DModel.from_single_file(
+        self._transformer = WanTransformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
+        self._transformer.eval()
+        return self._transformer
 
-        vae = AutoencoderKLWan.from_pretrained(
-            BASE_PIPELINE,
-            subfolder="vae",
-            torch_dtype=torch.float32,
+    def load_inputs(self, **kwargs) -> Any:
+        """Prepare synthetic tensor inputs for the Wan 2.1 VACE 1.3B transformer.
+
+        Config: in_channels=16, text_dim=4096, patch_size=[1,2,2].
+        """
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        batch_size = 1
+
+        in_channels = 16
+        text_dim = 4096
+        txt_seq_len = 32
+
+        # seq_len = frames * (height/patch_h) * (width/patch_w) with patch_size [1,2,2]
+        frames, height, width = 1, 4, 4
+        seq_len = frames * height * width
+
+        hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
         )
-
-        self.pipeline = WanVACEPipeline.from_pretrained(
-            BASE_PIPELINE,
-            transformer=transformer,
-            vae=vae,
-            torch_dtype=compute_dtype,
-        )
-
-        return self.pipeline
-
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for VACE reference-to-video generation."""
-        if prompt is None:
-            prompt = (
-                "A character walking gracefully across a sunlit garden, "
-                "smooth animation, detailed motion, cinematic lighting"
-            )
-
-        ref_image = Image.new("RGB", (832, 480), color=(128, 128, 200))
+        timestep = torch.tensor([500] * batch_size, dtype=torch.long)
 
         return {
-            "prompt": prompt,
-            "reference_images": [ref_image],
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            "hidden_states": hidden_states,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+            "return_dict": False,
         }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if isinstance(output, tuple):
+            return output[0]
+        if hasattr(output, "sample"):
+            return output.sample
+        return output
