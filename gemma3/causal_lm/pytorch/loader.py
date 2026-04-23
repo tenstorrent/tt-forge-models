@@ -165,6 +165,8 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
         model_kwargs = {}
         if self._variant == ModelVariant.GEMMA_3_1B_IT_AWQ_INT4:
+            import gptqmodel  # noqa: F401
+
             model_kwargs["device_map"] = "cpu"
         elif self._variant == ModelVariant.GEMMA_3_4B_IT_BNB_4BIT:
             model_kwargs["device_map"] = "cpu"
