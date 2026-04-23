@@ -14,7 +14,6 @@ Repository: https://huggingface.co/hpcai-tech/OpenSora-VAE-v1.2
 from typing import Any, Optional
 
 import torch
-from opensora.models.vae.vae import VideoAutoencoderPipeline  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -75,6 +74,8 @@ class ModelLoader(ForgeModel):
         Returns:
             VideoAutoencoderPipeline instance.
         """
+        from opensora.models.vae.vae import VideoAutoencoderPipeline  # type: ignore[import]
+
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._vae is None:
             self._vae = VideoAutoencoderPipeline.from_pretrained(
