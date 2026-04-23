@@ -15,7 +15,6 @@ Available variants:
 
 from typing import Any, Optional
 
-import sdnq  # noqa: F401 -- registers SDNQ quantization support with diffusers
 import torch
 from diffusers import ZImagePipeline
 
@@ -70,6 +69,8 @@ class ModelLoader(ForgeModel):
 
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
         """Load the quantized Z-Image-Turbo pipeline."""
+        import sdnq  # noqa: F401 -- registers SDNQ quantization support with diffusers
+
         self._pipe = ZImagePipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
