@@ -77,15 +77,21 @@ def load_transformer_inputs(dtype: torch.dtype = torch.bfloat16) -> dict:
     (16 latent + 16 image latent + 4 mask/extra conditioning).
     """
     batch_size = 1
-    seq_len = LATENT_DEPTH * LATENT_HEIGHT * LATENT_WIDTH
 
+    # WanTransformer3DModel.forward expects (batch, channels, frames, height, width)
     hidden_states = torch.randn(
-        batch_size, seq_len, TRANSFORMER_IN_CHANNELS, dtype=dtype
+        batch_size,
+        TRANSFORMER_IN_CHANNELS,
+        LATENT_DEPTH,
+        LATENT_HEIGHT,
+        LATENT_WIDTH,
+        dtype=dtype,
     )
     encoder_hidden_states = torch.randn(
         batch_size, TEXT_SEQ_LEN, TEXT_HIDDEN_DIM, dtype=dtype
     )
-    timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+    # Diffusion timestep must be an integer (LongTensor), range ~0-999
+    timestep = torch.tensor([500], dtype=torch.int64).expand(batch_size)
 
     return {
         "hidden_states": hidden_states,
