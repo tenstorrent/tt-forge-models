@@ -5,9 +5,39 @@
 Olmo3 Recurrent Adapter SFT CoT causal LM model loader implementation.
 """
 
+import contextlib
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    AutoConfig,
+    PreTrainedModel,
+)
 from typing import Optional
+
+
+@contextlib.contextmanager
+def _disable_meta_device_init():
+    # transformers 5.x unconditionally adds torch.device("meta") to init contexts in
+    # PreTrainedModel.get_init_context. The custom RecurrentAdapterModel calls
+    # from_pretrained() inside its __init__, which fails when already in meta device
+    # context. Temporarily patch get_init_context to strip that device context.
+    original = PreTrainedModel.__dict__["get_init_context"]
+
+    @classmethod
+    def _patched(cls, dtype, is_quantized, _is_ds_init_called):
+        return [
+            c
+            for c in original.__func__(cls, dtype, is_quantized, _is_ds_init_called)
+            if not isinstance(c, torch.device)
+        ]
+
+    PreTrainedModel.get_init_context = _patched
+    try:
+        yield
+    finally:
+        PreTrainedModel.get_init_context = original
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -78,21 +108,16 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {
-            "trust_remote_code": True,
-            # The custom hf_model.py calls from_pretrained() inside its __init__, which
-            # is incompatible with the meta device context that transformers uses for
-            # low_cpu_mem_usage=True. Disable it so the nested call doesn't fail.
-            "low_cpu_mem_usage": False,
-        }
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        with _disable_meta_device_init():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
         model.eval()
 
         self.config = model.config
