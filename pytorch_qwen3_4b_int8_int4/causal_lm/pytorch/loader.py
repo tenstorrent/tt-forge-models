@@ -86,9 +86,23 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        except ValueError as e:
+            # torchao QDQLayout is not yet available in public releases; fall
+            # back to architecture-only random-weight init for compile-only runs
+            if "Failed to find class" not in str(e):
+                raise
+            cfg = model_kwargs.pop("config", None) or AutoConfig.from_pretrained(
+                pretrained_model_name
+            )
+            if hasattr(cfg, "quantization_config"):
+                del cfg.quantization_config
+            model = AutoModelForCausalLM.from_config(cfg).eval()
+            if dtype_override is not None:
+                model = model.to(dtype_override)
 
         self.config = model.config
         self.model = model
