@@ -115,15 +115,24 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        inputs = self.tokenizer.apply_chat_template(
-            self.messages,
-            add_generation_prompt=True,
-            tokenize=True,
-            return_dict=True,
-            return_tensors="pt",
-            padding="max_length",
-            max_length=128,
-        )
+        if self.tokenizer.chat_template is not None:
+            inputs = self.tokenizer.apply_chat_template(
+                self.messages,
+                add_generation_prompt=True,
+                tokenize=True,
+                return_dict=True,
+                return_tensors="pt",
+                padding="max_length",
+                max_length=128,
+            )
+        else:
+            prompt = "\n".join(f"{m['role']}: {m['content']}" for m in self.messages)
+            inputs = self.tokenizer(
+                prompt,
+                return_tensors="pt",
+                padding="max_length",
+                max_length=128,
+            )
         if (
             hasattr(self.model.config, "sliding_window")
             and self.model.config.sliding_window is not None
