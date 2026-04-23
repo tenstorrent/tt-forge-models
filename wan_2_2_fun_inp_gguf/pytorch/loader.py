@@ -114,6 +114,14 @@ class ModelLoader(ForgeModel):
         finally:
             _sfm.dispatch_model = _orig_dispatch
 
+        # TT-XLA's __torch_function__ intercepts F.linear before GGUFLinear can
+        # dequantize, causing a Byte vs BFloat16 dtype mismatch. Convert all
+        # GGUFLinear layers to standard nn.Linear with dequantized weights.
+        from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
+
+        self.transformer = _dequantize_gguf_and_restore_linear(self.transformer)
+        self.transformer = self.transformer.to(compute_dtype)
+
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
