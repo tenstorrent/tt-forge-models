@@ -17,6 +17,7 @@ weights via AutoModelForSpeechSeq2Seq.
 from typing import Optional
 
 import numpy as np
+import torch
 
 from ....base import ForgeModel
 from ....config import (
@@ -54,6 +55,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self._processor = None
+        self._model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -93,6 +95,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model.to(dtype_override)
 
+        self._model = model
         return model
 
     def load_inputs(self, dtype_override=None):
@@ -110,6 +113,16 @@ class ModelLoader(ForgeModel):
             audio_array,
             sampling_rate=sampling_rate,
             return_tensors="pt",
+        )
+
+        if self._model is not None:
+            model_param = next(self._model.parameters())
+            target_dtype = dtype_override or model_param.dtype
+            inputs["input_features"] = inputs["input_features"].to(dtype=target_dtype)
+
+        decoder_start_token_id = self._model.config.decoder_start_token_id
+        inputs["decoder_input_ids"] = torch.full(
+            (1, 1), decoder_start_token_id, dtype=torch.long
         )
 
         return inputs
