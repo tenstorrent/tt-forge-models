@@ -253,7 +253,10 @@ class ModelLoader(ForgeModel):
             config.image_embed_dim,
             dtype=dtype,
         )
-        timestep = torch.tensor([500], dtype=torch.long).expand(batch_size)
+        # HunyuanVideo15TimeEmbedding.forward does .to(dtype=timestep.dtype) on the
+        # sinusoidal projection, so passing long would convert float→long and break
+        # the subsequent linear layer. Use the compute dtype instead.
+        timestep = torch.tensor([500], dtype=dtype).expand(batch_size)
 
         return {
             "hidden_states": hidden_states,
