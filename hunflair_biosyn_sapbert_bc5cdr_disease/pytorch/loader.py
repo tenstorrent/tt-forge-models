@@ -5,7 +5,12 @@
 HunFlair BioSyn SapBERT BC5CDR disease entity mention linker loader.
 """
 
+import importlib
+import os
+import sys
 from typing import Optional
+
+import torch
 
 from ...base import ForgeModel
 from ...config import (
@@ -23,6 +28,18 @@ class ModelVariant(StrEnum):
     """Available HunFlair BioSyn SapBERT BC5CDR disease model variants."""
 
     BIOSYN_SAPBERT_BC5CDR_DISEASE = "biosyn-sapbert-bc5cdr-disease"
+
+
+class _EmbeddingWrapper(torch.nn.Module):
+    """Wraps TransformerDocumentEmbeddings to expose a standard forward()."""
+
+    def __init__(self, embedding_model):
+        super().__init__()
+        self.embedding_model = embedding_model
+
+    def forward(self, input_ids, attention_mask):
+        out = self.embedding_model(input_ids, attention_mask=attention_mask)
+        return out["document_embeddings"]
 
 
 class ModelLoader(ForgeModel):
@@ -43,6 +60,7 @@ class ModelLoader(ForgeModel):
             "The mutation in the ABCD1 gene causes X-linked adrenoleukodystrophy, "
             "a neurodegenerative disease."
         )
+        self._tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -57,41 +75,66 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _fix_flair_path():
+        # The local flair/ model-group dir shadows the PyPI flair package.
+        # Temporarily remove any sys.path entry that has flair/ without flair/models/.
+        stubs = [
+            p
+            for p in list(sys.path)
+            if p
+            and "site-packages" not in p
+            and os.path.isdir(os.path.join(p, "flair"))
+            and not os.path.isdir(os.path.join(p, "flair", "models"))
+        ]
+        for p in stubs:
+            sys.path.remove(p)
+        for key in [k for k in sys.modules if k == "flair" or k.startswith("flair.")]:
+            del sys.modules[key]
+        importlib.invalidate_caches()
+        return stubs
+
+    @staticmethod
+    def _restore_flair_path(stubs):
+        for p in reversed(stubs):
+            sys.path.insert(0, p)
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        from flair.models import EntityMentionLinker
+        stubs = self._fix_flair_path()
+        try:
+            from flair.models import EntityMentionLinker
+        finally:
+            self._restore_flair_path(stubs)
 
         linker = EntityMentionLinker.load(self.model_name)
-        self.model = linker
+        dense_emb = linker.candidate_generator.embeddings["dense"]
+        self._tokenizer = dense_emb.tokenizer
 
+        model = _EmbeddingWrapper(dense_emb)
         if dtype_override is not None:
-            linker = linker.to(dtype_override)
-
-        linker.eval()
-        return linker
+            model = model.to(dtype_override)
+        model.eval()
+        return model
 
     def load_inputs(self, dtype_override=None):
-        from flair.data import Sentence
-
-        sentence = Sentence(self.sample_text)
-        return [sentence]
+        if self._tokenizer is None:
+            raise RuntimeError("load_model() must be called before load_inputs()")
+        inputs = self._tokenizer(
+            self.sample_text,
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=128,
+        )
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if v.is_floating_point() else v
+                for k, v in inputs.items()
+            }
+        return (inputs["input_ids"], inputs["attention_mask"])
 
     def decode_output(self, co_out):
-        from flair.data import Sentence
-
-        sentence = Sentence(self.sample_text)
-        self.model.predict(sentence)
-
-        links = []
-        for span in sentence.get_spans():
-            for label in span.get_labels(self.model.label_type):
-                links.append(
-                    {
-                        "text": span.text,
-                        "link": label.value,
-                        "score": label.score,
-                    }
-                )
-
-        print(f"Context: {self.sample_text}")
-        print(f"Entity links: {links}")
-        return links
+        if isinstance(co_out, torch.Tensor):
+            print(f"Embedding shape: {co_out.shape}")
+            return co_out
+        return co_out
