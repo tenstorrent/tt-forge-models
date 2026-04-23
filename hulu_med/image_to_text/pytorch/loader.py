@@ -19,7 +19,6 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -130,17 +129,13 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        image_file = get_file(self.sample_image)
-
-        conversation = [
+        messages = [
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "image",
-                        "image": {
-                            "image_path": image_file,
-                        },
+                        "image": self.sample_image,
                     },
                     {
                         "type": "text",
@@ -150,19 +145,13 @@ class ModelLoader(ForgeModel):
             }
         ]
 
-        inputs = self.processor(
-            conversation=conversation,
+        inputs = self.processor.apply_chat_template(
+            messages,
+            tokenize=True,
             add_generation_prompt=True,
+            return_dict=True,
             return_tensors="pt",
         )
-
-        if dtype_override is not None and "pixel_values" in inputs:
-            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
-
-        if batch_size > 1:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]):
-                    inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
 
