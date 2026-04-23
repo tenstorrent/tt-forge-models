@@ -67,15 +67,18 @@ class ModelLoader(ForgeModel):
                 _diffusers_import_utils._gguf_available = True
 
         from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
+        from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        repo = self._variant_config.pretrained_model_name
-        gguf_url = f"https://huggingface.co/{repo}/resolve/main/{self.GGUF_FILE}"
+        gguf_path = hf_hub_download(
+            repo_id=self._variant_config.pretrained_model_name,
+            filename=self.GGUF_FILE,
+        )
 
         self.transformer = WanTransformer3DModel.from_single_file(
-            gguf_url,
+            gguf_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
