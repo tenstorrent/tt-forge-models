@@ -135,8 +135,8 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.float32
 
         if self._variant == ModelVariant.VAE:
-            # AutoencoderKL decode input: [B, latent_channels, H/8, W/8]
-            return torch.randn(1, 4, 32, 32, dtype=dtype)
+            # AutoencoderKL encode input: [B, in_channels=3, H, W]
+            return torch.randn(1, 3, 32, 32, dtype=dtype)
 
         # UNet inputs. Config: in_channels=8, num_views=6, sample_size=32,
         # cross_attention_dim=768, class_embed_type="projection",
