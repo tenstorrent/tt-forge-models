@@ -21,25 +21,27 @@ from transformers.modeling_gguf_pytorch_utils import (
 
 
 def _patch_seed_oss_support():
-    """Register seed_oss GGUF architecture using qwen2-style config mappings.
+    """Register seed_oss GGUF architecture using qwen3-style config mappings.
 
     seed_oss is a registered transformers model type but lacks GGUF config
-    mappings; its parameter names match the qwen2 layout.
+    mappings.  It is Qwen3-based (vocab 151,936) so we alias it to qwen3,
+    not qwen2 (which has vocab 152,064 and would produce out-of-range token
+    IDs against the seed_oss embedding table).
     """
     if "seed_oss" in GGUF_SUPPORTED_ARCHITECTURES:
         return
     GGUF_SUPPORTED_ARCHITECTURES.append("seed_oss")
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
-        if "qwen2" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
             _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["seed_oss"] = dict(
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen2"]
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"]
             )
-    if "qwen2" in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["seed_oss"] = GGUF_TO_FAST_CONVERTERS["qwen2"]
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["seed_oss"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
     if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
-        if "qwen2" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
             _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["seed_oss"] = (
-                _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen2"]
+                _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3"]
             )
 
 
