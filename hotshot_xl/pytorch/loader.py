@@ -85,15 +85,21 @@ class ModelLoader(ForgeModel):
             self._vae = self._vae.to(dtype=dtype_override)
         return self._vae
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare inputs for the VAE.
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare inputs for the VAE forward pass (encode + decode).
 
-        Pass vae_type="decoder" (default) or vae_type="encoder".
+        The default produces a 3-channel image suitable for the AutoencoderKL
+        forward method which calls encode() first.  Pass vae_type="decoder" to
+        get a latent tensor instead.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        vae_type = kwargs.get("vae_type", "decoder")
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        vae_type = kwargs.get("vae_type", "encoder")
 
-        if vae_type == "decoder":
+        if vae_type == "encoder":
+            return torch.randn(1, 3, LATENT_HEIGHT * 8, LATENT_WIDTH * 8, dtype=dtype)
+        elif vae_type == "decoder":
             return torch.randn(
                 1,
                 LATENT_CHANNELS,
@@ -101,9 +107,7 @@ class ModelLoader(ForgeModel):
                 LATENT_WIDTH,
                 dtype=dtype,
             )
-        elif vae_type == "encoder":
-            return torch.randn(1, 3, LATENT_HEIGHT * 8, LATENT_WIDTH * 8, dtype=dtype)
         else:
             raise ValueError(
-                f"Unknown vae_type: {vae_type}. Expected 'decoder' or 'encoder'."
+                f"Unknown vae_type: {vae_type}. Expected 'encoder' or 'decoder'."
             )
