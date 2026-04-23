@@ -56,11 +56,11 @@ def _patch_transformers_seed_oss_gguf():
 
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
-        GGUFQwen2Converter,
+        GGUFGPTConverter,
     )
 
     if "seed_oss" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["seed_oss"] = GGUFQwen2Converter
+        GGUF_TO_FAST_CONVERTERS["seed_oss"] = GGUFGPTConverter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
@@ -159,6 +159,12 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # Resize embeddings to match tokenizer vocab if they differ (e.g. when
+        # the GGUF converter adds extra special tokens like <s>/<\/s> beyond
+        # the GGUF vocabulary size).
+        if len(self.tokenizer) > model.config.vocab_size:
+            model.resize_token_embeddings(len(self.tokenizer))
 
         self.config = model.config
         self.model = model
