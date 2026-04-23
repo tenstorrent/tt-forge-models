@@ -5,7 +5,7 @@
 MedLLaMA 13B model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, LlamaTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -64,8 +64,14 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        # tokenizer_config.json has empty string tokens which cause recursion in newer
+        # transformers versions; use LlamaTokenizer directly with explicit token values
+        self.tokenizer = LlamaTokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            bos_token="<s>",
+            eos_token="</s>",
+            unk_token="<unk>",
+            **tokenizer_kwargs,
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
