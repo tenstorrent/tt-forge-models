@@ -7,6 +7,8 @@ for image feature extraction.
 """
 from typing import Optional
 
+import timm
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -17,6 +19,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from ...tools.utils import VisionPreprocessor
 from datasets import load_dataset
 
 
@@ -31,7 +34,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.G14_448: ModelConfig(
-            pretrained_model_name="PE-Lang-G14-448",
+            pretrained_model_name="hf_hub:timm/vit_pe_lang_gigantic_patch14_448.fb",
         ),
     }
 
@@ -39,7 +42,8 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.preprocess = None
+        self.model = None
+        self._preprocessor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -48,7 +52,7 @@ class ModelLoader(ForgeModel):
             variant=variant,
             group=ModelGroup.VULCAN,
             task=ModelTask.CV_IMAGE_FE,
-            source=ModelSource.GITHUB,
+            source=ModelSource.TIMM,
             framework=Framework.TORCH,
         )
 
@@ -61,20 +65,22 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The PE-Lang VisionTransformer model instance.
         """
-        from core.vision_encoder import pe, transforms
-
         model_name = self._variant_config.pretrained_model_name
 
-        model = pe.VisionTransformer.from_config(model_name, pretrained=True)
-        self.preprocess = transforms.get_image_transform(model.image_size)
+        model = timm.create_model(model_name, pretrained=True, num_classes=0)
+        model.eval()
+
+        self.model = model
+
+        if self._preprocessor is not None:
+            self._preprocessor.set_cached_model(model)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
 
-        model.eval()
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, dtype_override=None, batch_size=1, image=None):
         """Load and return sample inputs for the PE-Lang model.
 
         Args:
@@ -84,22 +90,30 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensor containing the preprocessed image.
         """
-        from core.vision_encoder import pe, transforms
+        if image is None:
+            dataset = load_dataset("huggingface/cats-image", split="test")
+            image = dataset[0]["image"]
+        return self.input_preprocess(
+            image=image,
+            dtype_override=dtype_override,
+            batch_size=batch_size,
+        )
 
-        if self.preprocess is None:
+    def input_preprocess(self, dtype_override=None, batch_size=1, image=None):
+        if self._preprocessor is None:
             model_name = self._variant_config.pretrained_model_name
-            model = pe.VisionTransformer.from_config(model_name, pretrained=False)
-            self.preprocess = transforms.get_image_transform(model.image_size)
 
-        dataset = load_dataset("huggingface/cats-image", split="test")
-        image = dataset[0]["image"]
+            self._preprocessor = VisionPreprocessor(
+                model_source=ModelSource.TIMM,
+                model_name=model_name,
+            )
 
-        pixel_values = self.preprocess(image).unsqueeze(0)
+            if self.model is not None:
+                self._preprocessor.set_cached_model(self.model)
 
-        if batch_size > 1:
-            pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
-
-        if dtype_override is not None:
-            pixel_values = pixel_values.to(dtype_override)
-
-        return {"image": pixel_values}
+        return self._preprocessor.preprocess(
+            image=image,
+            dtype_override=dtype_override,
+            batch_size=batch_size,
+            model_for_config=self.model,
+        )
