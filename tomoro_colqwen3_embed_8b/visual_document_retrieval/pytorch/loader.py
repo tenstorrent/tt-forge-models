@@ -79,6 +79,22 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Patch ColQwen3.tie_weights for transformers >=5.x compatibility:
+        # transformers 5.x calls tie_weights(recompute_mapping=False) but the
+        # custom ColQwen3 model only defines tie_weights(self).
+        try:
+            from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+            colqwen3_cls = get_class_from_dynamic_module(
+                "modeling_colqwen3.ColQwen3",
+                pretrained_model_name,
+                local_files_only=True,
+            )
+            _orig_tie_weights = colqwen3_cls.tie_weights
+            colqwen3_cls.tie_weights = lambda self, **kw: _orig_tie_weights(self)
+        except Exception:
+            pass
+
         model = AutoModel.from_pretrained(
             pretrained_model_name,
             **model_kwargs,
