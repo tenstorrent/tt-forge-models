@@ -20,9 +20,6 @@ from ...config import (
 )
 from ...base import ForgeModel
 from torch.hub import load_state_dict_from_url
-from ...tools.utils import yolo_postprocess
-
-
 class ModelVariant(StrEnum):
     """Available YOLOv10 model variants."""
 
@@ -165,4 +162,5 @@ class ModelLoader(ForgeModel):
         Returns:
             Post-processed detection results.
         """
+        from ...tools.utils import yolo_postprocess
         return yolo_postprocess(co_out)
