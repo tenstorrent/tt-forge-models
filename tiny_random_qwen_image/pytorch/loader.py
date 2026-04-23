@@ -65,7 +65,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_transformer(
-        self, dtype: torch.dtype = torch.float32
+        self, dtype: torch.dtype = torch.bfloat16
     ) -> QwenImageTransformer2DModel:
         """Load the diffusion transformer from tiny-random-qwen-image."""
         self._transformer = QwenImageTransformer2DModel.from_pretrained(
@@ -82,7 +82,7 @@ class ModelLoader(ForgeModel):
         Returns:
             QwenImageTransformer2DModel instance.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         if self._transformer is None:
             return self._load_transformer(dtype)
         if dtype_override is not None:
@@ -94,7 +94,7 @@ class ModelLoader(ForgeModel):
 
         Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = kwargs.get("batch_size", 1)
 
         # From model config: in_channels=64 (img_in linear input dimension)
