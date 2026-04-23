@@ -83,12 +83,19 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # transformers 5.x normalizes rope_scaling=null to a dict, but the custom
+        # modeling code expects None when no scaling is configured
+        if (
+            isinstance(config.rope_scaling, dict)
+            and config.rope_scaling.get("rope_type") == "default"
+        ):
+            config.rope_scaling = None
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
