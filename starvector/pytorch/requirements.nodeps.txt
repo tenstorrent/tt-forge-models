@@ -1,0 +1,1 @@
+starvector @ git+https://github.com/joanrod/star-vector.git
