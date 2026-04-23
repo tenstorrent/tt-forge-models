@@ -5,6 +5,7 @@
 TheBloke meditron-70B-GPTQ model loader implementation for causal language modeling.
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -78,6 +79,20 @@ class ModelLoader(ForgeModel):
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            # GPTQ with group_size=-1 (per-column) is not supported by the CPU int4
+            # backend. Use the model architecture with random weights instead.
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            model = AutoModelForCausalLM.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+            model = model.eval()
+            self.config = model.config
+            self.model = model
+            return model
 
         model_kwargs = {"device_map": "cpu"}
         if dtype_override is not None:
