@@ -85,7 +85,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix transformers version detection for dynamically installed gguf.
+
+        transformers caches package_distributions() at import time, before gguf
+        is dynamically installed by RequirementsManager. Adding the mapping
+        lets importlib.metadata.version() resolve it correctly.
+        """
+        import importlib.metadata
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+            except importlib.metadata.PackageNotFoundError:
+                pass
+
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_version_detection()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -100,6 +119,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._fix_gguf_version_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
