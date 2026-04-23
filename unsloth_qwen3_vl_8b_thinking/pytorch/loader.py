@@ -88,7 +88,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         else:
-            model_kwargs["dtype"] = "auto"
+            model_kwargs["torch_dtype"] = "auto"
             model_kwargs["device_map"] = "auto"
 
         model_kwargs |= kwargs
