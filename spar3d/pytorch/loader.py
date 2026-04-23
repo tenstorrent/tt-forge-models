@@ -17,7 +17,6 @@ from typing import Optional
 
 import torch
 from huggingface_hub import hf_hub_download
-from omegaconf import OmegaConf
 from safetensors.torch import load_file
 
 from ...base import ForgeModel
@@ -109,6 +108,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The TwoStreamInterleaveTransformer backbone.
         """
+        from omegaconf import OmegaConf
+
         _ensure_spar3d_importable()
         from spar3d.models.transformers.backbone import TwoStreamInterleaveTransformer
 
