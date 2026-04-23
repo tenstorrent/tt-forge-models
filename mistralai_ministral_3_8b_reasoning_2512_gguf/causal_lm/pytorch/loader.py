@@ -18,7 +18,11 @@ from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
-from transformers.integrations.ggml import GGUF_CONFIG_MAPPING, GGUF_TO_FAST_CONVERTERS
+from transformers.integrations.ggml import (
+    GGUF_CONFIG_MAPPING,
+    GGUF_TO_FAST_CONVERTERS,
+    GGUFLlamaConverter,
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -48,6 +52,7 @@ def _patch_mistral3_support():
             mapping.setdefault("mistral3", GGUF_CONFIG_MAPPING["mistral"])
         else:
             mapping.setdefault("mistral3", {})
+    GGUF_TO_FAST_CONVERTERS.setdefault("mistral", GGUFLlamaConverter)
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
