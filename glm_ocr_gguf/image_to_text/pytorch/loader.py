@@ -8,6 +8,7 @@ The GGUF checkpoint only contains the text backbone (glm4 architecture).
 We load the vision config from the base (non-GGUF) model and combine
 them into a full GlmOcrConfig, following the same pattern as Gemma3 GGUF.
 """
+
 import importlib.metadata
 
 import torch
@@ -40,6 +41,64 @@ def _refresh_gguf_detection():
             importlib.metadata.packages_distributions()
         )
         import_utils.is_gguf_available.cache_clear()
+
+
+def _patch_transformers_glm_ocr_gguf():
+    """Patch transformers to support GLM-OCR GGUF loading.
+
+    GlmOcrConfig is a multimodal config that wraps text_config and vision_config.
+    The get_gguf_hf_weights_map function expects num_hidden_layers and a known
+    GGUF model_type at the top-level config, but GlmOcrConfig only has these in
+    text_config.  We redirect to the text config values and map the model type to
+    the underlying chatglm GGUF architecture used by the text backbone.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+
+    if getattr(gguf_utils.get_gguf_hf_weights_map, "_patched_for_glm_ocr", False):
+        return
+
+    if "chatglm" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("chatglm")
+        from transformers.modeling_gguf_pytorch_utils import (
+            GGUF_TO_TRANSFORMERS_MAPPING,
+        )
+
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["chatglm"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "attention.key_length": "head_dim",
+            "attention.value_length": None,
+            "vocab_size": "vocab_size",
+        }
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None and hasattr(hf_model, "config"):
+            model_type = hf_model.config.model_type
+        if model_type == "glm_ocr":
+            if num_layers is None and hasattr(hf_model, "config"):
+                cfg = hf_model.config
+                if hasattr(cfg, "text_config"):
+                    num_layers = cfg.text_config.num_hidden_layers
+            model_type = "chatglm"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    patched_get_gguf_hf_weights_map._patched_for_glm_ocr = True
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_glm_ocr_gguf()
 
 
 class ModelVariant(StrEnum):
