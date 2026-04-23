@@ -14,12 +14,26 @@ import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
+from ....base import ForgeModel
+from ....config import (
+    Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
+    StrEnum,
+)
 
-def _get_real_load_gguf_checkpoint():
-    """Walk the monkey-patch closure chain to recover the original load_gguf_checkpoint.
+_gguf_compat_applied = False
 
-    Other GGUF model loaders patch load_gguf_checkpoint with signatures that drop
-    the model_to_load kwarg added in transformers 5.2.0. This finds the real function.
+
+def _find_real_load_gguf_checkpoint():
+    """Traverse the monkey-patch chain (via __globals__/co_names) to find the original.
+
+    Other GGUF loaders patch load_gguf_checkpoint with signatures that drop the
+    model_to_load kwarg added in transformers 5.2.0. We walk the chain through
+    each patched function's module globals to find the real implementation.
     """
     fn = _gguf_utils.load_gguf_checkpoint
     seen = set()
@@ -32,43 +46,44 @@ def _get_real_load_gguf_checkpoint():
             == "transformers.modeling_gguf_pytorch_utils"
         ):
             return fn
-        closure = fn.__closure__ or ()
+        code = getattr(fn, "__code__", None)
+        if code is None:
+            break
+        g = fn.__globals__
         next_fn = None
-        for var, cell in zip(getattr(fn.__code__, "co_freevars", ()), closure):
-            if "orig" in var or "load_gguf" in var:
-                try:
-                    val = cell.cell_contents
-                    if callable(val):
-                        next_fn = val
-                        break
-                except ValueError:
-                    pass
+        for name in code.co_names:
+            val = g.get(name)
+            if val is not None and callable(val) and id(val) not in seen:
+                if "load_gguf" in name.lower() or "orig" in name.lower():
+                    next_fn = val
+                    break
         if next_fn is None or next_fn is fn:
             break
         fn = next_fn
     return fn
 
 
-def _compat_load_gguf_checkpoint(*args, **kwargs):
-    """Forward all kwargs (including model_to_load) to the real load_gguf_checkpoint."""
-    return _get_real_load_gguf_checkpoint()(*args, **kwargs)
+def _apply_gguf_compat():
+    """Patch load_gguf_checkpoint to properly forward model_to_load kwarg.
 
+    Applied lazily just before AutoModelForCausalLM.from_pretrained so that
+    this patch is outermost in the chain (all other loaders have been collected
+    by then). Tokenizer/config loading (which use return_tensors=False and no
+    model_to_load) continue to work through the broken-patch chain unchanged.
+    """
+    global _gguf_compat_applied
+    if _gguf_compat_applied:
+        return
+    real_fn = _find_real_load_gguf_checkpoint()
 
-_gguf_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _compat_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
+    def _compat(*args, **kwargs):
+        return real_fn(*args, **kwargs)
 
-from ....base import ForgeModel
-from ....config import (
-    Framework,
-    LLMModelConfig,
-    ModelGroup,
-    ModelInfo,
-    ModelSource,
-    ModelTask,
-    StrEnum,
-)
+    _gguf_utils.load_gguf_checkpoint = _compat
+    _config_utils.load_gguf_checkpoint = _compat
+    _auto_tokenizer.load_gguf_checkpoint = _compat
+    _tok_utils.load_gguf_checkpoint = _compat
+    _gguf_compat_applied = True
 
 
 class ModelVariant(StrEnum):
@@ -145,6 +160,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        _apply_gguf_compat()
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
