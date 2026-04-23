@@ -18,7 +18,7 @@ import os
 from typing import Any, Optional
 
 import torch
-from diffusers import CosmosTransformer3DModel
+from diffusers import CosmosTransformer3DModel, GGUFQuantizationConfig
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -90,6 +90,7 @@ class ModelLoader(ForgeModel):
             model_path,
             config=_LOCAL_CONFIG,
             subfolder="transformer",
+            quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
         )
         self._transformer.eval()
@@ -104,9 +105,11 @@ class ModelLoader(ForgeModel):
             self._transformer = self._transformer.to(dtype=dtype_override)
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare synthetic inputs for the Anima text-to-image transformer."""
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = dtype_override if dtype_override is not None else torch.float32
         batch_size = kwargs.get("batch_size", 1)
 
         if self._transformer is None:
@@ -131,10 +134,15 @@ class ModelLoader(ForgeModel):
             batch_size, 8, config.text_embed_dim, dtype=dtype
         )
         timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+        # padding_mask required when concat_padding_mask=True; all-ones = no padding
+        padding_mask = torch.ones(
+            batch_size, 1, latent_height, latent_width, dtype=dtype
+        )
 
         return {
             "hidden_states": hidden_states,
             "encoder_hidden_states": encoder_hidden_states,
             "timestep": timestep,
+            "padding_mask": padding_mask,
             "return_dict": False,
         }
