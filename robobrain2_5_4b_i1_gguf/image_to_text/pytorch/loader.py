@@ -153,6 +153,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
