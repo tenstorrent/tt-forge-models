@@ -4,7 +4,13 @@
 """
 unsloth/Qwen2.5-VL-3B-Instruct-GGUF model loader for vision-language tasks.
 """
+import os
+
 import torch
+
+# XLA tracing cannot evaluate dynamic shapes from boolean indexing, which causes
+# torch._check_with to fail spuriously. Disable the check globally for this model.
+os.environ.setdefault("TRANSFORMERS_DISABLE_TORCH_CHECK", "1")
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
