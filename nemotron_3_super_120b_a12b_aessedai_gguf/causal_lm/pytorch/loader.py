@@ -5,47 +5,147 @@
 AesSedai NVIDIA Nemotron 3 Super 120B A12B GGUF model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 
-def _patch_gguf_availability():
-    """Work around transformers bug where gguf version detection fails.
+def _apply_gguf_patches():
+    """Register nemotron_h_moe GGUF support in transformers and fix tensor-name mapping.
 
-    gguf is absent from transformers' PACKAGE_DISTRIBUTION_MAPPING, so the
-    fallback uses getattr(gguf, "__version__", "N/A"), but gguf exposes no
-    __version__ attribute.  version.parse("N/A") then raises InvalidVersion.
-
-    We replace is_gguf_available in modeling_gguf_pytorch_utils (the call site)
-    with a wrapper that catches the InvalidVersion and falls back to checking
-    importlib.metadata directly.
+    Must be called before any GGUF file operation (tokenizer or model load).
+    Safe to call multiple times; idempotent thanks to the _PATCHED sentinel.
     """
-    import importlib.metadata
-    import importlib.util
-    from packaging.version import InvalidVersion, Version
     import transformers.modeling_gguf_pytorch_utils as _gguf_utils
-    from transformers.utils.import_utils import GGUF_MIN_VERSION
 
-    def _safe_is_gguf_available(min_version: str = GGUF_MIN_VERSION) -> bool:
-        try:
-            from transformers.utils.import_utils import is_gguf_available
+    if getattr(_gguf_utils, "_nemotron_h_moe_patched", False):
+        return
 
-            return is_gguf_available(min_version)
-        except InvalidVersion:
-            pass
-        # Fallback: gguf is importable but __version__ is missing; use metadata.
-        if importlib.util.find_spec("gguf") is None:
-            return False
-        try:
-            ver = importlib.metadata.version("gguf")
-            return Version(ver) >= Version(min_version)
-        except Exception:
-            return False
+    # Register nemotron_h_moe config field mappings so load_gguf_checkpoint
+    # can parse the GGUF metadata into the correct HF config keys.
+    from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
 
-    _gguf_utils.is_gguf_available = _safe_is_gguf_available
+    if "nemotron_h_moe" not in GGUF_CONFIG_MAPPING:
+        GGUF_CONFIG_MAPPING["nemotron_h_moe"] = {
+            "block_count": "num_hidden_layers",
+            "embedding_length": "hidden_size",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.key_length": "head_dim",
+            "attention.layer_norm_rms_epsilon": "layer_norm_epsilon",
+            "context_length": "max_position_embeddings",
+            "vocab_size": "vocab_size",
+            "expert_count": "n_routed_experts",
+            "expert_used_count": "num_experts_per_tok",
+            "expert_feed_forward_length": "moe_intermediate_size",
+            "expert_shared_feed_forward_length": "moe_shared_expert_intermediate_size",
+            "expert_shared_count": "n_shared_experts",
+            "expert_group_count": "n_group",
+            "expert_weights_norm": "norm_topk_prob",
+            "moe_latent_size": "moe_latent_size",
+            "ssm.state_size": "ssm_state_size",
+            "ssm.group_count": "n_groups",
+            "ssm.conv_kernel": "conv_kernel",
+        }
+
+    if "nemotron_h_moe" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("nemotron_h_moe")
+
+    # The gguf library assigns model_type "nemotron_h" (arch key 81) to the
+    # pure-SSM variant and "nemotron_h_moe" (arch key 82) to the MoE variant.
+    # transformers uses model_type="nemotron_h" for NemotronHForCausalLM, so
+    # get_gguf_hf_weights_map ends up using arch key 81 which lacks MoE tensor
+    # names (ffn_*_exps etc.).  Remap to key 82 so all GGUF weights are found.
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        effective_type = model_type
+        if effective_type is None and hasattr(hf_model, "config"):
+            effective_type = hf_model.config.model_type
+        if effective_type == "nemotron_h":
+            effective_type = "nemotron_h_moe"
+        return _orig_get_map(
+            hf_model,
+            processor,
+            model_type=effective_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+        )
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_map
+    _gguf_utils._nemotron_h_moe_patched = True
 
 
-_patch_gguf_availability()
+def _build_nemotron_h_config(
+    pretrained_model_name: str, gguf_file: str
+) -> "NemotronHConfig":
+    """Build NemotronHConfig from GGUF metadata.
+
+    The per-layer feed_forward_length and attention.head_count_kv arrays encode
+    the layer type pattern: attention layers have kv>0, moe layers have ffl>0,
+    mamba layers have both equal to 0.
+    """
+    from huggingface_hub import hf_hub_download
+    from gguf import GGUFReader
+    from transformers import NemotronHConfig
+
+    local_path = hf_hub_download(
+        repo_id=pretrained_model_name,
+        filename=gguf_file,
+        repo_type="model",
+    )
+
+    reader = GGUFReader(local_path)
+
+    def _scalar(field_name):
+        field = reader.fields[field_name]
+        return field.parts[field.data[0]].tolist()[0]
+
+    def _array(field_name):
+        field = reader.fields[field_name]
+        return [field.parts[i].tolist()[0] for i in field.data]
+
+    ffl = _array("nemotron_h_moe.feed_forward_length")
+    kv = _array("nemotron_h_moe.attention.head_count_kv")
+
+    layers_block_type = []
+    for f, k in zip(ffl, kv):
+        if k > 0:
+            layers_block_type.append("attention")
+        elif f > 0:
+            layers_block_type.append("moe")
+        else:
+            layers_block_type.append("mamba")
+
+    hidden_size = _scalar("nemotron_h_moe.embedding_length")
+    ssm_inner_size = _scalar("nemotron_h_moe.ssm.inner_size")
+
+    return NemotronHConfig(
+        vocab_size=_scalar("nemotron_h_moe.vocab_size"),
+        hidden_size=hidden_size,
+        layers_block_type=layers_block_type,
+        num_attention_heads=_scalar("nemotron_h_moe.attention.head_count"),
+        num_key_value_heads=max(kv),
+        head_dim=_scalar("nemotron_h_moe.attention.key_length"),
+        max_position_embeddings=_scalar("nemotron_h_moe.context_length"),
+        layer_norm_epsilon=_scalar("nemotron_h_moe.attention.layer_norm_rms_epsilon"),
+        ssm_state_size=_scalar("nemotron_h_moe.ssm.state_size"),
+        n_groups=_scalar("nemotron_h_moe.ssm.group_count"),
+        conv_kernel=_scalar("nemotron_h_moe.ssm.conv_kernel"),
+        expand=ssm_inner_size // hidden_size,
+        n_routed_experts=_scalar("nemotron_h_moe.expert_count"),
+        num_experts_per_tok=_scalar("nemotron_h_moe.expert_used_count"),
+        moe_intermediate_size=_scalar("nemotron_h_moe.expert_feed_forward_length"),
+        moe_shared_expert_intermediate_size=_scalar(
+            "nemotron_h_moe.expert_shared_feed_forward_length"
+        ),
+        moe_latent_size=_scalar("nemotron_h_moe.moe_latent_size"),
+        n_shared_experts=_scalar("nemotron_h_moe.expert_shared_count"),
+        n_group=_scalar("nemotron_h_moe.expert_group_count"),
+        norm_topk_prob=bool(_scalar("nemotron_h_moe.expert_weights_norm")),
+    )
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -103,6 +203,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _apply_gguf_patches()
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -117,23 +219,22 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _apply_gguf_patches()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        config = _build_nemotron_h_config(pretrained_model_name, self.GGUF_FILE)
+
+        if self.num_layers is not None:
+            config.layers_block_type = config.layers_block_type[: self.num_layers]
+
+        model_kwargs = {"config": config, "gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -177,7 +278,8 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+        _apply_gguf_patches()
+        self.config = _build_nemotron_h_config(
+            self._variant_config.pretrained_model_name, self.GGUF_FILE
         )
         return self.config
