@@ -5,7 +5,15 @@
 GenomeOcean-100M model loader implementation for causal language modeling.
 """
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.cache_utils import DynamicCache
 from typing import Optional
+
+# transformers 5.x removed DynamicCache.get_usable_length; patch it back for
+# GenomeOcean's custom modeling_mistral.py which still calls it.
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+    )
 
 from ....base import ForgeModel
 from ....config import (
