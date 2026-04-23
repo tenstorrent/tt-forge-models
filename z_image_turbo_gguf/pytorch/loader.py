@@ -10,11 +10,16 @@ pipeline. Supports the base Z-Image-Turbo GGUFs from unsloth and the
 community fine-tune collection from BigDannyPt.
 """
 
+import os
 from typing import Any, Optional
 
 import torch
 from diffusers import ZImagePipeline, ZImageTransformer2DModel, GGUFQuantizationConfig
 from huggingface_hub import hf_hub_download
+
+# hf-xet can hang indefinitely after completing the download while doing
+# post-download chunk finalization; force standard HTTPS instead.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 from ...base import ForgeModel
 from ...config import (
