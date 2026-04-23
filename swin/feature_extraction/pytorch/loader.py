@@ -35,6 +35,7 @@ class ModelVariant(StrEnum):
     """Available Swin feature extraction model variants."""
 
     TINY_RANDOM = "TinyRandom"
+    SWIN_TINY_PATCH4_WINDOW7_224_CTRANSPATH = "Swin_Tiny_Patch4_Window7_224_CTransPath"
     TINY_RANDOM_PATCH4_WINDOW7_224 = "Tiny_Random_Patch4_Window7_224"
 
 
