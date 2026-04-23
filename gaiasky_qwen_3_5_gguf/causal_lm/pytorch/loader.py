@@ -88,6 +88,16 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        _inner = _gguf_utils.load_gguf_checkpoint
+
+        def _gguf_compat(gguf_path, return_tensors=False, **kw):
+            kw.pop("model_to_load", None)
+            return _inner(gguf_path, return_tensors=return_tensors, **kw)
+
+        _gguf_utils.load_gguf_checkpoint = _gguf_compat
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -106,9 +116,12 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _inner
 
         self.config = model.config
         self.model = model
