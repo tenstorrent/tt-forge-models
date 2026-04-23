@@ -231,7 +231,7 @@ def controlnet_depth_zoe_sdxl_preprocessing(
 
     return (
         latent_model_input,
-        timesteps,
+        timesteps[0],
         prompt_embeds,
         added_cond_kwargs,
         down_block_additional_residuals,
