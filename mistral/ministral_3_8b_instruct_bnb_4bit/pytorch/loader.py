@@ -74,6 +74,46 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
+    @staticmethod
+    def _dequantize_bnb_model(model):
+        """Replace all BnB Linear4bit layers with regular nn.Linear using dequantized weights."""
+        import torch.nn as nn
+        import bitsandbytes.nn as bnn
+        import bitsandbytes.functional as bnb_functional
+
+        modules_to_replace = {}
+        for name, module in model.named_modules():
+            if isinstance(module, bnn.Linear4bit):
+                modules_to_replace[name] = module
+
+        for name, module in modules_to_replace.items():
+            parts = name.rsplit(".", 1)
+            parent = model
+            for part in parts[0].split(".") if len(parts) > 1 else []:
+                parent = getattr(parent, part)
+            child_name = parts[-1] if len(parts) > 1 else name
+
+            w = module.weight
+            if w.shape[1] == 1:
+                w_fp = bnb_functional.dequantize_4bit(w, w.quant_state).to(
+                    torch.bfloat16
+                )
+            else:
+                w_fp = w.data.to(torch.bfloat16)
+
+            new_linear = nn.Linear(
+                w_fp.shape[1],
+                w_fp.shape[0],
+                bias=module.bias is not None,
+                dtype=torch.bfloat16,
+            )
+            new_linear.weight = nn.Parameter(w_fp)
+            if module.bias is not None:
+                new_linear.bias = nn.Parameter(module.bias.data.to(torch.bfloat16))
+            setattr(parent, child_name, new_linear)
+
+        return model
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Ministral 3 8B Instruct BnB 4-bit model instance.
 
@@ -83,6 +123,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The model instance.
         """
+        import torch
         from transformers import Mistral3ForConditionalGeneration
 
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -100,6 +141,8 @@ class ModelLoader(ForgeModel):
         model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        model = self._dequantize_bnb_model(model)
 
         model.eval()
         self.model = model
