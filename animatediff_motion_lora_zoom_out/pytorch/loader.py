@@ -127,6 +127,8 @@ class ModelLoader(ForgeModel):
             1, in_channels, num_frames, sample_size, sample_size, dtype=dtype
         )
         timestep = torch.tensor([1.0], dtype=dtype)
+        # UNet processes each frame as a separate batch entry, so repeat embeddings
+        encoder_hidden_states = encoder_hidden_states.repeat(num_frames, 1, 1)
 
         if dtype_override:
             latent_sample = latent_sample.to(dtype_override)
