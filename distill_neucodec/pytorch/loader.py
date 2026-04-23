@@ -77,15 +77,25 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Distill-NeuCodec model instance.
         """
+        import torch.nn as nn
         from neucodec import DistillNeuCodec
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model = DistillNeuCodec.from_pretrained(pretrained_model_name, **kwargs)
+        codec = DistillNeuCodec.from_pretrained(pretrained_model_name, **kwargs)
 
         if dtype_override is not None:
-            model = model.to(dtype=dtype_override)
+            codec = codec.to(dtype=dtype_override)
 
+        class DistillNeuCodecWrapper(nn.Module):
+            def __init__(self, model):
+                super().__init__()
+                self.model = model
+
+            def forward(self, audio):
+                return self.model.encode_code(audio)
+
+        model = DistillNeuCodecWrapper(codec)
         model.eval()
         self.model = model
         return model
