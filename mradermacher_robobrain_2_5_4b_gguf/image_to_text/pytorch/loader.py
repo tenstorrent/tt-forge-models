@@ -6,6 +6,7 @@ Mradermacher RoboBrain 2.5 4B GGUF model loader implementation for image to text
 """
 
 from transformers import (
+    Qwen3VLConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -72,8 +73,11 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("BAAI/RoboBrain2.5-4B")
 
+        # qwen3vl GGUF architecture is not yet registered in transformers GGUF
+        # support; pass an explicit config to skip GGUF config parsing
+        config = Qwen3VLConfig.from_pretrained("BAAI/RoboBrain2.5-4B")
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
