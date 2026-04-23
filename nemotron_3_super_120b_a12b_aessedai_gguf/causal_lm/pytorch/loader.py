@@ -15,17 +15,34 @@ def _patch_gguf_availability():
     gguf is absent from transformers' PACKAGE_DISTRIBUTION_MAPPING, so the
     fallback uses getattr(gguf, "__version__", "N/A"), but gguf exposes no
     __version__ attribute.  version.parse("N/A") then raises InvalidVersion.
-    Adding 'gguf' to the mapping lets importlib.metadata resolve the real
-    version string (e.g. "0.18.0") and clears the stale lru_cache entry.
-    """
-    from transformers.utils.import_utils import (
-        PACKAGE_DISTRIBUTION_MAPPING,
-        is_gguf_available,
-    )
 
-    if "gguf" not in PACKAGE_DISTRIBUTION_MAPPING:
-        PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
-    is_gguf_available.cache_clear()
+    We replace is_gguf_available in modeling_gguf_pytorch_utils (the call site)
+    with a wrapper that catches the InvalidVersion and falls back to checking
+    importlib.metadata directly.
+    """
+    import importlib.metadata
+    import importlib.util
+    from packaging.version import InvalidVersion, Version
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+    from transformers.utils.import_utils import GGUF_MIN_VERSION
+
+    def _safe_is_gguf_available(min_version: str = GGUF_MIN_VERSION) -> bool:
+        try:
+            from transformers.utils.import_utils import is_gguf_available
+
+            return is_gguf_available(min_version)
+        except InvalidVersion:
+            pass
+        # Fallback: gguf is importable but __version__ is missing; use metadata.
+        if importlib.util.find_spec("gguf") is None:
+            return False
+        try:
+            ver = importlib.metadata.version("gguf")
+            return Version(ver) >= Version(min_version)
+        except Exception:
+            return False
+
+    _gguf_utils.is_gguf_available = _safe_is_gguf_available
 
 
 _patch_gguf_availability()
