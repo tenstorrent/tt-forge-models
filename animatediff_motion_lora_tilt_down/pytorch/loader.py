@@ -123,13 +123,13 @@ class ModelLoader(ForgeModel):
         with torch.no_grad():
             text_embeddings = self.pipeline.text_encoder(text_inputs.input_ids)[0]
 
-        # Repeat text embeddings for each frame
-        encoder_hidden_states = text_embeddings.repeat(num_frames, 1, 1).to(dtype)
+        encoder_hidden_states = text_embeddings.to(dtype)
 
         in_channels = self.pipeline.unet.config.in_channels
         sample_size = self.pipeline.unet.config.sample_size
+        # AnimateDiff UNet expects (batch, channels, num_frames, height, width)
         latent_sample = torch.randn(
-            num_frames, in_channels, sample_size, sample_size, dtype=dtype
+            1, in_channels, num_frames, sample_size, sample_size, dtype=dtype
         )
         timestep = torch.tensor([1.0], dtype=dtype)
 
