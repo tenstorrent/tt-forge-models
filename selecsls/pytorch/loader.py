@@ -7,11 +7,11 @@ SelecSLS model loader implementation (timm variants)
 
 from typing import Optional
 
+import requests
 import timm
+from PIL import Image
 from timm.data import resolve_data_config
 from timm.data.transforms_factory import create_transform
-
-from datasets import load_dataset
 
 from ...config import (
     ModelConfig,
@@ -71,8 +71,8 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size: int = 1):
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"].convert("RGB")
+        url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+        image = Image.open(requests.get(url, stream=True).raw).convert("RGB")
 
         model_for_config = (
             self._cached_model
