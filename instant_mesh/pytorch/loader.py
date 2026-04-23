@@ -21,7 +21,6 @@ from typing import Optional
 
 import torch
 from huggingface_hub import hf_hub_download
-from omegaconf import OmegaConf
 
 from ...base import ForgeModel
 from ...config import (
@@ -108,6 +107,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The InstantMesh triplane reconstruction model.
         """
+        from omegaconf import OmegaConf
+
         _ensure_instantmesh_importable()
         from src.models.lrm_mesh import InstantMesh
 
