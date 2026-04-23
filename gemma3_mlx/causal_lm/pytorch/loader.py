@@ -31,7 +31,10 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GEMMA_3_270M_IT_MLX_8BIT: LLMModelConfig(
-            pretrained_model_name="lmstudio-community/gemma-3-270m-it-MLX-8bit",
+            # Use mlx-community bf16 mirror of gemma-3-270m-it (ungated, full-precision
+            # safetensors weights). The original lmstudio-community/gemma-3-270m-it-MLX-8bit
+            # model uses MLX group quantization which is incompatible with transformers loading.
+            pretrained_model_name="mlx-community/gemma-3-270m-it-bf16",
             max_length=128,
         ),
     }
@@ -60,12 +63,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -80,7 +79,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
