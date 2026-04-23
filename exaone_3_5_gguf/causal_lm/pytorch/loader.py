@@ -10,6 +10,16 @@ from typing import Optional
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -44,6 +54,43 @@ def _fix_gguf_in_transformers():
         _import_utils.is_gguf_available.cache_clear()
     except Exception:
         pass
+
+
+def _patch_exaone_gguf_support():
+    """Register exaone architecture as an alias for llama in transformers GGUF loading.
+
+    EXAONE 3.5 GGUF files declare general.architecture as 'exaone', which is not
+    present in transformers 5.x GGUF_SUPPORTED_ARCHITECTURES.  EXAONE 3.5 is a
+    Llama-based model sharing the same tensor layout, so we map it to llama.
+    """
+    if "exaone" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("exaone")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "llama" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "exaone",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["llama"],
+            )
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("exaone", GGUF_TO_FAST_CONVERTERS["llama"])
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add exaone support and remap model_type to llama."""
+    _patch_exaone_gguf_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "exaone":
+        result["config"]["model_type"] = "llama"
+    return result
+
+
+_patch_exaone_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
