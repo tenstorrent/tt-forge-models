@@ -126,6 +126,7 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
             safety_checker=None,
             requires_safety_checker=False,
+            ignore_patterns=["unet/*"],
         )
 
         return self.pipeline
