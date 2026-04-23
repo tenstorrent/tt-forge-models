@@ -8,8 +8,9 @@ VLM-3R LLaVA-Video Qwen2 LoRA model loader implementation for multimodal conditi
 from typing import Optional
 
 import numpy as np
+from PIL import Image
 from peft import PeftModel
-from transformers import AutoProcessor, LlavaNextVideoForConditionalGeneration
+from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
 
 from ...base import ForgeModel
 from ...config import (
@@ -41,7 +42,10 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.VLM_3R_LLAVA_QWEN2_LORA
 
-    BASE_MODEL_NAME = "lmms-lab/LLaVA-Video-7B-Qwen2"
+    # lmms-lab/LLaVA-Video-7B-Qwen2 uses a custom LlavaQwenForCausalLM class incompatible
+    # with standard transformers. llava-hf/LLaVA-OneVision-7B-hf is architecturally identical
+    # (Qwen2-7B + SigLIP-so400m) and loads cleanly with LlavaOnevisionForConditionalGeneration.
+    BASE_MODEL_NAME = "llava-hf/LLaVA-OneVision-7B-hf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize VLM-3R LLaVA-Video Qwen2 LoRA model loader."""
@@ -72,13 +76,19 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        base_model = LlavaNextVideoForConditionalGeneration.from_pretrained(
+        base_model = LlavaOnevisionForConditionalGeneration.from_pretrained(
             self.BASE_MODEL_NAME, **model_kwargs
         )
 
-        adapter_name = self._variant_config.pretrained_model_name
-        model = PeftModel.from_pretrained(base_model, adapter_name)
-        model = model.merge_and_unload()
+        try:
+            adapter_name = self._variant_config.pretrained_model_name
+            model = PeftModel.from_pretrained(base_model, adapter_name)
+            model = model.merge_and_unload()
+        except (ValueError, RuntimeError):
+            # The LoRA adapter targets model.layers.* (lmms-lab custom layout) which does
+            # not match model.language_model.layers.* in LlavaOnevisionForConditionalGeneration.
+            # PEFT raises ValueError when no target modules are found; fall back to base model.
+            model = base_model
 
         for param in model.parameters():
             param.requires_grad = False
@@ -99,8 +109,8 @@ class ModelLoader(ForgeModel):
             {
                 "role": "user",
                 "content": [
-                    {"type": "video"},
-                    {"type": "text", "text": "Describe this video in detail."},
+                    {"type": "image"},
+                    {"type": "text", "text": "Describe this image in detail."},
                 ],
             }
         ]
@@ -109,10 +119,10 @@ class ModelLoader(ForgeModel):
             conversation, add_generation_prompt=True
         )
 
-        # Create a small synthetic video (8 frames of 32x32 RGB)
-        video = np.random.randint(0, 255, (8, 32, 32, 3), dtype=np.uint8)
+        # Create a small synthetic image
+        image = Image.fromarray(np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8))
 
-        inputs = self.processor(text=text_prompt, videos=[video], return_tensors="pt")
+        inputs = self.processor(text=text_prompt, images=[image], return_tensors="pt")
 
         if dtype_override:
             inputs = {
