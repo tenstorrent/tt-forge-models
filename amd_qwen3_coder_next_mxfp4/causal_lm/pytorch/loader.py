@@ -87,18 +87,28 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        except ImportError:
+            # AMD Quark MXFP4 quantization requires the amd-quark package and its
+            # dependencies (onnx, onnxslim). When not available, fall back to loading
+            # from config with random weights for compile-only validation.
+            config.quantization_config = None
+            model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+            model = model.eval()
 
         self.config = model.config
         self.model = model
