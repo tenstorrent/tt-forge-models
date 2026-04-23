@@ -4,9 +4,47 @@
 """
 DeepSeek R1 Distill Llama 8B Abliterated GGUF model loader implementation for causal language modeling.
 """
+import inspect
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.configuration_utils as _config_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+
+
+def _find_real_load_gguf_checkpoint():
+    import sys
+
+    for mod in list(sys.modules.values()):
+        mod_dict = getattr(mod, "__dict__", None)
+        if mod_dict is None:
+            continue
+        for obj in list(mod_dict.values()):
+            if not callable(obj):
+                continue
+            try:
+                params = inspect.signature(obj).parameters
+                if "gguf_checkpoint_path" in params and "model_to_load" in params:
+                    return obj
+            except (ValueError, TypeError):
+                pass
+    return _gguf_utils.load_gguf_checkpoint
+
+
+def _apply_gguf_patch():
+    real_fn = _find_real_load_gguf_checkpoint()
+
+    def _patched(*args, **kwargs):
+        return real_fn(*args, **kwargs)
+
+    _gguf_utils.load_gguf_checkpoint = _patched
+    _config_utils.load_gguf_checkpoint = _patched
+    _auto_tokenizer.load_gguf_checkpoint = _patched
+    _tok_utils.load_gguf_checkpoint = _patched
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -62,6 +100,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _apply_gguf_patch()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -76,6 +115,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _apply_gguf_patch()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
