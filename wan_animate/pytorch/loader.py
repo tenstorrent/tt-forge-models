@@ -97,25 +97,46 @@ class ModelLoader(ForgeModel):
         dtype = kwargs.get("dtype_override", torch.float32)
         batch_size = kwargs.get("batch_size", 1)
 
-        # WanAnimateTransformer3DModel config: in_channels=36, text_dim=4096
+        # WanAnimateTransformer3DModel config dims:
+        #   in_channels=36 (16 noisy latent + 16 reference + 4 mask)
+        #   text_dim=4096, image_dim=1280, patch_size=(1,2,2)
+        # Attention processor hardcodes txt context length of 512.
         in_channels = 36
         text_dim = 4096
-        txt_seq_len = 32
+        txt_seq_len = 512
+        image_dim = 1280
+        img_seq_len = 32
 
-        # Small spatial/temporal latent dimensions for testing
-        # patch_size = (1, 2, 2), so spatial dims are halved
-        frame, height, width = 1, 4, 4
-        seq_len = frame * height * width
+        # Small spatial/temporal dims: T latent frames, H x W spatial
+        # hidden_states shape: (B, in_channels, T+1, H, W) — T+1 because of
+        # a prepended reference frame; pose_hidden_states uses T frames.
+        num_latent_frames = 1
+        lat_h, lat_w = 4, 4
 
-        hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
+        hidden_states = torch.randn(
+            batch_size, in_channels, num_latent_frames + 1, lat_h, lat_w, dtype=dtype
+        )
+        pose_hidden_states = torch.randn(
+            batch_size, 16, num_latent_frames, lat_h, lat_w, dtype=dtype
+        )
         encoder_hidden_states = torch.randn(
             batch_size, txt_seq_len, text_dim, dtype=dtype
+        )
+        encoder_hidden_states_image = torch.randn(
+            batch_size, img_seq_len, image_dim, dtype=dtype
+        )
+        # face_pixel_values: (B, C, S, H', W') — S face frames in pixel space
+        face_pixel_values = torch.randn(
+            batch_size, 3, num_latent_frames, 112, 112, dtype=dtype
         )
         timestep = torch.tensor([500] * batch_size, dtype=torch.long)
 
         return {
             "hidden_states": hidden_states,
             "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_image": encoder_hidden_states_image,
+            "pose_hidden_states": pose_hidden_states,
+            "face_pixel_values": face_pixel_values,
             "timestep": timestep,
             "return_dict": False,
         }
