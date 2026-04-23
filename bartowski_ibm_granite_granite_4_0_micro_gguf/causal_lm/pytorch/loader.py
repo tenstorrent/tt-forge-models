@@ -8,6 +8,16 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -18,6 +28,76 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_granite_gguf_support():
+    """Register granite GGUF architecture support for GraniteMoeHybrid models.
+
+    IBM Granite 4.0 Micro is a hybrid (attention + Mamba SSM) model. The GGUF
+    file reports architecture 'granite' but transformers 5.x only knows this as
+    'granitemoehybrid'. This patch bridges the gap by registering the config
+    field mappings and tokenizer converter.
+    """
+    if "granite" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("granite")
+
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["granite"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.scale": "attention_multiplier",
+        "embedding_scale": "embedding_multiplier",
+        "logit_scale": "logits_scaling",
+        "residual_scale": "residual_multiplier",
+        "expert_count": "num_local_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_shared_feed_forward_length": "shared_intermediate_size",
+        "ssm.conv_kernel": "mamba_d_conv",
+        "ssm.group_count": "mamba_n_groups",
+        "ssm.state_size": "mamba_d_state",
+        "vocab_size": "vocab_size",
+    }
+
+    # Granite uses a GPT-2 BPE tokenizer. Register both architecture names so
+    # convert_gguf_tokenizer works whether model_type is 'granite' or 'granitemoehybrid'.
+    if "gpt2" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("granite", GGUF_TO_FAST_CONVERTERS["gpt2"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "granitemoehybrid", GGUF_TO_FAST_CONVERTERS["gpt2"]
+        )
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    """Wrap load_gguf_checkpoint to add granite GGUF support."""
+    import transformers.utils.import_utils as _import_utils
+
+    if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+    _patch_granite_gguf_support()
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    config = result.get("config", {})
+    if config.get("model_type") == "granite":
+        # num_key_value_heads is stored as a per-layer array in granite GGUF;
+        # extract the single scalar value that GraniteConfig expects.
+        kv_heads = config.get("num_key_value_heads")
+        if isinstance(kv_heads, list) and len(kv_heads) > 0:
+            config["num_key_value_heads"] = kv_heads[0]
+    return result
+
+
+_patch_granite_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
