@@ -26,9 +26,72 @@ def _patched_is_gguf_available(*args, **kwargs):
 
 _gguf_utils.is_gguf_available = _patched_is_gguf_available
 
-# deepseek_v2 tokenizer architecture is not in GGUF_TO_FAST_CONVERTERS; it uses
-# the same sentencepiece-based tokenizer structure as llama.
-GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFLlamaConverter)
+
+def _patch_deepseek2_gguf_support():
+    """Register deepseek2 GGUF architecture and map it to HF deepseek_v2 model type."""
+    from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+
+    if "deepseek2" in GGUF_CONFIG_MAPPING:
+        return
+
+    # Map deepseek2 GGUF config keys to HF DeepseekV2Config fields.
+    GGUF_CONFIG_MAPPING["deepseek2"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "rope.dimension_count": None,
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "expert_count": "n_routed_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "leading_dense_block_count": "first_k_dense_replace",
+        "attention.kv_lora_rank": "kv_lora_rank",
+        "attention.key_length_mla": "qk_rope_head_dim",
+        "attention.value_length_mla": "v_head_dim",
+        "expert_shared_count": "n_shared_experts",
+    }
+
+    # GGUF_SUPPORTED_ARCHITECTURES was built from GGUF_CONFIG_MAPPING at import time;
+    # append directly so load_gguf_checkpoint accepts deepseek2 files.
+    if "deepseek2" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("deepseek2")
+
+    # Add tokenizer converter for deepseek2 architecture key.
+    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek2", GGUFLlamaConverter)
+    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFLlamaConverter)
+
+    _orig_load = _gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = _orig_load(*args, **kwargs)
+        # Remap deepseek2 → deepseek_v2 so AutoModelForCausalLM picks the right class.
+        if result.get("config", {}).get("model_type") == "deepseek2":
+            result["config"]["model_type"] = "deepseek_v2"
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None and hasattr(hf_model, "config"):
+            model_type = hf_model.config.model_type
+        # gguf-py uses "deepseek2"; HF uses "deepseek_v2"
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_deepseek2_gguf_support()
 
 from ....base import ForgeModel
 from ....config import (
