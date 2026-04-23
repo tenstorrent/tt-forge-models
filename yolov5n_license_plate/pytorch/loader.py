@@ -16,8 +16,6 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from datasets import load_dataset
-from .src.utils import data_preprocessing, data_postprocessing
 
 
 class ModelVariant(StrEnum):
@@ -70,6 +68,9 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1, input_size=640):
+        from datasets import load_dataset
+        from .src.utils import data_preprocessing
+
         dataset = load_dataset("huggingface/cats-image")["test"]
         image_sample = dataset[0]["image"].convert("RGB")
 
@@ -87,6 +88,8 @@ class ModelLoader(ForgeModel):
     def post_process(
         self, ims, pixel_values_shape, output, framework_model, n, shape0, shape1, files
     ):
+        from .src.utils import data_postprocessing
+
         results = data_postprocessing(
             ims,
             pixel_values_shape,
