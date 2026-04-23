@@ -12,15 +12,19 @@ from typing import Optional
 def _patch_gguf_utils_for_qwen3omnimoe():
     """Patch transformers GGUF utils to support qwen3omnimoe (Qwen3-Omni MoE) architecture.
 
-    The GGUF architecture name "qwen3omnimoe" is not registered in transformers.  We add
-    it to the config/tensor-processor mappings and wrap load_gguf_checkpoint so the
-    parsed model_type is remapped to "qwen3_omni_moe" (which IS registered).
-    configuration_utils.py imports load_gguf_checkpoint by value, so we must patch the
-    reference there as well.
+    The GGUF architecture name "qwen3omnimoe" is not registered in transformers.  We:
+      1. Add it to GGUF_CONFIG_MAPPING / TENSOR_PROCESSORS / GGUF_SUPPORTED_ARCHITECTURES.
+      2. Add "qwen3_omni_moe" to GGUF_TO_FAST_CONVERTERS so the tokenizer can load.
+      3. Wrap load_gguf_checkpoint everywhere it is imported so model_type is remapped
+         from "qwen3omnimoe" to "qwen3_omni_moe" (which IS registered in AutoConfig).
     """
     import transformers.configuration_utils as config_utils
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
-    from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+    import transformers.tokenization_utils_tokenizers as tok_utils
+    from transformers.integrations.ggml import (
+        GGUF_CONFIG_MAPPING,
+        GGUF_TO_FAST_CONVERTERS,
+    )
     from transformers.modeling_gguf_pytorch_utils import (
         TENSOR_PROCESSORS,
         Qwen2MoeTensorProcessor,
@@ -44,6 +48,10 @@ def _patch_gguf_utils_for_qwen3omnimoe():
             gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].keys()
         )
 
+        # The tokenizer uses model_type as the architecture key for GGUF_TO_FAST_CONVERTERS.
+        GGUF_TO_FAST_CONVERTERS[hf_model_type] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+        GGUF_TO_FAST_CONVERTERS[gguf_arch] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+
         # Wrap load_gguf_checkpoint to remap model_type in the returned config dict.
         _orig_load = gguf_utils.load_gguf_checkpoint
 
@@ -55,9 +63,10 @@ def _patch_gguf_utils_for_qwen3omnimoe():
                     cfg["model_type"] = hf_model_type
             return result
 
-        # Patch both the module attribute and the reference imported by configuration_utils.
+        # Patch the module attribute and all direct import references.
         gguf_utils.load_gguf_checkpoint = _patched_load
         config_utils.load_gguf_checkpoint = _patched_load
+        tok_utils.load_gguf_checkpoint = _patched_load
 
 
 _patch_gguf_utils_for_qwen3omnimoe()
