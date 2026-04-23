@@ -66,13 +66,14 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         from kokoro import KModel
 
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         full_model = KModel(repo_id=REPO_ID)
-        model = full_model.decoder.to(dtype=dtype).eval()
+        # Keep float32: the sinusoidal source module generates float32 tensors
+        # internally, so bfloat16 casting causes dtype mismatches at runtime.
+        model = full_model.decoder.eval()
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        dtype = torch.float32
         return {
             "asr": torch.randn(batch_size, _HIDDEN_DIM, _ASR_SEQ_LEN, dtype=dtype),
             "F0_curve": torch.randn(batch_size, _MEL_SEQ_LEN, dtype=dtype),
