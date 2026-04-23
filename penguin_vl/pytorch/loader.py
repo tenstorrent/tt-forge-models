@@ -53,8 +53,36 @@ def _patch_nested_from_pretrained():
 
     mu.check_and_set_device_map = patched_check
 
+    # transformers 5.x removed 'default' from ROPE_INIT_FUNCTIONS; add it back.
+    from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
+    rope_default_added = "default" not in ROPE_INIT_FUNCTIONS
+    if rope_default_added:
+
+        def _rope_default(config=None, device=None, seq_len=None, **kwargs):
+            base = getattr(config, "rope_theta", 10000.0)
+            partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+            head_dim = getattr(config, "head_dim", None) or (
+                config.hidden_size // config.num_attention_heads
+            )
+            dim = int(head_dim * partial_rotary_factor)
+            inv_freq = 1.0 / (
+                base
+                ** (
+                    torch.arange(0, dim, 2, dtype=torch.int64).to(
+                        device=device, dtype=torch.float
+                    )
+                    / dim
+                )
+            )
+            return inv_freq, 1.0
+
+        ROPE_INIT_FUNCTIONS["default"] = _rope_default
+
     def restore():
         mu.check_and_set_device_map = orig_check
+        if rope_default_added:
+            ROPE_INIT_FUNCTIONS.pop("default", None)
 
     return restore
 
