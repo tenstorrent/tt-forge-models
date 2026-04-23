@@ -82,10 +82,14 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
+        # Strip FP8 quantization config to avoid triton dependency on CPU-only systems.
+        # transformers' FineGrainedFP8HfQuantizer imports triton unconditionally even
+        # when dequantizing to BF16 (no GPU path), so we bypass the quantizer entirely.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.quantization_config = None
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
