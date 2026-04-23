@@ -8,9 +8,9 @@ Aesthetics Predictor V2 model loader implementation for image aesthetic score pr
 import os
 
 import torch
+from PIL import Image
 from transformers import AutoConfig, CLIPProcessor
 from transformers.dynamic_module_utils import get_class_from_dynamic_module
-from datasets import load_dataset
 from typing import Optional
 
 from ...base import ForgeModel
@@ -100,8 +100,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (224, 224), color=(128, 128, 128))
 
         inputs = self.processor(images=image, return_tensors="pt")
 
