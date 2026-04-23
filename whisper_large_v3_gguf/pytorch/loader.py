@@ -8,6 +8,31 @@ Repositories:
 - https://huggingface.co/vonjack/whisper-large-v3-gguf
 - https://huggingface.co/oxide-lab/whisper-large-v3-GGUF
 """
+import inspect as _inspect
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+
+def _ensure_load_gguf_model_to_load_compat():
+    fn = _gguf_utils.load_gguf_checkpoint
+    try:
+        params = _inspect.signature(fn).parameters
+        has_var_keyword = any(
+            p.kind == _inspect.Parameter.VAR_KEYWORD for p in params.values()
+        )
+        if "model_to_load" not in params and not has_var_keyword:
+            _wrapped = fn
+
+            def _compat(gguf_path, return_tensors=False, model_to_load=None, **kw):
+                return _wrapped(gguf_path, return_tensors=return_tensors)
+
+            _gguf_utils.load_gguf_checkpoint = _compat
+    except (ValueError, TypeError):
+        pass
+
+
+_ensure_load_gguf_model_to_load_compat()
+
 import torch
 from transformers import (
     WhisperForConditionalGeneration,
