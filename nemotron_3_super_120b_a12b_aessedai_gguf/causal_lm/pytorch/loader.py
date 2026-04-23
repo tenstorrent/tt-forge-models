@@ -70,10 +70,13 @@ def _apply_gguf_patches():
     # class registry.  load_gguf_checkpoint returns model_type="nemotron_h_moe"
     # (from general.architecture in the GGUF file); AutoConfig.for_model must be
     # able to resolve that to NemotronHConfig without us wrapping the function.
-    from transformers.models.auto.configuration_auto import CONFIG_MAPPING_NAMES
+    # AutoConfig.register writes to _extra_content (checked before lazy module
+    # import), avoiding ModuleNotFoundError for "transformers.models.nemotron_h_moe".
+    from transformers import AutoConfig, NemotronHConfig
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
-    if "nemotron_h_moe" not in CONFIG_MAPPING_NAMES:
-        CONFIG_MAPPING_NAMES["nemotron_h_moe"] = "NemotronHConfig"
+    if "nemotron_h_moe" not in CONFIG_MAPPING._extra_content:
+        AutoConfig.register("nemotron_h_moe", NemotronHConfig, exist_ok=True)
 
     # The gguf library assigns model_type "nemotron_h" (arch key 81) to the
     # pure-SSM variant and "nemotron_h_moe" (arch key 82) to the MoE variant.
