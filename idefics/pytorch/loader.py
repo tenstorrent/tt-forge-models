@@ -103,7 +103,7 @@ class ModelLoader(ForgeModel):
         ]
 
         inputs = self.processor(
-            prompts,
+            text=prompts,
             return_tensors="pt",
         )
 
