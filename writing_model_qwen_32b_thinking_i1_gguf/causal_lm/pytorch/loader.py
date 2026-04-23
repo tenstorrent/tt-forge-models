@@ -4,9 +4,50 @@
 """
 mradermacher/Writing-Model-Qwen-32B-thinking-i1-GGUF model loader implementation for causal language modeling.
 """
+
+import threading
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+_gguf_model_to_load_tls = threading.local()
+
+
+def _ensure_gguf_loader_accepts_model_to_load():
+    """Wrap load_gguf_checkpoint to accept model_to_load kwarg from transformers 5.3+."""
+    current_load_fn = _gguf_utils.load_gguf_checkpoint
+    if getattr(current_load_fn, "_model_to_load_compat", False):
+        return
+    _inner_load = current_load_fn
+
+    def _gguf_load_compat(
+        gguf_checkpoint_path, return_tensors=False, model_to_load=None
+    ):
+        _gguf_model_to_load_tls.value = model_to_load
+        try:
+            return _inner_load(gguf_checkpoint_path, return_tensors=return_tensors)
+        finally:
+            _gguf_model_to_load_tls.value = None
+
+    _gguf_load_compat._model_to_load_compat = True
+    _gguf_utils.load_gguf_checkpoint = _gguf_load_compat
+
+    current_map_fn = _gguf_utils.get_gguf_hf_weights_map
+    if not getattr(current_map_fn, "_model_to_load_compat", False):
+        _inner_map = current_map_fn
+
+        def _gguf_map_compat(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if hf_model is None:
+                hf_model = getattr(_gguf_model_to_load_tls, "value", None)
+            return _inner_map(hf_model, processor, model_type, num_layers, qual_name)
+
+        _gguf_map_compat._model_to_load_compat = True
+        _gguf_utils.get_gguf_hf_weights_map = _gguf_map_compat
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -78,6 +119,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _ensure_gguf_loader_accepts_model_to_load()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
