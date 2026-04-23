@@ -141,6 +141,11 @@ class ModelLoader(ForgeModel):
     # Variant-specific sample texts
     _SAMPLE_TEXTS = {}
 
+    # Variants whose HuggingFace repos lack tokenizer files; map to a compatible tokenizer
+    _TOKENIZER_OVERRIDES = {
+        ModelVariant.PRAJJWAL1_BERT_SMALL: "bert-base-uncased",
+    }
+
     def _load_tokenizer(self):
         """Load tokenizer for the current variant.
 
@@ -148,7 +153,9 @@ class ModelLoader(ForgeModel):
             The loaded tokenizer instance
         """
         if self.tokenizer is None:
-            model_name = self._variant_config.pretrained_model_name
+            model_name = self._TOKENIZER_OVERRIDES.get(
+                self._variant, self._variant_config.pretrained_model_name
+            )
             tokenizer_kwargs = {}
             if self._variant in self._TRUST_REMOTE_CODE_VARIANTS:
                 tokenizer_kwargs["trust_remote_code"] = True
