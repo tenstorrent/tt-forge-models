@@ -6,8 +6,11 @@ Wiki-All DPR2 Passage Encoder model loader for embedding generation.
 """
 from typing import Optional
 
+import flax.serialization
+import numpy as np
 import torch
-from transformers import AutoModel, AutoTokenizer
+from huggingface_hub import hf_hub_download
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from third_party.tt_forge_models.base import ForgeModel
 from third_party.tt_forge_models.config import (
@@ -67,20 +70,60 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _load_from_flax(model_name: str) -> dict:
+        """Convert flax_model.msgpack to a PyTorch state dict.
+
+        transformers 5.x removed from_flax support; this replicates the conversion.
+        """
+        flax_file = hf_hub_download(model_name, "flax_model.msgpack")
+        with open(flax_file, "rb") as f:
+            flax_params = flax.serialization.msgpack_restore(f.read())
+
+        def _flatten(d, prefix=""):
+            items = {}
+            for k, v in d.items():
+                full_key = f"{prefix}/{k}" if prefix else k
+                if hasattr(v, "keys"):
+                    items.update(_flatten(v, full_key))
+                else:
+                    items[full_key] = np.array(v)
+            return items
+
+        flat = _flatten(flax_params)
+        state_dict = {}
+        for flax_key, arr in flat.items():
+            pt_key = flax_key.replace("/", ".")
+            if pt_key.endswith(".kernel"):
+                pt_key = pt_key[: -len(".kernel")] + ".weight"
+                tensor = torch.from_numpy(arr)
+                if tensor.ndim == 2:
+                    tensor = tensor.T
+            elif pt_key.endswith(".embedding") or pt_key.endswith(".scale"):
+                suffix = ".embedding" if pt_key.endswith(".embedding") else ".scale"
+                pt_key = pt_key[: -len(suffix)] + ".weight"
+                tensor = torch.from_numpy(arr)
+            else:
+                tensor = torch.from_numpy(arr)
+            state_dict[pt_key] = tensor
+        return state_dict
+
     def load_model(self, *, dtype_override=None, **kwargs):
         if self.tokenizer is None:
             self._load_tokenizer()
 
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"from_flax": True}
+        config = AutoConfig.from_pretrained(model_name)
+        model = AutoModel.from_config(config)
+
+        state_dict = self._load_from_flax(model_name)
+        model.load_state_dict(state_dict, strict=True)
+
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+            model = model.to(dtype_override)
 
-        model = AutoModel.from_pretrained(model_name, **model_kwargs)
         model.eval()
-
         self.model = model
 
         return model
