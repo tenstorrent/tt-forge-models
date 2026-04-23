@@ -53,10 +53,33 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_rope_init_functions():
+        # surya-ocr 0.17.1 uses ROPE_INIT_FUNCTIONS['default'] but transformers 5.2+
+        # removed 'default' from that dict; patch it back in before loading the model.
+        from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
+        if "default" not in ROPE_INIT_FUNCTIONS:
+
+            def _compute_default(config, device=None, seq_len=None):
+                base = getattr(config, "rope_theta", 10000.0)
+                dim = config.hidden_size // config.num_attention_heads
+                inv_freq = 1.0 / (
+                    base
+                    ** (
+                        torch.arange(0, dim, 2, dtype=torch.int64).float().to(device)
+                        / dim
+                    )
+                )
+                return inv_freq, 1.0
+
+            ROPE_INIT_FUNCTIONS["default"] = _compute_default
+
     def load_model(self, *, dtype_override=None, **kwargs):
         from surya.foundation import FoundationPredictor
         from surya.recognition import RecognitionPredictor
 
+        self._patch_rope_init_functions()
         self._foundation_predictor = FoundationPredictor(device="cpu")
         RecognitionPredictor(self._foundation_predictor)
         model = self._foundation_predictor.model
