@@ -6,8 +6,25 @@ Gemma 3 1B GGUF model loader implementation for causal language modeling.
 """
 import importlib.metadata
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.modeling_utils as _model_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+# Wrap whatever load_gguf_checkpoint is currently installed (may be patched by
+# other loaders) so that the model_to_load kwarg added in transformers 5.x is
+# accepted and silently dropped rather than causing a TypeError.
+_chained_load_gguf = _gguf_utils.load_gguf_checkpoint
+
+
+def _gguf_compat_wrapper(gguf_path, return_tensors=False, model_to_load=None):
+    return _chained_load_gguf(gguf_path, return_tensors=return_tensors)
+
+
+_gguf_utils.load_gguf_checkpoint = _gguf_compat_wrapper
+_config_utils.load_gguf_checkpoint = _gguf_compat_wrapper
+_model_utils.load_gguf_checkpoint = _gguf_compat_wrapper
 
 from ....base import ForgeModel
 from ....config import (
