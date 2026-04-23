@@ -78,7 +78,13 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {
+            "trust_remote_code": True,
+            # The custom hf_model.py calls from_pretrained() inside its __init__, which
+            # is incompatible with the meta device context that transformers uses for
+            # low_cpu_mem_usage=True. Disable it so the nested call doesn't fail.
+            "low_cpu_mem_usage": False,
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
