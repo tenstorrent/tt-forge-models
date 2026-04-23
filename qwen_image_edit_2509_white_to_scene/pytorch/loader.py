@@ -9,10 +9,10 @@ Qwen/Qwen-Image-Edit-2509 base diffusion pipeline for converting white
 background product images into scenic backgrounds.
 """
 
+from typing import Any, Dict, Optional
+
 import torch
 from diffusers import QwenImageEditPlusPipeline
-from PIL import Image
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
@@ -51,6 +51,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self._pipe: Optional[QwenImageEditPlusPipeline] = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
@@ -65,23 +66,41 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override or torch.bfloat16
-        pipe = QwenImageEditPlusPipeline.from_pretrained(
-            self._BASE_MODEL, torch_dtype=dtype, **kwargs
-        )
-        pipe.load_lora_weights(
-            self._variant_config.pretrained_model_name,
-            weight_name=self._LORA_WEIGHT_NAMES[self._variant],
-        )
-        return pipe
+        if self._pipe is None:
+            self._pipe = QwenImageEditPlusPipeline.from_pretrained(
+                self._BASE_MODEL, torch_dtype=dtype, **kwargs
+            )
+            self._pipe.load_lora_weights(
+                self._variant_config.pretrained_model_name,
+                weight_name=self._LORA_WEIGHT_NAMES[self._variant],
+            )
+        return self._pipe.transformer
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        image = Image.new("RGB", (512, 512), color=(255, 255, 255))
-        prompt = "白底图转场景,将图片中的汽车放在户外场景中"
+    def load_inputs(self, dtype_override=None, batch_size=1) -> Dict[str, Any]:
+        dtype = dtype_override or torch.bfloat16
+
+        # From Qwen-Image-Edit-2509 transformer config: in_channels=64
+        img_dim = 64
+        # joint_attention_dim from config = 3584
+        text_dim = 3584
+        txt_seq_len = 32
+
+        # img_seq_len must equal frame * height * width for positional encoding
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
+        )
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_shapes = [(frame, height, width)] * batch_size
+
         return {
-            "image": image,
-            "prompt": prompt,
-            "negative_prompt": " ",
-            "num_inference_steps": 40,
-            "guidance_scale": 1.0,
-            "true_cfg_scale": 4.0,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
         }
