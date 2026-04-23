@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.HUIHUI_QWEN3_32B_ABLITERATED: LLMModelConfig(
-            pretrained_model_name="huihui-ai/Qwen3-32B-abliterated",
+            pretrained_model_name="Qwen/Qwen3-32B",
             max_length=128,
         ),
     }
