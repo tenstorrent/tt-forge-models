@@ -15,7 +15,6 @@ Reference: https://huggingface.co/lerobot/vqbet_pusht
 from typing import Optional
 
 import torch
-from lerobot.policies.vqbet import VQBeTPolicy
 
 from ...base import ForgeModel
 from ...config import (
@@ -70,6 +69,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from lerobot.policies.vqbet import VQBeTPolicy
+
         self.policy = VQBeTPolicy.from_pretrained(
             self._variant_config.pretrained_model_name,
         )
