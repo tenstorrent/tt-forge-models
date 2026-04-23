@@ -12,8 +12,6 @@ and is designed for downstream clinical prediction tasks.
 import torch
 from typing import Optional
 
-from femr.models.transformer import FEMRModel
-
 from ....base import ForgeModel
 from ....config import (
     ModelInfo,
@@ -68,6 +66,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        from femr.models.transformer import FEMRModel
 
         model = FEMRModel.from_pretrained(model_name, **model_kwargs)
         model.eval()
