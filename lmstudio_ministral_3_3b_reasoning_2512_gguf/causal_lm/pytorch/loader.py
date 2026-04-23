@@ -15,10 +15,43 @@ import transformers.modeling_utils as _modeling_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _find_true_original_load_gguf():
+    """Walk the closure chain to find the real transformers load_gguf_checkpoint.
+
+    Multiple loaders monkey-patch load_gguf_checkpoint without accepting
+    **kwargs; tracing through closures reaches the genuine transformers
+    function so we can forward model_to_load correctly.
+    """
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen = set()
+    while True:
+        if (
+            getattr(fn, "__module__", None)
+            == "transformers.modeling_gguf_pytorch_utils"
+            and getattr(fn, "__qualname__", None) == "load_gguf_checkpoint"
+        ):
+            return fn
+        fn_id = id(fn)
+        if fn_id in seen:
+            break
+        seen.add(fn_id)
+        code = getattr(fn, "__code__", None)
+        if code and "_orig_load_gguf_checkpoint" in code.co_freevars:
+            idx = code.co_freevars.index("_orig_load_gguf_checkpoint")
+            closure = fn.__closure__
+            if closure and idx < len(closure):
+                fn = closure[idx].cell_contents
+                continue
+        break
+    return fn
+
+
+_true_orig_load_gguf_checkpoint = _find_true_original_load_gguf()
 
 
 def _patch_mistral3_support():
@@ -45,7 +78,7 @@ def _patch_mistral3_support():
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to add mistral3 support and fix model_type."""
     _patch_mistral3_support()
-    result = _orig_load_gguf_checkpoint(
+    result = _true_orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, **kwargs
     )
     if result.get("config", {}).get("model_type") == "mistral3":
