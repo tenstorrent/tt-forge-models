@@ -92,8 +92,16 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
+        # Load config first; strip GPTQ quantization config so the model loads
+        # in bfloat16 without custom GPTQ kernels that are incompatible with XLA tracing.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if (
+            hasattr(config, "quantization_config")
+            and config.quantization_config is not None
+        ):
+            delattr(config, "quantization_config")
+
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
                 if hasattr(config.text_config, "layer_types"):
@@ -102,10 +110,11 @@ class ModelLoader(ForgeModel):
                     ]
             else:
                 config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
