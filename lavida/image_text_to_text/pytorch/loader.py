@@ -7,7 +7,7 @@ LaViDa-LLaDA model loader implementation for image-text-to-text tasks.
 
 import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -76,14 +76,28 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": False}
+        # delay_load=True prevents SigLipVisionTower from calling from_pretrained
+        # inside __init__, which fails because transformers 5.2.0 always wraps model
+        # instantiation in a torch.device("meta") context.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        config.delay_load = True
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # Load the vision tower now that we're outside the meta device context.
+        vision_tower = model.get_vision_tower()
+        if vision_tower is not None and not vision_tower.is_loaded:
+            vision_tower.load_model()
+
         model.resize_token_embeddings(len(self.tokenizer))
         model.tie_weights()
         model.eval()
