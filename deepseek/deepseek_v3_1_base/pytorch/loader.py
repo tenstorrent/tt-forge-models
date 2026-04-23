@@ -14,7 +14,16 @@ from unittest.mock import patch
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.cache_utils import DynamicCache
 from transformers.dynamic_module_utils import get_imports
+
+# Patch DynamicCache.get_usable_length removed in newer transformers versions.
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length: int, layer_idx: int = 0) -> int:
+        return self.get_seq_length(layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
 
 from ....base import ForgeModel
 from ....config import (
