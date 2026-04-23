@@ -10,8 +10,15 @@ Personally Identifiable Information across English, German, French, and
 Italian text.
 """
 
+import os
+
+import huggingface_hub.constants as _hf_constants
 import torch
 from transformers import AutoModelForTokenClassification, AutoTokenizer
+
+# Disable xet protocol to use regular HTTP downloads (avoids disk space issues with xet reconstruction)
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+_hf_constants.HF_HUB_DISABLE_XET = True
 
 from ....base import ForgeModel
 from ....config import (
@@ -69,7 +76,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForTokenClassification.from_pretrained(
