@@ -17,7 +17,12 @@ Available variants:
 from typing import Optional
 
 import torch
-from diffusers import AutoencoderTiny, FluxPipeline, FluxTransformer2DModel
+from diffusers import (
+    AutoencoderTiny,
+    FluxPipeline,
+    FluxTransformer2DModel,
+    GGUFQuantizationConfig,
+)
 
 from ...base import ForgeModel
 from ...config import (
@@ -81,6 +86,9 @@ class ModelLoader(ForgeModel):
 
         transformer = FluxTransformer2DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
+            config=BASE_REPO,
+            subfolder="transformer",
+            quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
         )
 
