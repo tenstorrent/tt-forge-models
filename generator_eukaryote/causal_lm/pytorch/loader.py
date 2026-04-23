@@ -82,7 +82,11 @@ class ModelLoader(ForgeModel):
             "        self.eos_token_id = self._convert_token_to_id(self.eos_token)\n"
             "        super().__init__(**kwargs)"
         )
-        fixed = '        super().__init__(bos_token="<s>", eos_token="</s>", **kwargs)'
+        fixed = (
+            '        kwargs.setdefault("bos_token", "<s>")\n'
+            '        kwargs.setdefault("eos_token", "</s>")\n'
+            "        super().__init__(**kwargs)"
+        )
 
         for tokenizer_path in modules_base.rglob("tokenizer.py"):
             content = tokenizer_path.read_text()
