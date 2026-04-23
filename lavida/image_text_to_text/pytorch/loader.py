@@ -194,6 +194,9 @@ class ModelLoader(ForgeModel):
         img_tok = torch.tensor([[IMAGE_TOKEN_INDEX]], dtype=pre_ids.dtype)
         input_ids = torch.cat([pre_ids, img_tok, post_ids], dim=1)
         attention_mask = torch.ones_like(input_ids)
+        # The model's forward always requires labels; image token positions use -100.
+        labels = input_ids.clone()
+        labels[labels == IMAGE_TOKEN_INDEX] = -100
 
         image_file = get_file(self.sample_image_url)
         image = Image.open(image_file).convert("RGB")
@@ -215,4 +218,5 @@ class ModelLoader(ForgeModel):
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "images": pixel_values,
+            "labels": labels,
         }
