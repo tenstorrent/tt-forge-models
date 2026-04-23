@@ -78,8 +78,6 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        import importlib
-
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -99,30 +97,25 @@ class ModelLoader(ForgeModel):
 
         # modeling_decilm._init_weights calls module.weight.data.normal_() without
         # checking whether .weight exists — compressed-tensors quantized Linear
-        # layers don't have it.  Pre-load the remote module so we can patch the
-        # method to skip modules that lack .weight before from_pretrained runs.
-        config_module = config.__class__.__module__
-        modeling_module_name = config_module.rsplit(".", 1)[0] + ".modeling_decilm"
+        # layers don't have it.  Wrap _initialize_missing_keys on the base class so
+        # the AttributeError is silently skipped; restore immediately after loading.
+        import transformers.modeling_utils as _mu
+
+        _orig_init_missing = _mu.PreTrainedModel._initialize_missing_keys
+
+        def _patched_init_missing(self_m, is_quantized, _orig=_orig_init_missing):
+            try:
+                _orig(self_m, is_quantized)
+            except AttributeError:
+                pass
+
+        _mu.PreTrainedModel._initialize_missing_keys = _patched_init_missing
         try:
-            modeling_mod = importlib.import_module(modeling_module_name)
-            for attr_name in dir(modeling_mod):
-                cls = getattr(modeling_mod, attr_name, None)
-                if isinstance(cls, type) and "_init_weights" in vars(cls):
-                    _orig_init = cls._init_weights
-
-                    def _safe_init(self, module, _orig=_orig_init):
-                        try:
-                            _orig(self, module)
-                        except AttributeError:
-                            pass
-
-                    cls._init_weights = _safe_init
-        except Exception:
-            pass
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _mu.PreTrainedModel._initialize_missing_keys = _orig_init_missing
 
         self.config = model.config
         self.model = model
