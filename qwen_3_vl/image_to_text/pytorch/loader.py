@@ -214,8 +214,6 @@ class ModelLoader(ForgeModel):
         # MLX/AWQ repos may not ship a processor; fall back to the base model
         if self._variant == ModelVariant.QWEN_3_VL_30B_A3B_INSTRUCT_MLX_4BIT:
             processor_name = "Qwen/Qwen3-VL-30B-A3B-Instruct"
-        elif self._variant == ModelVariant.QWEN_3_VL_32B_INSTRUCT_AWQ_4BIT:
-            processor_name = "Qwen/Qwen3-VL-32B-Instruct"
         else:
             processor_name = pretrained_model_name
         self.processor = AutoProcessor.from_pretrained(processor_name)
