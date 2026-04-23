@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import torch
 from collections import deque
+from typing import List
 from torch import Tensor
 from lerobot.policies.pi05 import PI05Policy
 from types import MethodType
@@ -49,8 +50,8 @@ def preprocess_for_sampling(self, batch: dict[str, Tensor]):
 @torch.no_grad()
 def forward(
     self,
-    images: Tensor,
-    img_masks: Tensor,
+    images: List[Tensor],
+    img_masks: List[Tensor],
     lang_tokens: Tensor,
     lang_masks: Tensor,
     state: Tensor,

@@ -90,17 +90,21 @@ class ModelLoader(ForgeModel):
         ``max_state_dim``.
 
         Returns:
-            Tuple[Tensor, ...]: ``(images, img_masks, lang_tokens, lang_masks,
-            state, noise)`` ready to be fed to ``self.policy.forward``.
+            Tuple: ``(images, img_masks, lang_tokens, lang_masks, state, noise)``
+            where ``images`` and ``img_masks`` are lists of per-camera tensors
+            (one entry per camera), ready to be fed to ``self.policy.forward``.
         """
         config = self.policy.config
         num_cameras = len(config.image_features)
         height, width = config.image_resolution
 
-        images = torch.zeros(
-            batch_size, num_cameras, 3, height, width, dtype=torch.float32
-        )
-        img_masks = torch.ones(batch_size, num_cameras, dtype=torch.bool)
+        images = [
+            torch.zeros(batch_size, 3, height, width, dtype=torch.float32)
+            for _ in range(num_cameras)
+        ]
+        img_masks = [
+            torch.ones(batch_size, dtype=torch.bool) for _ in range(num_cameras)
+        ]
 
         lang_tokens = torch.zeros(
             batch_size, config.tokenizer_max_length, dtype=torch.long
