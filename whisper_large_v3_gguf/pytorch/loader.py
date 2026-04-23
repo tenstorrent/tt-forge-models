@@ -8,6 +8,8 @@ Repositories:
 - https://huggingface.co/vonjack/whisper-large-v3-gguf
 - https://huggingface.co/oxide-lab/whisper-large-v3-GGUF
 """
+import inspect
+
 import torch
 from transformers import (
     WhisperForConditionalGeneration,
@@ -17,6 +19,81 @@ from transformers import (
 from typing import Optional
 
 from ...base import ForgeModel
+
+
+def _fix_gguf_load_compat():
+    """Fix stale GGUF patches that omit model_to_load (added in transformers 5.x).
+
+    Some other model loaders monkey-patch load_gguf_checkpoint with a signature
+    that pre-dates the model_to_load parameter. We find the real transformers
+    function (identified by an explicit model_to_load parameter — not just **kwargs)
+    by recursively traversing closures and module globals, then replace the module
+    attribute with a direct wrapper around it.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils_mod
+
+    def _is_real(fn):
+        """True only for the genuine transformers function with explicit model_to_load."""
+        try:
+            return "model_to_load" in inspect.signature(fn).parameters
+        except (ValueError, TypeError):
+            return False
+
+    current = gguf_utils_mod.load_gguf_checkpoint
+    if _is_real(current):
+        return
+
+    def _find_real(fn, visited=None, depth=0):
+        if visited is None:
+            visited = set()
+        fn_id = id(fn)
+        if fn_id in visited or depth > 60:
+            return None
+        visited.add(fn_id)
+
+        if _is_real(fn):
+            return fn
+
+        if hasattr(fn, "__closure__") and fn.__closure__:
+            for cell in fn.__closure__:
+                try:
+                    c = cell.cell_contents
+                    if callable(c):
+                        result = _find_real(c, visited, depth + 1)
+                        if result is not None:
+                            return result
+                except ValueError:
+                    pass
+
+        if hasattr(fn, "__globals__"):
+            for name, val in fn.__globals__.items():
+                if (
+                    callable(val)
+                    and ("gguf" in name.lower() or "orig" in name.lower())
+                    and id(val) not in visited
+                ):
+                    result = _find_real(val, visited, depth + 1)
+                    if result is not None:
+                        return result
+
+        return None
+
+    real_fn = _find_real(current)
+    if real_fn is None:
+        return
+
+    _real = real_fn
+
+    def _compat(gguf_checkpoint_path, return_tensors=False, model_to_load=None):
+        return _real(
+            gguf_checkpoint_path,
+            return_tensors=return_tensors,
+            model_to_load=model_to_load,
+        )
+
+    gguf_utils_mod.load_gguf_checkpoint = _compat
+
+
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -88,6 +165,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _fix_gguf_load_compat()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
 
