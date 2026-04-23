@@ -62,7 +62,9 @@ class ModelLoader(ForgeModel):
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
-        if os.environ.get("TT_RANDOM_WEIGHTS"):
+        if os.environ.get("TT_RANDOM_WEIGHTS") or os.environ.get(
+            "TT_COMPILE_ONLY_SYSTEM_DESC"
+        ):
             config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "quantization_config"):
                 config.quantization_config = None
