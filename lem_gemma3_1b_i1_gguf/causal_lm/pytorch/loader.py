@@ -4,7 +4,10 @@
 """
 LEM-Gemma3-1B i1 GGUF model loader implementation for causal language modeling.
 """
+import inspect
+
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -18,6 +21,64 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _find_real_load_gguf_checkpoint(fn):
+    """Traverse patch chain to find the original transformers load_gguf_checkpoint."""
+    seen = set()
+    current = fn
+    while True:
+        fn_id = id(current)
+        if fn_id in seen or not callable(current) or not hasattr(current, "__code__"):
+            return current
+        seen.add(fn_id)
+        if (
+            getattr(current, "__module__", "")
+            == "transformers.modeling_gguf_pytorch_utils"
+        ):
+            return current
+        try:
+            if "model_to_load" in inspect.signature(current).parameters:
+                return current
+        except (ValueError, TypeError):
+            pass
+        freevars = current.__code__.co_freevars
+        cells = current.__closure__ or ()
+        next_fn = None
+        for i, varname in enumerate(freevars):
+            if i >= len(cells):
+                break
+            if "load_gguf_checkpoint" in varname or "orig_load" in varname:
+                try:
+                    v = cells[i].cell_contents
+                    if callable(v) and id(v) not in seen:
+                        next_fn = v
+                        break
+                except ValueError:
+                    pass
+        if next_fn is None:
+            v = getattr(current, "__globals__", {}).get("_orig_load_gguf_checkpoint")
+            if v is not None and callable(v) and id(v) not in seen:
+                next_fn = v
+        if next_fn is None:
+            return current
+        current = next_fn
+
+
+_real_load_gguf_checkpoint = _find_real_load_gguf_checkpoint(
+    _gguf_utils.load_gguf_checkpoint
+)
+
+
+def _lem_load_gguf_checkpoint(
+    gguf_checkpoint_path, return_tensors=False, model_to_load=None, **kwargs
+):
+    return _real_load_gguf_checkpoint(
+        gguf_checkpoint_path,
+        return_tensors=return_tensors,
+        model_to_load=model_to_load,
+        **kwargs,
+    )
 
 
 class ModelVariant(StrEnum):
@@ -94,9 +155,14 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        _saved_fn = _gguf_utils.load_gguf_checkpoint
+        _gguf_utils.load_gguf_checkpoint = _lem_load_gguf_checkpoint
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _saved_fn
 
         self.config = model.config
         self.model = model
