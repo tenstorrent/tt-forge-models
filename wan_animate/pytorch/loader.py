@@ -14,7 +14,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import DiffusionPipeline  # type: ignore[import]
+from diffusers import WanAnimatePipeline, WanAnimateTransformer3DModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -50,7 +50,8 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[DiffusionPipeline] = None
+        self.pipeline: Optional[WanAnimatePipeline] = None
+        self._transformer: Optional[WanAnimateTransformer3DModel] = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -66,30 +67,6 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(
-        self,
-        dtype_override: Optional[torch.dtype] = None,
-        device_map: Optional[str] = None,
-        low_cpu_mem_usage: bool = True,
-    ) -> DiffusionPipeline:
-        pipe_kwargs = {
-            "torch_dtype": (
-                dtype_override if dtype_override is not None else torch.float32
-            ),
-            "device_map": device_map,
-            "low_cpu_mem_usage": low_cpu_mem_usage,
-        }
-
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **pipe_kwargs,
-        )
-
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
-
-        return self.pipeline
-
     def load_model(
         self,
         *,
@@ -97,19 +74,48 @@ class ModelLoader(ForgeModel):
         device_map: Optional[str] = None,
         low_cpu_mem_usage: bool = True,
         **kwargs,
-    ):
+    ) -> WanAnimateTransformer3DModel:
+        """Load and return the Wan Animate transformer (a torch.nn.Module)."""
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
         if self.pipeline is None:
-            return self._load_pipeline(
-                dtype_override=dtype_override,
+            self.pipeline = WanAnimatePipeline.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                torch_dtype=dtype,
                 device_map=device_map,
                 low_cpu_mem_usage=low_cpu_mem_usage,
             )
 
+        self._transformer = self.pipeline.transformer
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
+            self._transformer = self._transformer.to(dtype=dtype_override)
+        self._transformer.eval()
+        return self._transformer
 
-        return self.pipeline
+    def load_inputs(self, **kwargs) -> Any:
+        """Prepare sample inputs for the Wan Animate transformer."""
+        dtype = kwargs.get("dtype_override", torch.float32)
+        batch_size = kwargs.get("batch_size", 1)
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {"prompt": prompt_value}
+        # WanAnimateTransformer3DModel config: in_channels=36, text_dim=4096
+        in_channels = 36
+        text_dim = 4096
+        txt_seq_len = 32
+
+        # Small spatial/temporal latent dimensions for testing
+        # patch_size = (1, 2, 2), so spatial dims are halved
+        frame, height, width = 1, 4, 4
+        seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
+        )
+        timestep = torch.tensor([500] * batch_size, dtype=torch.long)
+
+        return {
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "timestep": timestep,
+            "return_dict": False,
+        }
