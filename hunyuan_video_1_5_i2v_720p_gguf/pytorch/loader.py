@@ -296,7 +296,7 @@ class ModelLoader(ForgeModel):
             config.image_embed_dim,
             dtype=dtype,
         )
-        timestep = torch.tensor([500], dtype=torch.long).expand(batch_size)
+        timestep = torch.tensor([500], dtype=dtype).expand(batch_size)
 
         return {
             "hidden_states": hidden_states,
