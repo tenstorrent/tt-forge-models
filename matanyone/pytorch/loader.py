@@ -8,7 +8,6 @@ MatAnyone model loader implementation for video matting tasks.
 import torch
 import numpy as np
 from typing import Optional
-from matanyone.model.matanyone import MatAnyone
 
 from ...base import ForgeModel
 from ...config import (
@@ -54,6 +53,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MatAnyone model instance."""
+        from matanyone.model.matanyone import MatAnyone
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model = MatAnyone.from_pretrained(pretrained_model_name)
