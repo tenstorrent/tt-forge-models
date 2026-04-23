@@ -36,15 +36,42 @@ def _patch_qwen35_support():
         )
 
 
+def _patch_gguf_result(result):
+    if result.get("config", {}).get("model_type") == "qwen35":
+        result["config"]["model_type"] = "qwen3"
+    return result
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen35 support, fix model_type, and forward all kwargs."""
     _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, **kwargs
     )
-    if result.get("config", {}).get("model_type") == "qwen35":
-        result["config"]["model_type"] = "qwen3"
-    return result
+    return _patch_gguf_result(result)
+
+
+def _get_real_load_gguf_checkpoint():
+    """Find the original transformers load_gguf_checkpoint by traversing sys.modules.
+
+    Many loaders monkey-patch _gguf_utils.load_gguf_checkpoint with a fixed
+    (gguf_path, return_tensors=False) signature.  The first-imported loader
+    stores the real transformers function in its module-level
+    _orig_load_gguf_checkpoint.  We recover it here so we can install an
+    outermost wrapper in load_model() that properly forwards model_to_load.
+    """
+    import sys
+
+    for mod in sys.modules.values():
+        orig = getattr(mod, "_orig_load_gguf_checkpoint", None)
+        if orig is not None:
+            if (
+                getattr(orig, "__module__", "")
+                == "transformers.modeling_gguf_pytorch_utils"
+                and getattr(orig, "__qualname__", "") == "load_gguf_checkpoint"
+            ):
+                return orig
+    return None
 
 
 _patch_qwen35_support()
@@ -139,9 +166,29 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Many loaders install patches with a fixed (gguf_path, return_tensors=False)
+        # signature.  transformers now calls load_gguf_checkpoint with model_to_load=
+        # which the fixed-signature patches cannot accept.  We install an outermost
+        # wrapper here (just before from_pretrained) that bypasses the chain and calls
+        # the real transformers function directly so model_to_load reaches it.
+        _real_fn = _get_real_load_gguf_checkpoint()
+        _prev_fn = _gguf_utils.load_gguf_checkpoint
+        if _real_fn is not None:
+            _patch_qwen35_support()
+
+            def _model_load_patch(gguf_path, return_tensors=False, **kw):
+                return _patch_gguf_result(
+                    _real_fn(gguf_path, return_tensors=return_tensors, **kw)
+                )
+
+            _gguf_utils.load_gguf_checkpoint = _model_load_patch
+
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _prev_fn
 
         self.config = model.config
         self.model = model
