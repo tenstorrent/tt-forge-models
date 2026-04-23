@@ -8,7 +8,6 @@ Prithvi EO 2.0 for Semantic Segmentation model loader implementation
 import torch
 from typing import Optional
 from huggingface_hub import snapshot_download
-from terratorch.cli_tools import LightningInferenceModel
 
 from ....base import ForgeModel
 from ....config import (
@@ -101,6 +100,8 @@ class ModelLoader(ForgeModel):
 
         config_path = f"{self._model_path}/config.yaml"
         checkpoint_path = f"{self._model_path}/Prithvi-EO-V2-300M-TL-Sen1Floods11.pt"
+
+        from terratorch.cli_tools import LightningInferenceModel
 
         lightning_model = LightningInferenceModel.from_config(
             config_path, checkpoint_path
