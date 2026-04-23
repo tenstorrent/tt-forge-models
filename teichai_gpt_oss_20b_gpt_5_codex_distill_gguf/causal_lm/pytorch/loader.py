@@ -9,6 +9,13 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -19,6 +26,75 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _find_original_load_gguf():
+    """Walk the closure chain of patches to find the original transformers function."""
+    func = _gguf_utils.load_gguf_checkpoint
+    seen = set()
+    while True:
+        fid = id(func)
+        if fid in seen:
+            break
+        seen.add(fid)
+        if (
+            getattr(func, "__module__", "")
+            == "transformers.modeling_gguf_pytorch_utils"
+        ):
+            break
+        if not func.__closure__:
+            break
+        freevars = func.__code__.co_freevars
+        next_func = None
+        for i, varname in enumerate(freevars):
+            if "orig" in varname:
+                try:
+                    candidate = func.__closure__[i].cell_contents
+                    if callable(candidate):
+                        next_func = candidate
+                        break
+                except ValueError:
+                    pass
+        if next_func is None:
+            for cell in func.__closure__:
+                try:
+                    content = cell.cell_contents
+                    if callable(content) and hasattr(content, "__module__"):
+                        next_func = content
+                        break
+                except ValueError:
+                    pass
+        if next_func is None:
+            break
+        func = next_func
+    return func
+
+
+def _patch_gpt_oss_support():
+    """Register gpt-oss architecture as an alias for qwen3_moe.
+
+    GPT-OSS uses the same MoE model architecture as Qwen3 MoE but the GGUF
+    file declares architecture as 'gpt-oss' which transformers does not
+    recognise.
+    """
+    if "gpt-oss" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("gpt-oss")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            mapping = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"]
+            )
+            mapping["expert_feed_forward_length"] = "moe_intermediate_size"
+            mapping["attention.sliding_window"] = "sliding_window"
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gpt-oss"] = mapping
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["gpt-oss"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+    if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
+        if "qwen3_moe" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
+                "gpt-oss"
+            ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
 
 
 class ModelVariant(StrEnum):
@@ -77,31 +153,55 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        _patch_gpt_oss_support()
+        _real_orig = _find_original_load_gguf()
 
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+        def _our_patched(*args, **kw):
+            _patch_gpt_oss_support()
+            result = _real_orig(*args, **kw)
+            if result.get("config", {}).get("model_type") == "gpt-oss":
+                result["config"]["model_type"] = "qwen3_moe"
+            return result
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        _old_gguf = _gguf_utils.load_gguf_checkpoint
+        _old_cfg = _config_utils.load_gguf_checkpoint
+        _old_tok = _auto_tokenizer.load_gguf_checkpoint
+        _old_toku = _tok_utils.load_gguf_checkpoint
+        _gguf_utils.load_gguf_checkpoint = _our_patched
+        _config_utils.load_gguf_checkpoint = _our_patched
+        _auto_tokenizer.load_gguf_checkpoint = _our_patched
+        _tok_utils.load_gguf_checkpoint = _our_patched
+        try:
+            pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            if self.tokenizer is None:
+                self._load_tokenizer(dtype_override=dtype_override)
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.config = model.config
-        self.model = model
-        return model
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+
+            self.config = model.config
+            self.model = model
+            return model
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _old_gguf
+            _config_utils.load_gguf_checkpoint = _old_cfg
+            _auto_tokenizer.load_gguf_checkpoint = _old_tok
+            _tok_utils.load_gguf_checkpoint = _old_toku
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
