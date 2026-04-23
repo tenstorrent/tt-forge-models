@@ -5,7 +5,7 @@
 ASID Captioner model loader implementation for vision-language tasks.
 """
 import torch
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5OmniThinkerForConditionalGeneration, AutoProcessor
 from typing import Optional
 
 
@@ -134,7 +134,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
-        model = Qwen2VLForConditionalGeneration.from_pretrained(
+        model = Qwen2_5OmniThinkerForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
