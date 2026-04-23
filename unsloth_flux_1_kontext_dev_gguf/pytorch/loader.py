@@ -8,7 +8,7 @@ Repository:
 - https://huggingface.co/unsloth/FLUX.1-Kontext-dev-GGUF
 """
 import torch
-from diffusers import FluxTransformer2DModel
+from diffusers import FluxTransformer2DModel, GGUFQuantizationConfig
 from typing import Optional
 
 from ...base import ForgeModel
@@ -22,7 +22,7 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_BASE_URL = "https://huggingface.co/unsloth/FLUX.1-Kontext-dev-GGUF/blob/main"
+REPO_ID = "unsloth/FLUX.1-Kontext-dev-GGUF"
 
 
 class ModelVariant(StrEnum):
@@ -37,10 +37,10 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.Q4_K_M: ModelConfig(
-            pretrained_model_name="unsloth/FLUX.1-Kontext-dev-GGUF",
+            pretrained_model_name=REPO_ID,
         ),
         ModelVariant.Q8_0: ModelConfig(
-            pretrained_model_name="unsloth/FLUX.1-Kontext-dev-GGUF",
+            pretrained_model_name=REPO_ID,
         ),
     }
 
@@ -71,20 +71,16 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
         gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
-
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
 
         self.transformer = FluxTransformer2DModel.from_single_file(
-            gguf_url,
-            **load_kwargs,
+            f"https://huggingface.co/{REPO_ID}/resolve/main/{gguf_file}",
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+        self.transformer.eval()
 
         return self.transformer
 
