@@ -264,9 +264,11 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        # Load the model with dtype override if specified
+        # Load the model with dtype override if specified.
+        # NVFP4 models have quantized (half-size) weights; forcing a dtype causes shape
+        # mismatches, so load them in their native quantized format instead.
         model_kwargs = {}
-        if dtype_override is not None:
+        if dtype_override is not None and not self._is_nvfp4_variant():
             model_kwargs["torch_dtype"] = dtype_override
 
         model_kwargs |= kwargs
@@ -367,6 +369,16 @@ class ModelLoader(ForgeModel):
     def _gguf_file(self):
         """Get the GGUF filename for the current variant."""
         return self._GGUF_FILES.get(self._variant)
+
+    def _is_nvfp4_variant(self):
+        """Check if the current variant uses NVFP4 quantization."""
+        return self._variant in (
+            ModelVariant.QWEN_3_5_27B_NVFP4,
+            ModelVariant.QWEN_3_5_27B_NVFP4_BERKERDOOO,
+            ModelVariant.QWEN_3_5_27B_TEXT_NVFP4_MTP,
+            ModelVariant.QWEN_3_5_35B_A3B_NVFP4,
+            ModelVariant.QWEN_3_5_35B_A3B_NVFP4_SBULL_DELL,
+        )
 
     def _is_awq_variant(self):
         """Check if the current variant uses AWQ quantization."""
