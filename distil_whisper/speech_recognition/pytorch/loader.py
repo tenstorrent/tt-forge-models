@@ -117,6 +117,14 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        # Whisper is encoder-decoder; provide decoder_input_ids with start token
+        decoder_start_token_id = self._processor.tokenizer.convert_tokens_to_ids(
+            "<|startoftranscript|>"
+        )
+        inputs["decoder_input_ids"] = torch.tensor(
+            [[decoder_start_token_id]], dtype=torch.long
+        )
+
         if dtype_override is not None:
             inputs = {
                 k: v.to(dtype_override)
