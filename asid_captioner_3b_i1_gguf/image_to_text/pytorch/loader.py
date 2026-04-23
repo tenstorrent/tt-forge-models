@@ -91,15 +91,22 @@ class ModelLoader(ForgeModel):
             if "qwen2vl" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
                 _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
 
-            # Patch get_gguf_hf_weights_map to map qwen2_vl -> qwen2vl
+            # Patch get_gguf_hf_weights_map to map qwen2_vl -> qwen2vl and
+            # resolve num_hidden_layers from text_config sub-config
             _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
 
             def _patched_get_map(
                 hf_model, processor, model_type=None, num_layers=None, qual_name=""
             ):
-                if model_type is None and hasattr(hf_model, "config"):
-                    if getattr(hf_model.config, "model_type", None) == "qwen2_vl":
+                cfg = getattr(hf_model, "config", None)
+                if getattr(cfg, "model_type", None) == "qwen2_vl":
+                    if model_type is None:
                         model_type = "qwen2vl"
+                    # Qwen2VLConfig nests num_hidden_layers inside text_config
+                    if num_layers is None:
+                        num_layers = getattr(
+                            getattr(cfg, "text_config", None), "num_hidden_layers", None
+                        )
                 elif model_type == "qwen2_vl":
                     model_type = "qwen2vl"
                 return _orig_get_map(
