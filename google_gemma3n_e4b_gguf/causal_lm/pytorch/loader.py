@@ -9,6 +9,17 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    TENSOR_PROCESSORS,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGemmaConverter
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -19,6 +30,63 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_gemma3n_gguf_support():
+    """Register gemma3n architecture for GGUF loading in transformers.
+
+    transformers 5.x does not yet include gemma3n in its GGUF conversion
+    tables.  We add it here by copying the gemma3 config mapping (the two
+    architectures share the same set of GGUF metadata keys) and registering
+    the GGUFGemmaConverter for the resulting gemma3n_text model_type.
+    """
+    if "gemma3n" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "gemma3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gemma3n"] = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gemma3"]
+            )
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("gemma3n")
+
+    if "gemma3n_text" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["gemma3n_text"] = GGUFGemmaConverter
+
+    # gemma3n tensors have the same layout as gemma3/gemma2
+    from transformers.modeling_gguf_pytorch_utils import Gemma2TensorProcessor
+
+    if "gemma3n" not in TENSOR_PROCESSORS:
+        TENSOR_PROCESSORS["gemma3n"] = Gemma2TensorProcessor
+
+    # Patch get_gguf_hf_weights_map to translate gemma3n_text -> gemma3n
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_map(hf_model, processor, model_type=None, **kwargs):
+        mt = model_type or (
+            hf_model.config.model_type if model_type is None else model_type
+        )
+        if mt == "gemma3n_text":
+            mt = "gemma3n"
+        return _orig_get_map(hf_model, processor, model_type=mt, **kwargs)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_map
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    _patch_gemma3n_gguf_support()
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    if result.get("config", {}).get("model_type") == "gemma3n":
+        result["config"]["model_type"] = "gemma3n_text"
+    return result
+
+
+_patch_gemma3n_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
