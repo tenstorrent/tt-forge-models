@@ -5,6 +5,7 @@
 gianni-cor bitnet_b1_58-large-TQ2_0 GGUF model loader implementation for causal language modeling.
 """
 
+import inspect
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -61,6 +62,57 @@ def _patch_transformers_bitnet_gguf():
 
     if "bitnet" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["bitnet"] = GGUFLlamaConverter
+
+
+def _fix_gguf_load_compat():
+    """Fix any stale GGUF patches that omit model_to_load (added in transformers 5.x).
+
+    Some other model loaders monkey-patch load_gguf_checkpoint with a signature
+    that pre-dates the model_to_load parameter. When transformers internally
+    calls load_gguf_checkpoint(..., model_to_load=dummy_model) the broken patch
+    raises TypeError.  We traverse the closure chain to find the real function
+    and replace the module attribute with a properly-forwarding wrapper.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils_mod
+
+    current = gguf_utils_mod.load_gguf_checkpoint
+    if "model_to_load" in inspect.signature(current).parameters:
+        return
+
+    def _find_real(fn, depth=0):
+        if depth > 10:
+            return None
+        try:
+            if "model_to_load" in inspect.signature(fn).parameters:
+                return fn
+        except (ValueError, TypeError):
+            return None
+        if hasattr(fn, "__closure__") and fn.__closure__:
+            for cell in fn.__closure__:
+                try:
+                    c = cell.cell_contents
+                    if callable(c):
+                        result = _find_real(c, depth + 1)
+                        if result is not None:
+                            return result
+                except ValueError:
+                    pass
+        return None
+
+    real_fn = _find_real(current)
+    if real_fn is None:
+        return
+
+    _real = real_fn
+
+    def _compat(gguf_checkpoint_path, return_tensors=False, model_to_load=None):
+        return _real(
+            gguf_checkpoint_path,
+            return_tensors=return_tensors,
+            model_to_load=model_to_load,
+        )
+
+    gguf_utils_mod.load_gguf_checkpoint = _compat
 
 
 _patch_transformers_bitnet_gguf()
@@ -122,6 +174,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _fix_gguf_load_compat()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
