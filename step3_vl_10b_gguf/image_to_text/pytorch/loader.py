@@ -19,6 +19,48 @@ from ....config import (
 )
 
 
+def _patch_step3_gguf_loading():
+    """Patch transformers GGUF weight mapper to handle step_robotics model type.
+
+    Step3-VL uses Qwen3 as its LM backbone, so its GGUF weight names follow
+    the qwen3 convention. The mapper only needs to know to use qwen3 arch.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if getattr(gguf_utils, "_step3_patched", False):
+        return
+
+    _orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        effective_type = (
+            model_type
+            if model_type is not None
+            else getattr(getattr(hf_model, "config", None), "model_type", None)
+        )
+        if effective_type == "step_robotics":
+            model_type = "qwen3"
+        return _orig_get_map(
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+        )
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_map
+    import transformers.modeling_utils as modeling_utils
+
+    if hasattr(modeling_utils, "get_gguf_hf_weights_map"):
+        modeling_utils.get_gguf_hf_weights_map = patched_get_map
+    gguf_utils._step3_patched = True
+
+
+_patch_step3_gguf_loading()
+
+
 class ModelVariant(StrEnum):
     """Available Step3 VL 10B GGUF model variants for image to text."""
 
