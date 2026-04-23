@@ -10,6 +10,7 @@ from typing import Optional
 import timm
 from timm.data import resolve_data_config
 from timm.data.transforms_factory import create_transform
+from PIL import Image
 
 from ...config import (
     ModelConfig,
@@ -21,8 +22,7 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from datasets import load_dataset
-from ...tools.utils import print_compiled_model_results
+from ...tools.utils import get_file, print_compiled_model_results
 
 
 class ModelVariant(StrEnum):
@@ -76,9 +76,8 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size: int = 1):
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"].convert("RGB")
+        image_path = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
+        image = Image.open(image_path).convert("RGB")
 
         # Use cached model if available, otherwise load it
         model_for_config = (
