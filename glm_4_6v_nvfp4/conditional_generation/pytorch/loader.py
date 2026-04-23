@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
             self._load_processor(dtype_override=dtype_override)
 
         image_file = get_file(self.sample_image_url)
-        image = Image.open(image_file).convert("RGB")
+        image = Image.open(image_file).convert("RGB").resize((224, 224))
 
         messages = [
             {
