@@ -5,6 +5,11 @@
 Dia2 1B streaming dialogue text-to-speech model loader implementation.
 """
 
+import importlib.util
+import os
+import shutil
+import subprocess
+import tempfile
 import torch
 import torch.nn as nn
 from typing import Optional
@@ -19,6 +24,44 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_dia2_subpackages() -> None:
+    """Copy missing subpackages into the installed dia2 wheel.
+
+    The upstream nari-labs/dia2 pyproject.toml uses ``packages = ["dia2"]``
+    which causes setuptools to omit the ``core``, ``runtime``, and ``audio``
+    subpackages from the built wheel.  This function clones the repo once and
+    copies those directories next to the already-installed top-level package.
+    """
+    spec = importlib.util.find_spec("dia2")
+    if spec is None or spec.origin is None:
+        return
+    dia2_dir = os.path.dirname(spec.origin)
+    if all(
+        os.path.exists(os.path.join(dia2_dir, sub))
+        for sub in ("core", "runtime", "audio")
+    ):
+        return
+    with tempfile.TemporaryDirectory() as tmpdir:
+        subprocess.run(
+            [
+                "git",
+                "clone",
+                "--depth=1",
+                "--quiet",
+                "https://github.com/nari-labs/dia2.git",
+                tmpdir,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        src_dia2 = os.path.join(tmpdir, "dia2")
+        for sub in ("core", "runtime", "audio"):
+            src = os.path.join(src_dia2, sub)
+            dst = os.path.join(dia2_dir, sub)
+            if os.path.exists(src) and not os.path.exists(dst):
+                shutil.copytree(src, dst)
 
 
 class Dia2StepWrapper(nn.Module):
@@ -73,6 +116,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load the Dia2 model backbone on CPU and wrap a single text decode step."""
+        _patch_dia2_subpackages()
         from dia2.assets import resolve_assets
         from dia2.config import load_config
         from dia2.core.model import Dia2Model
