@@ -7,7 +7,7 @@ LLaVA model loader implementation for multimodal conditional generation.
 
 from typing import Optional
 
-from datasets import load_dataset
+from PIL import Image
 from transformers import LlavaForConditionalGeneration, AutoProcessor
 
 from ...base import ForgeModel
@@ -46,6 +46,10 @@ class ModelLoader(ForgeModel):
         ),
     }
 
+    _PROCESSOR_OVERRIDES = {
+        ModelVariant.LLAVA_LLAMA2_13B_CHAT_LIGHTNING_PREVIEW: "llava-hf/llava-1.5-13b-hf",
+    }
+
     DEFAULT_VARIANT = ModelVariant.LLAVA_1_5_7B
 
     sample_image = "https://www.ilankelman.org/stopsigns/australia.jpg"
@@ -76,15 +80,27 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
+        processor_name = self._PROCESSOR_OVERRIDES.get(
+            self._variant, self._variant_config.pretrained_model_name
         )
+        self.processor = AutoProcessor.from_pretrained(processor_name)
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the LLaVA model instance."""
         model_name = self._variant_config.pretrained_model_name
+        if self._variant == ModelVariant.LLAVA_LLAMA2_13B_CHAT_LIGHTNING_PREVIEW:
+            kwargs.setdefault("ignore_mismatched_sizes", True)
         model = LlavaForConditionalGeneration.from_pretrained(str(model_name), **kwargs)
+
+        if self._variant == ModelVariant.LLAVA_LLAMA2_13B_CHAT_LIGHTNING_PREVIEW:
+            # The checkpoint has vocab_size=32000 but the image token index is also 32000,
+            # making it out of range. Resize embeddings to accommodate the image token.
+            image_token_index = model.config.image_token_index
+            current_vocab_size = model.config.text_config.vocab_size
+            if image_token_index >= current_vocab_size:
+                model.resize_token_embeddings(image_token_index + 1)
+
         model.eval()
 
         if dtype_override:
@@ -115,9 +131,7 @@ class ModelLoader(ForgeModel):
             conversation, padding=True, add_generation_prompt=True
         )
 
-        # Load dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (336, 336), color=(128, 128, 128))
 
         # Preprocess
         inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
