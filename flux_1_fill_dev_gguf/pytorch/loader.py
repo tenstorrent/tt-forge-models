@@ -6,10 +6,13 @@ FLUX.1-Fill-dev GGUF model loader implementation for image inpainting.
 
 This loader uses GGUF-quantized variants of the FLUX.1-Fill-dev model from
 YarvixPA/FLUX.1-Fill-dev-GGUF. The GGUF transformer is loaded via diffusers'
-FluxTransformer2DModel.from_single_file and plugged into a FluxFillPipeline
-built from the original black-forest-labs/FLUX.1-Fill-dev repository.
+FluxTransformer2DModel.from_single_file with a local config to bypass the gated
+black-forest-labs/FLUX.1-Fill-dev repository.
 """
 
+import json
+import os
+import tempfile
 from typing import Optional
 
 import torch
@@ -27,7 +30,12 @@ from ...config import (
 )
 
 GGUF_REPO = "YarvixPA/FLUX.1-Fill-dev-GGUF"
-BASE_REPO = "black-forest-labs/FLUX.1-Fill-dev"
+
+# FLUX.1-Fill-dev transformer architecture constants
+_CLIP_EMBED_DIM = 768
+_T5_EMBED_DIM = 4096
+_MAX_SEQ_LEN = 256
+_VAE_SCALE_FACTOR = 8
 
 
 class ModelVariant(StrEnum):
@@ -68,7 +76,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipe = None
+        self.transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -83,8 +91,12 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16):
-        """Load the FluxFillPipeline with a GGUF-quantized transformer."""
+    def load_model(self, *, dtype_override=None, **kwargs):
+        """Load and return the GGUF-quantized FLUX Fill transformer.
+
+        Returns:
+            torch.nn.Module: The FLUX Fill transformer model instance.
+        """
         import diffusers.utils.import_utils as _diffusers_import_utils
 
         if not _diffusers_import_utils._gguf_available:
@@ -93,46 +105,43 @@ class ModelLoader(ForgeModel):
             if importlib.util.find_spec("gguf") is not None:
                 _diffusers_import_utils._gguf_available = True
 
-        from diffusers import (
-            FluxFillPipeline,
-            FluxTransformer2DModel,
-            GGUFQuantizationConfig,
-        )
+        from diffusers import GGUFQuantizationConfig
+        from diffusers.models import FluxTransformer2DModel
 
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         gguf_file = _GGUF_FILES[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
         gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
 
-        transformer = FluxTransformer2DModel.from_single_file(
-            gguf_path,
-            quantization_config=quantization_config,
-            torch_dtype=dtype,
-        )
+        # FLUX.1-Fill-dev is a gated repo; provide transformer config locally.
+        # in_channels=384: 64 noisy + 64 masked-image + 256 packed-mask latents.
+        flux_fill_config = {
+            "_class_name": "FluxTransformer2DModel",
+            "_diffusers_version": "0.33.1",
+            "attention_head_dim": 128,
+            "axes_dims_rope": [16, 56, 56],
+            "guidance_embeds": True,
+            "in_channels": 384,
+            "joint_attention_dim": _T5_EMBED_DIM,
+            "num_attention_heads": 24,
+            "num_layers": 19,
+            "num_single_layers": 38,
+            "patch_size": 1,
+        }
+        with tempfile.TemporaryDirectory() as config_dir:
+            with open(os.path.join(config_dir, "config.json"), "w") as f:
+                json.dump(flux_fill_config, f)
+            self.transformer = FluxTransformer2DModel.from_single_file(
+                gguf_path,
+                config=config_dir,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
-        self.pipe = FluxFillPipeline.from_pretrained(
-            BASE_REPO,
-            transformer=transformer,
-            torch_dtype=dtype,
-            use_safetensors=True,
-        )
-
-        return self.pipe
-
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the GGUF-quantized FLUX Fill transformer.
-
-        Returns:
-            torch.nn.Module: The FLUX Fill transformer model instance.
-        """
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        if self.pipe is None:
-            self._load_pipeline(dtype)
-        elif dtype_override is not None:
-            self.pipe.transformer = self.pipe.transformer.to(dtype=dtype_override)
-        return self.pipe.transformer
+        return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Prepare sample inputs for the FLUX Fill transformer.
+        """Prepare synthetic sample inputs for the FLUX Fill transformer.
 
         The FLUX Fill transformer expects hidden_states that include the noisy latents
         concatenated with masked image latents and a packed mask along dim=2,
@@ -143,100 +152,45 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        if self.pipe is None:
-            self._load_pipeline(dtype)
-
-        max_sequence_length = 256
-        prompt = "A cat sitting on a windowsill"
         height = 128
         width = 128
-        num_images_per_prompt = 1
 
-        # CLIP text encoding
-        text_inputs_clip = self.pipe.tokenizer(
-            prompt,
-            padding="max_length",
-            max_length=self.pipe.tokenizer_max_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-        pooled_prompt_embeds = self.pipe.text_encoder(
-            text_inputs_clip.input_ids, output_hidden_states=False
-        ).pooler_output
-        pooled_prompt_embeds = pooled_prompt_embeds.to(dtype=dtype)
-        pooled_prompt_embeds = pooled_prompt_embeds.repeat(
-            batch_size, num_images_per_prompt
-        )
-        pooled_prompt_embeds = pooled_prompt_embeds.view(
-            batch_size * num_images_per_prompt, -1
-        )
+        # Latent dimensions after VAE encoding and FLUX packing
+        latent_h = height // _VAE_SCALE_FACTOR
+        latent_w = width // _VAE_SCALE_FACTOR
+        seq_len = (latent_h // 2) * (latent_w // 2)
 
-        # T5 text encoding
-        text_inputs_t5 = self.pipe.tokenizer_2(
-            prompt,
-            padding="max_length",
-            max_length=max_sequence_length,
-            truncation=True,
-            return_length=False,
-            return_overflowing_tokens=False,
-            return_tensors="pt",
-        )
-        prompt_embeds = self.pipe.text_encoder_2(
-            text_inputs_t5.input_ids, output_hidden_states=False
-        )[0]
-        prompt_embeds = prompt_embeds.to(dtype=dtype)
-        _, seq_len_t5, _ = prompt_embeds.shape
-        prompt_embeds = prompt_embeds.repeat(batch_size, num_images_per_prompt, 1)
-        prompt_embeds = prompt_embeds.view(
-            batch_size * num_images_per_prompt, seq_len_t5, -1
-        )
-
-        text_ids = torch.zeros(prompt_embeds.shape[1], 3).to(dtype=dtype)
-
-        # Latent dimensions
-        height_latent = 2 * (int(height) // (self.pipe.vae_scale_factor * 2))
-        width_latent = 2 * (int(width) // (self.pipe.vae_scale_factor * 2))
-        seq_len = (height_latent // 2) * (width_latent // 2)
-
-        # Noisy latents (packed format)
+        # Noisy latents + masked image latents + packed mask concatenated
         noise_channels = 64
-        latents = torch.randn(
-            batch_size * num_images_per_prompt, seq_len, noise_channels, dtype=dtype
-        )
-
-        # Masked image latents (VAE-encoded masked image + packed mask)
         masked_image_channels = 64
         mask_channels = 256
-        masked_image_latents = torch.randn(
-            batch_size * num_images_per_prompt,
-            seq_len,
-            masked_image_channels + mask_channels,
-            dtype=dtype,
+        total_channels = noise_channels + masked_image_channels + mask_channels
+        hidden_states = torch.randn(batch_size, seq_len, total_channels, dtype=dtype)
+
+        # Synthetic text embeddings (no tokenizer needed for compile-only)
+        pooled_projections = torch.randn(batch_size, _CLIP_EMBED_DIM, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, _MAX_SEQ_LEN, _T5_EMBED_DIM, dtype=dtype
         )
+        txt_ids = torch.zeros(_MAX_SEQ_LEN, 3, dtype=dtype)
 
-        # Concatenate noisy latents with masked image latents along channel dim
-        hidden_states = torch.cat((latents, masked_image_latents), dim=2)
-
-        # Latent image IDs
-        latent_image_ids = torch.zeros(height_latent // 2, width_latent // 2, 3)
+        # Latent image position IDs
+        latent_image_ids = torch.zeros(latent_h // 2, latent_w // 2, 3)
         latent_image_ids[..., 1] = (
-            latent_image_ids[..., 1] + torch.arange(height_latent // 2)[:, None]
+            latent_image_ids[..., 1] + torch.arange(latent_h // 2)[:, None]
         )
         latent_image_ids[..., 2] = (
-            latent_image_ids[..., 2] + torch.arange(width_latent // 2)[None, :]
+            latent_image_ids[..., 2] + torch.arange(latent_w // 2)[None, :]
         )
-        latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
-
-        # FLUX.1-Fill-dev uses classifier-free guidance
-        guidance = torch.tensor([3.5], dtype=dtype)
+        img_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
 
         return {
             "hidden_states": hidden_states,
             "timestep": torch.tensor([1.0], dtype=dtype),
-            "guidance": guidance,
-            "pooled_projections": pooled_prompt_embeds,
-            "encoder_hidden_states": prompt_embeds,
-            "txt_ids": text_ids,
-            "img_ids": latent_image_ids,
+            "guidance": torch.tensor([3.5], dtype=dtype),
+            "pooled_projections": pooled_projections,
+            "encoder_hidden_states": encoder_hidden_states,
+            "txt_ids": txt_ids,
+            "img_ids": img_ids,
             "joint_attention_kwargs": {},
         }
