@@ -1,2 +1,1 @@
 gguf>=0.10.0
-transformers<5.0.0

@@ -4,9 +4,43 @@
 """
 Llama 3.1 8B BookAdventures GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _patch_gguf_version_check():
+    """Patch transformers to correctly detect gguf version via importlib.metadata.
+
+    PACKAGE_DISTRIBUTION_MAPPING in transformers is computed once at import time.
+    When gguf is installed dynamically at test time (after transformers is imported),
+    gguf is absent from that mapping. The fallback uses gguf.__version__ which does
+    not exist, returning 'N/A', causing version.parse('N/A') to raise InvalidVersion.
+
+    We patch is_gguf_available in modeling_gguf_pytorch_utils directly so the fix
+    applies even when other GGUF loaders hold references to the original function.
+    """
+    try:
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        import transformers.utils.import_utils as _import_utils
+        from packaging.version import Version
+
+        def _patched_is_gguf_available(min_version="0.10.0"):
+            try:
+                return Version(importlib.metadata.version("gguf")) >= Version(
+                    min_version
+                )
+            except Exception:
+                return False
+
+        _gguf_utils.is_gguf_available = _patched_is_gguf_available
+        _import_utils.is_gguf_available = _patched_is_gguf_available
+    except Exception:
+        pass
+
+
+_patch_gguf_version_check()
 
 from ....base import ForgeModel
 from ....config import (
