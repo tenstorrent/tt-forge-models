@@ -62,7 +62,7 @@ def _get_real_load_gguf_checkpoint():
     """
     import sys
 
-    for mod in sys.modules.values():
+    for mod in list(sys.modules.values()):
         orig = getattr(mod, "_orig_load_gguf_checkpoint", None)
         if orig is not None:
             if (
