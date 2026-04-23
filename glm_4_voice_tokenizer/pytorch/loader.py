@@ -83,6 +83,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         import numpy as np
+        import torch
 
         if self._feature_extractor is None:
             self._load_feature_extractor(dtype_override=dtype_override)
@@ -102,5 +103,9 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             inputs = inputs.to(dtype_override)
+
+        # WhisperModel (encoder-decoder) requires decoder_input_ids in addition to
+        # encoder input_features; 50258 is the standard Whisper start-of-transcript token
+        inputs["decoder_input_ids"] = torch.tensor([[50258]])
 
         return inputs
