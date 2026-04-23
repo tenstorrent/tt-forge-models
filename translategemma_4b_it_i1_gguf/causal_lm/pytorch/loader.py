@@ -64,6 +64,16 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        try:
+            import gguf as _gguf_mod
+
+            if not hasattr(_gguf_mod, "__version__"):
+                import importlib.metadata
+
+                _gguf_mod.__version__ = importlib.metadata.version("gguf")
+        except Exception:
+            pass
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
