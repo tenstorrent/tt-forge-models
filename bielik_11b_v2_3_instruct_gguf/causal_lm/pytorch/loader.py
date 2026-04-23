@@ -4,9 +4,12 @@
 """
 Bielik 11B v2.3 Instruct GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import importlib.metadata
+import inspect
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -42,6 +45,60 @@ class ModelLoader(ForgeModel):
 
     sample_text = "What is your favorite city?"
 
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix gguf version detection when installed at runtime by RequirementsManager."""
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+                _import_utils.is_gguf_available.cache_clear()
+            except importlib.metadata.PackageNotFoundError:
+                pass
+
+    @staticmethod
+    def _fix_gguf_model_to_load_compat():
+        """Replace any monkey-patched load_gguf_checkpoint with the real transformers
+        implementation so that model_to_load (required by transformers>=5) is preserved.
+
+        Other GGUF loaders replace load_gguf_checkpoint with wrappers whose signatures
+        pre-date the model_to_load kwarg. Loading a fresh copy of the module bypasses
+        the entire patch chain and gives us the real function that accepts model_to_load.
+        """
+        import importlib.util
+        import sys
+
+        import transformers.configuration_utils as config_utils
+        import transformers.modeling_gguf_pytorch_utils as gguf_utils
+        import transformers.modeling_utils as modeling_utils
+        import transformers.models.auto.tokenization_auto as tok_auto
+
+        current_fn = gguf_utils.load_gguf_checkpoint
+        sig = inspect.signature(current_fn)
+        if "model_to_load" in sig.parameters or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        ):
+            return
+
+        mod_name = "transformers._tt_gguf_fresh"
+        spec = importlib.util.find_spec("transformers.modeling_gguf_pytorch_utils")
+        fresh_spec = importlib.util.spec_from_file_location(mod_name, spec.origin)
+        fresh_mod = importlib.util.module_from_spec(fresh_spec)
+        fresh_mod.__package__ = "transformers"
+        sys.modules[mod_name] = fresh_mod
+        try:
+            fresh_spec.loader.exec_module(fresh_mod)
+        finally:
+            sys.modules.pop(mod_name, None)
+        real_fn = fresh_mod.load_gguf_checkpoint
+
+        gguf_utils.load_gguf_checkpoint = real_fn
+        for mod in (tok_auto, config_utils, modeling_utils):
+            if hasattr(mod, "load_gguf_checkpoint"):
+                mod.load_gguf_checkpoint = real_fn
+
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
@@ -62,6 +119,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_version_detection()
+        self._fix_gguf_model_to_load_compat()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
