@@ -19,11 +19,13 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+from huggingface_hub import hf_hub_download
+from PIL import Image
+
 from ...tools.utils import (
     VisionPreprocessor,
     VisionPostprocessor,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -108,8 +110,12 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1, image=None):
         if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            path = hf_hub_download(
+                repo_id="huggingface/cats-image",
+                filename="cats_image.jpeg",
+                repo_type="dataset",
+            )
+            image = Image.open(path).convert("RGB")
         return self.input_preprocess(
             image=image,
             dtype_override=dtype_override,
