@@ -5,7 +5,7 @@
 GLM-4V model loader implementation for multimodal conditional generation.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ...base import ForgeModel
@@ -73,7 +73,13 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if not hasattr(config, "max_length") or config.max_length is None:
+            config.max_length = config.seq_length
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
