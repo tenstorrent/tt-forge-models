@@ -40,6 +40,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "MN-VelvetCafe-RP-12B-V2.i1-Q4_K_M.gguf"
 
+    # Download large GGUF files to /tmp to avoid filling up the main cache disk.
+    GGUF_CACHE_DIR = "/tmp/hf_gguf_cache"
+
     sample_text = "Give me a short introduction to large language models."
 
     def __init__(
@@ -62,10 +65,12 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
+        tokenizer_kwargs = {
+            "gguf_file": self.GGUF_FILE,
+            "cache_dir": self.GGUF_CACHE_DIR,
+        }
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -81,15 +86,19 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {
+            "gguf_file": self.GGUF_FILE,
+            "cache_dir": self.GGUF_CACHE_DIR,
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name,
+                gguf_file=self.GGUF_FILE,
+                cache_dir=self.GGUF_CACHE_DIR,
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -155,6 +164,8 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name,
+            gguf_file=self.GGUF_FILE,
+            cache_dir=self.GGUF_CACHE_DIR,
         )
         return self.config
