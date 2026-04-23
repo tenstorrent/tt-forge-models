@@ -8,6 +8,39 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    """Wrap load_gguf_checkpoint to fix stale PACKAGE_DISTRIBUTION_MAPPING.
+
+    transformers computes PACKAGE_DISTRIBUTION_MAPPING at import time. When
+    gguf is installed later (e.g. by RequirementsManager), is_gguf_available()
+    finds the module via find_spec but cannot look up its version, returning
+    'N/A' and raising packaging.version.InvalidVersion. Refreshing the mapping
+    and clearing the lru_cache before calling the original function fixes this.
+    """
+    import importlib.metadata
+    import transformers.utils.import_utils as _import_utils
+
+    updated = importlib.metadata.packages_distributions()
+    _import_utils.PACKAGE_DISTRIBUTION_MAPPING.update(updated)
+    if hasattr(_import_utils.is_gguf_available, "cache_clear"):
+        _import_utils.is_gguf_available.cache_clear()
+    return _orig_load_gguf_checkpoint(*args, **kwargs)
+
+
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
