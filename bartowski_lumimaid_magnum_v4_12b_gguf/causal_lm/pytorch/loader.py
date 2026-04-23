@@ -12,38 +12,57 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
 
 def _find_real_load_gguf(fn):
-    """Walk the monkey-patch closure chain to find the real transformers load_gguf_checkpoint."""
+    """Walk the monkey-patch chain to find the real transformers load_gguf_checkpoint.
+
+    Patches are module-level functions that store the previous function in a
+    module global (e.g. _orig_load_gguf_checkpoint). We walk that chain until
+    we reach the function whose __module__ is transformers.modeling_gguf_pytorch_utils.
+    """
+    _ORIG_NAMES = (
+        "_orig_load_gguf_checkpoint",
+        "orig_load",
+        "_orig",
+        "_original_load_gguf",
+    )
     seen = set()
     while id(fn) not in seen:
         seen.add(id(fn))
         if getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
             return fn
-        if fn.__closure__ is None:
+        # Most patches store the previous function in a module global.
+        globs = getattr(fn, "__globals__", {})
+        next_fn = None
+        for key in _ORIG_NAMES:
+            candidate = globs.get(key)
+            if callable(candidate) and id(candidate) not in seen:
+                next_fn = candidate
+                break
+        # Broader search: any global callable whose __name__ contains "load_gguf"
+        if next_fn is None:
+            for val in globs.values():
+                if (
+                    callable(val)
+                    and "load_gguf" in getattr(val, "__name__", "")
+                    and id(val) not in seen
+                    and val is not fn
+                ):
+                    next_fn = val
+                    break
+        # Fall back to closure variables (nested-function style patches)
+        if next_fn is None and fn.__closure__:
+            freevars = getattr(fn.__code__, "co_freevars", ())
+            for i, name in enumerate(freevars):
+                if "load_gguf" in name:
+                    try:
+                        val = fn.__closure__[i].cell_contents
+                        if callable(val) and id(val) not in seen:
+                            next_fn = val
+                            break
+                    except ValueError:
+                        pass
+        if next_fn is None:
             return fn
-        freevars = getattr(fn.__code__, "co_freevars", ())
-        found = False
-        for i, name in enumerate(freevars):
-            if "load_gguf" in name:
-                try:
-                    val = fn.__closure__[i].cell_contents
-                    if callable(val):
-                        fn = val
-                        found = True
-                        break
-                except ValueError:
-                    pass
-        if not found:
-            for cell in fn.__closure__:
-                try:
-                    val = cell.cell_contents
-                    if callable(val) and "load_gguf" in getattr(val, "__name__", ""):
-                        fn = val
-                        found = True
-                        break
-                except ValueError:
-                    pass
-        if not found:
-            return fn
+        fn = next_fn
     return fn
 
 
