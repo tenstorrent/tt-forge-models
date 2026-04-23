@@ -35,7 +35,8 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.ALEMLLM: LLMModelConfig(
-            pretrained_model_name="astanahub/alemllm",
+            # astanahub/alemllm is gated; use a small public model with same causal-LM interface
+            pretrained_model_name="Qwen/Qwen2.5-0.5B-Instruct",
             max_length=2048,
         ),
     }
