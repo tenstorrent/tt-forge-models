@@ -25,7 +25,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -166,19 +165,66 @@ class ModelLoader(ForgeModel):
         except ImportError:
             pass
 
+        is_i2v = _IS_I2V[self._variant]
+        base_pipeline = I2V_BASE_PIPELINE if is_i2v else T2V_BASE_PIPELINE
+
         gguf_repo = _GGUF_REPOS[self._variant]
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         gguf_local_path = hf_hub_download(repo_id=gguf_repo, filename=gguf_file)
-        transformer = WanTransformer3DModel.from_single_file(
-            gguf_local_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
 
-        is_i2v = _IS_I2V[self._variant]
-        base_pipeline = I2V_BASE_PIPELINE if is_i2v else T2V_BASE_PIPELINE
+        # _replace_with_gguf_linear always creates GGUFLinear on meta device. Any
+        # model params absent from the GGUF file (e.g. biases) remain on meta after
+        # load_model_dict_into_meta, causing dispatch_model to fail with
+        # "Cannot copy out of meta tensor". Patch the symbol inside single_file_model
+        # to materialize those stragglers before dispatch proceeds.
+        #
+        # Pass config= explicitly: without it, fetch_diffusers_config() maps any Wan
+        # I2V GGUF to Wan-AI/Wan2.1-I2V-14B-480P-Diffusers (which has image_dim != None
+        # and thus add_k_proj), causing a dtype mismatch at runtime because those
+        # params are float32 while activations are bfloat16.
+        import diffusers.loaders.single_file_model as _sfm
+
+        _orig_dispatch = _sfm.dispatch_model
+
+        def _meta_safe_dispatch(model, device_map=None, **kw):
+            if device_map:
+                target = torch.device(list(device_map.values())[0])
+                for pname, p in list(model.named_parameters(recurse=True)):
+                    if p.device.type == "meta":
+                        parts = pname.rsplit(".", 1)
+                        parent = model
+                        if len(parts) > 1:
+                            for attr in parts[0].split("."):
+                                parent = getattr(parent, attr)
+                        parent._parameters[parts[-1]] = torch.nn.Parameter(
+                            torch.empty(p.shape, dtype=p.dtype, device=target),
+                            requires_grad=p.requires_grad,
+                        )
+                for bname, b in list(model.named_buffers(recurse=True)):
+                    if b.device.type == "meta":
+                        parts = bname.rsplit(".", 1)
+                        parent = model
+                        if len(parts) > 1:
+                            for attr in parts[0].split("."):
+                                parent = getattr(parent, attr)
+                        parent._buffers[parts[-1]] = torch.empty(
+                            b.shape, dtype=b.dtype, device=target
+                        )
+            return _orig_dispatch(model, device_map=device_map, **kw)
+
+        _sfm.dispatch_model = _meta_safe_dispatch
+        try:
+            transformer = WanTransformer3DModel.from_single_file(
+                gguf_local_path,
+                config=base_pipeline,
+                subfolder="transformer",
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
+        finally:
+            _sfm.dispatch_model = _orig_dispatch
 
         vae = AutoencoderKLWan.from_pretrained(
             base_pipeline,
@@ -188,19 +234,16 @@ class ModelLoader(ForgeModel):
 
         if is_i2v:
             from diffusers import WanImageToVideoPipeline
-            from transformers import CLIPVisionModel
 
-            image_encoder = CLIPVisionModel.from_pretrained(
-                base_pipeline,
-                subfolder="image_encoder",
-                torch_dtype=torch.float32,
-            )
-
+            # Wan 2.2 I2V does not use a CLIP image encoder (model_index.json has
+            # image_encoder=[null,null]).  The pipeline also expects transformer_2
+            # (low-noise expert); reuse the same GGUF transformer to avoid
+            # downloading 28 GB of unquantized weights.
             self.pipeline = WanImageToVideoPipeline.from_pretrained(
                 base_pipeline,
                 transformer=transformer,
+                transformer_2=transformer,
                 vae=vae,
-                image_encoder=image_encoder,
                 torch_dtype=compute_dtype,
             )
         else:
@@ -213,35 +256,36 @@ class ModelLoader(ForgeModel):
                 torch_dtype=compute_dtype,
             )
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for video generation."""
-        if prompt is None:
-            prompt = (
-                "A cat walking gracefully across a sunlit garden, "
-                "detailed fur texture, cinematic lighting"
-            )
+        """Return synthetic inputs for the WanTransformer3DModel forward pass.
+
+        Shapes derived from 480x832 @ 9 frames through the Wan VAE
+        (spatial factor 8, temporal factor 4):
+          latent: (1, in_channels, 3, 60, 104)
+          text:   (1, 226, 4096)  [UMT5-XXL, max_seq_len=226]
+
+        I2V in_channels=36 = 16 (noise) + 16 (reference latent) + 4 (mask).
+        T2V in_channels=16.
+        """
+        if self.pipeline is None:
+            self.load_model()
 
         is_i2v = _IS_I2V[self._variant]
+        in_channels = 36 if is_i2v else 16
+        dtype = torch.bfloat16
 
-        if is_i2v:
-            image = Image.new("RGB", (832, 480), color=(128, 128, 200))
-            return {
-                "prompt": prompt,
-                "image": image,
-                "height": 480,
-                "width": 832,
-                "num_frames": 9,
-                "num_inference_steps": 2,
-                "guidance_scale": 5.0,
-            }
+        height, width, num_frames = 480, 832, 9
+        latent_h = height // 8
+        latent_w = width // 8
+        latent_t = (num_frames - 1) // 4 + 1
 
         return {
-            "prompt": prompt,
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            "hidden_states": torch.randn(
+                1, in_channels, latent_t, latent_h, latent_w, dtype=dtype
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "encoder_hidden_states": torch.randn(1, 226, 4096, dtype=dtype),
+            "return_dict": False,
         }
