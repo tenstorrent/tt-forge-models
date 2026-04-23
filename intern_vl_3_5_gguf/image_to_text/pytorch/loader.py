@@ -109,12 +109,13 @@ class ModelLoader(ForgeModel):
         reader = GGUFReader(gguf_path)
         processor = TensorProcessor()
 
+        # InternVL structure: model.model.language_model holds the Qwen3 LLM.
         # Map GGUF qwen3 tensor names → InternVL model parameter names
         # by using the language_model submodule with the qualifying prefix.
         tensor_key_mapping = get_gguf_hf_weights_map(
-            model.language_model,
+            model.model.language_model,
             processor,
-            qual_name="language_model.",
+            qual_name="model.language_model.",
         )
 
         state_dict = {}
