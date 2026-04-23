@@ -96,7 +96,11 @@ class ModelLoader(ForgeModel):
             self._load_processor(dtype_override=dtype_override)
 
         image = Image.new("RGB", (896, 1120), color=(255, 255, 255))
-        pixel_values = self.processor(image, return_tensors="pt").pixel_values
+        # Call image_processor directly to avoid NougatProcessor forwarding None bool fields,
+        # which triggers strict validation errors in newer huggingface_hub.
+        pixel_values = self.processor.image_processor(
+            image, return_tensors="pt"
+        ).pixel_values
 
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
@@ -105,7 +109,10 @@ class ModelLoader(ForgeModel):
         if batch_size > 1:
             pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
 
-        return {"pixel_values": pixel_values}
+        bos_token_id = self.processor.tokenizer.bos_token_id
+        decoder_input_ids = torch.full((batch_size, 1), bos_token_id, dtype=torch.long)
+
+        return {"pixel_values": pixel_values, "decoder_input_ids": decoder_input_ids}
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
