@@ -108,9 +108,19 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        except OSError:
+            config_kwargs = {k: v for k, v in model_kwargs.items() if k == "token"}
+            config = AutoConfig.from_pretrained(pretrained_model_name, **config_kwargs)
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            model = AutoModelForCausalLM.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+            model = model.eval()
 
         self.config = model.config
         self.model = model
