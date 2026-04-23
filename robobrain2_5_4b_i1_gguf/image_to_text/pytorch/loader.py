@@ -11,6 +11,7 @@ import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
@@ -64,11 +65,30 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     return result
 
 
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor=None, model_type=None, num_layers=None, qual_name=""
+):
+    """Wrap get_gguf_hf_weights_map to handle Qwen3VL composite config.
+
+    Qwen3VLConfig stores num_hidden_layers in text_config, and the gguf-py
+    arch name is 'qwen3vl' while transformers model_type is 'qwen3_vl'.
+    """
+    cfg = hf_model.config
+    if model_type is None and getattr(cfg, "model_type", None) == "qwen3_vl":
+        model_type = "qwen3vl"
+    if num_layers is None and getattr(cfg, "model_type", None) == "qwen3_vl":
+        num_layers = cfg.text_config.num_hidden_layers
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
 _patch_qwen3vl_support()
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 from transformers import (
     Qwen3VLForConditionalGeneration,
