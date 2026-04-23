@@ -32,6 +32,7 @@ _VARIANT_LABELS = {
 
 
 class ModelVariant(StrEnum):
+    OPENMED_ZEROSHOT_NER_ANATOMY_SMALL = "ZeroShot-NER-Anatomy-Small-166M"
     OPENMED_ZEROSHOT_NER_DISEASE_MULTI = "ZeroShot-NER-Disease-Multi-209M"
     OPENMED_ZEROSHOT_NER_PATHOLOGY_MEDIUM = "ZeroShot-NER-Pathology-Medium-209M"
     OPENMED_ZEROSHOT_NER_PHARMA_TINY = "ZeroShot-NER-Pharma-Tiny-60M"
@@ -44,6 +45,9 @@ class ModelLoader(ForgeModel):
     """OpenMed model loader implementation."""
 
     _VARIANTS = {
+        ModelVariant.OPENMED_ZEROSHOT_NER_ANATOMY_SMALL: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Anatomy-Small-166M"
+        ),
         ModelVariant.OPENMED_ZEROSHOT_NER_DISEASE_MULTI: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Disease-Multi-209M"
         ),
