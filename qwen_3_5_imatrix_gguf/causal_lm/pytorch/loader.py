@@ -38,10 +38,17 @@ def _patch_qwen35_support():
         GGUF_TO_FAST_CONVERTERS["qwen35"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+def _patched_load_gguf_checkpoint(
+    gguf_path, return_tensors=False, model_to_load=None, torch_dtype=None
+):
     """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
     _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors, model_to_load=model_to_load)
+    result = _orig_load_gguf_checkpoint(
+        gguf_path,
+        return_tensors=return_tensors,
+        model_to_load=model_to_load,
+        torch_dtype=torch_dtype,
+    )
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
     return result

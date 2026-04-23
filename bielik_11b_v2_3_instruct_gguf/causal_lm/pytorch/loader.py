@@ -18,7 +18,7 @@ from transformers.modeling_gguf_pytorch_utils import (
 
 
 def _patched_load_gguf_checkpoint(
-    gguf_checkpoint_path, return_tensors=False, model_to_load=None
+    gguf_checkpoint_path, return_tensors=False, model_to_load=None, torch_dtype=None
 ):
     # is_gguf_available() uses @lru_cache and gguf lacks __version__, which causes
     # InvalidVersion('N/A') after a fresh pip install + importlib.invalidate_caches().
@@ -43,6 +43,7 @@ def _patched_load_gguf_checkpoint(
         gguf_checkpoint_path,
         return_tensors=return_tensors,
         model_to_load=model_to_load,
+        torch_dtype=torch_dtype,
     )
 
 
