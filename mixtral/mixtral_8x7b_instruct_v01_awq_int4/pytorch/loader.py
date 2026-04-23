@@ -7,6 +7,7 @@ Mixtral 8x7B Instruct v0.1 AWQ-INT4 model loader implementation for causal langu
 
 from typing import Optional
 
+import gptqmodel  # noqa: F401 - pre-import to avoid meta tensor context issue during from_pretrained
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
@@ -80,8 +81,6 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         model_kwargs = {"device_map": "cpu"}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
