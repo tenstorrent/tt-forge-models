@@ -31,6 +31,7 @@ from ...config import (
 )
 
 GGUF_REPO = "jayn7/HunyuanVideo-1.5_I2V_720p-GGUF"
+BASE_CONFIG_REPO = "tencent/HunyuanVideo-1.5"
 
 # Small spatial/temporal dimensions for compile-only testing.
 TRANSFORMER_NUM_FRAMES = 4
@@ -71,6 +72,15 @@ _GGUF_FILES = {
     ModelVariant.I2V_720P_CFG_DISTILLED_Q5_K_M: "720p_distilled/hunyuanvideo1.5_720p_i2v_cfg_distilled-Q5_K_M.gguf",
     ModelVariant.I2V_720P_CFG_DISTILLED_Q6_K: "720p_distilled/hunyuanvideo1.5_720p_i2v_cfg_distilled-Q6_K.gguf",
     ModelVariant.I2V_720P_CFG_DISTILLED_Q8_0: "720p_distilled/hunyuanvideo1.5_720p_i2v_cfg_distilled-Q8_0.gguf",
+}
+
+_CFG_DISTILLED_VARIANTS = {
+    ModelVariant.I2V_720P_CFG_DISTILLED_Q4_K_S,
+    ModelVariant.I2V_720P_CFG_DISTILLED_Q4_K_M,
+    ModelVariant.I2V_720P_CFG_DISTILLED_Q5_K_S,
+    ModelVariant.I2V_720P_CFG_DISTILLED_Q5_K_M,
+    ModelVariant.I2V_720P_CFG_DISTILLED_Q6_K,
+    ModelVariant.I2V_720P_CFG_DISTILLED_Q8_0,
 }
 
 
@@ -122,14 +132,32 @@ class ModelLoader(ForgeModel):
             GGUFQuantizationConfig,
             HunyuanVideo15Transformer3DModel,
         )
+        from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
+
+        # HunyuanVideo15Transformer3DModel is not registered in
+        # SINGLE_FILE_LOADABLE_CLASSES yet; register it with an identity mapping
+        # so from_single_file can be used. The GGUF quantizer handles weight
+        # loading directly, so no key conversion is needed.
+        if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
+            SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
+                "checkpoint_mapping_fn": lambda checkpoint, **kw: checkpoint,
+            }
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
+        config_subfolder = (
+            "transformer/720p_i2v_distilled"
+            if self._variant in _CFG_DISTILLED_VARIANTS
+            else "transformer/720p_i2v"
+        )
+
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            config=BASE_CONFIG_REPO,
+            subfolder=config_subfolder,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
