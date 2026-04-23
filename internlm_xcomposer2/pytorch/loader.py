@@ -6,6 +6,7 @@ InternLM-XComposer2 model loader implementation for multimodal visual question a
 """
 
 import torch
+import transformers.modeling_utils as _modeling_utils
 from PIL import Image
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
@@ -85,14 +86,31 @@ class ModelLoader(ForgeModel):
             "config": config,
             "trust_remote_code": True,
             "attn_implementation": "eager",
+            "low_cpu_mem_usage": False,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        # transformers 5.x wraps model __init__ in a meta device context, but the
+        # custom InternLM-XComposer2 code calls CLIPVisionModel.from_pretrained()
+        # inside __init__, which is rejected within a meta device context.
+        # Monkeypatching check_and_set_device_map to skip the meta device guard
+        # for the duration of this load call works around the incompatibility.
+        _orig_check = _modeling_utils.check_and_set_device_map
+
+        def _permissive_check(device_map):
+            if device_map is None:
+                return None
+            return _orig_check(device_map)
+
+        _modeling_utils.check_and_set_device_map = _permissive_check
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        finally:
+            _modeling_utils.check_and_set_device_map = _orig_check
         model.eval()
         self.model = model
 
