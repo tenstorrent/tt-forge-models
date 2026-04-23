@@ -9,6 +9,7 @@ Repository:
 """
 import torch
 from diffusers import QwenImageTransformer2DModel
+from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -23,6 +24,7 @@ from ...config import (
 )
 
 PRETRAINED_MODEL_NAME = "unsloth/Qwen-Image-GGUF"
+CONFIG_MODEL_NAME = "Qwen/Qwen-Image"
 
 
 class ModelVariant(StrEnum):
@@ -76,9 +78,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
-        self.transformer = QwenImageTransformer2DModel.from_pretrained(
-            PRETRAINED_MODEL_NAME,
-            gguf_file=gguf_file,
+        gguf_path = hf_hub_download(repo_id=PRETRAINED_MODEL_NAME, filename=gguf_file)
+        self.transformer = QwenImageTransformer2DModel.from_single_file(
+            gguf_path,
+            config=CONFIG_MODEL_NAME,
+            subfolder="transformer",
             **load_kwargs,
         )
 
