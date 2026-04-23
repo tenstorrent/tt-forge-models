@@ -35,7 +35,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.SMALL_16: ModelConfig(
-            pretrained_model_name="Xenova/dino-vits16",
+            pretrained_model_name="facebook/dino-vits16",
         ),
     }
 
