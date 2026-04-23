@@ -12,10 +12,12 @@ FluxPipeline built from the original black-forest-labs/FLUX.1-dev
 repository.
 """
 
+import os
 from typing import Optional
 
 import torch
 from diffusers import FluxPipeline, FluxTransformer2DModel, GGUFQuantizationConfig
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -29,7 +31,9 @@ from ...config import (
 )
 
 GGUF_REPO = "MonsterMMORPG/Wan_GGUF"
-BASE_REPO = "black-forest-labs/FLUX.1-dev"
+# camenduru/FLUX.1-dev-ungated is a publicly accessible FLUX.1-dev mirror
+# with identical tokenizers, VAE, and scheduler to FLUX.1-dev.
+BASE_REPO = "camenduru/FLUX.1-dev-ungated"
 
 
 class ModelVariant(StrEnum):
@@ -80,8 +84,12 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
 
+        hf_token = os.environ.get("HF_TOKEN")
+        local_path = hf_hub_download(
+            repo_id=GGUF_REPO, filename=gguf_file, token=hf_token
+        )
         transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            local_path,
             quantization_config=quantization_config,
             torch_dtype=dtype,
         )
