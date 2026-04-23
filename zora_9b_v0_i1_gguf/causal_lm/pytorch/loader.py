@@ -18,7 +18,7 @@ _orig_load_gguf = _gguf_utils.load_gguf_checkpoint
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **_kwargs):
-    return _orig_load_gguf(gguf_path, return_tensors=return_tensors)
+    return _orig_load_gguf(gguf_path, return_tensors=return_tensors, **_kwargs)
 
 
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
