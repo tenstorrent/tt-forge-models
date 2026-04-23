@@ -62,13 +62,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the AuraFlow pipeline.
+        """Load and return the AuraFlow transformer as a torch.nn.Module.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            AuraFlowPipeline: The pre-trained AuraFlow pipeline.
+            torch.nn.Module: The AuraFlow transformer model.
         """
         dtype = dtype_override or torch.float16
         self.pipeline = AuraFlowPipeline.from_pretrained(
@@ -76,18 +76,46 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
             **kwargs,
         )
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the AuraFlow model.
+        """Load and return synthetic inputs for the AuraFlow transformer.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+            dtype_override: Optional torch.dtype override.
+            batch_size: Optional batch size.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Input tensors for the transformer forward pass.
         """
-        return [
-            "A small cactus with a happy face in the Sahara desert.",
-        ] * batch_size
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        dtype = dtype_override or torch.float16
+        config = self.pipeline.transformer.config
+
+        # Small latent dimensions for testing (must be divisible by patch_size=2)
+        latent_height = 8
+        latent_width = 8
+
+        hidden_states = torch.randn(
+            batch_size,
+            config.in_channels,
+            latent_height,
+            latent_width,
+            dtype=dtype,
+        )
+        encoder_hidden_states = torch.randn(
+            batch_size,
+            256,
+            config.joint_attention_dim,
+            dtype=dtype,
+        )
+        timestep = torch.tensor([1.0] * batch_size, dtype=dtype)
+
+        return {
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "timestep": timestep,
+            "return_dict": False,
+        }
