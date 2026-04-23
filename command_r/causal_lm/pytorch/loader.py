@@ -20,6 +20,61 @@ from ....config import (
 )
 
 
+def _patch_command_r_gguf_support():
+    """Patch transformers to add command-r GGUF architecture support.
+
+    Transformers 5.x removed command-r from GGUF_CONFIG_MAPPING. We add it
+    back and remap model_type from 'command-r' to 'cohere' after loading.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+    import transformers.configuration_utils as _config_utils
+    import transformers.models.auto.tokenization_auto as _auto_tokenizer
+    import transformers.tokenization_utils_tokenizers as _tok_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    )
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "command-r" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("command-r")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["command-r"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "layer_norm_eps",
+        "logit_scale": "logit_scale",
+        "vocab_size": "vocab_size",
+    }
+
+    if "command-r" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["command-r"] = GGUFLlamaConverter
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = _orig_load_gguf_checkpoint(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "command-r":
+            result["config"]["model_type"] = "cohere"
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_patch_command_r_gguf_support()
+
+
 class ModelVariant(StrEnum):
     """Available Command R model variants."""
 
