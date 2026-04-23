@@ -13,7 +13,6 @@ import numpy as np
 from typing import Optional
 from dataclasses import dataclass
 from PIL import Image
-from datasets import load_dataset
 
 from ...config import (
     ModelConfig,
@@ -154,8 +153,9 @@ class ModelLoader(ForgeModel):
         return wrapper
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        dataset = load_dataset("huggingface/cats-image", split="test")
-        image = dataset[0]["image"].convert("RGB")
+        image = Image.fromarray(
+            np.random.randint(0, 256, (480, 640, 3), dtype=np.uint8)
+        ).convert("RGB")
 
         rgb = torch.from_numpy(np.array(image)).permute(2, 0, 1).float()
 
