@@ -105,9 +105,15 @@ class ModelLoader(ForgeModel):
         self.model = model
         return model
 
+    # ChatML template used by CausalLM-7B
+    _CHATML_TEMPLATE = "{% for message in messages %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{% endif %}"
+
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        if self.tokenizer.chat_template is None:
+            self.tokenizer.chat_template = self._CHATML_TEMPLATE
 
         max_length = self._variant_config.max_length
 
