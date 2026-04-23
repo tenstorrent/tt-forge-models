@@ -128,8 +128,11 @@ class ModelLoader(ForgeModel):
             and radio_model.summary_idxs is not None
         ):
             args = model.vision_model.config.args
+            teachers = (
+                args.get("teachers", []) if isinstance(args, dict) else args.teachers
+            )
             summary_idxs = torch.tensor(
-                [i for i, t in enumerate(args.teachers) if t.get("use_summary", True)],
+                [i for i, t in enumerate(teachers) if t.get("use_summary", True)],
                 dtype=torch.int64,
             )
             radio_model.register_buffer("summary_idxs", summary_idxs)
