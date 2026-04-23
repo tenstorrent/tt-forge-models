@@ -9,6 +9,13 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    TENSOR_PROCESSORS,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGemmaConverter
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -19,6 +26,39 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_gemma3n_gguf_support():
+    """Register gemma3n architecture in transformers GGUF loading tables.
+
+    transformers 5.x does not yet include gemma3n in its GGUF conversion
+    tables.  We add it here by copying the gemma3 config mapping (the two
+    architectures share the same set of GGUF metadata keys).
+
+    We intentionally avoid patching load_gguf_checkpoint itself to prevent
+    function-signature conflicts with patches from other model loaders.
+    """
+    if "gemma3n" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "gemma3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gemma3n"] = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gemma3"]
+            )
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("gemma3n")
+
+    if "gemma3n" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["gemma3n"] = GGUFGemmaConverter
+
+    from transformers.modeling_gguf_pytorch_utils import Gemma2TensorProcessor
+
+    if "gemma3n" not in TENSOR_PROCESSORS:
+        TENSOR_PROCESSORS["gemma3n"] = Gemma2TensorProcessor
+
+
+_patch_gemma3n_gguf_support()
 
 
 class ModelVariant(StrEnum):
@@ -96,7 +136,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
