@@ -114,9 +114,7 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            transformer_dir = os.path.join(tmpdir, "transformer")
-            os.makedirs(transformer_dir)
-            with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            with open(os.path.join(tmpdir, "config.json"), "w") as f:
                 json.dump(_FLUX2_KLEIN_4B_CONFIG, f)
 
             self.transformer = Flux2Transformer2DModel.from_single_file(
