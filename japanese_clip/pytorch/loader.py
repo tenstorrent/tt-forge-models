@@ -4,7 +4,9 @@
 """
 Japanese CLIP model loader implementation for image-text similarity.
 """
+import numpy as np
 import torch
+from PIL import Image
 from transformers import CLIPModel, CLIPImageProcessor, AutoTokenizer
 from typing import Optional
 
@@ -18,7 +20,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -97,8 +98,9 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self.tokenizer = AutoTokenizer.from_pretrained(self._TOKENIZER_NAME)
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.fromarray(
+            np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
+        )
 
         self.text_prompts = ["猫の写真", "犬の写真"]
 
