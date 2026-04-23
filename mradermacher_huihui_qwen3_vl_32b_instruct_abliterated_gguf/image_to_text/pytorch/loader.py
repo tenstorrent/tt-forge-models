@@ -174,6 +174,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs["config"] = config
+        model_kwargs.setdefault("ignore_mismatched_sizes", True)
         model_kwargs |= kwargs
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
