@@ -17,9 +17,13 @@ Available variants:
 
 from typing import Any, Optional
 
+import huggingface_hub.constants as _hf_constants
 import torch
 from diffusers import AutoencoderKL
 from huggingface_hub import hf_hub_download
+
+# XET storage downloads are unreliable in CI; force HTTP fallback
+_hf_constants.HF_HUB_DISABLE_XET = True
 
 from ...base import ForgeModel
 from ...config import (
