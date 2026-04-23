@@ -33,7 +33,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.EMBEDDINGGEMMA_300M_QAT_Q8_0_UNQUANTIZED: ModelConfig(
-            pretrained_model_name="google/embeddinggemma-300m-qat-q8_0-unquantized",
+            pretrained_model_name="sentence-transformers/embeddinggemma-300m-medical",
         ),
     }
 
