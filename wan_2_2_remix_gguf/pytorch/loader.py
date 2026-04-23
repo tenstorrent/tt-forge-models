@@ -133,6 +133,16 @@ class ModelLoader(ForgeModel):
 
         from huggingface_hub import hf_hub_download
 
+        # gguf is installed at test time by RequirementsManager, but diffusers
+        # caches _gguf_available at import time. Re-check now that gguf is present.
+        try:
+            import gguf  # noqa: F401
+            import diffusers.utils.import_utils as _diu
+
+            _diu._gguf_available = True
+        except ImportError:
+            pass
+
         gguf_repo = _GGUF_REPOS[self._variant]
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
