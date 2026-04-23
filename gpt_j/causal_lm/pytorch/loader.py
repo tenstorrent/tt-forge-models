@@ -154,5 +154,4 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        # Return as list of tensors for the wrapper
-        return [input_tokens["input_ids"], input_tokens["attention_mask"]]
+        return dict(input_tokens)
