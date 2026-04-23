@@ -99,21 +99,29 @@ def _patch_transformers_qwen3vl_gguf():
 
     def _patched_get_gguf_hf_weights_map(hf_model, *args, **kwargs):
         # Signature: (hf_model, processor, model_type=None, num_layers=None, qual_name="")
-        # args[0]=processor, args[1]=model_type if provided positionally.
-        # Translate qwen3_vl -> qwen3vl for gguf-py MODEL_ARCH_NAMES lookup.
+        # args[0]=processor, args[1]=model_type, args[2]=num_layers if positional.
+        # For qwen3_vl: translate model_type and supply num_layers from text_config
+        # (Qwen3VLConfig has no top-level num_hidden_layers).
+        cfg = getattr(hf_model, "config", None)
+        mt = None
+
         if len(args) >= 2:
             if not args[1] or args[1] == "qwen3_vl":
-                mt = args[1] or getattr(
-                    getattr(hf_model, "config", None), "model_type", None
-                )
+                mt = args[1] or getattr(cfg, "model_type", None)
                 if mt == "qwen3_vl":
                     args = (args[0], "qwen3vl") + args[2:]
         else:
-            mt = kwargs.get("model_type") or getattr(
-                getattr(hf_model, "config", None), "model_type", None
-            )
+            mt = kwargs.get("model_type") or getattr(cfg, "model_type", None)
             if mt == "qwen3_vl":
                 kwargs["model_type"] = "qwen3vl"
+
+        # Supply num_layers from text_config when not already provided
+        if mt == "qwen3_vl" and kwargs.get("num_layers") is None and len(args) < 3:
+            text_cfg = getattr(cfg, "text_config", None)
+            nl = getattr(text_cfg, "num_hidden_layers", None)
+            if nl is not None:
+                kwargs["num_layers"] = nl
+
         return orig_weights_map(hf_model, *args, **kwargs)
 
     gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
