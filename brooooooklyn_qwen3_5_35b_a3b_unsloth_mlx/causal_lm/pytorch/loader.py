@@ -104,6 +104,8 @@ class ModelLoader(ForgeModel):
         ).eval()
 
         self.config = model.config
+        # Force eager MoE experts path to avoid torch._grouped_mm alignment issues
+        self.config._experts_implementation = "eager"
         self.model = model
         return model
 
