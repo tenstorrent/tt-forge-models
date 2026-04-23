@@ -5,9 +5,53 @@
 NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image to text.
 """
 
-from transformers import AutoModel, AutoProcessor
+import contextlib
+import sys
+import torch
+import torch.distributed as dist
+from transformers import AutoModel, AutoProcessor, PreTrainedModel
 from PIL import Image
 from typing import Optional
+
+# NemotronH blocks use torch.cuda.stream for multi-GPU correctness (a no-op for single-device).
+# Patch to work without CUDA (this environment uses XLA/TT backend, not CUDA).
+if not torch.cuda.is_available():
+
+    @contextlib.contextmanager
+    def _null_cuda_stream(stream):
+        yield
+
+    torch.cuda.stream = _null_cuda_stream
+    torch.cuda.default_stream = lambda device=None: None
+
+# NemotronH_Nano_VL_V2.forward calls torch.distributed.get_rank() for a debug print but
+# distributed may not be initialized in single-device inference. Patch to return 0 safely.
+_original_get_rank = dist.get_rank
+
+
+def _safe_get_rank(*args, **kwargs):
+    try:
+        return _original_get_rank(*args, **kwargs)
+    except (ValueError, RuntimeError):
+        return 0
+
+
+dist.get_rank = _safe_get_rank
+
+# NemotronH_Nano_VL_V2.__init__ does not call self.post_init(), so all_tied_weights_keys
+# is never set. Patch _adjust_tied_keys_with_tied_pointers to initialize it if missing.
+_original_adjust_tied = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+
+def _safe_adjust_tied(self, *args, **kwargs):
+    if not hasattr(self, "all_tied_weights_keys"):
+        self.all_tied_weights_keys = self.get_expanded_tied_weights_keys(
+            all_submodels=False
+        )
+    return _original_adjust_tied(self, *args, **kwargs)
+
+
+PreTrainedModel._adjust_tied_keys_with_tied_pointers = _safe_adjust_tied
 
 from ...tools.utils import get_file
 from ...base import ForgeModel
@@ -102,6 +146,33 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+
+        # NemotronHCausalLMOutput uses 'cache_params' instead of standard 'past_key_values'.
+        # The VL model's forward accesses outputs.past_key_values on the language model output,
+        # so patch NemotronHCausalLMOutput to expose past_key_values as an alias.
+        for mod in sys.modules.values():
+            if hasattr(mod, "NemotronHCausalLMOutput"):
+                cls = mod.NemotronHCausalLMOutput
+                if not hasattr(cls, "past_key_values"):
+                    cls.past_key_values = property(lambda self: self.cache_params)
+                break
+
+        # summary_idxs is a buffer computed from config during __init__, but gets corrupted
+        # when the model is initialized on meta device then moved to CPU without re-initialization.
+        # Re-compute it from the RADIO vision config to restore correct values.
+        radio_model = model.vision_model.radio_model
+        if (
+            hasattr(radio_model, "summary_idxs")
+            and radio_model.summary_idxs is not None
+        ):
+            teachers = model.vision_model.config.args.get("teachers", [])
+            correct_idxs = torch.tensor(
+                [i for i, t in enumerate(teachers) if t.get("use_summary", True)],
+                dtype=torch.int64,
+            )
+            with torch.no_grad():
+                radio_model.summary_idxs.copy_(correct_idxs)
+
         model.eval()
 
         return model
@@ -129,6 +200,14 @@ class ModelLoader(ForgeModel):
             text="<image>\nDescribe this image.",
             return_tensors="pt",
         )
+
+        inputs.pop("num_patches", None)
+        inputs["image_flags"] = torch.ones(
+            (inputs["pixel_values"].shape[0], 1), dtype=torch.long
+        )
+
+        if dtype_override is not None:
+            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
         if batch_size > 1:
             for key, value in inputs.items():
