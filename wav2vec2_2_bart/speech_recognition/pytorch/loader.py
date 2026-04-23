@@ -80,6 +80,8 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **model_kwargs
         )
         model.eval()
+        if dtype_override is not None:
+            model.to(dtype_override)
         self._model = model
 
         return model
@@ -104,6 +106,9 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs["input_values"] = inputs["input_values"].to(dtype_override)
 
         decoder_start_token_id = self._model.config.decoder_start_token_id
         decoder_input_ids = (
