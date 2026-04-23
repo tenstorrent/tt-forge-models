@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
         filename = VARIANT_FILENAMES[self._variant]
         ckpt_path = hf_hub_download(repo_id=REPO_ID, filename=filename)
         state_dict = load_file(ckpt_path)
-        self._pipe.transformer.load_state_dict(state_dict)
+        self._pipe.transformer.load_state_dict(state_dict, strict=False)
         self._pipe.transformer.eval()
         return self._pipe
 
