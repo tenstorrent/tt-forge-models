@@ -14,8 +14,8 @@ import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
 from transformers.modeling_gguf_pytorch_utils import (
-    GGUF_SUPPORTED_ARCHITECTURES,
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
 )
 
@@ -38,9 +38,9 @@ def _patch_seed_oss_support():
         GGUF_TO_FAST_CONVERTERS["seed_oss"] = GGUF_TO_FAST_CONVERTERS["qwen2"]
     if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
         if "qwen2" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
-            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
-                "seed_oss"
-            ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen2"]
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["seed_oss"] = (
+                _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen2"]
+            )
 
 
 def _patched_load_gguf_checkpoint(*args, **kwargs):
@@ -165,7 +165,6 @@ class ModelLoader(ForgeModel):
             messages,
             tokenize=False,
             add_generation_prompt=True,
-            enable_thinking=True,
         )
         prompts = [text]
 
