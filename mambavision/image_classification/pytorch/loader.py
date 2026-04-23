@@ -4,6 +4,7 @@
 """
 MambaVision model loader implementation for image classification.
 """
+import contextlib
 import sys
 import types
 
@@ -17,7 +18,7 @@ from typing import Optional
 
 def _install_mamba_ssm_stub():
     """Inject a pure-PyTorch stub for mamba_ssm (real package requires CUDA)."""
-    if "mamba_ssm" in sys.modules:
+    if "mamba_ssm.ops.selective_scan_interface" in sys.modules:
         return
 
     def selective_scan_fn(
@@ -68,14 +69,74 @@ def _install_mamba_ssm_stub():
     interface_mod.selective_scan_ref = selective_scan_fn
 
     ops_mod = types.ModuleType("mamba_ssm.ops")
+    ops_mod.__path__ = []
     ops_mod.selective_scan_interface = interface_mod
 
     root_mod = types.ModuleType("mamba_ssm")
+    root_mod.__path__ = []
     root_mod.ops = ops_mod
 
     sys.modules["mamba_ssm"] = root_mod
     sys.modules["mamba_ssm.ops"] = ops_mod
     sys.modules["mamba_ssm.ops.selective_scan_interface"] = interface_mod
+
+
+@contextlib.contextmanager
+def _linspace_on_cpu():
+    """Redirect torch.linspace to CPU while in meta-device context.
+
+    Transformers 5.x always runs model __init__ inside torch.device("meta"),
+    but MambaVision.__init__ calls torch.linspace(...).item() which fails on
+    meta tensors. Forcing CPU here makes scalar drop-path-rate extraction work.
+    """
+    _orig = torch.linspace
+
+    def _cpu_linspace(*args, **kwargs):
+        kwargs.setdefault("device", "cpu")
+        return _orig(*args, **kwargs)
+
+    torch.linspace = _cpu_linspace
+    try:
+        yield
+    finally:
+        torch.linspace = _orig
+
+
+def _patch_mambavision_post_init(pretrained_model_name: str) -> None:
+    """Pre-load and patch MambaVision dynamic classes to call post_init().
+
+    The nvidia/MambaVision custom code predates transformers 5.x and omits
+    self.post_init() from __init__.  In transformers 5.x, post_init() sets
+    self.all_tied_weights_keys which _finalize_model_loading() requires.
+
+    We pre-load the dynamic module here so the patched class is already in
+    sys.modules when from_pretrained() tries to instantiate it.
+    """
+    from transformers import AutoConfig
+    from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+    from transformers import PreTrainedModel
+
+    config = AutoConfig.from_pretrained(pretrained_model_name, trust_remote_code=True)
+    for task_entry in getattr(config, "auto_map", {}).values():
+        # task_entry: "modeling_mambavision.MambaVisionModelForImageClassification"
+        try:
+            cls = get_class_from_dynamic_module(task_entry, pretrained_model_name)
+        except Exception:
+            continue
+        if not (isinstance(cls, type) and issubclass(cls, PreTrainedModel)):
+            continue
+        if getattr(cls, "_post_init_patched", False):
+            continue
+        _orig_init = cls.__init__
+
+        def _new_init(self, *args, _orig=_orig_init, **kwargs):
+            _orig(self, *args, **kwargs)
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.post_init()
+
+        cls.__init__ = _new_init
+        cls._post_init_patched = True
 
 
 from ....base import ForgeModel
@@ -131,15 +192,17 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         _install_mamba_ssm_stub()
         pretrained_model_name = self._variant_config.pretrained_model_name
+        _patch_mambavision_post_init(pretrained_model_name)
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForImageClassification.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        with _linspace_on_cpu():
+            model = AutoModelForImageClassification.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
         model.eval()
 
         self._cached_model = model
