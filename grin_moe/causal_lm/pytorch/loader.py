@@ -6,7 +6,16 @@ GRIN-MoE model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import DynamicCache
 from typing import Optional
+
+# transformers 5.x removed get_usable_length from DynamicCache; patch it back
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length, layer_idx=0):
+        return self.get_seq_length(layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
 
 from ....base import ForgeModel
 from ....config import (
