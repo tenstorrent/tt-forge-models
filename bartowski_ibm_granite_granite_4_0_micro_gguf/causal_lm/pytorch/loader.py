@@ -43,6 +43,11 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     result = _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, **kwargs
     )
+    # Granite 4.0 GGUF stores num_key_value_heads as a per-layer list; collapse
+    # to a scalar so GraniteAttention can do integer floor division on it.
+    cfg = result.get("config", {})
+    if isinstance(cfg.get("num_key_value_heads"), list):
+        cfg["num_key_value_heads"] = cfg["num_key_value_heads"][0]
     return result
 
 
