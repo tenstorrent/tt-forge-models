@@ -10,7 +10,7 @@ model is too large to load directly.
 
 from typing import Optional
 
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, DeepseekV3Config
 
 from ....base import ForgeModel
 from ....config import (
@@ -46,19 +46,28 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        config = AutoConfig.from_pretrained(self.model_name)
-
-        # Reduce model dimensions for testing
-        if self.num_layers is not None:
-            config.num_hidden_layers = self.num_layers
-        else:
-            config.num_hidden_layers = 6
-        config.num_attention_heads = 16
-        config.hidden_size = 1024
-        config.num_key_value_heads = 16
-        config.intermediate_size = 1024 * 4
-        config.num_experts_per_tok = 2
-        config.q_lora_rank = 256
+        # deepseek_v32 model type is not in released transformers; use DeepseekV3
+        # as the base architecture with reduced dimensions for testing.
+        config = DeepseekV3Config(
+            num_hidden_layers=self.num_layers if self.num_layers is not None else 6,
+            num_attention_heads=16,
+            hidden_size=1024,
+            num_key_value_heads=16,
+            intermediate_size=1024 * 4,
+            num_experts_per_tok=2,
+            q_lora_rank=256,
+            moe_intermediate_size=512,
+            n_routed_experts=4,
+            n_shared_experts=1,
+            n_group=2,
+            topk_group=1,
+            kv_lora_rank=128,
+            qk_nope_head_dim=64,
+            qk_rope_head_dim=32,
+            v_head_dim=64,
+            first_k_dense_replace=1,
+            vocab_size=129280,
+        )
 
         model_kwargs = {
             "attn_implementation": "eager",
@@ -69,7 +78,9 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForCausalLM.from_config(config, **model_kwargs)
 
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        # Use DeepSeek-V3 tokenizer since V3.2's config.json uses old rope_scaling
+        # format incompatible with transformers>=5.0; tokenizer is identical.
+        self.tokenizer = AutoTokenizer.from_pretrained("deepseek-ai/DeepSeek-V3")
 
         return model
 
