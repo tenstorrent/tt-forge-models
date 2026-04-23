@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Qwen2.5-VL-7B-Abliterated-Caption-it GGUF model loader implementation for image to text.
+
+Note: The qwen2vl GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the HF-native checkpoint instead.
 """
 
 from transformers import (
@@ -32,18 +35,20 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Qwen2.5-VL-7B-Abliterated-Caption-it GGUF model loader implementation for image to text tasks."""
+    """Qwen2.5-VL-7B-Abliterated-Caption-it GGUF model loader implementation for image to text tasks.
+
+    Note: Uses the base model (safetensors) instead of GGUF because the
+    qwen2vl GGUF architecture is not yet supported by transformers.
+    """
 
     _VARIANTS = {
         ModelVariant.QWEN2_5_VL_7B_ABLITERATED_CAPTION_IT_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/Qwen2.5-VL-7B-Abliterated-Caption-it-GGUF",
+            pretrained_model_name="prithivMLmods/Qwen2.5-VL-7B-Abliterated-Caption-it",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN2_5_VL_7B_ABLITERATED_CAPTION_IT_GGUF
-
-    GGUF_FILE = "Qwen2.5-VL-7B-Abliterated-Caption-it.Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -68,13 +73,9 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained(
-            "prithivMLmods/Qwen2.5-VL-7B-Abliterated-Caption-it"
-        )
+        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
