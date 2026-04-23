@@ -82,6 +82,8 @@ class ModelLoader(ForgeModel):
         transformer = LTXVideoTransformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
             torch_dtype=dtype,
+            low_cpu_mem_usage=False,
+            ignore_mismatched_sizes=True,
         )
 
         self.pipe = LTXPipeline.from_pretrained(
