@@ -35,3 +35,7 @@ results:
   status: "PASS"
   date: "20260423_105733"
   branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-2"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[ateeqq_news_title_generator/pytorch-Default-single_device-inference]"
+  status: "PASS"
+  date: "20260423_111439"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-2"
