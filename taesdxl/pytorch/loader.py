@@ -18,12 +18,12 @@ from diffusers import AutoencoderTiny
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -39,6 +39,26 @@ class ModelVariant(StrEnum):
     """Available taesdxl model variants."""
 
     TAESDXL = "taesdxl"
+
+
+class _TAESDXLWrapper(torch.nn.Module):
+    """Wrapper that fixes a dtype mismatch in AutoencoderTiny.forward().
+
+    AutoencoderTiny.forward() converts encoder latents through a uint8 byte
+    tensor and back via `scaled_enc / 255.0`, which always yields float32
+    regardless of the model dtype. This wrapper casts the result back to the
+    encoder output dtype before passing it to the decoder.
+    """
+
+    def __init__(self, vae: AutoencoderTiny):
+        super().__init__()
+        self.vae = vae
+
+    def forward(self, sample: torch.Tensor) -> torch.Tensor:
+        enc = self.vae.encode(sample).latents
+        scaled_enc = self.vae.scale_latents(enc).mul_(255).round_().byte()
+        unscaled_enc = self.vae.unscale_latents(scaled_enc / 255.0).to(enc.dtype)
+        return self.vae.decode(unscaled_enc).sample
 
 
 class ModelLoader(ForgeModel):
@@ -72,12 +92,13 @@ class ModelLoader(ForgeModel):
         """Load and return the AutoencoderTiny VAE model."""
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._vae is None:
-            self._vae = AutoencoderTiny.from_pretrained(
+            vae = AutoencoderTiny.from_pretrained(
                 REPO_ID,
                 torch_dtype=dtype,
                 low_cpu_mem_usage=False,
             )
-            self._vae.eval()
+            vae.eval()
+            self._vae = _TAESDXLWrapper(vae)
         elif dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
         return self._vae
