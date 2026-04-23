@@ -39,6 +39,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.LLAMA3_DEMENTIA_CARE_8B_GGUF
 
     GGUF_FILE = "llama3-dementia-care-8b.gguf"
+    REVISION = "62d2ec5eeed7c950f9616a803c815d23f5ce7f9f"
 
     sample_text = "How can I help someone with dementia?"
 
@@ -66,6 +67,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["revision"] = self.REVISION
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -86,10 +88,11 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["revision"] = self.REVISION
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name, gguf_file=self.GGUF_FILE, revision=self.REVISION
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -154,6 +157,8 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name,
+            gguf_file=self.GGUF_FILE,
+            revision=self.REVISION,
         )
         return self.config
