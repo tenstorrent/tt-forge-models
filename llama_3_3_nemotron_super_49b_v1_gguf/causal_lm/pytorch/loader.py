@@ -33,13 +33,21 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
 
     The Llama 3.3 Nemotron Super 49B GGUF file declares architecture as 'deci'
     (Deci AI's original name), but transformers has no 'deci' config class.
-    The underlying architecture is llama-compatible.
+    The underlying architecture is llama-compatible, but uses per-layer arrays
+    for attention head counts (hybrid attention/FFN-only layers). We collapse
+    these to scalars by taking the max non-zero value.
     """
     result = _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
     )
-    if result.get("config", {}).get("model_type") == "deci":
-        result["config"]["model_type"] = "llama"
+    config = result.get("config", {})
+    if config.get("model_type") == "deci":
+        config["model_type"] = "llama"
+        for field in ("num_attention_heads", "num_key_value_heads"):
+            val = config.get(field)
+            if isinstance(val, list):
+                non_zero = [v for v in val if v]
+                config[field] = max(non_zero) if non_zero else val[0]
     return result
 
 
