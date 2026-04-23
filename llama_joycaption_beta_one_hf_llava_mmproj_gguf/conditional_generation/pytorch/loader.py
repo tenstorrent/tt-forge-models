@@ -110,6 +110,10 @@ class ModelLoader(ForgeModel):
         # The concedo GGUF repo has a stale/wrong config (LLaVA-1.5 dimensions).
         # Load config from the original model repo which matches the GGUF weights.
         config = LlavaConfig.from_pretrained(self._PROCESSOR_NAME)
+        # GGUF weight-mapping code accesses config.num_hidden_layers directly on
+        # LlavaConfig, but LlavaConfig stores it only on text_config. Mirror it.
+        if not hasattr(config, "num_hidden_layers"):
+            config.num_hidden_layers = config.text_config.num_hidden_layers
 
         model_kwargs = {}
         if dtype_override is not None:
