@@ -39,7 +39,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.DEVSTRAL_SMALL_2507_VISION_Q4_K_M
 
     GGUF_FILE = "Devstral-Small-2507-Vision.Q4_K_M.gguf"
-    TOKENIZER_NAME = "mistralai/Devstral-Small-2507-Vision"
+    TOKENIZER_NAME = "unsloth/Devstral-Small-2507-GGUF"
 
     sample_text = "Write a Python function that checks if a number is prime."
 
