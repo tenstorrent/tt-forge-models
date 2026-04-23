@@ -10,9 +10,28 @@ Source: https://huggingface.co/jixin0101/ObjectClear
 """
 
 import torch
+import torch.nn as nn
 from typing import Optional
 
 from ...base import ForgeModel
+
+
+class _UNetWrapper(nn.Module):
+    """Wraps UNet so added_cond_kwargs can be a positional arg during tracing."""
+
+    def __init__(self, unet):
+        super().__init__()
+        self.unet = unet
+
+    def forward(self, sample, timestep, encoder_hidden_states, added_cond_kwargs):
+        return self.unet(
+            sample,
+            timestep,
+            encoder_hidden_states,
+            added_cond_kwargs=added_cond_kwargs,
+        )
+
+
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -81,7 +100,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline.unet
+        return _UNetWrapper(self.pipeline.unet)
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the ObjectClear UNet.
