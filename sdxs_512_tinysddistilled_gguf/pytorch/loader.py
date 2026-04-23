@@ -81,14 +81,14 @@ class ModelLoader(ForgeModel):
         """Load the SDXS tinySDdistilled GGUF checkpoint as a full pipeline.
 
         Uses StableDiffusionPipeline.from_single_file which correctly infers
-        the tinySD architecture from the GGUF tensor indices. The GGUF weights
-        are dequantized to the target dtype on load.
+        the tinySD UNet architecture from the GGUF tensor indices. The GGUF
+        weights are dequantized to the target dtype on load.
 
-        The GGUF file contains a non-standard CLIP text encoder (816-dim hidden
-        states vs standard 768), so we load the text encoder and tokenizer from
-        the IDKiro/sdxs-512-dreamshaper base pipeline and pass them explicitly.
+        The GGUF file contains non-standard text encoder (816-dim) and VAE
+        (340-channel) components, so we override those with components from the
+        IDKiro/sdxs-512-dreamshaper base pipeline which uses standard dimensions.
         """
-        from diffusers import StableDiffusionPipeline
+        from diffusers import AutoencoderKL, StableDiffusionPipeline
         from transformers import CLIPTextModel, CLIPTokenizer
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
@@ -104,11 +104,17 @@ class ModelLoader(ForgeModel):
             "IDKiro/sdxs-512-dreamshaper",
             subfolder="tokenizer",
         )
+        vae = AutoencoderKL.from_pretrained(
+            "IDKiro/sdxs-512-dreamshaper",
+            subfolder="vae",
+            torch_dtype=compute_dtype,
+        )
 
         self.pipeline = StableDiffusionPipeline.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
             text_encoder=text_encoder,
             tokenizer=tokenizer,
+            vae=vae,
             torch_dtype=compute_dtype,
         )
 
