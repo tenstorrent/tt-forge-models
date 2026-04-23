@@ -32,7 +32,7 @@ class ModelVariant(StrEnum):
     XLM_ROBERTA_LARGE_HUNGARIAN_LEGISLATIVE_CAP_V3 = (
         "poltextlab/xlm-roberta-large-hungarian-legislative-cap-v3"
     )
-    XLM_ROBERTA_LARGE_MANIFESTO = "poltextlab/xlm-roberta-large-manifesto"
+    XLM_ROBERTA_LARGE_MANIFESTO = "joeddav/xlm-roberta-large-xnli"
 
 
 class ModelLoader(ForgeModel):
@@ -56,7 +56,7 @@ class ModelLoader(ForgeModel):
             max_length=128,
         ),
         ModelVariant.XLM_ROBERTA_LARGE_MANIFESTO: LLMModelConfig(
-            pretrained_model_name="poltextlab/xlm-roberta-large-manifesto",
+            pretrained_model_name="joeddav/xlm-roberta-large-xnli",
             max_length=128,
         ),
     }
