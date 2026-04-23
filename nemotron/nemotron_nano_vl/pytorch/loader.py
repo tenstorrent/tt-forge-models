@@ -6,9 +6,43 @@ Nemotron Nano VL model loader implementation for multimodal visual question answ
 """
 
 import torch
-from transformers import AutoModel, AutoTokenizer, AutoImageProcessor
+import torch.distributed as dist
+from transformers import AutoModel, AutoTokenizer, AutoImageProcessor, PreTrainedModel
 from PIL import Image
 from typing import Optional
+
+# The model's forward() calls torch.distributed.get_rank() unconditionally.
+# Patch it to return 0 when distributed is not initialized (single-device case).
+_orig_get_rank = dist.get_rank
+
+
+def _safe_get_rank(*args, **kwargs):
+    if not dist.is_initialized():
+        return 0
+    return _orig_get_rank(*args, **kwargs)
+
+
+dist.get_rank = _safe_get_rank
+
+# Workaround: Llama_Nemotron_Nano_VL (trust_remote_code) doesn't call post_init(),
+# so all_tied_weights_keys is never set. Patch _adjust_tied_keys_with_tied_pointers
+# to initialize it gracefully when missing (transformers >= 5.x compatibility).
+_orig_adjust_tied = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+
+def _patched_adjust_tied(self, *args, **kwargs):
+    if not hasattr(self, "all_tied_weights_keys"):
+        try:
+            self.all_tied_weights_keys = self.get_expanded_tied_weights_keys(
+                all_submodels=False
+            )
+        except Exception:
+            self.all_tied_weights_keys = {}
+    return _orig_adjust_tied(self, *args, **kwargs)
+
+
+PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust_tied
+
 from ....tools.utils import get_file, cast_input_to_type
 from ....base import ForgeModel
 from ....config import (
@@ -87,6 +121,20 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+
+        # Fix: summary_idxs buffer in the vision model's radio_model is not saved in the
+        # checkpoint, so it gets replaced with garbage data during meta-device initialization.
+        # Recompute it from the vision config's teachers list.
+        try:
+            teachers = model.config.vision_config.args.get("teachers", [])
+            summary_idxs = torch.tensor(
+                [i for i, t in enumerate(teachers) if t.get("use_summary", True)],
+                dtype=torch.int64,
+            )
+            model.vision_model.radio_model.summary_idxs = summary_idxs
+        except Exception:
+            pass
+
         model.eval()
         self.model = model
 
