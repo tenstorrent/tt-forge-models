@@ -7,9 +7,13 @@ Unsloth FLUX.1 Kontext Dev GGUF model loader implementation for image-to-image g
 Repository:
 - https://huggingface.co/unsloth/FLUX.1-Kontext-dev-GGUF
 """
+import json
+import os
+import tempfile
+from typing import Optional
+
 import torch
 from diffusers import FluxTransformer2DModel
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
@@ -78,10 +82,35 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
-        self.transformer = FluxTransformer2DModel.from_single_file(
-            gguf_url,
-            **load_kwargs,
-        )
+        # diffusers auto-detects FLUX.1-Kontext-dev as "flux-depth" (due to in_channels=128)
+        # and tries to load config from black-forest-labs/FLUX.1-Depth-dev, which is private.
+        # We supply the correct config explicitly to bypass this broken auto-detection.
+        flux_kontext_config = {
+            "_class_name": "FluxTransformer2DModel",
+            "_diffusers_version": "0.33.0",
+            "attention_head_dim": 128,
+            "axes_dims_rope": [16, 56, 56],
+            "guidance_embeds": True,
+            "in_channels": 128,
+            "out_channels": 64,
+            "joint_attention_dim": 8192,
+            "num_attention_heads": 24,
+            "num_layers": 19,
+            "num_single_layers": 38,
+            "patch_size": 1,
+            "pooled_projection_dim": 1536,
+        }
+
+        with tempfile.TemporaryDirectory() as config_dir:
+            config_path = os.path.join(config_dir, "config.json")
+            with open(config_path, "w") as f:
+                json.dump(flux_kontext_config, f)
+
+            self.transformer = FluxTransformer2DModel.from_single_file(
+                gguf_url,
+                config=config_dir,
+                **load_kwargs,
+            )
 
         if dtype_override is not None:
             self.transformer = self.transformer.to(dtype_override)
