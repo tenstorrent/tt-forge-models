@@ -56,7 +56,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"use_safetensors": True}
+        load_kwargs = {}
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
         load_kwargs |= kwargs
