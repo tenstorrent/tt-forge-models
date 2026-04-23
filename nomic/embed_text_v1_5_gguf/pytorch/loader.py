@@ -4,8 +4,10 @@
 """
 Nomic Embed Text v1.5 GGUF model loader implementation for sentence embedding generation.
 """
+import os
+
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +20,10 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+# The nomic-bert GGUF architecture is not supported by transformers' GGUF loader,
+# so we load from the base model repo instead.
+_BASE_MODEL = "nomic-ai/nomic-embed-text-v1.5"
 
 
 class ModelVariant(StrEnum):
@@ -36,14 +42,6 @@ class ModelLoader(ForgeModel):
     }
 
     DEFAULT_VARIANT = ModelVariant.NOMIC_EMBED_TEXT_V1_5_GGUF
-
-    _GGUF_FILES = {
-        ModelVariant.NOMIC_EMBED_TEXT_V1_5_GGUF: "nomic-embed-text-v1.5.Q4_K_M.gguf",
-    }
-
-    @property
-    def GGUF_FILE(self):
-        return self._GGUF_FILES[self._variant]
 
     sample_sentences = [
         "search_document: TSNE is a dimensionality reduction algorithm created by Laurens van Der Maaten"
@@ -71,24 +69,25 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(_BASE_MODEL, **tokenizer_kwargs)
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(_BASE_MODEL, trust_remote_code=True)
+            model = AutoModel.from_config(config, trust_remote_code=True)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model = AutoModel.from_pretrained(_BASE_MODEL, **model_kwargs)
+
         model.eval()
 
         return model
