@@ -201,6 +201,6 @@ def stable_diffusion_preprocessing_v35(
     latent_model_input = (
         torch.cat([latents] * 2) if do_classifier_free_guidance else latents
     )
-    timestep = timesteps[0].expand(latent_model_input.shape[0])
+    timestep = timesteps[0:1].expand(latent_model_input.shape[0])
 
     return latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds
