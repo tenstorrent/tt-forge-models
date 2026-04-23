@@ -25,6 +25,40 @@ from ...config import (
 )
 
 
+def _patch_nested_from_pretrained():
+    # In transformers 5.x, from_pretrained always wraps model init in a meta device context
+    # (via get_init_context). The model's __init__ calls from_pretrained for the vision encoder
+    # with device_map=None, which check_and_set_device_map now rejects inside a meta context.
+    # We patch the module-level binding so the nested call loads to CPU instead of raising.
+    import sys
+
+    mu = sys.modules.get("transformers.modeling_utils")
+    if mu is None:
+        return lambda: None
+
+    orig_check = mu.check_and_set_device_map
+
+    def patched_check(device_map):
+        if device_map is None:
+            try:
+                from transformers.modeling_utils import (
+                    get_torch_context_manager_or_global_device,
+                )
+
+                if get_torch_context_manager_or_global_device() == torch.device("meta"):
+                    return "cpu"
+            except Exception:
+                pass
+        return orig_check(device_map)
+
+    mu.check_and_set_device_map = patched_check
+
+    def restore():
+        mu.check_and_set_device_map = orig_check
+
+    return restore
+
+
 def _load_processor_compat(pretrained_model_name):
     # transformers 5.x calls _get_arguments_from_pretrained with processor_dict as a
     # positional argument, but this model's custom processor was written for the 4.x API
@@ -134,9 +168,13 @@ class ModelLoader(ForgeModel):
 
         self.processor = _load_processor_compat(pretrained_model_name)
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        restore = _patch_nested_from_pretrained()
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        finally:
+            restore()
         model.eval()
         self.model = model
 
