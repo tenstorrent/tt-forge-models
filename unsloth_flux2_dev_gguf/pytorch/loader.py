@@ -12,9 +12,6 @@ Flux2Transformer2DModel.from_single_file.
 from typing import Optional
 
 import torch
-from diffusers import GGUFQuantizationConfig
-from diffusers.models import Flux2Transformer2DModel
-from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -87,6 +84,18 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The FLUX.2-dev transformer model instance.
         """
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+
+        from diffusers import GGUFQuantizationConfig
+        from diffusers.models import Flux2Transformer2DModel
+        from huggingface_hub import hf_hub_download
+
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
