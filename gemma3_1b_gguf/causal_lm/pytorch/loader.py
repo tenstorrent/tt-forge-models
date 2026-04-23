@@ -4,6 +4,7 @@
 """
 Gemma 3 1B GGUF model loader implementation for causal language modeling.
 """
+
 import importlib.metadata
 import torch
 import transformers.configuration_utils as _config_utils
@@ -109,28 +110,52 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _apply_gguf_compat_patch():
-        """Re-apply compat wrapper so model_to_load kwarg from transformers 5.x is accepted.
+        """Re-apply compat wrappers so model_to_load kwarg from transformers 5.x is accepted.
 
-        Other loaders collected before this test may have replaced the wrapper
-        with their own patches that lack the model_to_load parameter.  We try to
-        pass model_to_load through; if the chained function rejects it (explicit
-        signature without that param) we fall back to calling without it.
+        Many loaders in this worktree patch load_gguf_checkpoint with explicit
+        signatures that drop model_to_load.  When the chain eventually reaches
+        the real transformers function, model_to_load=None causes
+        get_gguf_hf_weights_map to crash (several patched versions call
+        hf_model.config on whatever is passed in).
+
+        We solve this by:
+        1. Wrapping load_gguf_checkpoint to record model_to_load before the
+           chain runs (even if the chain itself drops it).
+        2. Wrapping get_gguf_hf_weights_map to restore hf_model from that
+           record when the chain passes None.
         """
-        current = _gguf_utils.load_gguf_checkpoint
+        current_load = _gguf_utils.load_gguf_checkpoint
+        current_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+        # Shared mutable cell: _wrapped writes it, _safe_get_map reads it.
+        _model_holder = [None]
 
         def _wrapped(gguf_path, return_tensors=False, model_to_load=None):
+            _model_holder[0] = model_to_load
             try:
-                return current(
+                return current_load(
                     gguf_path,
                     return_tensors=return_tensors,
                     model_to_load=model_to_load,
                 )
             except TypeError:
-                return current(gguf_path, return_tensors=return_tensors)
+                return current_load(gguf_path, return_tensors=return_tensors)
+
+        def _safe_get_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if hf_model is None:
+                hf_model = _model_holder[0]
+            if hf_model is None and model_type is None:
+                return {}
+            return current_get_map(
+                hf_model, processor, model_type, num_layers, qual_name
+            )
 
         _gguf_utils.load_gguf_checkpoint = _wrapped
         _config_utils.load_gguf_checkpoint = _wrapped
         _model_utils.load_gguf_checkpoint = _wrapped
+        _gguf_utils.get_gguf_hf_weights_map = _safe_get_map
 
     def load_model(self, *, dtype_override=None, **kwargs):
         self._refresh_transformers_pkg_cache()
