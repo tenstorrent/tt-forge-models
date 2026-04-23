@@ -38,7 +38,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LLAMA2_7B_LORA_COMMON_GEN
 
-    BASE_MODEL_NAME = "meta-llama/Llama-2-7b-hf"
+    # NousResearch mirror is publicly accessible; meta-llama/Llama-2-7b-hf is gated
+    BASE_MODEL_NAME = "NousResearch/Llama-2-7b-hf"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -78,14 +79,11 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        base_model = AutoModelForCausalLM.from_pretrained(
-            self.BASE_MODEL_NAME, **model_kwargs
-        )
+        base_model = AutoModelForCausalLM.from_config(config, **model_kwargs)
 
         adapter_name = self._variant_config.pretrained_model_name
         model = PeftModel.from_pretrained(base_model, adapter_name)
