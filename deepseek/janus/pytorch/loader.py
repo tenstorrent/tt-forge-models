@@ -7,8 +7,10 @@ DeepSeek Janus model loader implementation for multimodal understanding.
 
 from typing import Optional
 
+import torch
 from PIL import Image
 from janus.models import MultiModalityCausalLM, VLChatProcessor
+from torch.overrides import TorchFunctionMode
 
 from ....base import ForgeModel
 from ....config import (
@@ -21,6 +23,24 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import cast_input_to_type, get_file
+
+
+class _ForceCPUConstructors(TorchFunctionMode):
+    # Transformers 5.x initializes models under torch.device("meta") via DeviceContext,
+    # which injects device=meta into all tensor constructors (including torch.linspace).
+    # Janus's SigLIP ViT calls torch.linspace(...).item() in __init__, which fails on
+    # meta tensors. By sitting above DeviceContext in the TorchFunctionMode stack and
+    # pre-filling device="cpu", we prevent DeviceContext from overriding it to meta.
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        kwargs = kwargs or {}
+        try:
+            from torch.utils._device import _device_constructors
+
+            if func in _device_constructors() and kwargs.get("device") is None:
+                kwargs["device"] = "cpu"
+        except Exception:
+            pass
+        return func(*args, **kwargs)
 
 
 class ModelVariant(StrEnum):
@@ -70,12 +90,15 @@ class ModelLoader(ForgeModel):
         """Load and return the Janus model instance."""
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": False}
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = MultiModalityCausalLM.from_pretrained(str(model_name), **model_kwargs)
+        with _ForceCPUConstructors():
+            model = MultiModalityCausalLM.from_pretrained(
+                str(model_name), **model_kwargs
+            )
         model.eval()
 
         if self.processor is None:
