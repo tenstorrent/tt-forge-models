@@ -47,12 +47,63 @@ if not hasattr(_mbert_module, "_pad_modernbert_output"):
 
     _mbert_module._pad_modernbert_output = _pad_modernbert_output
 
-# transformers>=5.x changed _tied_weights_keys from list to dict in PreTrainedModel.
-# Patch any cached modeling_modchembert.py files that still use the old list format.
-_OLD_TIED = '_tied_weights_keys = ["decoder.weight"]'
-_NEW_TIED = (
-    '_tied_weights_keys = {"decoder.weight": "model.embeddings.tok_embeddings.weight"}'
-)
+# Patch cached modeling_modchembert.py for transformers>=5.x API changes:
+#   1. _tied_weights_keys changed from list to dict
+#   2. ModChemBertModel needs rotary_emb and position_embeddings plumbing
+_CACHE_PATCHES = [
+    (
+        '_tied_weights_keys = ["decoder.weight"]',
+        '_tied_weights_keys = {"decoder.weight": "model.embeddings.tok_embeddings.weight"}',
+    ),
+    (
+        "        self.gradient_checkpointing = False\n        self.post_init()",
+        "        self.gradient_checkpointing = False\n"
+        "        # Required for transformers>=5.x which precomputes RoPE embeddings outside encoder layers\n"
+        "        self.rotary_emb = ModernBertRotaryEmbedding(config=config)\n"
+        "        self.post_init()",
+    ),
+    (
+        "            layer_outputs = encoder_layer(\n"
+        "                hidden_states,\n"
+        "                attention_mask=attention_mask,\n"
+        "                sliding_window_mask=sliding_window_mask,\n"
+        "                position_ids=position_ids,\n"
+        "                cu_seqlens=cu_seqlens,\n"
+        "                max_seqlen=max_seqlen,\n"
+        "                output_attentions=output_attentions,\n"
+        "            )\n"
+        "            hidden_states = layer_outputs[0]\n"
+        "            if output_attentions and len(layer_outputs) > 1:\n"
+        "                all_self_attentions = all_self_attentions + (layer_outputs[1],)  # type: ignore",
+        "        # transformers>=5.x requires precomputed position_embeddings passed per layer\n"
+        "        position_embeddings_cache = {}\n"
+        "        if position_ids is not None:\n"
+        "            for layer_type in set(self.config.layer_types):\n"
+        "                position_embeddings_cache[layer_type] = self.rotary_emb(\n"
+        "                    hidden_states, position_ids, layer_type\n"
+        "                )\n"
+        "\n"
+        "        for encoder_layer in self.layers:\n"
+        "            if output_hidden_states:\n"
+        "                all_hidden_states = all_hidden_states + (hidden_states,)  # type: ignore\n"
+        "\n"
+        "            layer_position_embeddings = position_embeddings_cache.get(\n"
+        "                getattr(encoder_layer, 'attention_type', None)\n"
+        "            )\n"
+        "            layer_outputs = encoder_layer(\n"
+        "                hidden_states,\n"
+        "                attention_mask=attention_mask,\n"
+        "                sliding_window_mask=sliding_window_mask,\n"
+        "                position_embeddings=layer_position_embeddings,\n"
+        "                cu_seqlens=cu_seqlens,\n"
+        "                max_seqlen=max_seqlen,\n"
+        "                output_attentions=output_attentions,\n"
+        "            )\n"
+        "            hidden_states = layer_outputs[0] if isinstance(layer_outputs, (tuple, list)) else layer_outputs\n"
+        "            if output_attentions and isinstance(layer_outputs, (tuple, list)) and len(layer_outputs) > 1:\n"
+        "                all_self_attentions = all_self_attentions + (layer_outputs[1],)  # type: ignore",
+    ),
+]
 for _cache_file in glob.glob(
     os.path.join(
         os.path.dirname(__file__),
@@ -62,9 +113,14 @@ for _cache_file in glob.glob(
 ):
     with open(_cache_file) as _f:
         _src = _f.read()
-    if _OLD_TIED in _src:
+    _changed = False
+    for _old, _new in _CACHE_PATCHES:
+        if _old in _src:
+            _src = _src.replace(_old, _new)
+            _changed = True
+    if _changed:
         with open(_cache_file, "w") as _f:
-            _f.write(_src.replace(_OLD_TIED, _NEW_TIED))
+            _f.write(_src)
 
 from ....base import ForgeModel
 from ....config import (
