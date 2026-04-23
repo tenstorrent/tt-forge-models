@@ -4,7 +4,7 @@
 """
 DeepSeek-OCR 8-bit MLX model loader implementation for document OCR tasks.
 """
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModel, AutoConfig
 from transformers.models.llama import modeling_llama as _llama_module
 from typing import Optional
 
@@ -77,6 +77,16 @@ class ModelLoader(ForgeModel):
         # MLX quantized variants may have mismatched weight shapes
         model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
+
+        # transformers 5.x rejects MLX quantization configs (no quant_method); strip it.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if hasattr(config, "quantization_config") and not hasattr(
+            config.quantization_config, "quant_method"
+        ):
+            config.quantization_config = None
+        model_kwargs["config"] = config
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
 
