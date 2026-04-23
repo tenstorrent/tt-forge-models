@@ -1,0 +1,2 @@
+bitsandbytes>=0.46.1
+qwen-vl-utils
