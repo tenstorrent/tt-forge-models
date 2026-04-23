@@ -4,6 +4,8 @@
 """
 NeuTTS Air Q8 GGUF model loader implementation for text-to-speech tasks.
 """
+import importlib
+import sys
 import torch
 from contextlib import contextmanager
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -22,21 +24,37 @@ from ...config import (
 )
 
 
+def _get_real_load_gguf_checkpoint():
+    """Return the unpatched transformers load_gguf_checkpoint.
+
+    Many GGUF loaders monkey-patch transformers.modeling_gguf_pytorch_utils to
+    add model-specific weight-key remapping.  Those patches don't forward
+    kwargs added in newer transformers (e.g. model_to_load) and are irrelevant
+    for NeuTTS.  We temporarily evict the module from sys.modules so that a
+    fresh reimport gives us the unpatched function whose __globals__ also
+    point at the fresh (unpatched) get_gguf_hf_weights_map.
+    """
+    _MOD = "transformers.modeling_gguf_pytorch_utils"
+    saved = sys.modules.pop(_MOD, None)
+    try:
+        fresh = importlib.import_module(_MOD)
+        real_fn = fresh.load_gguf_checkpoint
+    finally:
+        if saved is not None:
+            sys.modules[_MOD] = saved
+    return real_fn
+
+
+_real_load_gguf_checkpoint = _get_real_load_gguf_checkpoint()
+
+
 @contextmanager
 def _gguf_compat_ctx():
-    """Wrap the current load_gguf_checkpoint to drop unknown kwargs like model_to_load.
-
-    Other GGUF loaders monkey-patch load_gguf_checkpoint with signatures that
-    don't accept **kwargs.  Newer transformers passes model_to_load, which
-    causes TypeError.  Apply an outermost wrapper at call time so it is always
-    the active patch when we enter this context.
-    """
+    """Temporarily replace the monkey-patched load_gguf_checkpoint with the
+    real unpatched transformers version so that all kwargs are handled correctly
+    and NeuTTS-irrelevant weight-remapping patches are bypassed."""
     _prev = _gguf_utils.load_gguf_checkpoint
-
-    def _compat(gguf_path, return_tensors=False, **kwargs):
-        return _prev(gguf_path, return_tensors=return_tensors)
-
-    _gguf_utils.load_gguf_checkpoint = _compat
+    _gguf_utils.load_gguf_checkpoint = _real_load_gguf_checkpoint
     try:
         yield
     finally:
