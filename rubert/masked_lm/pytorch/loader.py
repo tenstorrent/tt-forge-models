@@ -5,7 +5,9 @@
 RuBERT model loader implementation for masked language modeling.
 """
 
-from transformers import AutoTokenizer, AutoModelForMaskedLM
+import os
+
+from transformers import AutoConfig, AutoModelForMaskedLM, AutoTokenizer
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -82,6 +84,14 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The RuBERT model instance.
         """
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(self.model_name)
+            model = AutoModelForMaskedLM.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+            model.eval()
+            return model
 
         model_kwargs = {}
         if dtype_override is not None:
