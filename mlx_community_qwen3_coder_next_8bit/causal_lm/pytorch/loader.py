@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.QWEN_3_CODER_NEXT_8BIT: LLMModelConfig(
-            pretrained_model_name="mlx-community/Qwen3-Coder-Next-8bit",
+            pretrained_model_name="mlx-community/Qwen3-Coder-Next-bf16",
             max_length=128,
         ),
     }
@@ -95,12 +95,14 @@ class ModelLoader(ForgeModel):
                     ]
             else:
                 config.num_hidden_layers = self.num_layers
+                if hasattr(config, "layer_types"):
+                    config.layer_types = config.layer_types[: self.num_layers]
             model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
