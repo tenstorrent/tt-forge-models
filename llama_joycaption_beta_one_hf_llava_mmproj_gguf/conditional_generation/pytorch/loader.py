@@ -125,10 +125,7 @@ class ModelLoader(ForgeModel):
         conversation = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": self.sample_text},
-                ],
+                "content": self.sample_text,
             }
         ]
 
