@@ -4,8 +4,15 @@
 """
 mradermacher Huihui Qwen3.5 27B Claude 4.6 Opus Abliterated GGUF model loader implementation for causal language modeling.
 """
+import os
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
+    Qwen3_5ForCausalLM,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -40,6 +47,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "Huihui-Qwen3.5-27B-Claude-4.6-Opus-abliterated.Q4_K_M.gguf"
 
+    # Non-GGUF model for config/tokenizer when TT_RANDOM_WEIGHTS is set
+    _RANDOM_WEIGHTS_PRETRAINED_NAME = "Qwen/Qwen3.5-27B"
+
     sample_text = "Give me a short introduction to large language model."
 
     def __init__(
@@ -62,14 +72,19 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._RANDOM_WEIGHTS_PRETRAINED_NAME
+            )
+        else:
+            tokenizer_kwargs = {}
+            if dtype_override is not None:
+                tokenizer_kwargs["torch_dtype"] = dtype_override
+            tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -81,23 +96,34 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(self._RANDOM_WEIGHTS_PRETRAINED_NAME)
+            # Qwen3_5ForCausalLM requires the text_config, not the composite config
+            text_config = getattr(config, "text_config", config)
+            if self.num_layers is not None:
+                text_config.num_hidden_layers = self.num_layers
+            model = Qwen3_5ForCausalLM(text_config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
             )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
-
+        model.eval()
         self.config = model.config
         self.model = model
         return model
@@ -153,7 +179,10 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.config = AutoConfig.from_pretrained(self._RANDOM_WEIGHTS_PRETRAINED_NAME)
+        else:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
