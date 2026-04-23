@@ -59,27 +59,19 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         from transformers import AutoModel
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
-            **model_kwargs,
+            **kwargs,
         )
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
-
         return model
 
-    def load_inputs(self, dtype_override=None):
-        dtype = dtype_override or torch.float32
+    def load_inputs(self):
+        dtype = torch.float32
 
         torch.manual_seed(42)
         # Synthetic normalized mel-spectrogram of shape [batch, 1, time, mel_bins]
