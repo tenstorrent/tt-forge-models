@@ -58,7 +58,9 @@ class ModelLoader(ForgeModel):
         """Load and return the NCSN++ UNet2D model.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
+            dtype_override: Ignored. This model uses fir_kernel tensors stored in
+                lambda closures that are not converted by model.to(), so dtype
+                conversion is skipped to avoid input/weight dtype mismatches.
 
         Returns:
             UNet2DModel: The pre-trained unconditional UNet model.
@@ -67,15 +69,14 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name,
             **kwargs,
         )
-        if dtype_override is not None:
-            model = model.to(dtype_override)
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the NCSN++ model.
 
         Args:
-            dtype_override: Optional torch.dtype to override the input dtype.
+            dtype_override: Ignored. Inputs are kept as float32 to match the model
+                weights (see load_model note about fir_kernel lambda closures).
             batch_size: Optional batch size for the inputs.
 
         Returns:
@@ -83,9 +84,6 @@ class ModelLoader(ForgeModel):
         """
         sample = torch.randn(batch_size, 3, 32, 32)
         timestep = torch.tensor([0])
-
-        if dtype_override is not None:
-            sample = sample.to(dtype_override)
 
         return {
             "sample": sample,
