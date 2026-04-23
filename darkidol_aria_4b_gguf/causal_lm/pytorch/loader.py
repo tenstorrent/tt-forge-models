@@ -112,6 +112,7 @@ class ModelLoader(ForgeModel):
                 if fid in seen:
                     break
                 seen.add(fid)
+                # Check __globals__ (module-level captures)
                 g = getattr(func, "__globals__", {})
                 nxt = next(
                     (
@@ -121,6 +122,21 @@ class ModelLoader(ForgeModel):
                     ),
                     None,
                 )
+                # Check __closure__ (local-scope captures inside wrapper functions)
+                if nxt is None:
+                    free_vars = getattr(
+                        getattr(func, "__code__", None), "co_freevars", ()
+                    )
+                    cells = getattr(func, "__closure__", None) or ()
+                    for name, cell in zip(free_vars, cells):
+                        if name in orig_names:
+                            try:
+                                val = cell.cell_contents
+                                if callable(val) and id(val) != fid:
+                                    nxt = val
+                                    break
+                            except ValueError:
+                                pass
                 if nxt is None:
                     break
                 func = nxt
