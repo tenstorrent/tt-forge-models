@@ -88,7 +88,12 @@ def stable_diffusion_preprocessing(
     num_channels_latents = pipe.unet.config.in_channels
     torch.manual_seed(42)
     latents = torch.randn(
-        (batch_size * num_images_per_prompt, num_channels_latents, height // 8, width // 8),
+        (
+            batch_size * num_images_per_prompt,
+            num_channels_latents,
+            height // 8,
+            width // 8,
+        ),
         device=device,
     )
     latents = latents * pipe.scheduler.init_noise_sigma
