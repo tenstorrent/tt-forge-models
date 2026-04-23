@@ -79,6 +79,24 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _patch_tied_weights_keys(pretrained_model_name):
+        """Patch _tied_weights_keys from list to dict for transformers 5.x compatibility."""
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        for class_ref in [
+            "hunyuan.HunYuanMoEV1ForCausalLM",
+            "hunyuan.MultimodelHunYuanForCausalLM",
+        ]:
+            try:
+                cls = get_class_from_dynamic_module(class_ref, pretrained_model_name)
+                if isinstance(cls._tied_weights_keys, list):
+                    cls._tied_weights_keys = {
+                        k: "model.embed_tokens.weight" for k in cls._tied_weights_keys
+                    }
+            except Exception:
+                pass
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -97,6 +115,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        self._patch_tied_weights_keys(pretrained_model_name)
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         ).eval()
