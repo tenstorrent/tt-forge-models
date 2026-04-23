@@ -97,6 +97,20 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # transformers 5.x loads models with meta device by default. Registered
+        # parameters and buffers are restored from the checkpoint, but plain tensor
+        # attributes like scale_attn are not and remain on meta. Fix them here.
+        for module in model.modules():
+            if (
+                hasattr(module, "scale_attn")
+                and isinstance(module.scale_attn, torch.Tensor)
+                and module.scale_attn.device.type == "meta"
+                and hasattr(module, "head_dim")
+            ):
+                module.scale_attn = torch.sqrt(
+                    torch.tensor(module.head_dim, dtype=torch.float32)
+                ).to(torch.get_default_dtype())
+
         self.config = model.config
         return model
 
