@@ -113,6 +113,15 @@ class ModelLoader(ForgeModel):
             max_length=max_length,
         )
 
+        # The tokenizer vocab (32000) is larger than this test model's embedding
+        # table (vocab_size=1000), so clamp input_ids to valid range.
+        if self.config is None:
+            self.load_config()
+        if "input_ids" in inputs:
+            inputs["input_ids"] = inputs["input_ids"].clamp(
+                max=self.config.vocab_size - 1
+            )
+
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
