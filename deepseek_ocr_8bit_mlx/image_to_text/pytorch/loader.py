@@ -97,9 +97,11 @@ class ModelLoader(ForgeModel):
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
 
-        # MLX checkpoint stores position_embedding with one fewer row than position_ids
-        # expects (256 vs 257). Expand by duplicating the last row so indices don't OOB.
+        # MLX checkpoint stores CLIPVisionEmbeddings.position_embedding with one fewer
+        # row than position_ids expects (256 vs 257). Expand by duplicating the last row.
         for module in model.modules():
+            if type(module).__name__ != "CLIPVisionEmbeddings":
+                continue
             emb = getattr(module, "position_embedding", None)
             ids = getattr(module, "position_ids", None)
             if not (isinstance(emb, nn.Embedding) and ids is not None):
