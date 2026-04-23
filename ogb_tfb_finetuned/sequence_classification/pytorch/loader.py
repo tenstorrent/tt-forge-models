@@ -12,7 +12,7 @@ binding task (919 binary labels) for DNA sequence classification.
 from typing import Optional
 
 import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -73,11 +73,20 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+        )
+        # OmniGenomeConfig doesn't set is_decoder; transformers v5 requires it
+        if not hasattr(config, "is_decoder"):
+            config.is_decoder = False
 
         model = AutoModelForSequenceClassification.from_pretrained(
             self._variant_config.pretrained_model_name,
+            config=config,
             trust_remote_code=True,
             **model_kwargs,
         )
