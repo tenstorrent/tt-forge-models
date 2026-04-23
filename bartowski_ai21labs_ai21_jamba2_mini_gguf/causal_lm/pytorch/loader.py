@@ -61,8 +61,11 @@ def _patch_transformers_jamba_gguf():
             if mamba_inner_size is not None:
                 config["mamba_expand"] = mamba_inner_size // hidden_size
             kv_heads = config.pop("_jamba_kv_heads", 0)
+            if isinstance(kv_heads, list):
+                # GGUF stores per-layer KV heads; extract the GQA value from attention layers
+                non_zero = [h for h in kv_heads if h > 0]
+                kv_heads = max(non_zero) if non_zero else 8
             if kv_heads == 0:
-                # GGUF stores 0; use the known Jamba2 GQA value of 8
                 kv_heads = 8
             config["num_key_value_heads"] = kv_heads
             config["use_mamba_kernels"] = False
