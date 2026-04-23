@@ -18,6 +18,25 @@ if not hasattr(_transformers_utils, "LossKwargs"):
 
     _transformers_utils.LossKwargs = _LossKwargs
 
+# transformers 5.x removed the 'default' RoPE init; provide a shim for older model remote code
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS as _ROPE_INIT_FUNCTIONS
+
+if "default" not in _ROPE_INIT_FUNCTIONS:
+
+    def _compute_default_rope_parameters(config, device=None, seq_len=None, **kwargs):
+        head_dim = getattr(
+            config, "head_dim", config.hidden_size // config.num_attention_heads
+        )
+        partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+        dim = int(head_dim * partial_rotary_factor)
+        inv_freq = 1.0 / (
+            config.rope_theta
+            ** (torch.arange(0, dim, 2, dtype=torch.float, device=device) / dim)
+        )
+        return inv_freq, 1.0
+
+    _ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
