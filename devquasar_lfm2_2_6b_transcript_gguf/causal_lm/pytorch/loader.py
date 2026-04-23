@@ -6,7 +6,14 @@ DevQuasar LFM2 2.6B Transcript GGUF model loader implementation for causal langu
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
 from typing import Optional
+
+# LFM2 uses a GPT2-BPE tokenizer with ChatML special tokens — same shape as Qwen2.
+# transformers 5.x has the lfm2 model/config registered but is missing the tokenizer
+# converter entry; register it here before any tokenizer load.
+if "lfm2" not in GGUF_TO_FAST_CONVERTERS:
+    GGUF_TO_FAST_CONVERTERS["lfm2"] = GGUFQwen2Converter
 
 from ....base import ForgeModel
 from ....config import (
@@ -70,8 +77,16 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        # The GGUF tokenizer_config only provides integer IDs (bos=1, eos=7, pad=0),
+        # not string tokens, so the loader falls back to <s>/</ s> defaults which
+        # are NOT in the LFM2 vocab — they get appended as out-of-range IDs.
+        # Fix: map the integer IDs from GGUF metadata to the actual token strings.
+        self.tokenizer.bos_token = self.tokenizer.convert_ids_to_tokens(
+            1
+        )  # <|startoftext|>
+        self.tokenizer.eos_token = self.tokenizer.convert_ids_to_tokens(7)  # <|im_end|>
+        self.tokenizer.pad_token = self.tokenizer.convert_ids_to_tokens(0)  # <|pad|>
 
         return self.tokenizer
 
