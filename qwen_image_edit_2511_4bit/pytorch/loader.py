@@ -12,6 +12,7 @@ Available variants:
 - QWEN_IMAGE_EDIT_2511_4BIT: NF4-quantized Qwen-Image-Edit-2511 transformer (bf16 compute)
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -68,12 +69,22 @@ class ModelLoader(ForgeModel):
         self, dtype: torch.dtype = torch.float32
     ) -> QwenImageTransformer2DModel:
         """Load the NF4-quantized diffusion transformer."""
-        self._transformer = QwenImageTransformer2DModel.from_pretrained(
-            REPO_ID,
-            subfolder="transformer",
-            torch_dtype=dtype,
-            device_map="cpu",
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS") or not torch.cuda.is_available():
+            # bitsandbytes 4-bit quantization requires CUDA; load unquantized
+            # with random weights for compile-only / CPU environments.
+            config = QwenImageTransformer2DModel.load_config(
+                REPO_ID, subfolder="transformer"
+            )
+            config.pop("quantization_config", None)
+            self._transformer = QwenImageTransformer2DModel.from_config(config)
+            self._transformer = self._transformer.to(dtype=dtype)
+        else:
+            self._transformer = QwenImageTransformer2DModel.from_pretrained(
+                REPO_ID,
+                subfolder="transformer",
+                torch_dtype=dtype,
+                device_map="cpu",
+            )
         self._transformer.eval()
         return self._transformer
 
