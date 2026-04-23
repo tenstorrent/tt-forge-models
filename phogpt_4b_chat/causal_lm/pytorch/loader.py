@@ -5,6 +5,8 @@
 VinAI PhoGPT-4B-Chat causal language model loader implementation.
 """
 
+import sys
+import types
 from pathlib import Path
 from typing import Optional
 
@@ -81,6 +83,19 @@ class ModelLoader(ForgeModel):
             stub = attention_py.parent / "flash_attn_triton.py"
             if not stub.exists():
                 stub.write_text(stub_content)
+
+        # attention.py checks `flash_attn.__version__` outside its try/except, so a
+        # namespace package (no __version__) causes AttributeError at module load time.
+        # Ensure flash_attn is either fully installed or replaced with a versioned stub.
+        try:
+            import flash_attn as _fa  # noqa: F401
+
+            if not hasattr(_fa, "__version__"):
+                _fa.__version__ = "0.0.0"
+        except ImportError:
+            fake = types.ModuleType("flash_attn")
+            fake.__version__ = "0.0.0"
+            sys.modules["flash_attn"] = fake
 
     def _load_tokenizer(self, dtype_override=None):
         pretrained_model_name = self._variant_config.pretrained_model_name
