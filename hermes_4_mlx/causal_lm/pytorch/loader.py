@@ -126,8 +126,14 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
+        # The MLX quantization config lacks `quant_method`, causing a ValueError
+        # in transformers. Remove it so the model loads as a standard float model.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
+
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
