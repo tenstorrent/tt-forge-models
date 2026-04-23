@@ -4,6 +4,7 @@
 """
 Pi-0.5 model loader implementation for action prediction tasks
 """
+
 from typing import Optional
 from ...base import ForgeModel
 from ...config import (
@@ -94,11 +95,23 @@ class ModelLoader(ForgeModel):
         from lerobot.policies.factory import make_pre_post_processors
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
-        self.preprocess, self.postprocess_fn = make_pre_post_processors(
-            self.pi_05.config,
-            self.pretrained_model_name,
-            preprocessor_overrides={"device_processor": {"device": "cpu"}},
-        )
+        # Some community models (e.g. rayhanfahmed/pi05-flow-v2-feb24) were
+        # uploaded before lerobot introduced policy_preprocessor.json.
+        # Fall back to the official base model's preprocessor config, which
+        # uses the same generic Pi-0.5 processing steps.
+        _PREPROCESSOR_FALLBACK = "lerobot/pi05_libero_base"
+        try:
+            self.preprocess, self.postprocess_fn = make_pre_post_processors(
+                self.pi_05.config,
+                self.pretrained_model_name,
+                preprocessor_overrides={"device_processor": {"device": "cpu"}},
+            )
+        except FileNotFoundError:
+            self.preprocess, self.postprocess_fn = make_pre_post_processors(
+                self.pi_05.config,
+                _PREPROCESSOR_FALLBACK,
+                preprocessor_overrides={"device_processor": {"device": "cpu"}},
+            )
         dataset = LeRobotDataset("lerobot/libero")
         frame_index = dataset.meta.episodes["dataset_from_index"][episode_index]
         frame = dict(dataset[frame_index])
