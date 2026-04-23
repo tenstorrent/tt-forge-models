@@ -9,9 +9,12 @@ that blends Qwen-style MLPs with xLSTM attention. The repo ships remote code
 (modeling_xqwen / configuration_xqwen), so the model is loaded with
 trust_remote_code=True via AutoModelForCausalLM.
 """
+import contextlib
 from typing import Optional
 
+import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 
 from ....base import ForgeModel
 from ....config import (
@@ -23,6 +26,66 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+
+def _compute_default_rope_parameters(config=None, device=None, seq_len=None, **kwargs):
+    """Standard RoPE without scaling, for compatibility with transformers 5.x which removed 'default'."""
+    head_dim = getattr(
+        config, "head_dim", config.hidden_size // config.num_attention_heads
+    )
+    rope_theta = getattr(config, "rope_theta", 10000.0)
+    inv_freq = 1.0 / (
+        rope_theta
+        ** (torch.arange(0, head_dim, 2, dtype=torch.float32, device=device) / head_dim)
+    )
+    attention_scaling = 1.0
+    return inv_freq, attention_scaling
+
+
+if "default" not in ROPE_INIT_FUNCTIONS:
+    ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
+
+
+def _patch_fla_cpu():
+    """Patch fla ShortConvolution to use native PyTorch ops on CPU (fla-core 0.5.0 has no CPU path)."""
+    try:
+        import torch.nn.functional as F
+        from fla.modules.conv.short_conv import ShortConvolution
+
+        def _cpu_forward(
+            self,
+            x,
+            residual=None,
+            mask=None,
+            cache=None,
+            output_final_state=False,
+            **kwargs
+        ):
+            # x: [B, T, D] -> transpose to [B, D, T] for conv1d
+            x_t = x.transpose(1, 2)
+            # weight shape: [D, 1, K] for depthwise
+            weight = self.weight
+            bias = self.bias
+            # causal padding: pad left with kernel_size-1 zeros, trim right padding
+            x_padded = F.pad(x_t, (self.kernel_size[0] - 1, 0))
+            y_t = F.conv1d(x_padded, weight, bias, groups=self.groups)
+            if mask is not None:
+                y_t = y_t * mask.transpose(1, 2)
+            if self.activation in ("silu", "swish"):
+                y_t = torch.nn.functional.silu(y_t)
+            y = y_t.transpose(1, 2)
+            if residual is not None:
+                y = y + residual
+            final_state = None
+            return y, final_state
+
+        if not torch.cuda.is_available():
+            ShortConvolution.forward = _cpu_forward
+    except ImportError:
+        pass
+
+
+_patch_fla_cpu()
 
 
 class ModelVariant(StrEnum):
@@ -85,12 +148,20 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if not hasattr(config, "pad_token_id"):
+            config.pad_token_id = None
+        # Use native (non-Triton) backends for CPU compatibility
+        if not torch.cuda.is_available():
+            config.chunkwise_kernel = "chunkwise--native_autograd"
+            config.sequence_kernel = "native_sequence__native"
+            config.step_kernel = "native"
+            config.inference_state_dtype = "bfloat16"
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
