@@ -14,6 +14,7 @@ from typing import Optional
 
 import torch
 from diffusers import FluxTransformer2DModel
+from diffusers.quantizers.quantization_config import GGUFQuantizationConfig
 
 from ...base import ForgeModel
 from ...config import (
@@ -102,6 +103,8 @@ class ModelLoader(ForgeModel):
             "pooled_projection_dim": 768,
         }
 
+        gguf_quant_config = GGUFQuantizationConfig(compute_dtype=torch.bfloat16)
+
         with tempfile.TemporaryDirectory() as config_dir:
             config_path = os.path.join(config_dir, "config.json")
             with open(config_path, "w") as f:
@@ -110,6 +113,7 @@ class ModelLoader(ForgeModel):
             self.transformer = FluxTransformer2DModel.from_single_file(
                 gguf_url,
                 config=config_dir,
+                quantization_config=gguf_quant_config,
                 **load_kwargs,
             )
 
