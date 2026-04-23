@@ -78,6 +78,14 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import importlib.metadata
+        import transformers.utils.import_utils as _tu
+
+        # gguf is installed dynamically by RequirementsManager after transformers
+        # is imported. Refresh the module-level package mapping so that
+        # is_gguf_available() can resolve gguf's version from metadata.
+        _tu.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
