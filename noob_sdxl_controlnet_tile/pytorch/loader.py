@@ -77,10 +77,6 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, self.base_model
         )
 
-        # Keep the pipeline in float32 so preprocessing (controlnet forward, text encoding)
-        # runs without dtype mismatches. Only the UNet is converted for inference.
-        if dtype_override is not None:
-            return self.pipeline.unet.to(dtype_override)
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):

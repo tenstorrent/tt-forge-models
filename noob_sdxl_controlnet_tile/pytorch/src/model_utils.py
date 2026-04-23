@@ -26,10 +26,10 @@ def load_controlnet_tile_sdxl_pipe(controlnet_model_name, base_model_name):
         StableDiffusionXLControlNetPipeline: Loaded pipeline with components set to eval mode
     """
     controlnet = ControlNetModel.from_pretrained(
-        controlnet_model_name, torch_dtype=torch.float32
+        controlnet_model_name, torch_dtype=torch.bfloat16
     )
     pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
-        base_model_name, controlnet=controlnet, torch_dtype=torch.float32
+        base_model_name, controlnet=controlnet, torch_dtype=torch.bfloat16
     )
 
     pipe.to("cpu")
@@ -157,6 +157,7 @@ def controlnet_tile_sdxl_preprocessing(
             width // pipe.vae_scale_factor,
         ),
         device=device,
+        dtype=pipe.unet.dtype,
     )
     latents = latents * pipe.scheduler.init_noise_sigma
 
