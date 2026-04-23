@@ -130,6 +130,17 @@ class ModelLoader(ForgeModel):
             _tie_weights_compat._kwargs_patched = True
             _model_cls.tie_weights = _tie_weights_compat
 
+        # 3. _merge_vision_text stub calls embed_tokens on input_ids that contain
+        #    IMAGE_TOKEN_INDEX (-200), which is out of range.  Replace -200 with 0
+        #    so the embedding lookup succeeds (sequence length stays unchanged so
+        #    the attention_mask remains consistent).
+        def _merge_vision_text_compat(self, input_ids, vision_features):
+            safe_ids = input_ids.clone()
+            safe_ids[safe_ids == -200] = 0
+            return self.model.embed_tokens(safe_ids)
+
+        _model_cls._merge_vision_text = _merge_vision_text_compat
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
