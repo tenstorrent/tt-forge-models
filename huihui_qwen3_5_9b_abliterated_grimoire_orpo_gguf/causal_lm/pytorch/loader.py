@@ -4,6 +4,7 @@
 """
 Huihui Qwen 3.5 9B Abliterated Grimoire ORPO GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -63,6 +64,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _refresh_gguf_distribution_mapping(self):
+        try:
+            import transformers.utils.import_utils as _import_utils
+
+            if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+                    importlib.metadata.packages_distributions()
+                )
+        except Exception:
+            pass
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
@@ -78,6 +90,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._refresh_gguf_distribution_mapping()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -159,6 +172,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._refresh_gguf_distribution_mapping()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
