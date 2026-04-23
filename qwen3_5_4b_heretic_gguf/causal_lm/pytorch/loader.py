@@ -31,6 +31,23 @@ def _patch_transformers_qwen35_gguf():
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
+    class Qwen35TensorProcessor(TensorProcessor):
+        def __init__(self, config=None):
+            super().__init__(config=config)
+
+        def preprocess_name(self, hf_name: str) -> str:
+            return hf_name.replace(".dt_bias", ".dt_proj")
+
+        def process(self, weights, name, **kwargs):
+            if "ssm_conv1d.weight" in name:
+                if weights.ndim == 2:
+                    weights = np.expand_dims(weights, axis=1)
+            if "ssm_a" in name:
+                weights = np.log(-weights)
+            return GGUFTensor(weights, name, {})
+
+    TENSOR_PROCESSORS["qwen35"] = Qwen35TensorProcessor
+
     if "qwen35" in GGUF_SUPPORTED_ARCHITECTURES:
         return
 
@@ -56,23 +73,6 @@ def _patch_transformers_qwen35_gguf():
         "full_attention_interval": "full_attention_interval",
         "vocab_size": "vocab_size",
     }
-
-    class Qwen35TensorProcessor(TensorProcessor):
-        def __init__(self, config=None):
-            super().__init__(config=config)
-
-        def preprocess_name(self, hf_name: str) -> str:
-            return hf_name.replace(".dt_bias", ".dt_proj")
-
-        def process(self, weights, name, **kwargs):
-            if "ssm_conv1d.weight" in name:
-                if weights.ndim == 2:
-                    weights = np.expand_dims(weights, axis=1)
-            if "ssm_a" in name:
-                weights = np.log(-weights)
-            return GGUFTensor(weights, name, {})
-
-    TENSOR_PROCESSORS["qwen35"] = Qwen35TensorProcessor
 
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
