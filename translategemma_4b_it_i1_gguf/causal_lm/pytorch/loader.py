@@ -75,12 +75,9 @@ class ModelLoader(ForgeModel):
         except Exception:
             pass
 
-        _inner = _gguf_utils.load_gguf_checkpoint
+        import importlib
 
-        def _compat(gguf_path, return_tensors=False, **kwargs):
-            return _inner(gguf_path, return_tensors=return_tensors)
-
-        _gguf_utils.load_gguf_checkpoint = _compat
+        importlib.reload(_gguf_utils)
 
     def _load_tokenizer(self, dtype_override=None):
         self._patch_gguf_utils()
