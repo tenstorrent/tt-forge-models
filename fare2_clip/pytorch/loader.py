@@ -9,6 +9,9 @@ import torch
 import torch.nn.functional as F
 from typing import Optional
 
+from PIL import Image
+import numpy as np
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -19,7 +22,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -96,9 +98,8 @@ class ModelLoader(ForgeModel):
             )
             self.tokenizer = get_tokenizer(self._variant_config.pretrained_model_name)
 
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        # Create a synthetic sample image for inference
+        image = Image.fromarray(np.zeros((224, 224, 3), dtype=np.uint8))
 
         self.text_prompts = ["a photo of a cat", "a photo of a dog"]
 
