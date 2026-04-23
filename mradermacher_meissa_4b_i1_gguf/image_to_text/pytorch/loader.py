@@ -72,7 +72,7 @@ def _patch_transformers_qwen3vl_gguf():
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
-        hf_model, processor=None, model_type=None, num_layers=None, qual_name=None
+        hf_model, processor=None, model_type=None, num_layers=None, qual_name=""
     ):
         if model_type is None:
             model_type = hf_model.config.model_type
