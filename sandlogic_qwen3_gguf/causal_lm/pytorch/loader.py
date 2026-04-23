@@ -4,9 +4,43 @@
 """
 SandLogic Qwen3 GGUF model loader implementation for causal language modeling.
 """
+import inspect
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+
+
+def _restore_load_gguf_checkpoint():
+    """Traverse the monkey-patch chain to find load_gguf_checkpoint that accepts model_to_load.
+
+    Other loaders in this repo patch load_gguf_checkpoint at import time with a signature
+    that predates the model_to_load parameter added in newer transformers. Traversing the
+    chain via _orig_load_gguf_checkpoint in each patched function's globals finds the
+    original implementation and restores it so from_pretrained works correctly.
+    """
+    fn = _gguf_utils.load_gguf_checkpoint
+    for _ in range(50):
+        try:
+            if "model_to_load" in inspect.signature(fn).parameters:
+                break
+        except (ValueError, TypeError):
+            break
+        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if orig is None or orig is fn:
+            break
+        fn = orig
+
+    if "model_to_load" in inspect.signature(fn).parameters:
+        _gguf_utils.load_gguf_checkpoint = fn
+        _config_utils.load_gguf_checkpoint = fn
+        _auto_tokenizer.load_gguf_checkpoint = fn
+        _tok_utils.load_gguf_checkpoint = fn
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -86,6 +120,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _restore_load_gguf_checkpoint()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -100,6 +135,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _restore_load_gguf_checkpoint()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
