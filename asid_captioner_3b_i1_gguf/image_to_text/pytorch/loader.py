@@ -61,6 +61,17 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # gguf lacks __version__; set it so transformers' is_gguf_available() can parse it
+        try:
+            import importlib.metadata
+
+            import gguf as _gguf
+
+            if not hasattr(_gguf, "__version__"):
+                _gguf.__version__ = importlib.metadata.version("gguf")
+        except Exception:
+            pass
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
