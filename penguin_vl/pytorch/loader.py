@@ -5,8 +5,11 @@
 Penguin-VL model loader implementation for multimodal visual question answering.
 """
 
+import inspect
+
 import torch
-from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import processing_utils
 from typing import Optional
 
 from ...tools.utils import get_file
@@ -20,6 +23,40 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+def _load_processor_compat(pretrained_model_name):
+    # transformers 5.x calls _get_arguments_from_pretrained with processor_dict as a
+    # positional argument, but this model's custom processor was written for the 4.x API
+    # which only accepts pretrained_model_name_or_path. We patch ProcessorMixin.from_pretrained
+    # to fix the override's signature when the mismatch is detected.
+    orig = processing_utils.ProcessorMixin.from_pretrained.__func__
+
+    @classmethod
+    def _patched(cls, name, **call_kwargs):
+        override = cls.__dict__.get("_get_arguments_from_pretrained")
+        if override is not None:
+            fn = getattr(override, "__func__", override)
+            params = inspect.signature(fn).parameters
+            has_positional_dict = "processor_dict" in params or any(
+                p.kind == inspect.Parameter.VAR_POSITIONAL for p in params.values()
+            )
+            if not has_positional_dict:
+
+                @classmethod
+                def compat(klass, n, processor_dict=None, **kw):
+                    return fn(klass, n, **kw)
+
+                cls._get_arguments_from_pretrained = compat
+        return orig(cls, name, **call_kwargs)
+
+    processing_utils.ProcessorMixin.from_pretrained = _patched
+    try:
+        return AutoProcessor.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+    finally:
+        processing_utils.ProcessorMixin.from_pretrained = classmethod(orig)
 
 
 class ModelVariant(StrEnum):
@@ -95,9 +132,7 @@ class ModelLoader(ForgeModel):
         model_kwargs["trust_remote_code"] = True
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(
-            pretrained_model_name, trust_remote_code=True
-        )
+        self.processor = _load_processor_compat(pretrained_model_name)
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -117,8 +152,8 @@ class ModelLoader(ForgeModel):
             dict: Input tensors that can be fed to the model.
         """
         if self.processor is None:
-            self.processor = AutoProcessor.from_pretrained(
-                self._variant_config.pretrained_model_name, trust_remote_code=True
+            self.processor = _load_processor_compat(
+                self._variant_config.pretrained_model_name
             )
 
         image_file = get_file(
@@ -162,8 +197,8 @@ class ModelLoader(ForgeModel):
             str: Decoded output text.
         """
         if self.processor is None:
-            self.processor = AutoProcessor.from_pretrained(
-                self._variant_config.pretrained_model_name, trust_remote_code=True
+            self.processor = _load_processor_compat(
+                self._variant_config.pretrained_model_name
             )
 
         if torch.is_tensor(outputs) and outputs.dtype in [torch.long, torch.int]:
