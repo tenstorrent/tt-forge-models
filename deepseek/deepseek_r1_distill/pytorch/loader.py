@@ -134,7 +134,7 @@ class ModelLoader(ForgeModel):
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
+            tokenizer_kwargs["dtype"] = dtype_override
         if self._is_gguf_variant():
             tokenizer_kwargs["gguf_file"] = self._gguf_file
         subfolder = self._SUBFOLDERS.get(self._variant)
@@ -154,7 +154,7 @@ class ModelLoader(ForgeModel):
             "trust_remote_code": True,
         }
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         if self._variant in (ModelVariant.DISTILL_LLAMA_70B_BNB_4BIT,):
             model_kwargs["device_map"] = "cpu"
         subfolder = self._SUBFOLDERS.get(self._variant)
