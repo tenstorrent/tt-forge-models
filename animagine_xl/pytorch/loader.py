@@ -15,7 +15,6 @@ Available variants:
 from typing import Optional
 
 import torch
-from diffusers import StableDiffusionXLPipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -27,6 +26,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from .src.model_utils import load_pipe, stable_diffusion_preprocessing_xl
 
 
 class ModelVariant(StrEnum):
@@ -49,6 +49,8 @@ class ModelLoader(ForgeModel):
     }
     DEFAULT_VARIANT = ModelVariant.ANIMAGINE_XL_3_1
 
+    prompt = "1girl, green hair, sweater, looking at viewer, upper body, beanie, outdoors, night, turtleneck, masterpiece, best quality, very aesthetic"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipeline = None
@@ -67,25 +69,46 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Animagine XL pipeline.
+        """Load and return the UNet from the Animagine XL pipeline.
 
         Returns:
-            StableDiffusionXLPipeline: The Animagine XL pipeline instance.
+            torch.nn.Module: The UNet model used for denoising.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
-        self.pipeline = StableDiffusionXLPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
-        )
-        return self.pipeline
+        self.pipeline = load_pipe(self._variant_config.pretrained_model_name)
+
+        if dtype_override is not None:
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
+
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the Animagine XL model.
+        """Load and return sample inputs for the Animagine XL UNet model.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments for the UNet forward method.
         """
-        return [
-            "1girl, green hair, sweater, looking at viewer, upper body, beanie, outdoors, night, turtleneck, masterpiece, best quality, very aesthetic"
-        ] * batch_size
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        (
+            latent_model_input,
+            timesteps,
+            prompt_embeds,
+            timestep_cond,
+            added_cond_kwargs,
+            add_time_ids,
+        ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
+
+        timestep = timesteps[0]
+
+        if dtype_override:
+            latent_model_input = latent_model_input.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            prompt_embeds = prompt_embeds.to(dtype_override)
+
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
