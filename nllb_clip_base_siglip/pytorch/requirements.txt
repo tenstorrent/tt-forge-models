@@ -1,1 +1,2 @@
 spacy
+open-clip-torch>=3.3.0
