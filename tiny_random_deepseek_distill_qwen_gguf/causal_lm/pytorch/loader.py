@@ -4,9 +4,48 @@
 """
 Tiny Random DeepSeek Distill Qwen GGUF model loader implementation for causal language modeling.
 """
+import inspect
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _find_gguf_load_with_model_to_load(fn):
+    """Search closure chain and module globals for load_gguf_checkpoint accepting model_to_load.
+
+    Other loaders patch load_gguf_checkpoint at module level without forwarding
+    model_to_load (required by transformers 5.x). Walk the patch chain to find a
+    version that accepts it.
+    """
+    seen = set()
+    queue = [fn]
+    while queue:
+        f = queue.pop(0)
+        fid = id(f)
+        if fid in seen:
+            continue
+        seen.add(fid)
+        try:
+            sig = inspect.signature(f)
+            if "model_to_load" in sig.parameters:
+                return f
+        except (ValueError, TypeError):
+            pass
+        if hasattr(f, "__closure__") and f.__closure__:
+            for cell in f.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val):
+                        queue.append(val)
+                except ValueError:
+                    pass
+        if hasattr(f, "__globals__"):
+            for name, val in f.__globals__.items():
+                if callable(val) and "load_gguf" in name and id(val) not in seen:
+                    queue.append(val)
+    return None
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -94,9 +133,16 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        _current_gguf = _gguf_utils.load_gguf_checkpoint
+        _orig_gguf = _find_gguf_load_with_model_to_load(_current_gguf)
+        if _orig_gguf and _orig_gguf is not _current_gguf:
+            _gguf_utils.load_gguf_checkpoint = _orig_gguf
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _current_gguf
 
         self.config = model.config
         self.model = model
