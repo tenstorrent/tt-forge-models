@@ -92,7 +92,12 @@ def get_file(path):
         if path_is_url:
             try:
                 print(f"Downloading file from URL {path} to {file_path}")
-                response = requests.get(path, stream=True, timeout=(15, 60))
+                headers = {
+                    "User-Agent": "tt-forge-models/1.0 (https://github.com/tenstorrent/tt-forge-models)"
+                }
+                response = requests.get(
+                    path, stream=True, timeout=(15, 60), headers=headers
+                )
                 response.raise_for_status()  # Raise exception for HTTP errors
 
                 with open(file_path, "wb") as f:
