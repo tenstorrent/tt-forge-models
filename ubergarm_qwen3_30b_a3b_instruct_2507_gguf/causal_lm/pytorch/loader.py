@@ -8,6 +8,23 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+# IQ4_K (type 139) and similar IQ_K quantization types are newer than gguf 0.18.x.
+# Patch GGUFReader to silently skip tensor metadata for unknown types so that
+# KV metadata (model config, tokenizer) can still be parsed.
+import gguf.gguf_reader as _gguf_reader_mod
+
+_orig_build_tensors = _gguf_reader_mod.GGUFReader._build_tensors
+
+
+def _patched_build_tensors(self, start_offs, fields):
+    try:
+        _orig_build_tensors(self, start_offs, fields)
+    except (ValueError, KeyError):
+        self.tensors = []
+
+
+_gguf_reader_mod.GGUFReader._build_tensors = _patched_build_tensors
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -81,22 +98,22 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
+        # Load architecture config from GGUF KV metadata.
+        # IQ4_K weights (type 139) cannot be dequantized by gguf 0.18.x, so we
+        # instantiate the model from config with random weights instead.  This is
+        # safe for compile-only runs where weight values do not affect compilation.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config, **model_kwargs).eval()
 
         self.config = model.config
         self.model = model
