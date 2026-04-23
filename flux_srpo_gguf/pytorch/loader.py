@@ -36,10 +36,10 @@ GGUF_REPO = "MonsterMMORPG/Wan_GGUF"
 # camenduru/FLUX.1-dev-ungated is a publicly accessible FLUX.1-dev mirror
 # with identical tokenizers, VAE, and scheduler to FLUX.1-dev.
 BASE_REPO = "camenduru/FLUX.1-dev-ungated"
-# Local config for the depth-conditioned FLUX transformer (in_channels=128).
-# FLUX-SRPO is fine-tuned on FLUX.1-Depth-dev which concatenates latents and
-# a depth image, doubling in_channels from 64 to 128. diffusers would otherwise
-# try to fetch the gated black-forest-labs/FLUX.1-Depth-dev config.
+# Local config for the standard FLUX.1-dev transformer (in_channels=64).
+# diffusers incorrectly detects this as FLUX.1-Depth-dev (in_channels=128)
+# because it checks the raw uint8 byte shape of BF16 GGUFParameters, which
+# have type_size=2, making shape[1] appear twice the actual value count.
 _TRANSFORMER_CONFIG_DIR = Path(__file__).parent / "transformer_config"
 
 
