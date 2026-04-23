@@ -12,7 +12,7 @@ def load_i2v_pipeline(pretrained_model_name: str, dtype: torch.dtype):
     """
     Load WanImageToVideoPipeline from diffusers.
 
-    The image encoder and VAE are loaded in float32 for numerical stability,
+    The VAE is loaded in float32 for numerical stability,
     while the main transformer uses the provided dtype.
 
     Args:
@@ -20,13 +20,7 @@ def load_i2v_pipeline(pretrained_model_name: str, dtype: torch.dtype):
         dtype: Torch dtype for the transformer weights
     """
     from diffusers import AutoencoderKLWan, WanImageToVideoPipeline
-    from transformers import CLIPVisionModel
 
-    image_encoder = CLIPVisionModel.from_pretrained(
-        pretrained_model_name,
-        subfolder="image_encoder",
-        torch_dtype=torch.float32,
-    )
     vae = AutoencoderKLWan.from_pretrained(
         pretrained_model_name,
         subfolder="vae",
@@ -35,7 +29,6 @@ def load_i2v_pipeline(pretrained_model_name: str, dtype: torch.dtype):
     pipe = WanImageToVideoPipeline.from_pretrained(
         pretrained_model_name,
         vae=vae,
-        image_encoder=image_encoder,
         torch_dtype=dtype,
     )
     return pipe
