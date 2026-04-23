@@ -143,9 +143,7 @@ class ModelLoader(ForgeModel):
         gguf_file = self._GGUF_FILES[self._variant]
 
         with tempfile.TemporaryDirectory() as config_dir:
-            transformer_dir = os.path.join(config_dir, "transformer")
-            os.makedirs(transformer_dir)
-            with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            with open(os.path.join(config_dir, "config.json"), "w") as f:
                 json.dump(self._FLUX_DEV_TRANSFORMER_CONFIG, f)
 
             self.transformer = FluxTransformer2DModel.from_single_file(
