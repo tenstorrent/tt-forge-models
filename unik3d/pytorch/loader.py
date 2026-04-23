@@ -128,6 +128,9 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import types
+
+        import unik3d.models.decoder as _decoder_mod
         from unik3d.models import UniK3D
 
         # build_losses imports pkg_resources which is unavailable at inference time
@@ -141,6 +144,36 @@ class ModelLoader(ForgeModel):
         finally:
             UniK3D.build_losses = original_build_losses
         model.eval()
+
+        # coords_grid in the decoder always returns float32, but the decoder
+        # mixes it with bfloat16 model parameters in an einsum.  Patch
+        # run_camera on this decoder instance so it temporarily replaces
+        # coords_grid with a dtype-aware version during the call.
+        original_run_camera = model.pixel_decoder.__class__.run_camera
+
+        def _patched_run_camera(self, cls_tokens, original_shapes, rays_gt):
+            import unik3d.utils.coordinate as _coord_mod
+
+            _orig_cg = _coord_mod.coords_grid
+
+            def _cast_coords_grid(b, h, w, homogeneous=False, device=None, noisy=False):
+                grid = _orig_cg(
+                    b, h, w, homogeneous=homogeneous, device=device, noisy=noisy
+                )
+                param_dtype = next(self.angular_module.parameters()).dtype
+                return grid.to(param_dtype)
+
+            _coord_mod.coords_grid = _cast_coords_grid
+            _decoder_mod.coords_grid = _cast_coords_grid
+            try:
+                return original_run_camera(self, cls_tokens, original_shapes, rays_gt)
+            finally:
+                _coord_mod.coords_grid = _orig_cg
+                _decoder_mod.coords_grid = _orig_cg
+
+        model.pixel_decoder.run_camera = types.MethodType(
+            _patched_run_camera, model.pixel_decoder
+        )
 
         self._shape_constraints = model.shape_constraints
 
