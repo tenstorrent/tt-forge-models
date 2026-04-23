@@ -89,6 +89,18 @@ class ModelLoader(ForgeModel):
         except Exception:
             pass
 
+        # AutoConfig.for_model receives model_type="qwen2vl" (from general.architecture in
+        # the GGUF file) and fails because "qwen2vl" is not in CONFIG_MAPPING. Register it
+        # as an alias for Qwen2Config so the auto classes can resolve it.
+        try:
+            from transformers import Qwen2Config
+            from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+
+            if "qwen2vl" not in CONFIG_MAPPING:
+                CONFIG_MAPPING.register("qwen2vl", Qwen2Config, exist_ok=True)
+        except Exception:
+            pass
+
         tokenizer_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
