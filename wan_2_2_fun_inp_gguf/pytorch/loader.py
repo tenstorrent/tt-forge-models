@@ -93,14 +93,12 @@ class ModelLoader(ForgeModel):
             cache_dir=cache_dir,
         )
 
-        # low_cpu_mem_usage=True (default) creates meta tensors and then calls
-        # dispatch_model, which fails for GGUF-quantized tensors. Disable it
-        # so weights are loaded via load_state_dict on already-allocated tensors.
         self.transformer = WanTransformer3DModel.from_single_file(
             gguf_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
-            low_cpu_mem_usage=False,
+            config="Wan-AI/Wan2.2-T2V-A14B-Diffusers",
+            subfolder="transformer",
         )
 
         return self.transformer
