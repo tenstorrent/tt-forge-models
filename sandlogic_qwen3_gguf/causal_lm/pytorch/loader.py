@@ -4,6 +4,7 @@
 """
 SandLogic Qwen3 GGUF model loader implementation for causal language modeling.
 """
+
 import inspect
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -19,27 +20,60 @@ def _restore_load_gguf_checkpoint():
     """Traverse the monkey-patch chain to find load_gguf_checkpoint that accepts model_to_load.
 
     Other loaders in this repo patch load_gguf_checkpoint at import time with a signature
-    that predates the model_to_load parameter added in newer transformers. Traversing the
-    chain via _orig_load_gguf_checkpoint in each patched function's globals finds the
-    original implementation and restores it so from_pretrained works correctly.
+    that predates the model_to_load parameter added in newer transformers. Two patching
+    styles exist: (A) module-global _orig_load_gguf_checkpoint variable, and (B) closure
+    over a local orig_load variable with no module-global _orig_load_gguf_checkpoint.
+    We handle both by falling back to closure cell inspection when the globals key is absent.
     """
-    fn = _gguf_utils.load_gguf_checkpoint
-    for _ in range(50):
+    import sys as _sys
+
+    mod = _sys.modules.get("transformers.modeling_gguf_pytorch_utils")
+    if mod is None:
+        return
+
+    fn = mod.load_gguf_checkpoint
+    seen: set = set()
+
+    for _ in range(100):
+        fn_id = id(fn)
+        if fn_id in seen:
+            break
+        seen.add(fn_id)
+
         try:
             if "model_to_load" in inspect.signature(fn).parameters:
                 break
         except (ValueError, TypeError):
             break
-        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
-        if orig is None or orig is fn:
-            break
-        fn = orig
 
-    if "model_to_load" in inspect.signature(fn).parameters:
-        _gguf_utils.load_gguf_checkpoint = fn
-        _config_utils.load_gguf_checkpoint = fn
-        _auto_tokenizer.load_gguf_checkpoint = fn
-        _tok_utils.load_gguf_checkpoint = fn
+        # Style A: previous function stored in module globals
+        next_fn = fn.__globals__.get("_orig_load_gguf_checkpoint")
+
+        if next_fn is None or next_fn is fn or id(next_fn) in seen:
+            # Style B: previous function captured as a closure cell (orig_load)
+            next_fn = None
+            if fn.__closure__:
+                for cell in fn.__closure__:
+                    try:
+                        val = cell.cell_contents
+                        if callable(val) and val is not fn and id(val) not in seen:
+                            next_fn = val
+                            break
+                    except ValueError:
+                        pass
+
+        if next_fn is None or next_fn is fn:
+            break
+        fn = next_fn
+
+    try:
+        if "model_to_load" in inspect.signature(fn).parameters:
+            mod.load_gguf_checkpoint = fn
+            _config_utils.load_gguf_checkpoint = fn
+            _auto_tokenizer.load_gguf_checkpoint = fn
+            _tok_utils.load_gguf_checkpoint = fn
+    except (ValueError, TypeError):
+        pass
 
 
 from ....base import ForgeModel
