@@ -22,6 +22,91 @@ def _refresh_gguf_detection():
         import_utils.is_gguf_available.cache_clear()
 
 
+# GGUF config key -> transformers config key mapping for lfm2moe architecture
+_LFM2MOE_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": None,
+    "rope.freq_base": "rope_theta",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "vocab_size": "vocab_size",
+    "shortconv.l_cache": "conv_L_cache",
+    "expert_count": "num_experts",
+    "expert_used_count": "num_experts_per_tok",
+    "expert_feed_forward_length": "moe_intermediate_size",
+    "leading_dense_block_count": "num_dense_layers",
+}
+
+
+def _patch_lfm2moe_gguf_support():
+    """Patch transformers to support lfm2moe GGUF architecture (maps to lfm2_moe model type).
+
+    The transformers library supports lfm2_moe as a model type, but the GGUF
+    architecture name lfm2moe (no underscore) is missing from its GGUF loading
+    infrastructure. This function adds the necessary mappings.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+    import transformers.configuration_utils as _config_utils
+    import transformers.tokenization_utils_tokenizers as _tok_utils
+    import transformers.models.auto.tokenization_auto as _auto_tokenizer
+
+    if "lfm2moe" in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    from transformers.modeling_gguf_pytorch_utils import Lfm2TensorProcessor
+
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
+        "lfm2moe"
+    ] = _LFM2MOE_CONFIG_MAPPING
+    _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("lfm2moe")
+    _gguf_utils.TENSOR_PROCESSORS["lfm2moe"] = Lfm2TensorProcessor
+
+    # Patch get_gguf_hf_weights_map to handle lfm2_moe model_type -> lfm2moe gguf arch
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        resolved_type = (
+            model_type
+            if model_type is not None
+            else getattr(hf_model.config, "model_type", None)
+        )
+        if resolved_type == "lfm2_moe":
+            model_type = "lfm2moe"
+        return _orig_get_map(
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+        )
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_map
+
+    # Wrap load_gguf_checkpoint to fix lfm2moe config after loading
+    _orig_load = _gguf_utils.load_gguf_checkpoint
+
+    def _patched_load(gguf_path, return_tensors=False, **kwargs):
+        result = _orig_load(gguf_path, return_tensors=return_tensors, **kwargs)
+        if result.get("config", {}).get("model_type") == "lfm2moe":
+            kv_heads = result["config"].get("num_key_value_heads", 8)
+            if isinstance(kv_heads, list):
+                kv_heads = max(kv_heads) if max(kv_heads) > 0 else 8
+            result["config"]["num_key_value_heads"] = kv_heads
+            result["config"]["model_type"] = "lfm2_moe"
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load
+    _config_utils.load_gguf_checkpoint = _patched_load
+    _tok_utils.load_gguf_checkpoint = _patched_load
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load
+
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -91,6 +176,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         _refresh_gguf_detection()
+        _patch_lfm2moe_gguf_support()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -152,6 +238,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         _refresh_gguf_detection()
+        _patch_lfm2moe_gguf_support()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
