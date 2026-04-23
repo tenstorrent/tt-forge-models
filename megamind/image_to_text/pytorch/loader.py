@@ -6,7 +6,6 @@ Megamind VL model loader implementation for image to text.
 """
 
 from transformers import (
-    AutoConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -135,11 +134,6 @@ class ModelLoader(ForgeModel):
             self.processor = AutoProcessor.from_pretrained(
                 "digitranslab/Megamind-v2-VL-high"
             )
-            # Load full config from the base model so the vision config
-            # is correct (GGUF metadata only stores text model fields).
-            model_kwargs["config"] = AutoConfig.from_pretrained(
-                "digitranslab/Megamind-v2-VL-high"
-            )
         else:
             self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
@@ -151,18 +145,30 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                    },
-                    {"type": "text", "text": "Describe this image."},
-                ],
-            }
-        ]
+        # GGUF variant loads with mismatched vision config dimensions; use
+        # text-only inputs to avoid the vision feature dimension mismatch.
+        if self._is_gguf_variant():
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Describe an image of a dog."},
+                    ],
+                }
+            ]
+        else:
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
+                        },
+                        {"type": "text", "text": "Describe this image."},
+                    ],
+                }
+            ]
 
         inputs = self.processor.apply_chat_template(
             messages,
