@@ -8,6 +8,16 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -32,6 +42,53 @@ def _patch_transformers_gguf_map():
             _iu.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
     except Exception:
         pass
+
+
+def _patch_nemotron_h_moe_support():
+    """Register nemotron_h_moe architecture as an alias for nemotron.
+
+    Nemotron-H MoE uses a hybrid SSM+attention+MoE architecture whose GGUF
+    type 'nemotron_h_moe' is not yet in transformers. Map it to the standard
+    'nemotron' transformer type so that config and tokenizer loading succeeds.
+    """
+    if "nemotron_h_moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("nemotron_h_moe")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "nemotron" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            mapping = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["nemotron"]
+            )
+            mapping["expert_count"] = "num_experts"
+            mapping["expert_used_count"] = "num_experts_per_tok"
+            mapping["expert_feed_forward_length"] = "moe_intermediate_size"
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section][
+                "nemotron_h_moe"
+            ] = mapping
+    if "nemotron" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["nemotron_h_moe"] = GGUF_TO_FAST_CONVERTERS["nemotron"]
+    if "nemotron" in _gguf_utils.TENSOR_PROCESSORS:
+        _gguf_utils.TENSOR_PROCESSORS["nemotron_h_moe"] = _gguf_utils.TENSOR_PROCESSORS[
+            "nemotron"
+        ]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add nemotron_h_moe support and fix model_type."""
+    _patch_nemotron_h_moe_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "nemotron_h_moe":
+        result["config"]["model_type"] = "nemotron"
+    return result
+
+
+_patch_nemotron_h_moe_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
