@@ -131,9 +131,16 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         from unik3d.models import UniK3D
 
+        # build_losses imports pkg_resources which is unavailable at inference time
+        original_build_losses = UniK3D.build_losses
+        UniK3D.build_losses = lambda self, config: None
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model = UniK3D.from_pretrained(pretrained_model_name)
+        try:
+            model = UniK3D.from_pretrained(pretrained_model_name)
+        finally:
+            UniK3D.build_losses = original_build_losses
         model.eval()
 
         self._shape_constraints = model.shape_constraints
