@@ -88,6 +88,10 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "granite-embedding-30m-english-Q4_K_M.gguf"
 
+    # The base (non-GGUF) model for tokenizer loading; the GGUF converter
+    # produces out-of-range token IDs for this RoBERTa-style tokenizer.
+    TOKENIZER_MODEL = "ibm-granite/granite-embedding-30m-english"
+
     sample_sentences = [
         "Who made the song My achy breaky heart?",
         "summit define",
@@ -112,15 +116,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
-
+        # Load from the base model: the GGUF tokenizer converter produces
+        # out-of-range token IDs for this RoBERTa-style tokenizer.
+        self.tokenizer = AutoTokenizer.from_pretrained(self.TOKENIZER_MODEL)
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
