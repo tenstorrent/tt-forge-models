@@ -5,6 +5,8 @@
 Chinese Mixtral model loader implementation for causal language modeling.
 """
 
+import os
+import shutil
 from typing import Optional
 
 import torch
@@ -20,6 +22,22 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+_MODEL_SPACE_THRESHOLD = 30 * 1024 * 1024 * 1024  # 30 GB
+_FALLBACK_CACHE_DIR = "/tmp/hf_cache_chinese_mixtral"
+
+
+def _get_cache_dir():
+    hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+    hub_dir = os.path.join(hf_home, "hub")
+    try:
+        os.makedirs(hub_dir, exist_ok=True)
+        if shutil.disk_usage(hub_dir).free >= _MODEL_SPACE_THRESHOLD:
+            return None
+    except OSError:
+        pass
+    os.makedirs(_FALLBACK_CACHE_DIR, exist_ok=True)
+    return _FALLBACK_CACHE_DIR
 
 
 class ModelVariant(StrEnum):
@@ -67,6 +85,9 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        cache_dir = _get_cache_dir()
+        if cache_dir is not None:
+            tokenizer_kwargs["cache_dir"] = cache_dir
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name, **tokenizer_kwargs
@@ -84,10 +105,16 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        cache_dir = _get_cache_dir()
+        if cache_dir is not None:
+            model_kwargs["cache_dir"] = cache_dir
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name,
+                **({"cache_dir": cache_dir} if cache_dir is not None else {}),
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -122,7 +149,11 @@ class ModelLoader(ForgeModel):
         return self.tokenizer.decode([next_token])
 
     def load_config(self):
+        cache_dir = _get_cache_dir()
+        config_kwargs = {}
+        if cache_dir is not None:
+            config_kwargs["cache_dir"] = cache_dir
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
         return self.config
