@@ -7,11 +7,31 @@ mradermacher Huihui-Qwen3-VL-32B-Instruct-abliterated GGUF model loader implemen
 
 import importlib.metadata
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import (
-    Qwen3VLForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
+    Qwen3VLConfig,
+    Qwen3VLForConditionalGeneration,
 )
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from typing import Optional
+
+from ....base import ForgeModel
+from ....config import (
+    LLMModelConfig,
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+    StrEnum,
+)
 
 
 def _refresh_gguf_detection():
@@ -25,16 +45,38 @@ def _refresh_gguf_detection():
         import_utils.is_gguf_available.cache_clear()
 
 
-from ....base import ForgeModel
-from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
-    Framework,
-    StrEnum,
-)
+def _patch_qwen3vl_support():
+    """Register qwen3vl architecture as an alias for qwen3 in GGUF mappings.
+
+    Qwen3-VL GGUF files declare architecture as 'qwen3vl' which transformers 5.x
+    does not yet recognise. The text backbone uses identical config fields to qwen3.
+    """
+    if "qwen3vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen3vl",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen3vl", GGUF_TO_FAST_CONVERTERS["qwen3"])
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add qwen3vl support and remap model_type to qwen3."""
+    _patch_qwen3vl_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "qwen3vl":
+        result["config"]["model_type"] = "qwen3"
+    return result
+
+
+_patch_qwen3vl_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -57,6 +99,10 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "Huihui-Qwen3-VL-32B-Instruct-abliterated.Q4_K_M.gguf"
 
+    # Non-gated Qwen3-VL model used to obtain the vision config and processor.
+    # The vision backbone dimensions are identical across Qwen3-VL sizes.
+    _BASE_VL_MODEL = "Qwen/Qwen3-VL-2B-Instruct"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
@@ -74,18 +120,33 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _build_full_config(self):
+        """Build a full Qwen3VLConfig from the GGUF text backbone + base vision config."""
+        _refresh_gguf_detection()
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        text_config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+        base_config = AutoConfig.from_pretrained(self._BASE_VL_MODEL)
+        return Qwen3VLConfig(
+            text_config=text_config.to_dict(),
+            vision_config=base_config.vision_config.to_dict(),
+        )
+
     def load_model(self, *, dtype_override=None, **kwargs):
         _refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        self.processor = AutoProcessor.from_pretrained(self._BASE_VL_MODEL)
+
+        config = self._build_full_config()
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["config"] = config
         model_kwargs |= kwargs
-
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-32B-Instruct")
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
