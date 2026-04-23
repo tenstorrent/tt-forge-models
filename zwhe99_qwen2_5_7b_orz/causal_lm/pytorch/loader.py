@@ -4,9 +4,13 @@
 """
 zwhe99/Qwen2.5-7B-orz model loader implementation for causal language modeling.
 """
+import os
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 from ....base import ForgeModel
 from ....config import (
