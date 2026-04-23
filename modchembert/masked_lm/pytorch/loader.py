@@ -18,10 +18,14 @@ import torch
 import transformers.models.modernbert.modeling_modernbert as _mbert_module
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 
-# transformers>=5.x renamed MODERNBERT_ATTENTION_FUNCTION to ALL_ATTENTION_FUNCTIONS
-# and removed _pad_modernbert_output / _unpad_modernbert_input (flash_attention_2 only helpers)
+# transformers>=5.x renamed MODERNBERT_ATTENTION_FUNCTION to ALL_ATTENTION_FUNCTIONS,
+# removed _pad_modernbert_output / _unpad_modernbert_input (flash_attention_2 helpers),
+# and removed _maybe_set_compile from ModernBertPreTrainedModel.
 if not hasattr(_mbert_module, "MODERNBERT_ATTENTION_FUNCTION"):
     _mbert_module.MODERNBERT_ATTENTION_FUNCTION = _mbert_module.ALL_ATTENTION_FUNCTIONS
+
+if not hasattr(_mbert_module.ModernBertPreTrainedModel, "_maybe_set_compile"):
+    _mbert_module.ModernBertPreTrainedModel._maybe_set_compile = lambda self: None
 
 if not hasattr(_mbert_module, "_unpad_modernbert_input"):
 
