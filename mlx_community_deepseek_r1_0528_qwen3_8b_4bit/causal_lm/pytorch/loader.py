@@ -20,6 +20,77 @@ from ....config import (
 )
 
 
+def _dequantize_mlx_4bit(w_q, scales, biases, group_size=64, bits=4):
+    """Dequantize MLX 4-bit packed weights to bfloat16.
+
+    MLX stores quantized weights as packed uint32 tensors with per-group scales and biases.
+    Dequantization formula: w = q * scale + bias, where q is an unsigned 4-bit integer (0-15).
+    """
+    out_dim, in_dim_packed = w_q.shape
+    in_dim = in_dim_packed * (32 // bits)
+
+    shift = torch.arange(0, 32, bits, dtype=torch.int32, device=w_q.device)
+    w_unpacked = (w_q.unsqueeze(-1).to(torch.int32) >> shift) & ((1 << bits) - 1)
+    w_unpacked = w_unpacked.reshape(out_dim, in_dim).to(torch.float32)
+
+    scales_f = scales.to(torch.float32).repeat_interleave(group_size, dim=1)
+    biases_f = biases.to(torch.float32).repeat_interleave(group_size, dim=1)
+
+    return (w_unpacked * scales_f + biases_f).to(torch.bfloat16)
+
+
+def _load_mlx_state_dict(pretrained_model_name, dtype=torch.bfloat16):
+    """Load and dequantize an MLX 4-bit safetensors file into a standard state dict."""
+    from safetensors import safe_open
+    from huggingface_hub import hf_hub_download
+
+    index_path = hf_hub_download(pretrained_model_name, "model.safetensors.index.json")
+    import json
+
+    with open(index_path) as f:
+        index = json.load(f)
+
+    shard_files = sorted(set(index["weight_map"].values()))
+
+    raw = {}
+    for shard in shard_files:
+        shard_path = hf_hub_download(pretrained_model_name, shard)
+        with safe_open(shard_path, framework="pt") as f:
+            for key in f.keys():
+                raw[key] = f.get_tensor(key)
+
+    state_dict = {}
+    quantized_bases = set()
+    for key in raw:
+        if key.endswith(".scales") or key.endswith(".biases"):
+            base = key.rsplit(".", 1)[0]
+            quantized_bases.add(base)
+
+    for base in quantized_bases:
+        w_q = raw[base + ".weight"]
+        scales = raw[base + ".scales"]
+        biases = raw[base + ".biases"]
+
+        config_key = base + ".quantization_config"
+        group_size = 64
+        bits = 4
+
+        state_dict[base + ".weight"] = _dequantize_mlx_4bit(
+            w_q, scales, biases, group_size=group_size, bits=bits
+        )
+
+    for key, tensor in raw.items():
+        base = key.rsplit(".", 1)[0]
+        suffix = key.rsplit(".", 1)[1]
+        if suffix in ("scales", "biases"):
+            continue
+        if base in quantized_bases:
+            continue
+        state_dict[key] = tensor.to(dtype) if tensor.is_floating_point() else tensor
+
+    return state_dict
+
+
 class ModelVariant(StrEnum):
     """Available mlx-community/DeepSeek-R1-0528-Qwen3-8B-4bit model variants for causal language modeling."""
 
@@ -60,12 +131,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -74,23 +141,22 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.quantization_config = None
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config, torch_dtype=dtype)
+
+        state_dict = _load_mlx_state_dict(pretrained_model_name, dtype=dtype)
+        model.load_state_dict(state_dict, strict=True)
+        model = model.eval()
 
         self.config = model.config
         self.model = model
@@ -98,7 +164,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         max_length = self._variant_config.max_length
 
