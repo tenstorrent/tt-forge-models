@@ -8,6 +8,40 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_transformers_deepseek_v2_gguf():
+    """Monkey-patch transformers to add deepseek_v2 GGUF support.
+
+    The mradermacher abliterated GGUF uses 'deepseek_v2' as the tokenizer
+    class name and model_type, but transformers/gguf-py only registers 'deepseek2'.
+    We alias it to the existing converters and patch get_gguf_hf_weights_map
+    to remap deepseek_v2 -> deepseek2 for the weight-name lookup.
+    """
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None and hf_model is not None:
+            model_type = hf_model.config.model_type
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_deepseek_v2_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
