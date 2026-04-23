@@ -6,6 +6,7 @@ mradermacher Mystral Uncensored RP 7B i1 GGUF model loader for causal language m
 """
 
 import inspect
+import threading
 from typing import Optional
 
 import torch
@@ -15,12 +16,16 @@ import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
+_tls = threading.local()
+
 
 def _ensure_gguf_loader_accepts_model_to_load():
     """Ensure load_gguf_checkpoint accepts model_to_load (added in transformers 5.2.0).
 
     Other loaders may monkey-patch load_gguf_checkpoint with an older signature
     that lacks model_to_load, causing a TypeError when transformers calls it.
+    We also patch get_gguf_hf_weights_map so that model_to_load is preserved
+    via thread-local storage across intermediate patches that drop it.
     """
     current = _gguf_utils.load_gguf_checkpoint
     sig_params = inspect.signature(current).parameters
@@ -32,12 +37,29 @@ def _ensure_gguf_loader_accepts_model_to_load():
     _wrapped = current
 
     def _compat(gguf_checkpoint_path, return_tensors=False, model_to_load=None):
-        return _wrapped(gguf_checkpoint_path, return_tensors=return_tensors)
+        # Stash model_to_load so intermediate patches that drop the argument
+        # can have it restored inside get_gguf_hf_weights_map.
+        _tls.pending_model = model_to_load
+        try:
+            return _wrapped(gguf_checkpoint_path, return_tensors=return_tensors)
+        finally:
+            _tls.pending_model = None
 
     _gguf_utils.load_gguf_checkpoint = _compat
     _config_utils.load_gguf_checkpoint = _compat
     _auto_tokenizer.load_gguf_checkpoint = _compat
     _tok_utils.load_gguf_checkpoint = _compat
+
+    # Patch get_gguf_hf_weights_map to restore model_to_load from thread-local
+    # when intermediate patches have dropped it (arriving as None).
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _get_map_with_model(hf_model, *args, **kwargs):
+        if hf_model is None:
+            hf_model = getattr(_tls, "pending_model", None)
+        return _orig_get_map(hf_model, *args, **kwargs)
+
+    _gguf_utils.get_gguf_hf_weights_map = _get_map_with_model
 
 
 _ensure_gguf_loader_accepts_model_to_load()
