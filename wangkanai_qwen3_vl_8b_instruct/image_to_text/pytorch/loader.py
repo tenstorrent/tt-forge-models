@@ -7,7 +7,7 @@ Wangkanai Qwen3-VL 8B Instruct model loader implementation for image to text.
 
 from transformers import (
     Qwen3VLForConditionalGeneration,
-    AutoProcessor,
+    Qwen3VLProcessor,
 )
 from typing import Optional
 
@@ -74,7 +74,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        self.processor = Qwen3VLProcessor.from_pretrained(pretrained_model_name)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
