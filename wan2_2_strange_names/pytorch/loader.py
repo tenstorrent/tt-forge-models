@@ -4,9 +4,9 @@
 """
 Kokosha01/Wan2.2_StrangeNames model loader implementation.
 
-LoRA adapters for the Z-Image-Turbo pipeline published under
-Kokosha01/Wan2.2_StrangeNames. The repository bundles several
-safetensors files; each is exposed here as a separate variant.
+Z-Image-Turbo pipeline variants from Kokosha01/Wan2.2_StrangeNames.
+The variant safetensors files contain CLIP/SigLIP vision encoder weights
+(not LoRA adapters); all variants return the same base Z-Image-Turbo transformer.
 
 Repository: https://huggingface.co/Kokosha01/Wan2.2_StrangeNames
 """
@@ -32,7 +32,7 @@ LORA_REPO = "Kokosha01/Wan2.2_StrangeNames"
 
 
 class ModelVariant(StrEnum):
-    """Available Kokosha01/Wan2.2_StrangeNames LoRA variants."""
+    """Available Kokosha01/Wan2.2_StrangeNames variants."""
 
     GLASS_ROOT_D2 = "GlassRoot_D2"
     NOVA_MIND_X1 = "NovaMind_X1"
@@ -44,20 +44,8 @@ class ModelVariant(StrEnum):
     ECHO_VAULT_T9 = "EchoVault_T9"
 
 
-_LORA_FILES = {
-    ModelVariant.GLASS_ROOT_D2: "GlassRoot_D2.safetensors",
-    ModelVariant.NOVA_MIND_X1: "NovaMind_X1.safetensors",
-    ModelVariant.FROST_BYTE_K7: "FrostByte_K7.safetensors",
-    ModelVariant.IRON_SIGHT_V7: "IronSight_V7.safetensors",
-    ModelVariant.SOLAR_FLINT_L2: "SolarFlint_L2.safetensors",
-    ModelVariant.VELVET_RUSH_Q4: "VelvetRush_Q4.safetensors",
-    ModelVariant.PHANTOM_WEAVE_R5: "PhantomWeave_R5.safetensors",
-    ModelVariant.ECHO_VAULT_T9: "EchoVault_T9.safetensors",
-}
-
-
 class ModelLoader(ForgeModel):
-    """Kokosha01/Wan2.2_StrangeNames LoRA model loader."""
+    """Kokosha01/Wan2.2_StrangeNames model loader."""
 
     _VARIANTS = {
         variant: ModelConfig(pretrained_model_name=LORA_REPO)
@@ -84,27 +72,27 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
-        """Load the Z-Image-Turbo pipeline with the selected LoRA weights fused."""
+        """Load the Z-Image-Turbo base pipeline.
+
+        The variant safetensors files in Kokosha01/Wan2.2_StrangeNames contain
+        CLIP/SigLIP vision encoder weights (vision_model.* keys), not LoRA adapters.
+        The ZImagePipeline has no vision encoder component, so these files cannot
+        be applied via load_lora_weights. The base transformer is returned for all
+        variants.
+        """
         self._pipe = ZImagePipeline.from_pretrained(
             BASE_MODEL,
             torch_dtype=dtype,
             low_cpu_mem_usage=False,
         )
 
-        lora_file = _LORA_FILES[self._variant]
-        self._pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=lora_file,
-        )
-        self._pipe.fuse_lora()
-
         return self._pipe
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the DiT transformer with the LoRA weights fused.
+        """Load and return the Z-Image-Turbo DiT transformer.
 
         Returns:
-            torch.nn.Module: The Z-Image-Turbo DiT transformer with LoRA applied.
+            torch.nn.Module: The Z-Image-Turbo DiT transformer.
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         if self._pipe is None:
