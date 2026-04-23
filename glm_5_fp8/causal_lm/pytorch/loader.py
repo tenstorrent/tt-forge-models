@@ -94,6 +94,17 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
+        # FP8 quantization requires triton (CUDA-only); load config and clear
+        # quantization_config so transformers dequantizes to bf16 on CPU.
+        if "config" not in model_kwargs:
+            fp8_config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            fp8_config.quantization_config = None
+            model_kwargs["config"] = fp8_config
+        else:
+            model_kwargs["config"].quantization_config = None
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
