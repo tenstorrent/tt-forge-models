@@ -149,8 +149,9 @@ class ModelLoader(ForgeModel):
         from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
 
         _dequantize_gguf_and_restore_linear(self.transformer)
-        # Remove hf_quantizer so diffusers' .to() guard doesn't block dtype cast.
+        # Remove quantizer markers so diffusers' .to() guard doesn't block dtype cast.
         self.transformer.hf_quantizer = None
+        self.transformer.is_quantized = False
         self.transformer.to(compute_dtype)
 
         return self.transformer
