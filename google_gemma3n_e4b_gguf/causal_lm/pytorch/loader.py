@@ -59,22 +59,33 @@ def _patch_gemma3n_gguf_support():
         )
 
 
-def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
     """Wrap get_gguf_hf_weights_map to map gemma3n_text → gemma3n for tensor lookup."""
     if model_type is None:
         model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
     if model_type == "gemma3n_text":
         model_type = "gemma3n"
     return _orig_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=model_type, **kwargs
+        hf_model,
+        processor,
+        model_type=model_type,
+        num_layers=num_layers,
+        qual_name=qual_name,
     )
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+def _patched_load_gguf_checkpoint(
+    gguf_path, return_tensors=False, model_to_load=None, torch_dtype=None
+):
     """Wrap load_gguf_checkpoint to add gemma3n support and fix model_type."""
     _patch_gemma3n_gguf_support()
     result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+        gguf_path,
+        return_tensors=return_tensors,
+        model_to_load=model_to_load,
+        torch_dtype=torch_dtype,
     )
     if result.get("config", {}).get("model_type") == "gemma3n":
         result["config"]["model_type"] = "gemma3n_text"
