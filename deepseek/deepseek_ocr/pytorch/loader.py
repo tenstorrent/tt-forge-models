@@ -5,6 +5,7 @@
 DeepSeek OCR model loader implementation for document OCR tasks.
 """
 import os
+import torch
 import transformers.models.deepseek_v2.modeling_deepseek_v2 as _dsv2
 from transformers import AutoTokenizer, AutoModel
 from typing import Optional
@@ -170,6 +171,11 @@ class ModelLoader(ForgeModel):
                 trust_remote_code=True,
                 **kwargs,
             )
+
+        # Fix position_ids buffers corrupted by checkpoint loading (expand() view loses values)
+        for module in model.modules():
+            if hasattr(module, "position_ids") and hasattr(module, "num_positions"):
+                module.position_ids = torch.arange(module.num_positions).expand((1, -1))
 
         # Configure model settings
         model.config.return_dict = False
