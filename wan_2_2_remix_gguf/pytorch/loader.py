@@ -131,12 +131,15 @@ class ModelLoader(ForgeModel):
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
+        from huggingface_hub import hf_hub_download
+
         gguf_repo = _GGUF_REPOS[self._variant]
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
+        gguf_local_path = hf_hub_download(repo_id=gguf_repo, filename=gguf_file)
         transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{gguf_repo}/resolve/main/{gguf_file}",
+            gguf_local_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
