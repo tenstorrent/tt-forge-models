@@ -135,11 +135,10 @@ class ModelLoader(ForgeModel):
             "AudioVisual-Caption/ASID-Captioner-7B"
         )
 
-        # Load config from base model to avoid GGUF config parsing which does
-        # not support the nested Qwen2VLConfig structure.
-        base_config = AutoConfig.from_pretrained(
-            "AudioVisual-Caption/ASID-Captioner-7B"
-        )
+        # The GGUF architecture is qwen2vl; load config from the canonical
+        # Qwen2-VL-7B model because the AudioVisual-Caption repo now returns a
+        # Qwen2_5OmniConfig which is incompatible with Qwen2VLForConditionalGeneration.
+        base_config = AutoConfig.from_pretrained("Qwen/Qwen2-VL-7B-Instruct")
         model_kwargs["config"] = base_config
         model_kwargs |= kwargs
 
