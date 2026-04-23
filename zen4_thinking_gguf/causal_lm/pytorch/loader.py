@@ -4,9 +4,24 @@
 """
 Zen4 Thinking GGUF model loader implementation for causal language modeling.
 """
+import importlib
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+# transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time; if gguf is
+# installed later by the requirements manager, the metadata lookup falls back to
+# gguf.__version__, which the gguf package does not define. Set it manually so
+# transformers' is_gguf_available() returns a valid version string.
+try:
+    import gguf as _gguf_mod
+
+    if not hasattr(_gguf_mod, "__version__"):
+        _gguf_mod.__version__ = importlib.metadata.version("gguf")
+except Exception:
+    pass
 
 from ....base import ForgeModel
 from ....config import (
