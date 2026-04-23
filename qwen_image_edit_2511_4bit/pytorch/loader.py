@@ -67,14 +67,15 @@ class ModelLoader(ForgeModel):
     def _load_transformer(
         self, dtype: torch.dtype = torch.float32
     ) -> QwenImageTransformer2DModel:
-        """Load the NF4-quantized diffusion transformer."""
-        self._transformer = QwenImageTransformer2DModel.from_pretrained(
-            REPO_ID,
-            subfolder="transformer",
-            torch_dtype=dtype,
-            device_map="cpu",
+        # Load config and strip quantization_config so the model can be created
+        # without bitsandbytes/CUDA in a compile-only environment.
+        config = QwenImageTransformer2DModel.load_config(
+            REPO_ID, subfolder="transformer"
         )
-        self._transformer.eval()
+        config.pop("quantization_config", None)
+        self._transformer = (
+            QwenImageTransformer2DModel.from_config(config).to(dtype=dtype).eval()
+        )
         return self._transformer
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
