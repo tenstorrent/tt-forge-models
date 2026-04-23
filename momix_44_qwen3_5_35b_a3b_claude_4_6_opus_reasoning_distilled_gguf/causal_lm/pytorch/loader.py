@@ -231,7 +231,11 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
         if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+            if self.tokenizer.eos_token is not None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+                self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+            else:
+                self.tokenizer.add_special_tokens({"pad_token": "<|endoftext|>"})
         if self.tokenizer.chat_template is None:
             # qwen35moe GGUF tokenizers may not include a chat template.
             # Fall back to the standard Qwen3 im_start/im_end format.
@@ -302,7 +306,7 @@ class ModelLoader(ForgeModel):
         inputs = self.tokenizer(
             prompts,
             return_tensors="pt",
-            padding=True,
+            padding=self.tokenizer.pad_token is not None,
             truncation=True,
             max_length=max_length,
         )
