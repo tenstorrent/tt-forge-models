@@ -5,7 +5,7 @@
 Hermes 4 model loader implementation for causal language modeling.
 """
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
 from ....config import (
@@ -110,8 +110,14 @@ class ModelLoader(ForgeModel):
         model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
+        # MLX-quantized models have a quantization_config without `quant_method`,
+        # which transformers rejects. Strip it so the model loads in bf16.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
+
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
