@@ -75,10 +75,12 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # The MLX-quantized model has an MLX-format quantization_config that
-        # lacks `quant_method`, which transformers requires. Clear it so the
-        # model loads in the requested dtype without a quantizer.
+        # lacks `quant_method`, which transformers requires. Remove the attribute
+        # entirely (setting to None isn't enough; hasattr still returns True)
+        # so the model loads in the requested dtype without a quantizer.
         config = AutoConfig.from_pretrained(pretrained_model_name)
-        config.quantization_config = None
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
         model_kwargs["config"] = config
 
         model = AutoModelForImageTextToText.from_pretrained(
