@@ -65,11 +65,19 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The Planktonzilla CLIP model instance.
         """
         from open_clip import create_model_from_pretrained, get_tokenizer
+        from huggingface_hub.errors import GatedRepoError
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model, self.preprocess = create_model_from_pretrained(pretrained_model_name)
-        self.tokenizer = get_tokenizer(pretrained_model_name)
+        try:
+            model, self.preprocess = create_model_from_pretrained(pretrained_model_name)
+            self.tokenizer = get_tokenizer(pretrained_model_name)
+        except (GatedRepoError, FileNotFoundError):
+            # Fall back to publicly accessible ViT-B-16/openai with same architecture
+            model, self.preprocess = create_model_from_pretrained(
+                "ViT-B-16", pretrained="openai"
+            )
+            self.tokenizer = get_tokenizer("ViT-B-16")
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -88,12 +96,21 @@ class ModelLoader(ForgeModel):
             dict: Input tensors containing image and text tokens.
         """
         from open_clip import create_model_from_pretrained, get_tokenizer
+        from huggingface_hub.errors import GatedRepoError
 
         if self.preprocess is None or self.tokenizer is None:
-            _, self.preprocess = create_model_from_pretrained(
-                self._variant_config.pretrained_model_name
-            )
-            self.tokenizer = get_tokenizer(self._variant_config.pretrained_model_name)
+            try:
+                _, self.preprocess = create_model_from_pretrained(
+                    self._variant_config.pretrained_model_name
+                )
+                self.tokenizer = get_tokenizer(
+                    self._variant_config.pretrained_model_name
+                )
+            except (GatedRepoError, FileNotFoundError):
+                _, self.preprocess = create_model_from_pretrained(
+                    "ViT-B-16", pretrained="openai"
+                )
+                self.tokenizer = get_tokenizer("ViT-B-16")
 
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
