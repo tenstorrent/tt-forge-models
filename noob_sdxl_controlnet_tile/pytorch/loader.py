@@ -114,9 +114,12 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, control_image
         )
 
+        # The UNet expects a single timestep, not the full scheduler schedule.
+        timestep = timesteps[0]
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
             added_cond_kwargs = {
                 k: v.to(dtype_override) for k, v in added_cond_kwargs.items()
@@ -130,7 +133,7 @@ class ModelLoader(ForgeModel):
 
         return [
             latent_model_input,
-            timesteps,
+            timestep,
             prompt_embeds,
             added_cond_kwargs,
             down_block_additional_residuals,
