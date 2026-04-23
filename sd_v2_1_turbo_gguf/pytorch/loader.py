@@ -129,7 +129,41 @@ class ModelLoader(ForgeModel):
             ignore_patterns=["unet/*"],
         )
 
+        self._dequantize_norm_params(self.pipeline.unet, compute_dtype)
         return self.pipeline.unet
+
+    @staticmethod
+    def _dequantize_norm_params(unet, compute_dtype):
+        """Dequantize GGUFParameter weights in non-linear modules (e.g. GroupNorm).
+
+        GGUFLinear.forward() dequantizes on the fly, but other modules (GroupNorm,
+        LayerNorm, etc.) receive raw quantized bytes and fail at runtime.
+        """
+        import gguf as _gguf
+
+        from diffusers.quantizers.gguf.utils import (
+            GGUFLinear,
+            GGUFParameter,
+            dequantize_gguf_tensor,
+        )
+
+        for module in unet.modules():
+            if isinstance(module, GGUFLinear):
+                continue
+            for param_name in list(module._parameters):
+                param = module._parameters[param_name]
+                if param is None or not isinstance(param, GGUFParameter):
+                    continue
+                qt = param.quant_type
+                if qt == _gguf.GGMLQuantizationType.F32:
+                    deq = param.as_tensor().view(torch.float32)
+                elif qt == _gguf.GGMLQuantizationType.F16:
+                    deq = param.as_tensor().view(torch.float16)
+                else:
+                    deq = dequantize_gguf_tensor(param)
+                module._parameters[param_name] = torch.nn.Parameter(
+                    deq.to(compute_dtype), requires_grad=False
+                )
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Prepare tensor inputs for the UNet (latent sample, timestep, text embeddings)."""
