@@ -4,6 +4,7 @@
 """
 GPT-OSS-Swallow 20B SFT v0.1 MXFP4 MoE GGUF model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -41,15 +42,15 @@ def _patch_gpt_oss_support():
         GGUF_TO_FAST_CONVERTERS["gpt-oss"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
     if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
         if "qwen3_moe" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
-            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
-                "gpt-oss"
-            ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["gpt-oss"] = (
+                _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
+            )
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add gpt-oss support and fix model_type."""
     _patch_gpt_oss_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "gpt-oss":
         result["config"]["model_type"] = "qwen3_moe"
     return result
