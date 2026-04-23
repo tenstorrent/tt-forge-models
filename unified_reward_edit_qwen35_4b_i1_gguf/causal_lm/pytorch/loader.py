@@ -68,9 +68,20 @@ class ModelLoader(ForgeModel):
     @staticmethod
     def _refresh_gguf_detection():
         import transformers.utils.import_utils as _tx
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
         _tx.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
         _tx.is_gguf_available.cache_clear()
+
+        # Wrap any installed patchers to accept model_to_load (added in transformers 5.2.0)
+        _inner = _gguf_utils.load_gguf_checkpoint
+        if not getattr(_inner, "_accepts_model_to_load", False):
+
+            def _compat(gguf_path, return_tensors=False, model_to_load=None):
+                return _inner(gguf_path, return_tensors=return_tensors)
+
+            _compat._accepts_model_to_load = True
+            _gguf_utils.load_gguf_checkpoint = _compat
 
     def _load_tokenizer(self, dtype_override=None):
         self._refresh_gguf_detection()
@@ -88,6 +99,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
