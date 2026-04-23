@@ -12,18 +12,22 @@ from typing import Optional
 def _patch_gguf_utils_for_qwen3omnimoe():
     """Patch transformers GGUF utils to support qwen3omnimoe (Qwen3-Omni MoE) architecture.
 
-    The GGUF architecture name "qwen3omnimoe" is not registered in transformers.  We:
-      1. Add it to GGUF_CONFIG_MAPPING / TENSOR_PROCESSORS / GGUF_SUPPORTED_ARCHITECTURES.
-      2. Add "qwen3_omni_moe" to GGUF_TO_FAST_CONVERTERS so the tokenizer can load.
-      3. Wrap load_gguf_checkpoint everywhere it is imported so model_type is remapped
-         from "qwen3omnimoe" to "qwen3_omni_moe" (which IS registered in AutoConfig).
+    The GGUF thinker file only contains the text/MoE weights, so we treat the
+    architecture as qwen3_moe (which IS in AutoModelForCausalLM) rather than
+    qwen3_omni_moe (which is only in AutoModelForConditionalGeneration).
+
+    Steps:
+      1. Add "qwen3omnimoe" to GGUF_CONFIG_MAPPING / TENSOR_PROCESSORS /
+         GGUF_SUPPORTED_ARCHITECTURES / GGUF_CONFIG_DEFAULTS_MAPPING.
+      2. Wrap load_gguf_checkpoint everywhere it is imported so model_type is
+         remapped from "qwen3omnimoe" to "qwen3_moe".
     """
     import transformers.configuration_utils as config_utils
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
     import transformers.tokenization_utils_tokenizers as tok_utils
     from transformers.integrations.ggml import (
+        GGUF_CONFIG_DEFAULTS_MAPPING,
         GGUF_CONFIG_MAPPING,
-        GGUF_TO_FAST_CONVERTERS,
     )
     from transformers.modeling_gguf_pytorch_utils import (
         TENSOR_PROCESSORS,
@@ -31,26 +35,27 @@ def _patch_gguf_utils_for_qwen3omnimoe():
     )
 
     gguf_arch = "qwen3omnimoe"
-    hf_model_type = "qwen3_omni_moe"
-    base_arch = "qwen3_moe"
+    hf_model_type = "qwen3_moe"
 
     if gguf_arch not in GGUF_CONFIG_MAPPING:
-        # Allow the architecture-supported check to pass.
-        GGUF_CONFIG_MAPPING[gguf_arch] = GGUF_CONFIG_MAPPING[base_arch].copy()
-        # Also register under the target HF model_type so gguf-key prefixes work
-        # after the architecture string replacement happens.
-        GGUF_CONFIG_MAPPING[hf_model_type] = GGUF_CONFIG_MAPPING[base_arch].copy()
+        # Config key mapping (same as qwen3_moe).
+        GGUF_CONFIG_MAPPING[gguf_arch] = GGUF_CONFIG_MAPPING[hf_model_type].copy()
 
+        # Config defaults (qwen3_moe sets norm_topk_prob=True).
+        if hf_model_type in GGUF_CONFIG_DEFAULTS_MAPPING:
+            GGUF_CONFIG_DEFAULTS_MAPPING[gguf_arch] = GGUF_CONFIG_DEFAULTS_MAPPING[
+                hf_model_type
+            ].copy()
+
+        # Tensor processor for MoE weight handling.
         TENSOR_PROCESSORS[gguf_arch] = TENSOR_PROCESSORS.get(
             "qwen3moe", Qwen2MoeTensorProcessor
         )
+
+        # Update the derived supported-architectures list.
         gguf_utils.GGUF_SUPPORTED_ARCHITECTURES = list(
             gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].keys()
         )
-
-        # The tokenizer uses model_type as the architecture key for GGUF_TO_FAST_CONVERTERS.
-        GGUF_TO_FAST_CONVERTERS[hf_model_type] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
-        GGUF_TO_FAST_CONVERTERS[gguf_arch] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
 
         # Wrap load_gguf_checkpoint to remap model_type in the returned config dict.
         _orig_load = gguf_utils.load_gguf_checkpoint
