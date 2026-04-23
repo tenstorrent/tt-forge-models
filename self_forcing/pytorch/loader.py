@@ -34,6 +34,14 @@ from ...config import (
     StrEnum,
 )
 
+# Transformer input dimensions for Wan2.1-T2V-1.3B
+_TRANSFORMER_IN_CHANNELS = 16
+_LATENT_HEIGHT = 4
+_LATENT_WIDTH = 4
+_LATENT_DEPTH = 2
+_TEXT_HIDDEN_DIM = 4096
+_TEXT_SEQ_LEN = 8
+
 BASE_MODEL = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
 SELF_FORCING_REPO = "gdhe17/Self-Forcing"
 
@@ -112,9 +120,10 @@ class ModelLoader(ForgeModel):
 
         Downloads the selected `.pt` checkpoint from gdhe17/Self-Forcing and
         loads its ``generator_ema`` state dict into the pipeline's transformer.
+        Returns the transformer (WanTransformer3DModel) as a torch.nn.Module.
 
         Returns:
-            WanPipeline with Self-Forcing transformer weights.
+            WanTransformer3DModel with Self-Forcing weights loaded.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -137,19 +146,44 @@ class ModelLoader(ForgeModel):
         generator_state = state_dict.get("generator_ema", state_dict)
         self.pipeline.transformer.load_state_dict(generator_state, strict=False)
 
-        return self.pipeline
+        transformer = self.pipeline.transformer
+        transformer.eval()
+        return transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation.
+        """Prepare synthetic inputs for the WanTransformer3DModel forward pass.
 
         Returns:
-            dict with prompt plus small test-friendly resolution/frame settings.
+            dict with hidden_states (5D), encoder_hidden_states, timestep, and
+            return_dict keys suitable for WanTransformer3DModel.
         """
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        batch_size = 1
+
+        # WanTransformer3DModel expects (batch, channels, frames, height, width)
+        hidden_states = torch.randn(
+            batch_size,
+            _TRANSFORMER_IN_CHANNELS,
+            _LATENT_DEPTH,
+            _LATENT_HEIGHT,
+            _LATENT_WIDTH,
+            dtype=dtype,
+        )
+        encoder_hidden_states = torch.randn(
+            batch_size, _TEXT_SEQ_LEN, _TEXT_HIDDEN_DIM, dtype=dtype
+        )
+        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+
         return {
-            "prompt": prompt if prompt is not None else self.DEFAULT_PROMPT,
-            "height": 480,
-            "width": 832,
-            "num_frames": 21,
-            "num_inference_steps": 4,
-            "guidance_scale": 1.0,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "timestep": timestep,
+            "return_dict": False,
         }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if isinstance(output, tuple):
+            return output[0]
+        if hasattr(output, "sample"):
+            return output.sample
+        return output
