@@ -8,6 +8,99 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_transformers_llama4_gguf():
+    """Monkey-patch transformers to add llama4 GGUF architecture support.
+
+    transformers lacks the config mapping and architecture registration needed
+    to load llama4 GGUF checkpoints directly.  This patch:
+    - Registers llama4 in GGUF_SUPPORTED_ARCHITECTURES and config/tensor maps.
+    - Remaps model_type "llama4" -> "llama4_text" so AutoConfig returns
+      Llama4TextConfig (what Llama4ForCausalLM actually expects).
+    - Adds GGUF_TO_FAST_CONVERTERS["llama4_text"] for tokenizer conversion.
+    - Patches get_gguf_hf_weights_map to translate "llama4_text" back to
+      "llama4" for gguf-py tensor name lookup.
+    - Registers a LlamaTensorProcessor for llama4 Q/K weight de-permutation.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+        LlamaTensorProcessor,
+    )
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "llama4" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("llama4")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["llama4"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "embedding_length": "hidden_size",
+        "feed_forward_length": "intermediate_size_mlp",
+        "expert_feed_forward_length": "intermediate_size",
+        "rope.dimension_count": "head_dim",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": None,
+        "attention.value_length": None,
+        "vocab_size": "vocab_size",
+        "expert_count": "num_local_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "interleave_moe_layer_step": "interleave_moe_layer_step",
+    }
+
+    GGUF_TO_FAST_CONVERTERS["llama4"] = GGUFLlamaConverter
+    GGUF_TO_FAST_CONVERTERS["llama4_text"] = GGUFLlamaConverter
+    TENSOR_PROCESSORS["llama4"] = LlamaTensorProcessor
+
+    _orig_load = gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = _orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "llama4":
+            config["model_type"] = "llama4_text"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as _tok_auto
+    import transformers.configuration_utils as _config_utils
+    import transformers.modeling_utils as _modeling_utils
+    import transformers.tokenization_utils_tokenizers as _tok_tokenizers
+
+    for _mod in (_tok_auto, _config_utils, _modeling_utils, _tok_tokenizers):
+        if hasattr(_mod, "load_gguf_checkpoint"):
+            _mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    _orig_get_weights_map = gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, **kwargs
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "llama4_text":
+            model_type = "llama4"
+        return _orig_get_weights_map(
+            hf_model, processor, model_type=model_type, **kwargs
+        )
+
+    gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+    _modeling_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_llama4_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
