@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {"return_dict": False, "ignore_mismatched_sizes": True}
+        model_kwargs = {"ignore_mismatched_sizes": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
