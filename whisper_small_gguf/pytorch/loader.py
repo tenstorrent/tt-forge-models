@@ -7,6 +7,9 @@ Whisper Small GGUF model loader implementation for automatic speech recognition.
 Repository:
 - https://huggingface.co/FL33TW00D-HF/whisper-small
 """
+import importlib.metadata
+import importlib.util
+
 import torch
 from transformers import (
     WhisperForConditionalGeneration,
@@ -73,6 +76,16 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # gguf 0.18.0 has no __version__; transformers' is_gguf_available() needs it.
+        if importlib.util.find_spec("gguf") is not None:
+            import gguf as _gguf_mod
+
+            if not hasattr(_gguf_mod, "__version__"):
+                try:
+                    _gguf_mod.__version__ = importlib.metadata.version("gguf")
+                except Exception:
+                    pass
+
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
 
