@@ -8,8 +8,8 @@ Xenova/dino-vits16 is a Transformers.js-targeted repackaging of
 facebook/dino-vits16 (Vision Transformer Small patch-16 pretrained with DINO).
 """
 import torch
+from PIL import Image
 from transformers import AutoImageProcessor, ViTModel
-from datasets import load_dataset
 from typing import Optional
 
 from ...config import (
@@ -79,8 +79,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1, image=None):
         if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            image = Image.new("RGB", (224, 224), color=(128, 128, 128))
 
         if self.processor is None:
             self._load_processor()
