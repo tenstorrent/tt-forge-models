@@ -5,6 +5,8 @@
 NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image to text.
 """
 
+import torch
+import torch.distributed as dist
 from transformers import AutoModel, AutoProcessor
 from PIL import Image
 from typing import Optional
@@ -89,6 +91,14 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        if not dist.is_initialized():
+            _orig_get_rank = dist.get_rank
+
+            def _safe_get_rank(group=None):
+                return 0 if not dist.is_initialized() else _orig_get_rank(group)
+
+            dist.get_rank = _safe_get_rank
+
         if self.processor is None:
             self._load_processor()
 
@@ -104,7 +114,23 @@ class ModelLoader(ForgeModel):
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
+        self._fix_radio_summary_idxs(model)
+
         return model
+
+    @staticmethod
+    def _fix_radio_summary_idxs(model):
+        """Recompute summary_idxs from config after loading, as it may not survive checkpoint loading."""
+        try:
+            radio_model = model.vision_model.radio_model
+            teachers = model.vision_model.config.args["teachers"]
+            summary_idxs = torch.tensor(
+                [i for i, t in enumerate(teachers) if t.get("use_summary", True)],
+                dtype=torch.int64,
+            )
+            radio_model.register_buffer("summary_idxs", summary_idxs)
+        except (AttributeError, KeyError, TypeError):
+            pass
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Nemotron Nano 12B v2 VL NVFP4-QAD model.
@@ -134,5 +160,17 @@ class ModelLoader(ForgeModel):
             for key, value in inputs.items():
                 if hasattr(value, "repeat_interleave"):
                     inputs[key] = value.repeat_interleave(batch_size, dim=0)
+
+        num_patches = inputs.pop("num_patches", None)
+        if num_patches is not None:
+            total_patches = (
+                int(num_patches.sum())
+                if hasattr(num_patches, "sum")
+                else sum(num_patches)
+            )
+            inputs["image_flags"] = torch.ones(total_patches, 1, dtype=torch.long)
+
+        if dtype_override is not None and "pixel_values" in inputs:
+            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
         return inputs
