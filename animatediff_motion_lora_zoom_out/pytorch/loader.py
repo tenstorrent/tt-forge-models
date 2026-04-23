@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
         """Load the AnimateDiff pipeline with motion adapter and zoom-out LoRA.
 
         Returns:
-            AnimateDiffPipeline with motion adapter and LoRA weights applied.
+            UNet3DConditionModel with motion adapter and LoRA weights applied.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -92,20 +92,53 @@ class ModelLoader(ForgeModel):
 
         self.pipeline.load_lora_weights(LORA_REPO)
 
-        return self.pipeline
+        return self.pipeline.unet
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation with zoom-out motion.
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare preprocessed tensor inputs for the AnimateDiff UNet."""
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
 
-        Returns:
-            dict with prompt key.
-        """
-        if prompt is None:
-            prompt = (
-                "A serene forest clearing with sunlight filtering through trees, "
-                "cinematic zoom out, smooth camera motion"
-            )
+        dtype = self.pipeline.unet.dtype
 
-        return {
-            "prompt": prompt,
-        }
+        prompt = (
+            "A serene forest clearing with sunlight filtering through trees, "
+            "cinematic zoom out, smooth camera motion"
+        )
+
+        text_inputs = self.pipeline.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            encoder_hidden_states = self.pipeline.text_encoder(text_inputs.input_ids)[
+                0
+            ].to(dtype)
+
+        in_channels = self.pipeline.unet.config.in_channels
+        sample_size = self.pipeline.unet.config.sample_size
+        num_frames = 16
+        latent_sample = torch.randn(
+            1, in_channels, num_frames, sample_size, sample_size, dtype=dtype
+        )
+        timestep = torch.tensor([1.0], dtype=dtype)
+
+        if dtype_override:
+            latent_sample = latent_sample.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            encoder_hidden_states = encoder_hidden_states.to(dtype_override)
+
+        return [latent_sample, timestep, encoder_hidden_states]
+
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        """Unpack UNet output to the sample tensor."""
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        if hasattr(fwd_output, "sample"):
+            return fwd_output.sample
+        return fwd_output
