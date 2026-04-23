@@ -90,7 +90,8 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
             # Remove FP8 quantization config to avoid triton dependency on non-GPU systems
             config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.quantization_config = None
+            if hasattr(config, "quantization_config"):
+                del config.quantization_config
             model_kwargs["config"] = config
         else:
             model_kwargs["dtype"] = "auto"
