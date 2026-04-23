@@ -19,7 +19,12 @@ _chained_load_gguf = _gguf_utils.load_gguf_checkpoint
 
 
 def _gguf_compat_wrapper(gguf_path, return_tensors=False, model_to_load=None):
-    return _chained_load_gguf(gguf_path, return_tensors=return_tensors)
+    try:
+        return _chained_load_gguf(
+            gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+        )
+    except TypeError:
+        return _chained_load_gguf(gguf_path, return_tensors=return_tensors)
 
 
 _gguf_utils.load_gguf_checkpoint = _gguf_compat_wrapper
@@ -107,12 +112,21 @@ class ModelLoader(ForgeModel):
         """Re-apply compat wrapper so model_to_load kwarg from transformers 5.x is accepted.
 
         Other loaders collected before this test may have replaced the wrapper
-        with their own patches that lack the model_to_load parameter.
+        with their own patches that lack the model_to_load parameter.  We try to
+        pass model_to_load through; if the chained function rejects it (explicit
+        signature without that param) we fall back to calling without it.
         """
         current = _gguf_utils.load_gguf_checkpoint
 
         def _wrapped(gguf_path, return_tensors=False, model_to_load=None):
-            return current(gguf_path, return_tensors=return_tensors)
+            try:
+                return current(
+                    gguf_path,
+                    return_tensors=return_tensors,
+                    model_to_load=model_to_load,
+                )
+            except TypeError:
+                return current(gguf_path, return_tensors=return_tensors)
 
         _gguf_utils.load_gguf_checkpoint = _wrapped
         _config_utils.load_gguf_checkpoint = _wrapped
