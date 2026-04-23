@@ -4,9 +4,10 @@
 """
 MM Grounding DINO model loader implementation for zero-shot object detection.
 """
+import numpy as np
 import torch
+from PIL import Image
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
-from datasets import load_dataset
 from typing import Optional
 
 from ...base import ForgeModel
@@ -130,8 +131,9 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        self.image = dataset[0]["image"]
+        self.image = Image.fromarray(
+            np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
+        )
 
         self.text_labels = [["a cat", "a remote control"]]
 
