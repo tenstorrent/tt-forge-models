@@ -21,6 +21,33 @@ from third_party.tt_forge_models.config import (
 )
 
 
+def _patch_tapas_tokenizer_for_pandas3():
+    """Patch TAPAS tokenizer's _get_column_values to use iloc for pandas 3.0.
+
+    pandas 3.0 removed the positional fallback for Series.__getitem__ with
+    integer keys on a string-indexed Series.  The TAPAS tokenizer uses
+    row[col_index] (integer) on rows from iterrows() whose index is the
+    string column names, causing KeyError.  Patching once per process.
+    """
+    import transformers.models.tapas.tokenization_tapas as _tapas
+
+    if getattr(_tapas, "_patched_for_pandas3", False):
+        return
+
+    _normalize = _tapas.normalize_for_match
+    _get_numeric = _tapas._get_numeric_values
+
+    def _patched_get_column_values(table, col_index):
+        index_to_values = {}
+        for row_index, row in table.iterrows():
+            text = _normalize(row.iloc[col_index].text)
+            index_to_values[row_index] = list(_get_numeric(text))
+        return index_to_values
+
+    _tapas._get_column_values = _patched_get_column_values
+    _tapas._patched_for_pandas3 = True
+
+
 class ModelVariant(StrEnum):
     """Available TAPAS model variants for masked language modeling."""
 
@@ -49,8 +76,8 @@ class ModelLoader(ForgeModel):
         self.max_length = self._variant_config.max_length
         self.tokenizer = None
 
-        # Sample table data; dtype=object avoids pandas 3.0 Arrow string backend
-        # incompatibility with the Cell objects TAPAS tokenizer sets internally.
+        # dtype=object avoids the pandas 3.0 Arrow-backed string backend
+        # which rejects Cell object assignment inside the TAPAS tokenizer.
         self.table = pd.DataFrame(
             {
                 "Player": [
@@ -97,6 +124,8 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
             self.load_model(dtype_override=dtype_override)
+
+        _patch_tapas_tokenizer_for_pandas3()
 
         inputs = self.tokenizer(
             table=self.table,
