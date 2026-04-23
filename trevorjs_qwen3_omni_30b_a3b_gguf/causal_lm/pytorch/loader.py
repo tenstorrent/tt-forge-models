@@ -8,6 +8,35 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_gguf_utils_for_qwen3omnimoe():
+    """Patch transformers GGUF utils to support qwen3omnimoe architecture as qwen3_moe."""
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+
+    arch = "qwen3omnimoe"
+    target = "qwen3_moe"
+
+    if arch not in GGUF_CONFIG_MAPPING.get("config", {}):
+        GGUF_CONFIG_MAPPING["config"][arch] = GGUF_CONFIG_MAPPING["config"][
+            target
+        ].copy()
+
+        from transformers.modeling_gguf_pytorch_utils import (
+            TENSOR_PROCESSORS,
+            Qwen2MoeTensorProcessor,
+        )
+
+        TENSOR_PROCESSORS[arch] = TENSOR_PROCESSORS.get(
+            "qwen3moe", Qwen2MoeTensorProcessor
+        )
+        gguf_utils.GGUF_SUPPORTED_ARCHITECTURES = list(
+            GGUF_CONFIG_MAPPING["config"].keys()
+        )
+
+
+_patch_gguf_utils_for_qwen3omnimoe()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -87,15 +116,19 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+        # qwen3omnimoe is the GGUF architecture name for Qwen3-Omni MoE; remap to
+        # qwen3_moe so that AutoModelForCausalLM resolves to Qwen3MoeForCausalLM.
+        if getattr(config, "model_type", None) == "qwen3omnimoe":
+            config.model_type = "qwen3_moe"
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
