@@ -23,6 +23,75 @@ from ....config import (
 )
 
 
+def _patch_mistral4_gguf():
+    """Register mistral4 GGUF architecture as an alias for deepseek_v2.
+
+    Mistral Small 4 uses the same GGUF field layout as deepseek2 (MLA attention +
+    sparse MoE with shared experts), but labels its architecture 'mistral4'.
+    transformers does not recognise 'mistral4', so we register it and remap
+    model_type to deepseek_v2 so AutoModelForCausalLM resolves the right class.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+    import transformers.configuration_utils as _config_utils
+    import transformers.models.auto.tokenization_auto as _auto_tokenizer
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        load_gguf_checkpoint as _orig_load,
+    )
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "mistral4" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("mistral4")
+
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["mistral4"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "rope.dimension_count": "qk_rope_head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": None,
+        "attention.value_length": None,
+        "attention.key_length_mla": "qk_nope_head_dim",
+        "attention.value_length_mla": "v_head_dim",
+        "attention.q_lora_rank": "q_lora_rank",
+        "attention.kv_lora_rank": "kv_lora_rank",
+        "vocab_size": "vocab_size",
+        "expert_count": "n_routed_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_shared_count": "n_shared_experts",
+        "expert_group_count": "n_group",
+        "expert_group_used_count": "topk_group",
+        "expert_weights_scale": "routed_scaling_factor",
+        "expert_weights_norm": "norm_topk_prob",
+        "leading_dense_block_count": "first_k_dense_replace",
+        "expert_feed_forward_length": "moe_intermediate_size",
+    }
+
+    GGUF_TO_FAST_CONVERTERS.setdefault("mistral4", GGUFQwen2Converter)
+
+    def _patched_load(gguf_path, return_tensors=False, **kwargs):
+        result = _orig_load(gguf_path, return_tensors=return_tensors, **kwargs)
+        if result.get("config", {}).get("model_type") == "mistral4":
+            result["config"]["model_type"] = "deepseek_v2"
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load
+    _config_utils.load_gguf_checkpoint = _patched_load
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load
+
+
+_patch_mistral4_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Mistral Small 4 119B 2603 GGUF model variants for causal language modeling."""
 
@@ -177,15 +246,23 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
+            mlp = layer.mlp
+            if hasattr(mlp, "experts"):
+                for expert in mlp.experts:
+                    shard_specs[expert.up_proj.weight] = ("model", "batch")
+                    shard_specs[expert.gate_proj.weight] = ("model", "batch")
+                    shard_specs[expert.down_proj.weight] = ("batch", "model")
+            elif hasattr(mlp, "up_proj"):
+                shard_specs[mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.down_proj.weight] = ("batch", "model")
+            attn = layer.self_attn
+            if hasattr(attn, "q_proj"):
+                shard_specs[attn.q_proj.weight] = ("model", "batch")
+            if hasattr(attn, "o_proj"):
+                shard_specs[attn.o_proj.weight] = ("batch", "model")
+        if hasattr(model, "lm_head"):
+            shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
