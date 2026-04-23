@@ -71,10 +71,14 @@ def _prepare_gguf_env():
         ):
             return fn
         try:
-            _cvars = inspect.getclosurevars(fn).nonlocals
+            _cvars = inspect.getclosurevars(fn)
+            # nonlocals: closure vars (functions defined inside other functions)
+            # globals: module-level vars referenced by the function (module-level patchers)
+            _candidates = dict(_cvars.nonlocals)
+            _candidates.update(_cvars.globals)
         except Exception:
             return None
-        for _val in _cvars.values():
+        for _val in _candidates.values():
             if callable(_val) and _val is not fn:
                 _r = _find_original_load_gguf(_val, _seen)
                 if _r is not None:
