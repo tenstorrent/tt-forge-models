@@ -14,6 +14,7 @@ import torch
 from io import BytesIO
 from PIL import Image
 from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 
 
@@ -105,6 +106,18 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
+
+        # transformers 5.x expects _tied_weights_keys as a dict {target: source}.
+        # The cached model code uses the old list format, so patch it before loading.
+        _model_cls = get_class_from_dynamic_module(
+            "modeling_diffusionvl_qwen2_5_vl.DiffusionVL_Qwen2_5_VL_ForConditionalGeneration",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+        if isinstance(getattr(_model_cls, "_tied_weights_keys", None), list):
+            _model_cls._tied_weights_keys = {
+                "lm_head.weight": "model.embed_tokens.weight"
+            }
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
