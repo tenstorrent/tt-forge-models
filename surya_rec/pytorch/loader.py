@@ -4,6 +4,7 @@
 """
 Surya Recognition model loader implementation for OCR text recognition tasks.
 """
+import numpy as np
 import torch
 from PIL import Image
 from typing import Optional
@@ -69,7 +70,7 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None, batch_size=1):
         from surya.common.surya.schema import TaskNames
 
-        image = Image.new("RGB", (896, 196), color=(255, 255, 255))
+        image = np.array(Image.new("RGB", (896, 196), color=(255, 255, 255)))
         fp = self._foundation_predictor
         model = fp.model
 
