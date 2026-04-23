@@ -10,6 +10,7 @@ from typing import Optional
 import torch
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
 
 _orig_is_gguf_available = _gguf_utils.is_gguf_available
 
@@ -24,6 +25,10 @@ def _patched_is_gguf_available(*args, **kwargs):
 
 
 _gguf_utils.is_gguf_available = _patched_is_gguf_available
+
+# deepseek_v2 tokenizer architecture is not in GGUF_TO_FAST_CONVERTERS; it uses
+# the same sentencepiece-based tokenizer structure as llama.
+GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFLlamaConverter)
 
 from ....base import ForgeModel
 from ....config import (
