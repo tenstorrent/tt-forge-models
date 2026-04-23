@@ -150,6 +150,10 @@ class ModelLoader(ForgeModel):
         model = Idefics2ForSequenceClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        # Idefics2Config in transformers >= 5.x dropped the top-level pad_token_id;
+        # mantis-vl 0.0.5 reads it directly from config at inference time.
+        if not hasattr(model.config, "pad_token_id"):
+            model.config.pad_token_id = model.config.text_config.pad_token_id
         model.eval()
         return model
 
