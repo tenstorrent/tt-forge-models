@@ -81,8 +81,9 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import os
+
         import torch
-        from huggingface_hub import hf_hub_download
 
         from .src.model import Net1D
 
@@ -102,17 +103,22 @@ class ModelLoader(ForgeModel):
             use_do=False,
         )
 
-        checkpoint_path = hf_hub_download(
-            repo_id=config.pretrained_model_name,
-            filename=config.checkpoint_filename,
-        )
-        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-        state_dict = (
-            checkpoint["state_dict"]
-            if isinstance(checkpoint, dict) and "state_dict" in checkpoint
-            else checkpoint
-        )
-        model.load_state_dict(state_dict, strict=False)
+        if not os.environ.get("TT_RANDOM_WEIGHTS"):
+            from huggingface_hub import hf_hub_download
+
+            checkpoint_path = hf_hub_download(
+                repo_id=config.pretrained_model_name,
+                filename=config.checkpoint_filename,
+            )
+            checkpoint = torch.load(
+                checkpoint_path, map_location="cpu", weights_only=False
+            )
+            state_dict = (
+                checkpoint["state_dict"]
+                if isinstance(checkpoint, dict) and "state_dict" in checkpoint
+                else checkpoint
+            )
+            model.load_state_dict(state_dict, strict=False)
 
         model.eval()
         if dtype_override is not None:
