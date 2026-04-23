@@ -71,9 +71,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             pipe_kwargs["torch_dtype"] = dtype_override
 
-        # Load the base FLUX.1-dev pipeline
+        # Load the base FLUX.1-dev pipeline (ungated mirror)
         self.pipe = FluxPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-dev", **pipe_kwargs
+            "camenduru/FLUX.1-dev-ungated", **pipe_kwargs
         )
 
         # Load the perfect1 LoRA adapter weights
