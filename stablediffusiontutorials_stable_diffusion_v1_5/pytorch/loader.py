@@ -5,20 +5,21 @@
 Stable Diffusion v1.5 (stablediffusiontutorials) model loader implementation
 """
 
-import torch
 from typing import Optional
+
+import torch
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
-from diffusers import StableDiffusionPipeline
+from .src.model_utils import load_pipe, stable_diffusion_preprocessing
 
 
 class ModelVariant(StrEnum):
@@ -33,11 +34,13 @@ class ModelLoader(ForgeModel):
     # Dictionary of available model variants
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
-            pretrained_model_name="stablediffusiontutorials/stable-diffusion-v1.5",
+            pretrained_model_name="sd-legacy/stable-diffusion-v1-5",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BASE
+
+    prompt = "a photo of an astronaut riding a horse on mars"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -47,6 +50,7 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -71,32 +75,33 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Diffusion v1.5 (stablediffusiontutorials) pipeline from Hugging Face.
+        """Load and return the UNet from the Stable Diffusion v1.5 pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use torch.bfloat16.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained Stable Diffusion v1.5 pipeline object.
+            torch.nn.Module: The UNet denoising model.
         """
-        dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
-        )
-        return pipe
+        self.pipeline = load_pipe(self._variant_config.pretrained_model_name)
+
+        if dtype_override is not None:
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
+
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the Stable Diffusion v1.5 model.
+        """Load and return sample inputs for the Stable Diffusion v1.5 UNet model.
 
         Args:
             dtype_override: This parameter is ignored for this model.
             batch_size: Optional batch size for the prompts.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments for the UNet forward method.
         """
-        prompt = [
-            "a photo of an astronaut riding a horse on mars",
-        ] * batch_size
-        return prompt
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        return stable_diffusion_preprocessing(self.pipeline, self.prompt)
