@@ -90,18 +90,16 @@ class ModelLoader(ForgeModel):
             self._load_processor()
 
         # Build prompt using chat template
+        # Content must be a string; the template inserts image tokens automatically
         conversation = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": self.sample_text},
-                ],
+                "content": self.sample_text,
             }
         ]
 
         text_prompt = self.processor.apply_chat_template(
-            conversation, padding=True, add_generation_prompt=True
+            conversation, add_generation_prompt=True
         )
 
         # Load sample image
