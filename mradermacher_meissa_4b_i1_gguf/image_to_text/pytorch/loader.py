@@ -6,6 +6,7 @@ mradermacher/Meissa-4B-i1-GGUF model loader implementation for image to text.
 """
 
 from transformers import (
+    Qwen3VLConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -87,8 +88,11 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
 
+        # Pass explicit config so GGUF loading skips the architecture
+        # check (qwen3vl is not yet registered in transformers GGUF support).
+        config = Qwen3VLConfig()
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
