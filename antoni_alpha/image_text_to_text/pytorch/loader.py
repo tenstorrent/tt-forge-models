@@ -97,14 +97,14 @@ class ModelLoader(ForgeModel):
         conversation. Synthetic slide latents are produced here to match
         the expected feature dimensions.
         """
-        slide_latents = torch.randn(batch_size, self.num_tiles, self.prism_embedding_dim)
+        slide_latents = torch.randn(
+            batch_size, self.num_tiles, self.prism_embedding_dim
+        )
 
         if dtype_override is not None:
             slide_latents = slide_latents.to(dtype_override)
 
-        conversations = [
-            [{"role": "user", "content": self.sample_prompt}]
-        ] * batch_size
+        conversations = [[{"role": "user", "content": self.sample_prompt}]] * batch_size
 
         return {
             "slide_latents": slide_latents,
