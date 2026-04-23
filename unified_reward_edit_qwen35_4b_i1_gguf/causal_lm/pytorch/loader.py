@@ -8,6 +8,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import inspect
+
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
@@ -68,8 +70,13 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to fix gguf version detection and add qwen35 support."""
     _fix_gguf_version_detection()
     _patch_qwen35_support()
+    try:
+        sig = inspect.signature(_orig_load_gguf_checkpoint)
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+    except (ValueError, TypeError):
+        filtered_kwargs = {}
     result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, **kwargs
+        gguf_path, return_tensors=return_tensors, **filtered_kwargs
     )
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
