@@ -5,9 +5,31 @@
 Google Gemma 3n E4B GGUF (bartowski) model loader implementation for causal language modeling.
 """
 
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _ensure_gguf_version():
+    """Set gguf.__version__ so transformers' is_gguf_available() can parse it.
+
+    transformers captures importlib.metadata.packages_distributions() at import
+    time (module-level). When gguf is installed dynamically (via RequirementsManager
+    after transformers is already imported), the stale mapping causes a KeyError and
+    the fallback reads getattr(gguf, '__version__', 'N/A') — which is 'N/A' because
+    the gguf package does not define __version__. version.parse('N/A') then raises
+    InvalidVersion. Setting gguf.__version__ here fixes the fallback path.
+    """
+    try:
+        import gguf
+
+        if not hasattr(gguf, "__version__") or gguf.__version__ == "N/A":
+            gguf.__version__ = importlib.metadata.version("gguf")
+    except Exception:
+        pass
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -63,6 +85,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _ensure_gguf_version()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -77,6 +100,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _ensure_gguf_version()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -154,6 +178,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _ensure_gguf_version()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
