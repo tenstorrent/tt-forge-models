@@ -4,8 +4,16 @@
 
 """Utility functions for WAMU I2V Lightning model loading."""
 
+from typing import Dict, Any
+
 import torch
-from PIL import Image
+
+
+# Small test dimensions for transformer inputs (patch_size=[1,2,2])
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 def load_i2v_pipeline(pretrained_model_name: str, dtype: torch.dtype):
@@ -34,21 +42,27 @@ def load_i2v_pipeline(pretrained_model_name: str, dtype: torch.dtype):
     return pipe
 
 
-def load_i2v_inputs(prompt: str) -> dict:
+def load_transformer_inputs(transformer_config, dtype: torch.dtype) -> Dict[str, Any]:
     """
-    Prepare inputs for the I2V pipeline (image-to-video generation).
+    Prepare inputs for WanTransformer3DModel forward pass.
 
-    Returns a dict suitable for passing to WanImageToVideoPipeline.__call__.
-    Uses a small synthetic image for testing.
+    For I2V models, in_channels=36 (16 latent + 16 reference + 4 mask).
     """
-    ref_image = Image.new("RGB", (832, 480), color=(128, 128, 200))
-
     return {
-        "image": ref_image,
-        "prompt": prompt,
-        "height": 480,
-        "width": 832,
-        "num_frames": 9,
-        "num_inference_steps": 2,
-        "guidance_scale": 5.0,
+        "hidden_states": torch.randn(
+            1,
+            transformer_config.in_channels,
+            TRANSFORMER_NUM_FRAMES,
+            TRANSFORMER_HEIGHT,
+            TRANSFORMER_WIDTH,
+            dtype=dtype,
+        ),
+        "encoder_hidden_states": torch.randn(
+            1,
+            TRANSFORMER_TEXT_SEQ_LEN,
+            transformer_config.text_dim,
+            dtype=dtype,
+        ),
+        "timestep": torch.tensor([500], dtype=torch.long),
+        "return_dict": False,
     }

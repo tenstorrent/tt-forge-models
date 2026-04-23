@@ -23,7 +23,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.utils import load_i2v_pipeline, load_i2v_inputs
+from .src.utils import load_i2v_pipeline, load_transformer_inputs
 
 
 class ModelVariant(StrEnum):
@@ -46,10 +46,6 @@ class ModelLoader(ForgeModel):
     }
     DEFAULT_VARIANT = ModelVariant.BASE
 
-    DEFAULT_PROMPT = (
-        "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"
-    )
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipeline = None
@@ -71,30 +67,33 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ) -> Any:
-        """Load and return the WAMU I2V Lightning pipeline.
+        """Load and return the WAMU I2V Lightning transformer.
 
         Args:
             dtype_override: Optional torch dtype for the transformer weights.
-                Defaults to bfloat16. VAE and image encoder always use float32.
+                Defaults to bfloat16. VAE always uses float32.
 
         Returns:
-            WanImageToVideoPipeline: The loaded pipeline.
+            WanTransformer3DModel: The primary transformer module.
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         self.pipeline = load_i2v_pipeline(
             self._variant_config.pretrained_model_name, dtype
         )
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> dict:
-        """Prepare inputs for image-to-video generation.
-
-        Args:
-            prompt: Text prompt for video generation. Uses default if not provided.
+    def load_inputs(self, **kwargs) -> dict:
+        """Prepare inputs for the WanTransformer3DModel forward pass.
 
         Returns:
-            dict: Pipeline inputs including image, prompt, and generation parameters.
+            dict: Tensor inputs for the transformer forward pass.
         """
-        return load_i2v_inputs(
-            prompt=prompt if prompt is not None else self.DEFAULT_PROMPT
-        )
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        return load_transformer_inputs(self.pipeline.transformer.config, dtype)
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if isinstance(output, tuple):
+            return output[0]
+        if hasattr(output, "sample"):
+            return output.sample
+        return output
