@@ -8,7 +8,7 @@ KORMo-VL model loader implementation for image-text-to-text generation.
 from typing import Optional
 
 from PIL import Image
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoConfig, AutoModelForImageTextToText, AutoProcessor
 
 from ....base import ForgeModel
 from ....config import (
@@ -67,9 +67,20 @@ class ModelLoader(ForgeModel):
         )
         return self.processor
 
+    def _register_kormo_config(self):
+        # KORMo-VL/KORMo-VL is llava_onevision with a custom 'kormo' text backbone.
+        # The custom config lives in KORMo-Team/KORMo-10B-sft and must be registered
+        # before LlavaOnevisionConfig.__init__ looks it up in CONFIG_MAPPING.
+        kormo_cfg = AutoConfig.from_pretrained(
+            "KORMo-Team/KORMo-10B-sft", trust_remote_code=True
+        )
+        AutoConfig.register("kormo", type(kormo_cfg), exist_ok=True)
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the KORMo-VL model instance."""
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        self._register_kormo_config()
 
         if self.processor is None:
             self._load_processor()
