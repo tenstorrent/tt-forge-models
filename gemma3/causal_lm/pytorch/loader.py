@@ -11,6 +11,14 @@ import torch
 import torch.nn as nn
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
+# gptqmodel.nn_modules.exllamav3_torch computes constants at module level using
+# torch.tensor().item(). Pre-import here (during collection) so those constants
+# are evaluated before TT-XLA's __torch_function__ override becomes active.
+try:
+    import gptqmodel.nn_modules.exllamav3_torch  # noqa: F401
+except (ImportError, Exception):
+    pass
+
 from ....config import (
     LLMModelConfig,
     ModelInfo,
