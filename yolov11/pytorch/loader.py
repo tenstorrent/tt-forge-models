@@ -20,9 +20,6 @@ from ...config import (
     StrEnum,
     Framework,
 )
-from ...tools.utils import yolo_postprocess
-
-
 class ModelVariant(StrEnum):
     """Available YOLOv11 model variants."""
 
@@ -159,4 +156,5 @@ class ModelLoader(ForgeModel):
         Returns:
             Post-processed detection results.
         """
+        from ...tools.utils import yolo_postprocess
         return yolo_postprocess(co_out)
