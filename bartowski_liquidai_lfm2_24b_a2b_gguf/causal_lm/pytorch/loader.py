@@ -101,6 +101,11 @@ def _patch_lfm2moe_gguf_support():
         if result.get("config", {}).get("model_type") == "lfm2moe":
             kv_heads = result["config"].get("num_key_value_heads", 8)
             if isinstance(kv_heads, list):
+                # Build layer_types from per-layer kv_head counts:
+                # "full_attention" where kv_heads > 0, "shortconv" otherwise
+                result["config"]["layer_types"] = [
+                    "full_attention" if h > 0 else "shortconv" for h in kv_heads
+                ]
                 kv_heads = max(kv_heads) if max(kv_heads) > 0 else 8
             result["config"]["num_key_value_heads"] = kv_heads
             result["config"]["model_type"] = "lfm2_moe"
