@@ -120,10 +120,11 @@ class ModelLoader(ForgeModel):
         )
 
         if self.num_layers is not None:
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-            else:
-                config.num_hidden_layers = self.num_layers
+            config.text_config.num_hidden_layers = self.num_layers
+
+        # GGUF weight mapping expects num_hidden_layers on the top-level config.
+        if not hasattr(config, "num_hidden_layers") and hasattr(config, "text_config"):
+            config.num_hidden_layers = config.text_config.num_hidden_layers
 
         ModelClass = get_class_from_dynamic_module(
             "modeling_step_vl.Step3VL10BForCausalLM",
