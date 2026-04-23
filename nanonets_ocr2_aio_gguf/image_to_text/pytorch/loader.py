@@ -4,7 +4,7 @@
 """
 prithivMLmods/Nanonets-OCR2-3B-AIO-GGUF model loader implementation for image to text.
 """
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+from transformers import Qwen2VLForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -40,6 +40,9 @@ class ModelLoader(ForgeModel):
     _GGUF_FILES = {
         ModelVariant.NANONETS_OCR2_3B_AIO_GGUF: "Nanonets-OCR2-3B.Q4_K_M.gguf",
     }
+
+    # GGUF repos do not ship a processor or full config; use the base model
+    BASE_MODEL = "prithivMLmods/Nanonets-OCR2-3B-AIO"
 
     sample_image = (
         "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
@@ -104,15 +107,13 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self._gguf_file
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self._gguf_file
-            )
+            config = AutoConfig.from_pretrained(self.BASE_MODEL)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = Qwen2VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
 
@@ -152,7 +153,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
-        )
+        self.config = AutoConfig.from_pretrained(self.BASE_MODEL)
         return self.config
