@@ -43,7 +43,10 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
     _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "qwen35":
-        result["config"]["model_type"] = "qwen3"
+        from transformers.modeling_gguf_pytorch_utils import TENSOR_PROCESSORS
+
+        if "qwen35" not in TENSOR_PROCESSORS:
+            result["config"]["model_type"] = "qwen3"
     return result
 
 
