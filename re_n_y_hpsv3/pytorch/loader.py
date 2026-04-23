@@ -109,10 +109,15 @@ class ModelLoader(ForgeModel):
             "max_pixels": self.max_pixels,
         }
 
-        # Load the processor
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
-        )
+        # RE-N-Y/hpsv3 doesn't ship processor files; fall back to Qwen2-VL-7B processor
+        try:
+            self.processor = AutoProcessor.from_pretrained(
+                self._variant_config.pretrained_model_name, **processor_kwargs
+            )
+        except OSError:
+            self.processor = AutoProcessor.from_pretrained(
+                "Qwen/Qwen2-VL-7B-Instruct", **processor_kwargs
+            )
 
         return self.processor
 
