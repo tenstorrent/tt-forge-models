@@ -196,9 +196,20 @@ class ModelLoader(ForgeModel):
         elif self.tokenizer is None:
             self._load_tokenizer()
 
+        import torch.distributed as _tdist
         import transformers.cache_utils as _cu
         import transformers.modeling_rope_utils as _ru
         import transformers.utils as _tu
+
+        if not hasattr(_tdist, "_orig_get_rank"):
+            _tdist._orig_get_rank = _tdist.get_rank
+
+            def _safe_get_rank(*args, **kwargs):
+                if not _tdist.is_initialized():
+                    return 0
+                return _tdist._orig_get_rank(*args, **kwargs)
+
+            _tdist.get_rank = _safe_get_rank
 
         if not hasattr(_cu, "SlidingWindowCache"):
             _cu.SlidingWindowCache = _cu.StaticCache
@@ -264,6 +275,11 @@ class ModelLoader(ForgeModel):
         model.eval()
         self.model = model
 
+        # Set img_context_token_id for the HF-native path (not set by the model's __init__)
+        if self._is_hf_native and self.processor is not None:
+            img_ctx_id = self.processor.tokenizer.convert_tokens_to_ids("<IMG_CONTEXT>")
+            model.img_context_token_id = img_ctx_id
+
         return model
 
     def _load_inputs_hf_native(self, dtype_override=None, batch_size=1):
@@ -289,13 +305,26 @@ class ModelLoader(ForgeModel):
         text = self.processor.apply_chat_template(
             messages, add_generation_prompt=True, tokenize=False
         )
-        inputs = self.processor(
-            images=image,
-            text=text,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-        )
+        # The image processor calls .cuda() internally; patch it to a no-op on CPU-only torch.
+        import unittest.mock as _mock
+
+        with _mock.patch.object(torch.Tensor, "cuda", lambda self, *a, **kw: self):
+            inputs = self.processor(
+                images=image,
+                text=text,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+            )
+
+        inputs = dict(inputs)
+        # eos_token_id is metadata from the processor, not a model forward() input
+        inputs.pop("eos_token_id", None)
+
+        # SAILVLModel.forward() requires image_flags: ones tensor per patch
+        if "pixel_values" in inputs and inputs["pixel_values"] is not None:
+            num_patches = inputs["pixel_values"].shape[0]
+            inputs["image_flags"] = torch.ones(num_patches, 1, dtype=torch.long)
 
         if dtype_override is not None and "pixel_values" in inputs:
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
@@ -304,7 +333,7 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]) and batch_size > 1:
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        return dict(inputs)
+        return inputs
 
     def _load_inputs_custom(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
