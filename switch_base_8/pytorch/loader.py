@@ -76,12 +76,19 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = SwitchTransformersForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        # SwitchTransformers routers cast hidden_states to config.router_dtype (float32)
+        # before the classifier linear layer, so the classifier weights must match.
+        # When the model is loaded in a different dtype (e.g. bfloat16), we cast
+        # each router's classifier to the expected router_dtype to avoid a dtype mismatch.
+        for module in model.modules():
+            if hasattr(module, "classifier") and hasattr(module, "dtype"):
+                module.classifier.to(module.dtype)
         model.eval()
         self._cached_model = model
         return model
