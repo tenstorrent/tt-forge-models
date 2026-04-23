@@ -83,6 +83,7 @@ class ModelLoader(ForgeModel):
         fp8_path = hf_hub_download(repo_id=FP8_REPO_ID, filename=fp8_file)
         self.transformer = CosmosTransformer3DModel.from_single_file(
             fp8_path,
+            config="nvidia/Cosmos-Predict2-2B-Text2Image",
             torch_dtype=dtype,
         )
         return self.transformer
