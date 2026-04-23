@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
             num_input_channels=7,
         ),
         ModelVariant.TESTING_ETTH1_FORECAST: PatchTSTConfig(
-            pretrained_model_name="ibm-research/testing-patchtst_etth1_forecast",
+            pretrained_model_name="ibm-research/patchtst-etth1-pretrain",
             context_length=512,
             prediction_length=96,
             num_input_channels=7,
