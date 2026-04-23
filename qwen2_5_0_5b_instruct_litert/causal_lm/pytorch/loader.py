@@ -39,7 +39,7 @@ class QwenLiteRTWrapper(nn.Module):
 
     def __init__(self, tflite_model_path: str):
         super().__init__()
-        import ai_edge_litert as tflite
+        import ai_edge_litert.interpreter as tflite
 
         self.interpreter = tflite.Interpreter(model_path=tflite_model_path)
         self.interpreter.allocate_tensors()
