@@ -23,9 +23,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import yolo_postprocess
-
-
 class ModelVariant(StrEnum):
     """Available Best Comic Panel Detection model variants."""
 
@@ -90,4 +87,5 @@ class ModelLoader(ForgeModel):
         return batch_tensor
 
     def post_process(self, co_out):
+        from ...tools.utils import yolo_postprocess
         return yolo_postprocess(co_out)
