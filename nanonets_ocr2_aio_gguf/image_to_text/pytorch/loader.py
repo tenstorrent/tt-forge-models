@@ -188,6 +188,11 @@ class ModelLoader(ForgeModel):
         config.vision_config.hidden_size = config.text_config.hidden_size
         if self.num_layers is not None:
             config.text_config.num_hidden_layers = self.num_layers
+        # GGUF config mapping for qwen2 does not include mrope_section, so
+        # rope_parameters["mrope_section"] is missing. Qwen2-VL uses MRoPE with
+        # head_dim=128, split into [temporal=16, height=24, width=24] (sums to 64=128/2).
+        if "mrope_section" not in config.text_config.rope_parameters:
+            config.text_config.rope_parameters["mrope_section"] = [16, 24, 24]
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -243,5 +248,7 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
         )
         config.vision_config.hidden_size = config.text_config.hidden_size
+        if "mrope_section" not in config.text_config.rope_parameters:
+            config.text_config.rope_parameters["mrope_section"] = [16, 24, 24]
         self.config = config
         return self.config
