@@ -4,7 +4,7 @@
 """
 TheAverageDetective Llama 3.1 8B Instruct OpenVINO model loader implementation for causal language modeling.
 """
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
             group=ModelGroup.VULCAN,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
-            framework=Framework.ONNX,
+            framework=Framework.TORCH,
         )
 
     def _load_tokenizer(self, dtype_override=None):
@@ -70,14 +70,18 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from optimum.intel.openvino import OVModelForCausalLM
+        pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model = OVModelForCausalLM.from_pretrained(
-            self._variant_config.pretrained_model_name, **kwargs
-        )
+        model_kwargs = {}
+        if dtype_override is not None:
+            model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
+
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
 
         return model
 
