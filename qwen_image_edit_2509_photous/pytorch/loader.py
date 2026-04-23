@@ -93,7 +93,7 @@ class ModelLoader(ForgeModel):
 
         Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = kwargs.get("batch_size", 1)
 
         # From model config: in_channels=64 (img_in linear input dimension)
