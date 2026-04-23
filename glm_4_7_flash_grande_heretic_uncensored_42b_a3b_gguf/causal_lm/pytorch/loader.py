@@ -4,9 +4,26 @@
 """
 GLM-4.7-Flash-Grande-Heretic-UNCENSORED-42B-A3B GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import importlib.metadata as _importlib_metadata
 from typing import Optional
+
+import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_pytorch_utils
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+
+
+def _is_gguf_available(min_version: str = "0.10.0") -> bool:
+    # transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time, so
+    # dynamically-installed gguf is not found. Use importlib.metadata directly.
+    try:
+        from packaging.version import Version
+
+        return Version(_importlib_metadata.version("gguf")) >= Version(min_version)
+    except Exception:
+        return False
+
+
+_gguf_pytorch_utils.is_gguf_available = _is_gguf_available
 
 from ....base import ForgeModel
 from ....config import (
@@ -97,7 +114,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
