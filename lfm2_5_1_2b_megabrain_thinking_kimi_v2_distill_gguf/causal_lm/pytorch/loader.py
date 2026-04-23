@@ -8,6 +8,11 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
+
+if "lfm2" not in GGUF_TO_FAST_CONVERTERS:
+    GGUF_TO_FAST_CONVERTERS["lfm2"] = GGUFLlamaConverter
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
