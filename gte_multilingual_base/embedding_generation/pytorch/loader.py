@@ -98,6 +98,12 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        seq_length = inputs["input_ids"].shape[1]
+        batch_size = inputs["input_ids"].shape[0]
+        inputs["position_ids"] = (
+            torch.arange(seq_length).unsqueeze(0).expand(batch_size, -1).clone()
+        )
+
         if dtype_override is not None:
             for key, value in inputs.items():
                 if isinstance(value, torch.Tensor) and value.dtype == torch.float32:
