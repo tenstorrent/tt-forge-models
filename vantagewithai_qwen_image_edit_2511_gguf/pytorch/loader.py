@@ -156,7 +156,9 @@ class ModelLoader(ForgeModel):
         )
         encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
         timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
-        img_shapes = [(frame, height, width)] * batch_size
+        # zero_cond_t=True requires each element to be a list of shape tuples
+        # (one per layer), not a flat (frame, height, width) tuple.
+        img_shapes = [[(frame, height, width)]] * batch_size
 
         return {
             "hidden_states": hidden_states,
