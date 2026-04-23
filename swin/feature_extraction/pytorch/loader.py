@@ -51,10 +51,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="hf-hub:1aurent/swin_tiny_patch4_window7_224.CTransPath",
             source=ModelSource.TIMM,
         ),
-        ModelVariant.TINY_RANDOM_PATCH4_WINDOW7_224: ModelConfig(
-            pretrained_model_name="yujiepan/tiny-random-swin-patch4-window7-224",
-        ),
-        ModelVariant.TINY_RANDOM_PATCH4_WINDOW7_224: ModelConfig(
+        ModelVariant.TINY_RANDOM_PATCH4_WINDOW7_224: SwinFEConfig(
             pretrained_model_name="yujiepan/tiny-random-swin-patch4-window7-224",
         ),
     }
