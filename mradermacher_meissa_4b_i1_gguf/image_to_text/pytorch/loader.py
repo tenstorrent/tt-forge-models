@@ -120,6 +120,13 @@ def _patch_transformers_qwen3vl_gguf():
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # 6. Also patch configuration_utils which has a module-level direct import of
+    #    load_gguf_checkpoint (not via gguf_utils), so the module-level patch above
+    #    does not affect AutoConfig.from_pretrained.
+    import transformers.configuration_utils as _config_utils
+
+    _config_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
 
 class ModelVariant(StrEnum):
     """Available mradermacher Meissa-4B-i1-GGUF model variants for image to text."""
