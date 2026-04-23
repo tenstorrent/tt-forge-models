@@ -44,7 +44,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.GEMMA_3_12B_IT_VL_GLM_POLARIS_V2C_NM_SUPERBRAIN7X_HERETIC_UNCENSORED_GGUF
     )
 
-    GGUF_FILE = "gemma-3-12b-it-vl-GLM-Polaris-V2c-NM-SuperBrain7x-HERETIC-Uncensored.Q4_K_M.gguf"
+    GGUF_FILE = (
+        "gemma-3-12b-it-vl-GLM-Polaris-V2c-NM-SuperBrain7x-HERETIC-Uncensored.Q2_K.gguf"
+    )
 
     sample_text = "What is your favorite city?"
 
