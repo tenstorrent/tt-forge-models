@@ -4,10 +4,26 @@
 """
 ZuzeTt Granite 4.0 H Tiny imatrix GGUF model loader implementation for causal language modeling.
 """
+import importlib.util
 from typing import Optional
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+_orig_is_gguf_available = _gguf_utils.is_gguf_available
+
+
+def _patched_is_gguf_available(*args, **kwargs):
+    if importlib.util.find_spec("gguf") is None:
+        return False
+    try:
+        return _orig_is_gguf_available(*args, **kwargs)
+    except Exception:
+        return True
+
+
+_gguf_utils.is_gguf_available = _patched_is_gguf_available
 
 from ....base import ForgeModel
 from ....config import (
