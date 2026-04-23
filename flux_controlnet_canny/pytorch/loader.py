@@ -2,12 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-XLabs FLUX ControlNet Canny model loader implementation.
+InstantX FLUX ControlNet Canny model loader implementation.
 
-Loads the XLabs-AI FLUX.1-dev Canny ControlNet from a single-file
-safetensors checkpoint, producing a diffusers ``FluxControlNetModel``.
+Loads the InstantX FLUX.1-dev Canny ControlNet from HuggingFace,
+producing a diffusers ``FluxControlNetModel``.
 
-Repository: https://huggingface.co/XLabs-AI/flux-controlnet-canny-v3
+Repository: https://huggingface.co/InstantX/FLUX.1-dev-Controlnet-Canny
 """
 
 from typing import Any, Optional
@@ -26,8 +26,7 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "XLabs-AI/flux-controlnet-canny-v3"
-SAFETENSORS_FILE = "flux-canny-controlnet-v3.safetensors"
+REPO_ID = "InstantX/FLUX.1-dev-Controlnet-Canny"
 
 
 class ModelVariant(StrEnum):
@@ -65,7 +64,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the FLUX ControlNet Canny model.
+        """Load and return the InstantX FLUX ControlNet Canny model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
@@ -76,8 +75,8 @@ class ModelLoader(ForgeModel):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         repo_id = self._variant_config.pretrained_model_name
-        self._controlnet = FluxControlNetModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{SAFETENSORS_FILE}",
+        self._controlnet = FluxControlNetModel.from_pretrained(
+            repo_id,
             torch_dtype=compute_dtype,
         )
         self._controlnet.eval()
@@ -116,6 +115,11 @@ class ModelLoader(ForgeModel):
         timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
         img_ids = torch.zeros(img_seq_len, 3, dtype=dtype)
         txt_ids = torch.zeros(txt_seq_len, 3, dtype=dtype)
+        guidance = (
+            torch.full([batch_size], 3.5, dtype=dtype)
+            if config.guidance_embeds
+            else None
+        )
 
         return {
             "hidden_states": hidden_states,
@@ -125,4 +129,5 @@ class ModelLoader(ForgeModel):
             "timestep": timestep,
             "img_ids": img_ids,
             "txt_ids": txt_ids,
+            "guidance": guidance,
         }
