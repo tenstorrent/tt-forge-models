@@ -96,15 +96,18 @@ class ModelLoader(ForgeModel):
         import diffusers.utils.import_utils as _diffusers_import_utils
 
         if not _diffusers_import_utils._gguf_available:
+            import importlib
+            import importlib.metadata
             import importlib.util
 
             if importlib.util.find_spec("gguf") is not None:
-                import importlib.metadata
-
                 _diffusers_import_utils._gguf_available = True
                 _diffusers_import_utils._gguf_version = importlib.metadata.version(
                     "gguf"
                 )
+                import diffusers.quantizers.gguf.gguf_quantizer as _gguf_quantizer
+
+                importlib.reload(_gguf_quantizer)
 
         from diffusers import (
             AutoencoderKLWan,
