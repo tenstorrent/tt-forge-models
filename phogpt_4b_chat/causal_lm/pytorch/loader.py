@@ -97,6 +97,20 @@ class ModelLoader(ForgeModel):
             fake.__version__ = "0.0.0"
             sys.modules["flash_attn"] = fake
 
+    @staticmethod
+    def _patch_transformers_compat():
+        # transformers 5.x removed the specialized Llama rotary embedding subclasses.
+        # modeling_mpt.py imports them at module level even when alibi (not rope) is used,
+        # so provide aliases pointing to the unified LlamaRotaryEmbedding.
+        import transformers.models.llama.modeling_llama as llama_module
+
+        for cls_name in (
+            "LlamaLinearScalingRotaryEmbedding",
+            "LlamaDynamicNTKScalingRotaryEmbedding",
+        ):
+            if not hasattr(llama_module, cls_name):
+                setattr(llama_module, cls_name, llama_module.LlamaRotaryEmbedding)
+
     def _load_tokenizer(self, dtype_override=None):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -116,6 +130,7 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self._ensure_flash_attn_triton_stub()
+        self._patch_transformers_compat()
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -155,6 +170,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self._ensure_flash_attn_triton_stub()
+        self._patch_transformers_compat()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
