@@ -19,3 +19,7 @@ results:
   status: "PASS"
   date: "20260423_103921"
   branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-15"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[qwen3_30b_a3b_instruct_2507_malaysian_dora_gguf/causal_lm/pytorch-30B_A3B_Instruct_2507_Malaysian_DoRA_GGUF-single_device-inference]"
+  status: "PASS"
+  date: "20260423_115245"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-15"
