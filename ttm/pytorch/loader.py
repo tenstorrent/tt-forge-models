@@ -97,9 +97,23 @@ class ModelLoader(ForgeModel):
         """
         from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
 
-        cfg = self._variant_config
+        # granite-tsfm 0.3.x models omit self.post_init() which transformers 5.x
+        # requires to initialize all_tied_weights_keys before from_pretrained finishes.
+        _orig_ttm_init = TinyTimeMixerForPrediction.__init__
 
-        model = TinyTimeMixerForPrediction.from_pretrained(cfg.pretrained_model_name)
+        def _patched_ttm_init(self_m, config, **kw):
+            _orig_ttm_init(self_m, config, **kw)
+            if not hasattr(self_m, "all_tied_weights_keys"):
+                self_m.post_init()
+
+        TinyTimeMixerForPrediction.__init__ = _patched_ttm_init
+        try:
+            cfg = self._variant_config
+            model = TinyTimeMixerForPrediction.from_pretrained(
+                cfg.pretrained_model_name
+            )
+        finally:
+            TinyTimeMixerForPrediction.__init__ = _orig_ttm_init
 
         if dtype_override is not None:
             model = model.to(dtype_override)
