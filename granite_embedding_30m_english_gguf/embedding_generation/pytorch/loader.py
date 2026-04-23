@@ -9,6 +9,16 @@ import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_CONFIG_MAPPING, GGUF_TO_FAST_CONVERTERS
+
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
@@ -19,6 +29,44 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+_BERT_GGUF_CONFIG_MAPPING = {
+    "block_count": "num_hidden_layers",
+    "context_length": "max_position_embeddings",
+    "embedding_length": "hidden_size",
+    "feed_forward_length": "intermediate_size",
+    "attention.head_count": "num_attention_heads",
+    "attention.layer_norm_epsilon": "layer_norm_eps",
+}
+
+
+def _patch_bert_gguf_support():
+    """Register bert as a supported GGUF architecture.
+
+    Adds config key mappings and tokenizer converter for BERT GGUF models.
+    The tokenizer uses a GPT2/BPE format (roberta-bpe pre-tokenizer), so we
+    reuse the gpt2 fast converter.
+    """
+    if "bert" not in GGUF_CONFIG_MAPPING:
+        GGUF_CONFIG_MAPPING["bert"] = dict(_BERT_GGUF_CONFIG_MAPPING)
+    if "bert" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("bert")
+    if "bert" not in GGUF_TO_FAST_CONVERTERS and "gpt2" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["bert"] = GGUF_TO_FAST_CONVERTERS["gpt2"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    _patch_bert_gguf_support()
+    return _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+
+
+_patch_bert_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
