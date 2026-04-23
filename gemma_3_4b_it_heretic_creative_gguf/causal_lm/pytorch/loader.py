@@ -47,7 +47,8 @@ def _patch_gguf_compat():
         return _wrapper
 
     for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils):
-        _mod.load_gguf_checkpoint = _wrap(_mod.load_gguf_checkpoint)
+        if hasattr(_mod, "load_gguf_checkpoint"):
+            _mod.load_gguf_checkpoint = _wrap(_mod.load_gguf_checkpoint)
 
 
 class ModelVariant(StrEnum):
