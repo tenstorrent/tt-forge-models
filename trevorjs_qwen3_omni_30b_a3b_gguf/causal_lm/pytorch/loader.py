@@ -13,25 +13,22 @@ def _patch_gguf_utils_for_qwen3omnimoe():
     """Patch transformers GGUF utils to support qwen3omnimoe architecture as qwen3_moe."""
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
     from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+    from transformers.modeling_gguf_pytorch_utils import (
+        TENSOR_PROCESSORS,
+        Qwen2MoeTensorProcessor,
+    )
 
     arch = "qwen3omnimoe"
     target = "qwen3_moe"
 
-    if arch not in GGUF_CONFIG_MAPPING.get("config", {}):
-        GGUF_CONFIG_MAPPING["config"][arch] = GGUF_CONFIG_MAPPING["config"][
-            target
-        ].copy()
-
-        from transformers.modeling_gguf_pytorch_utils import (
-            TENSOR_PROCESSORS,
-            Qwen2MoeTensorProcessor,
-        )
-
+    if arch not in GGUF_CONFIG_MAPPING:
+        # GGUF_CONFIG_MAPPING is the same object as GGUF_TO_TRANSFORMERS_MAPPING["config"]
+        GGUF_CONFIG_MAPPING[arch] = GGUF_CONFIG_MAPPING[target].copy()
         TENSOR_PROCESSORS[arch] = TENSOR_PROCESSORS.get(
             "qwen3moe", Qwen2MoeTensorProcessor
         )
         gguf_utils.GGUF_SUPPORTED_ARCHITECTURES = list(
-            GGUF_CONFIG_MAPPING["config"].keys()
+            gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].keys()
         )
 
 
