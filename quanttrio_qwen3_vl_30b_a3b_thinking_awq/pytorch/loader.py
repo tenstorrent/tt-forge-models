@@ -7,6 +7,7 @@ QuantTrio Qwen3-VL-30B-A3B-Thinking AWQ model loader implementation for image to
 
 from transformers import (
     Qwen3VLMoeForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
 )
 from typing import Optional
@@ -87,7 +88,11 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-            model_kwargs["quantization_config"] = None
+            # Load config and strip AWQ quantization so gptqmodel is not required
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            if hasattr(config, "quantization_config"):
+                delattr(config, "quantization_config")
+            model_kwargs["config"] = config
         else:
             model_kwargs["dtype"] = "auto"
             model_kwargs["device_map"] = "auto"
