@@ -34,35 +34,27 @@ GGUF_REPO = "gpustack/stable-diffusion-v1-5-GGUF"
 BASE_PIPELINE = "sd-legacy/stable-diffusion-v1-5"
 
 
-def _dequantize_q8_0(data: torch.Tensor) -> torch.Tensor:
-    """Dequantize a Q8_0 GGUF uint8 tensor to float32.
-
-    Q8_0 blocks: [float16 scale (2 bytes), int8 values (32 bytes)] = 34 bytes/block.
-    Diffusers 0.37.1 leaves norm weights as raw uint8 bytes instead of dequantizing them.
-    """
-    n_blocks = data.numel() // 34
-    raw = data.reshape(n_blocks, 34)
-    # view(float16) on [n_blocks, 2] uint8 → [n_blocks, 1] float16; reshape to 1-D
-    scale = raw[:, :2].contiguous().view(torch.float16).reshape(n_blocks).float()
-    q_values = raw[:, 2:].contiguous().to(torch.int8).float()
-    return (q_values * scale.unsqueeze(1)).reshape(n_blocks * 32)
-
-
 def _fix_gguf_norm_weights(unet: torch.nn.Module, compute_dtype: torch.dtype) -> None:
-    """Fix norm layer weights left as raw Q8_0 bytes by diffusers 0.37.1."""
-    import torch.nn as nn
+    """Replace GGUF norm weights with regular nn.Parameters.
+
+    In diffusers 0.37.1, GGUFParameter.__torch_function__ only inspects positional
+    args for quant_type, but F.group_norm passes weight/bias as kwargs — causing
+    KeyError: None.  Replacing GGUFParameter with plain nn.Parameter sidesteps the
+    __torch_function__ path entirely.
+    """
+    from diffusers.quantizers.gguf.utils import GGUFParameter, dequantize_gguf_tensor
 
     with torch.no_grad():
         for module in unet.modules():
-            if isinstance(module, (nn.GroupNorm, nn.LayerNorm)):
-                if module.weight is not None and module.weight.dtype == torch.uint8:
-                    module.weight.data = _dequantize_q8_0(module.weight.data).to(
-                        compute_dtype
-                    )
-                if module.bias is not None and module.bias.dtype == torch.uint8:
-                    module.bias.data = _dequantize_q8_0(module.bias.data).to(
-                        compute_dtype
-                    )
+            if isinstance(module, (torch.nn.GroupNorm, torch.nn.LayerNorm)):
+                if module.weight is not None and isinstance(
+                    module.weight, GGUFParameter
+                ):
+                    dq = dequantize_gguf_tensor(module.weight).to(compute_dtype)
+                    module.weight = torch.nn.Parameter(dq)
+                if module.bias is not None and isinstance(module.bias, GGUFParameter):
+                    dq = dequantize_gguf_tensor(module.bias).to(compute_dtype)
+                    module.bias = torch.nn.Parameter(dq)
 
 
 class ModelVariant(StrEnum):
