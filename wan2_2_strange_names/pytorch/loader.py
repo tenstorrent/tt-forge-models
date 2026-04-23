@@ -13,8 +13,10 @@ Repository: https://huggingface.co/Kokosha01/Wan2.2_StrangeNames
 
 from typing import Any, Optional
 
+import safetensors.torch
 import torch
 from diffusers import ZImagePipeline
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -92,10 +94,21 @@ class ModelLoader(ForgeModel):
         )
 
         lora_file = _LORA_FILES[self._variant]
-        self._pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=lora_file,
-        )
+        lora_path = hf_hub_download(repo_id=LORA_REPO, filename=lora_file)
+        state_dict = safetensors.torch.load_file(lora_path)
+
+        # Inject missing alpha keys (alpha = rank → scale = 1.0) so diffusers'
+        # _convert_non_diffusers_z_image_lora_to_diffusers doesn't KeyError.
+        down_suffix = ".lora_down.weight"
+        alpha_additions = {
+            k[: -len(down_suffix)] + ".alpha": torch.tensor(float(v.shape[0]))
+            for k, v in state_dict.items()
+            if k.endswith(down_suffix)
+            and k[: -len(down_suffix)] + ".alpha" not in state_dict
+        }
+        state_dict.update(alpha_additions)
+
+        self._pipe.load_lora_weights(state_dict)
         self._pipe.fuse_lora()
 
         return self._pipe
