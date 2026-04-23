@@ -8,7 +8,56 @@ Qwen3-8B Jailbroken GGUF model loader implementation for causal language modelin
 from typing import Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+
+def _get_real_load_gguf_checkpoint():
+    """Walk the monkey-patch closure chain to recover the original load_gguf_checkpoint.
+
+    Other GGUF model loaders patch load_gguf_checkpoint with signatures that drop
+    the model_to_load kwarg added in transformers 5.2.0. This finds the real function.
+    """
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen = set()
+    while True:
+        if id(fn) in seen:
+            break
+        seen.add(id(fn))
+        if (
+            getattr(fn, "__module__", None)
+            == "transformers.modeling_gguf_pytorch_utils"
+        ):
+            return fn
+        closure = fn.__closure__ or ()
+        next_fn = None
+        for var, cell in zip(getattr(fn.__code__, "co_freevars", ()), closure):
+            if "orig" in var or "load_gguf" in var:
+                try:
+                    val = cell.cell_contents
+                    if callable(val):
+                        next_fn = val
+                        break
+                except ValueError:
+                    pass
+        if next_fn is None or next_fn is fn:
+            break
+        fn = next_fn
+    return fn
+
+
+def _compat_load_gguf_checkpoint(*args, **kwargs):
+    """Forward all kwargs (including model_to_load) to the real load_gguf_checkpoint."""
+    return _get_real_load_gguf_checkpoint()(*args, **kwargs)
+
+
+_gguf_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _compat_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
