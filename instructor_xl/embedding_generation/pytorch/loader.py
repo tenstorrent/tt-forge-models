@@ -5,6 +5,8 @@
 Instructor-XL model loader implementation for sentence embedding generation.
 """
 
+import os
+import shutil
 import torch
 from transformers import AutoTokenizer, T5EncoderModel
 from typing import Optional
@@ -19,6 +21,22 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+_MODEL_SPACE_THRESHOLD = 6 * 1024 * 1024 * 1024  # 6 GB
+_FALLBACK_CACHE_DIR = "/tmp/hf_cache_instructor_xl"
+
+
+def _get_cache_dir():
+    hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+    hub_dir = os.path.join(hf_home, "hub")
+    try:
+        os.makedirs(hub_dir, exist_ok=True)
+        if shutil.disk_usage(hub_dir).free >= _MODEL_SPACE_THRESHOLD:
+            return None
+    except OSError:
+        pass
+    os.makedirs(_FALLBACK_CACHE_DIR, exist_ok=True)
+    return _FALLBACK_CACHE_DIR
 
 
 class ModelVariant(StrEnum):
@@ -64,6 +82,9 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        cache_dir = _get_cache_dir()
+        if cache_dir is not None:
+            tokenizer_kwargs["cache_dir"] = cache_dir
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -77,6 +98,9 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        cache_dir = _get_cache_dir()
+        if cache_dir is not None:
+            model_kwargs["cache_dir"] = cache_dir
         model_kwargs |= kwargs
 
         model = T5EncoderModel.from_pretrained(pretrained_model_name, **model_kwargs)
