@@ -5,8 +5,23 @@
 Qwen-Audio model loader implementation for audio-language tasks.
 """
 
+import transformers
+import transformers.generation.utils as _tgu
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
+
+# transformers 5.x removed constrained beam-search classes that
+# transformers_stream_generator (required by Qwen-Audio remote code) still imports.
+for _name in (
+    "DisjunctiveConstraint",
+    "BeamSearchScorer",
+    "PhrasalConstraint",
+    "ConstrainedBeamSearchScorer",
+):
+    if not hasattr(transformers, _name):
+        setattr(transformers, _name, type(_name, (), {}))
+if not hasattr(_tgu, "SampleOutput"):
+    _tgu.SampleOutput = type("SampleOutput", (), {})
 
 from ...base import ForgeModel
 from ...config import (
@@ -99,4 +114,5 @@ class ModelLoader(ForgeModel):
 
         audio_info = self.tokenizer.process_audio(query)
         inputs = self.tokenizer(query, return_tensors="pt", audio_info=audio_info)
+        inputs["audio_info"] = audio_info
         return inputs
