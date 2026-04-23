@@ -123,6 +123,7 @@ class ModelInfo:
     task: ModelTask
     source: ModelSource
     framework: Framework
+    model_name_hf: Optional[str] = None
 
     @property
     def name(self) -> str:
@@ -137,6 +138,7 @@ class ModelInfo:
             "framework": str(self.framework),
             "model_arch": self.model,
             "variant_name": str(self.variant),
+            "model_name_hf": self.model_name_hf,
         }
 
     def is_easydel(self) -> bool:
@@ -157,6 +159,11 @@ class ModelConfig:
     def __post_init__(self):
         """Validate required fields after initialization"""
         pass
+
+    @property
+    def model_name_hf(self) -> str:
+        """Model name as it appears on HuggingFace (part after the last '/')."""
+        return self.pretrained_model_name.rsplit("/", 1)[-1]
 
 
 @dataclass
