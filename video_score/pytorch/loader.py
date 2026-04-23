@@ -110,7 +110,46 @@ class ModelLoader(ForgeModel):
         Requires the mantis-vl package:
             pip install mantis-vl
         """
-        from mantis.models.idefics2 import Idefics2ForSequenceClassification
+        import importlib.util
+        import os
+        import sys
+
+        # The local mantis/ directory in this repo (Mantis-8M time series model)
+        # shadows the mantis-vl pip package. Load modeling_idefics2 directly from
+        # site-packages to avoid the namespace collision.
+        Idefics2ForSequenceClassification = None
+        for sp in sys.path:
+            modeling = os.path.join(
+                sp, "mantis", "models", "idefics2", "modeling_idefics2.py"
+            )
+            if os.path.isfile(modeling):
+                spec = importlib.util.spec_from_file_location(
+                    "_mantis_vl_idefics2_modeling", modeling
+                )
+                _mod = importlib.util.module_from_spec(spec)
+                sys.modules["_mantis_vl_idefics2_modeling"] = _mod
+                spec.loader.exec_module(_mod)
+                Idefics2ForSequenceClassification = (
+                    _mod.Idefics2ForSequenceClassification
+                )
+                break
+        if Idefics2ForSequenceClassification is None:
+            from mantis.models.idefics2 import Idefics2ForSequenceClassification
+
+        # mantis-vl's tie_weights() doesn't accept recompute_mapping added in transformers 5.x
+        _orig_tie_weights = Idefics2ForSequenceClassification.tie_weights
+
+        def _tie_weights_compat(self, **kwargs):
+            _orig_tie_weights(self)
+
+        Idefics2ForSequenceClassification.tie_weights = _tie_weights_compat
+
+        # DynamicCache.get_usable_length was renamed to get_seq_length in transformers 5.x;
+        # mantis-vl's modeling code still uses the old name.
+        from transformers.cache_utils import DynamicCache
+
+        if not hasattr(DynamicCache, "get_usable_length"):
+            DynamicCache.get_usable_length = DynamicCache.get_seq_length
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -125,6 +164,10 @@ class ModelLoader(ForgeModel):
         model = Idefics2ForSequenceClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        # transformers 5.x no longer provides pad_token_id via PretrainedConfig
+        # __getattribute__; set it explicitly to avoid AttributeError in mantis-vl forward.
+        if not hasattr(model.config, "pad_token_id"):
+            model.config.pad_token_id = self.processor.tokenizer.pad_token_id
         model.eval()
         return model
 
@@ -144,20 +187,22 @@ class ModelLoader(ForgeModel):
         eval_prompt = REGRESSION_QUERY_PROMPT.format(
             text_prompt=self.sample_text_prompt
         )
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    *[{"type": "image"} for _ in frames],
-                    {"type": "text", "text": eval_prompt},
-                ],
-            },
-        ]
-        text = self.processor.apply_chat_template(messages, add_generation_prompt=False)
+        # Idefics2Processor in transformers 5.x no longer has a chat_template for
+        # this checkpoint; build the prompt string directly using the VideoScore format.
+        image_token = str(self.processor.image_token)
+        eou_token = str(self.processor.end_of_utterance_token)
+        text = (
+            "User: "
+            + image_token * len(frames)
+            + "\n"
+            + eval_prompt
+            + eou_token
+            + "\nAssistant: "
+        )
 
         inputs = self.processor(
-            text=text,
             images=frames,
+            text=text,
             return_tensors="pt",
         )
 
