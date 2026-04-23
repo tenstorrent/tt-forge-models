@@ -82,8 +82,9 @@ class ModelLoader(ForgeModel):
 
         config = AutoConfig.from_pretrained(pretrained_model_name)
         if dtype_override is not None and hasattr(config, "quantization_config"):
-            # FP8 quantization requires triton (GPU-only); clear it when loading in overridden dtype
-            config.quantization_config = None
+            # FP8 quantization requires triton (GPU-only); remove it so the model loads
+            # as plain bf16 tensors via dtype conversion during weight loading
+            delattr(config, "quantization_config")
         if self.num_layers is not None:
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
