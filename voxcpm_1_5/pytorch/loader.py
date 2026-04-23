@@ -74,7 +74,6 @@ class ModelLoader(ForgeModel):
             hf_model_id=self._variant_config.pretrained_model_name,
             load_denoiser=False,
             optimize=False,
-            device="cpu",
         )
         model = VoxCPMBaseLMWrapper(tts.tts_model.base_lm)
         if dtype_override is not None:
