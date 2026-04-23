@@ -65,38 +65,36 @@ def _patch_transformers_bitnet_gguf():
 
 
 def _fix_gguf_load_compat():
-    """Fix any stale GGUF patches that omit model_to_load (added in transformers 5.x).
+    """Fix stale GGUF patches that omit model_to_load (added in transformers 5.x).
 
     Some other model loaders monkey-patch load_gguf_checkpoint with a signature
-    that pre-dates the model_to_load parameter. When transformers internally
-    calls load_gguf_checkpoint(..., model_to_load=dummy_model) the broken patch
-    raises TypeError.  We find the real function (in closures or module globals)
-    and replace the module attribute with a properly-forwarding wrapper.
+    that pre-dates the model_to_load parameter. We find the real transformers
+    function (identified by an explicit model_to_load parameter — not just **kwargs)
+    by recursively traversing closures and module globals, then replace the module
+    attribute with a direct wrapper around it.
     """
     import transformers.modeling_gguf_pytorch_utils as gguf_utils_mod
 
-    def _is_compat(fn):
+    def _is_real(fn):
+        """True only for the genuine transformers function with explicit model_to_load."""
         try:
-            params = inspect.signature(fn).parameters
-            return "model_to_load" in params or any(
-                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
-            )
+            return "model_to_load" in inspect.signature(fn).parameters
         except (ValueError, TypeError):
             return False
 
     current = gguf_utils_mod.load_gguf_checkpoint
-    if _is_compat(current):
+    if _is_real(current):
         return
 
-    def _find_real(fn, visited=None):
+    def _find_real(fn, visited=None, depth=0):
         if visited is None:
             visited = set()
         fn_id = id(fn)
-        if fn_id in visited:
+        if fn_id in visited or depth > 60:
             return None
         visited.add(fn_id)
 
-        if _is_compat(fn):
+        if _is_real(fn):
             return fn
 
         # Check closures
@@ -105,19 +103,23 @@ def _fix_gguf_load_compat():
                 try:
                     c = cell.cell_contents
                     if callable(c):
-                        result = _find_real(c, visited)
+                        result = _find_real(c, visited, depth + 1)
                         if result is not None:
                             return result
                 except ValueError:
                     pass
 
         # Check module globals — broken patches store _orig as a module-level global,
-        # not as a closure variable. Recurse into globals to handle chains of
-        # broken patches where each stores the previous broken patch as _orig.
+        # not as a closure variable. Search both "gguf" and "orig" in name to handle
+        # varied naming conventions (_orig_load_gguf_checkpoint, orig_load, etc.).
         if hasattr(fn, "__globals__"):
             for name, val in fn.__globals__.items():
-                if callable(val) and "gguf" in name.lower() and id(val) not in visited:
-                    result = _find_real(val, visited)
+                if (
+                    callable(val)
+                    and ("gguf" in name.lower() or "orig" in name.lower())
+                    and id(val) not in visited
+                ):
+                    result = _find_real(val, visited, depth + 1)
                     if result is not None:
                         return result
 
