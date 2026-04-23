@@ -5,6 +5,12 @@
 CheXagent model loader implementation for chest X-ray vision-language tasks.
 """
 
+import transformers.utils as _transformers_utils
+
+# is_tf_available was removed in transformers 5.x but is used by CheXagent's remote tokenizer code
+if not hasattr(_transformers_utils, "is_tf_available"):
+    _transformers_utils.is_tf_available = lambda: False
+
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
