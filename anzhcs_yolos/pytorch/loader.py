@@ -18,9 +18,6 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from ...tools.utils import yolo_postprocess
-
-
 class ModelVariant(StrEnum):
     """Available Anzhc's YOLOs model variants."""
 
@@ -103,4 +100,5 @@ class ModelLoader(ForgeModel):
         return batch_tensor
 
     def post_process(self, co_out):
+        from ...tools.utils import yolo_postprocess
         return yolo_postprocess(co_out)
