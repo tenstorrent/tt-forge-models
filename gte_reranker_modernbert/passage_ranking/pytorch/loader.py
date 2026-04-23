@@ -74,9 +74,9 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False}
+        model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["dtype"] = dtype_override
+            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForSequenceClassification.from_pretrained(
@@ -85,6 +85,18 @@ class ModelLoader(ForgeModel):
         model.eval()
 
         return model
+
+    def get_mesh_config(self, num_devices: int):
+        return (1, num_devices), ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.attn.Wqkv.weight] = ("model", "batch")
+            shard_specs[layer.attn.Wo.weight] = ("batch", "model")
+            shard_specs[layer.mlp.Wi.weight] = ("model", "batch")
+            shard_specs[layer.mlp.Wo.weight] = ("batch", "model")
+        return shard_specs
 
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
