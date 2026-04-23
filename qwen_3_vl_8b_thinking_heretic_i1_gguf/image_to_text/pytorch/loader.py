@@ -8,6 +8,7 @@ image to text.
 import importlib.metadata
 
 from transformers import (
+    Qwen3VLConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -56,6 +57,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "Qwen3-VL-8B-Thinking-heretic.i1-Q4_K_M.gguf"
 
+    # GGUF repos do not ship a config; use the base model for config and processor.
+    BASE_MODEL = "Qwen/Qwen3-VL-8B-Thinking"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
@@ -83,8 +87,11 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Thinking")
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
+
+        # qwen3vl is not in transformers' GGUF_CONFIG_MAPPING yet; load config
+        # from the base model to bypass the unsupported-architecture check.
+        model_kwargs["config"] = Qwen3VLConfig.from_pretrained(self.BASE_MODEL)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
