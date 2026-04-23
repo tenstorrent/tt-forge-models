@@ -123,7 +123,9 @@ class ModelLoader(ForgeModel):
         with torch.no_grad():
             text_embeddings = self.pipeline.text_encoder(text_inputs.input_ids)[0]
 
-        encoder_hidden_states = text_embeddings.to(dtype)
+        # UNet internally reshapes (batch, ch, frames, H, W) -> (batch*frames, ch, H, W),
+        # so encoder_hidden_states must be repeated for each frame.
+        encoder_hidden_states = text_embeddings.repeat(num_frames, 1, 1).to(dtype)
 
         in_channels = self.pipeline.unet.config.in_channels
         sample_size = self.pipeline.unet.config.sample_size
