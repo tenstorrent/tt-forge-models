@@ -3,14 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Kokoro GGUF model loader implementation for text-to-speech tasks.
+
+Loads the Kokoro TTS model from hexgrad/Kokoro-82M via the kokoro package.
+The model's Decoder component is used for compilation since it accepts
+fixed-size tensor inputs (asr, F0_curve, N, style_vector).
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
-    LLMModelConfig,
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
@@ -18,6 +21,15 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+REPO_ID = "hexgrad/Kokoro-82M"
+
+# Decoder input dimensions from kokoro config
+_HIDDEN_DIM = 512
+_STYLE_DIM = 128
+# asr sequence length; F0/N must be 2x due to stride-2 conv in decoder
+_ASR_SEQ_LEN = 50
+_MEL_SEQ_LEN = _ASR_SEQ_LEN * 2
 
 
 class ModelVariant(StrEnum):
@@ -30,22 +42,15 @@ class ModelLoader(ForgeModel):
     """Kokoro GGUF model loader implementation for text-to-speech tasks."""
 
     _VARIANTS = {
-        ModelVariant.KOKORO_NO_ESPEAK_Q4_GGUF: LLMModelConfig(
-            pretrained_model_name="mmwillet2/Kokoro_GGUF",
-            max_length=128,
+        ModelVariant.KOKORO_NO_ESPEAK_Q4_GGUF: ModelConfig(
+            pretrained_model_name=REPO_ID,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.KOKORO_NO_ESPEAK_Q4_GGUF
 
-    GGUF_FILE = "Kokoro_no_espeak_Q4.gguf"
-
-    sample_text = "Hello, this is a test."
-
     def __init__(self, variant: Optional[ModelVariant] = None, **kwargs):
         super().__init__(variant)
-        self.tokenizer = None
-        self.config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -58,62 +63,22 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        return self.tokenizer
-
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        from kokoro import KModel
 
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
-
-        self.config = model.config
-        self.model = model
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        full_model = KModel(repo_id=REPO_ID)
+        model = full_model.decoder.to(dtype=dtype).eval()
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        max_length = self._variant_config.max_length
-
-        inputs = self.tokenizer(
-            [self.sample_text],
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=max_length,
-        )
-
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
-        return inputs
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        return {
+            "asr": torch.randn(batch_size, _HIDDEN_DIM, _ASR_SEQ_LEN, dtype=dtype),
+            "F0_curve": torch.randn(batch_size, _MEL_SEQ_LEN, dtype=dtype),
+            "N": torch.randn(batch_size, _MEL_SEQ_LEN, dtype=dtype),
+            "s": torch.randn(batch_size, _STYLE_DIM, dtype=dtype),
+        }
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
-        return self.config
+        return self._variant_config
