@@ -55,7 +55,6 @@ def _patched_load_gguf_checkpoint(
         gguf_path,
         return_tensors=return_tensors,
         model_to_load=model_to_load,
-        torch_dtype=torch_dtype,
     )
     if result.get("config", {}).get("model_type") == "gpt-oss":
         result["config"]["model_type"] = "qwen3_moe"
