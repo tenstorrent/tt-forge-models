@@ -35,9 +35,9 @@ from ...config import (
 )
 
 GGUF_REPO = "YarvixPA/FLUX.1-Fill-dev-GGUF"
-# FLUX.1-schnell shares tokenizers, VAE, and scheduler with Fill-dev and is
-# publicly available (Apache 2.0), so we use it to source shared components.
-SCHNELL_REPO = "black-forest-labs/FLUX.1-schnell"
+# camenduru/FLUX.1-dev-ungated is a publicly accessible FLUX.1-dev mirror
+# with identical tokenizers, VAE, and scheduler to FLUX.1-Fill-dev.
+FLUX_COMPONENTS_REPO = "camenduru/FLUX.1-dev-ungated"
 _TRANSFORMER_CONFIG_DIR = Path(__file__).parent / "transformer_config"
 
 
@@ -112,11 +112,11 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
         )
 
-        # Load shared components (tokenizers, VAE, scheduler) from the
-        # publicly available FLUX.1-schnell repo, then assemble a
+        # Load shared components (tokenizers, VAE, scheduler) from a
+        # publicly accessible FLUX.1-dev mirror, then assemble a
         # FluxFillPipeline with the GGUF Fill transformer.
         base = FluxPipeline.from_pretrained(
-            SCHNELL_REPO,
+            FLUX_COMPONENTS_REPO,
             transformer=None,
             torch_dtype=dtype,
         )
