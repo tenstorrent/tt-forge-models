@@ -6,7 +6,6 @@ HeartCodec neural music codec model loader implementation.
 """
 
 import torch
-from heartlib.heartcodec.modeling_heartcodec import HeartCodec
 from typing import Optional
 
 from ...base import ForgeModel
@@ -52,6 +51,8 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the HeartCodec model instance."""
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        from heartlib.heartcodec.modeling_heartcodec import HeartCodec
 
         model = HeartCodec.from_pretrained(pretrained_model_name)
         model.eval()
