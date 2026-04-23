@@ -91,30 +91,71 @@ def _patch_nemotron_h_moe_support():
 
 
 def _register_nemotron_h_config():
-    """Register NemotronHConfig in the auto config mapping."""
+    """Register a minimal NemotronH config stub in the auto config mapping.
+
+    The installed transformers does not know about nemotron_h, so we register a
+    minimal PreTrainedConfig subclass that accepts the GGUF-extracted fields.
+    This is sufficient for tokenizer loading and config introspection.
+    """
+    from transformers import PreTrainedConfig
     from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
     if "nemotron_h" in CONFIG_MAPPING:
         return
 
-    # Try loading NemotronHConfig from HEAD transformers in /tmp
-    _head_path = "/tmp/transformers_site_packages"
-    if _head_path not in sys.path:
-        sys.path.insert(0, _head_path)
+    class NemotronHConfigStub(PreTrainedConfig):
+        model_type = "nemotron_h"
 
-    try:
-        from transformers.models.nemotron_h.configuration_nemotron_h import (
-            NemotronHConfig,
-        )
-        from transformers.models.nemotron_h.modeling_nemotron_h import (
-            NemotronHForCausalLM,
-        )
-    except ImportError:
-        return
+        def __init__(
+            self,
+            vocab_size=131072,
+            hidden_size=4096,
+            num_hidden_layers=88,
+            num_attention_heads=32,
+            num_key_value_heads=2,
+            intermediate_size=2688,
+            max_position_embeddings=1048576,
+            rope_theta=10000.0,
+            layer_norm_epsilon=1e-5,
+            conv_kernel=4,
+            ssm_state_size=128,
+            n_groups=8,
+            num_experts_per_tok=22,
+            n_group=1,
+            moe_intermediate_size=2688,
+            moe_shared_expert_intermediate_size=5376,
+            n_routed_experts=512,
+            n_shared_experts=1,
+            moe_latent_size=1024,
+            hybrid_override_pattern=None,
+            **kwargs,
+        ):
+            super().__init__(**kwargs)
+            self.vocab_size = vocab_size
+            self.hidden_size = hidden_size
+            self.num_hidden_layers = num_hidden_layers
+            self.num_attention_heads = num_attention_heads
+            self.num_key_value_heads = num_key_value_heads
+            self.intermediate_size = intermediate_size
+            self.max_position_embeddings = max_position_embeddings
+            self.rope_theta = rope_theta
+            self.layer_norm_epsilon = layer_norm_epsilon
+            self.conv_kernel = conv_kernel
+            self.ssm_state_size = ssm_state_size
+            self.n_groups = n_groups
+            self.num_experts_per_tok = num_experts_per_tok
+            self.n_group = n_group
+            self.moe_intermediate_size = moe_intermediate_size
+            self.moe_shared_expert_intermediate_size = (
+                moe_shared_expert_intermediate_size
+            )
+            self.n_routed_experts = n_routed_experts
+            self.n_shared_experts = n_shared_experts
+            self.moe_latent_size = moe_latent_size
+            self.hybrid_override_pattern = hybrid_override_pattern
 
-    CONFIG_MAPPING["nemotron_h"] = NemotronHConfig
+    CONFIG_MAPPING["nemotron_h"] = NemotronHConfigStub
 
-    # Register in model auto mappings
     try:
         from transformers.models.auto.modeling_auto import (
             MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
