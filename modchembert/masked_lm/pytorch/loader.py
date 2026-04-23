@@ -17,8 +17,29 @@ import transformers.models.modernbert.modeling_modernbert as _mbert_module
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 
 # transformers>=5.x renamed MODERNBERT_ATTENTION_FUNCTION to ALL_ATTENTION_FUNCTIONS
+# and removed _pad_modernbert_output / _unpad_modernbert_input (flash_attention_2 only helpers)
 if not hasattr(_mbert_module, "MODERNBERT_ATTENTION_FUNCTION"):
     _mbert_module.MODERNBERT_ATTENTION_FUNCTION = _mbert_module.ALL_ATTENTION_FUNCTIONS
+
+if not hasattr(_mbert_module, "_unpad_modernbert_input"):
+
+    def _unpad_modernbert_input(inputs, attention_mask):
+        seqlens = attention_mask.sum(dim=-1, dtype=torch.int32)
+        indices = torch.nonzero(attention_mask.flatten(), as_tuple=False).flatten()
+        max_seqlen = int(seqlens.max().item())
+        cu_seqlens = torch.cat([seqlens.new_zeros(1), seqlens.cumsum(dim=0)])
+        return inputs.flatten(0, 1)[indices], indices, cu_seqlens, max_seqlen
+
+    _mbert_module._unpad_modernbert_input = _unpad_modernbert_input
+
+if not hasattr(_mbert_module, "_pad_modernbert_output"):
+
+    def _pad_modernbert_output(inputs, indices, batch, seqlen):
+        output = inputs.new_zeros(batch * seqlen, *inputs.shape[1:])
+        output[indices] = inputs
+        return output.view(batch, seqlen, *inputs.shape[1:])
+
+    _mbert_module._pad_modernbert_output = _pad_modernbert_output
 
 from ....base import ForgeModel
 from ....config import (
