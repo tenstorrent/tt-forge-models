@@ -83,6 +83,7 @@ class ModelLoader(ForgeModel):
     def _load_model_wrapper(self, dtype_override=None):
         """Load the qwen_asr model wrapper and cache processor."""
         from qwen_asr import Qwen3ASRModel
+        from transformers import AutoConfig
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -90,8 +91,16 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["dtype"] = torch.float32
 
+        # The MLX quantization config ({"group_size", "bits", "mode"}) lacks
+        # the `quant_method` field that transformers expects, causing a
+        # ValueError. Remove it so the model loads as a standard float model.
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
+
         self._model_wrapper = Qwen3ASRModel.from_pretrained(
             self._variant_config.pretrained_model_name,
+            config=config,
             device_map="cpu",
             max_new_tokens=50,
             **model_kwargs,
@@ -123,9 +132,11 @@ class ModelLoader(ForgeModel):
             text=[text], audio=[audio], return_tensors="pt", padding=True
         )
 
+        model_dtype = next(self._model_wrapper.model.thinker.parameters()).dtype
+
         return [
             inputs["input_ids"],
             inputs["attention_mask"],
-            inputs["input_features"],
+            inputs["input_features"].to(model_dtype),
             inputs["feature_attention_mask"],
         ]
