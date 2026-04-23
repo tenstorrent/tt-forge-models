@@ -6,8 +6,27 @@
 """
 import importlib.metadata
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.modeling_utils as _modeling_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+# Some other model loaders monkey-patch load_gguf_checkpoint with a signature
+# that drops model_to_load. Wrap whatever is currently installed to restore
+# the parameter so newer transformers can call it without TypeError.
+_prev_load_gguf = _gguf_utils.load_gguf_checkpoint
+
+
+def _load_gguf_with_model_to_load(gguf_path, return_tensors=False, model_to_load=None):
+    return _prev_load_gguf(gguf_path, return_tensors=return_tensors)
+
+
+_gguf_utils.load_gguf_checkpoint = _load_gguf_with_model_to_load
+_config_utils.load_gguf_checkpoint = _load_gguf_with_model_to_load
+_auto_tokenizer.load_gguf_checkpoint = _load_gguf_with_model_to_load
+_modeling_utils.load_gguf_checkpoint = _load_gguf_with_model_to_load
 
 from ....base import ForgeModel
 from ....config import (
