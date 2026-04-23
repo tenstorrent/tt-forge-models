@@ -108,11 +108,14 @@ def _patched_load_gguf_checkpoint(
 ):
     _patch_nemotron_h_support()
 
+    # Other loaders in the chain may not accept torch_dtype; only pass it when
+    # set to avoid TypeError from their incompatible function signatures.
+    extra_kw = {} if torch_dtype is None else {"torch_dtype": torch_dtype}
     result = _orig_load_gguf_checkpoint(
         gguf_path,
         return_tensors=return_tensors,
         model_to_load=model_to_load,
-        torch_dtype=torch_dtype,
+        **extra_kw
     )
 
     if result.get("config", {}).get("model_type") == "nemotron_h":
