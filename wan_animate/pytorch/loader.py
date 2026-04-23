@@ -128,8 +128,9 @@ class ModelLoader(ForgeModel):
             batch_size, img_seq_len, image_dim, dtype=dtype
         )
         # face_pixel_values: (B, C, S, H', W') — S face frames in pixel space
+        # motion encoder requires exactly 512x512 face resolution
         face_pixel_values = torch.randn(
-            batch_size, 3, num_latent_frames, 112, 112, dtype=dtype
+            batch_size, 3, num_latent_frames, 512, 512, dtype=dtype
         )
         timestep = torch.tensor([500] * batch_size, dtype=torch.long)
 
