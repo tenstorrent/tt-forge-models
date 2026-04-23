@@ -12,7 +12,7 @@
   "guidance_embeds": false,
   "in_channels": 128,
   "joint_attention_dim": 7680,
-  "mlp_ratio": 6.0,
+  "mlp_ratio": 3.0,
   "num_attention_heads": 24,
   "num_layers": 5,
   "num_single_layers": 20,
