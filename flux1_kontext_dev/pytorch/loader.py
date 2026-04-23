@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.KONTEXT_DEV: ModelConfig(
-            pretrained_model_name="black-forest-labs/FLUX.1-Kontext-dev",
+            pretrained_model_name="AlekseyCalvin/Flux_Kontext_Dev_fp8_scaled_diffusers",
         ),
     }
 
