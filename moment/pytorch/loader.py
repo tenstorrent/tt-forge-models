@@ -9,8 +9,6 @@ import torch
 from typing import Optional
 from dataclasses import dataclass
 
-from momentfm import MOMENTPipeline
-
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -72,6 +70,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The MOMENT-1 forecasting model instance.
         """
+        from momentfm import MOMENTPipeline
+
         cfg = self._variant_config
 
         model = MOMENTPipeline.from_pretrained(
