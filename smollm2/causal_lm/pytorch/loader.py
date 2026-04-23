@@ -105,9 +105,14 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        except OSError:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            model_kwargs.pop("config", None)
+            model = AutoModelForCausalLM.from_config(config, **model_kwargs)
         model.eval()
         self.config = model.config
 
