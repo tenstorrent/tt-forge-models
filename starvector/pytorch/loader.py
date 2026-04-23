@@ -61,9 +61,11 @@ def _patch_starcoder_init():
         self.max_length = config.max_length
 
         # Build GPTBigCode config from starvector config params (no gated download needed).
-        # Weights will be overridden when from_pretrained loads the starvector checkpoint.
+        # Set vocab_size to the post-resize size so resize_token_embeddings is not needed
+        # (calling it on meta tensors would fail; weights are overridden by from_pretrained).
+        vocab_size = len(self.tokenizer)
         model_config = GPTBigCodeConfig(
-            vocab_size=49152,
+            vocab_size=vocab_size,
             n_positions=getattr(config, "max_length", 8192),
             n_embd=config.hidden_size,
             n_layer=config.num_hidden_layers,
@@ -78,9 +80,7 @@ def _patch_starcoder_init():
         if not utils.is_flash_attn_2_available():
             config.use_flash_attn = False
 
-        model = GPTBigCodeForCausalLM(model_config)
-        model.resize_token_embeddings(len(self.tokenizer))
-        self.transformer = model
+        self.transformer = GPTBigCodeForCausalLM(model_config)
         self.prompt = "<svg"
 
     sc_module.StarCoderModel.__init__ = _patched_starcoder_init
