@@ -104,20 +104,8 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        input_prompt = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        input_text = self.tokenizer.apply_chat_template(
-            input_prompt,
-            add_generation_prompt=True,
-            tokenize=False,
-        )
-
         inputs = self.tokenizer(
-            input_text,
+            self.sample_text,
             return_tensors="pt",
             padding=True,
             truncation=True,
