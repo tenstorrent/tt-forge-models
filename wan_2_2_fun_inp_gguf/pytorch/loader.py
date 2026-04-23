@@ -141,6 +141,16 @@ class ModelLoader(ForgeModel):
             old_rope.max_seq_len,
         )
 
+        # GGUFLinear stores weights as packed byte tensors and relies on
+        # GGUFParameter.__torch_function__ to dequantize on-the-fly. The TT-XLA
+        # __torch_function__ override intercepts F.linear before GGUF can
+        # dequantize, causing a dtype mismatch. Convert all GGUFLinear modules
+        # back to plain nn.Linear with float weights before compilation.
+        from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
+
+        _dequantize_gguf_and_restore_linear(self.transformer)
+        self.transformer.to(compute_dtype)
+
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
