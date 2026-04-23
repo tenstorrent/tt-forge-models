@@ -13,7 +13,7 @@ Repositories:
 - https://huggingface.co/rootonchair/LTX-2-19b-distilled
 - https://huggingface.co/Lightricks/LTX-2.3
 - https://huggingface.co/Lightricks/LTX-2.3-nvfp4
-- https://huggingface.co/Cosmicvibez/LTX-2.3
+- https://huggingface.co/Cosmicvibez/LTX-2.1
 
 Available subfolders:
 - transformer: LTX2VideoTransformer3DModel
@@ -42,7 +42,6 @@ SUPPORTED_SUBFOLDERS = {"transformer", "vae", "audio_vae"}
 
 FP8_CHECKPOINT_URL = "https://huggingface.co/Lightricks/LTX-2.3-fp8/blob/main/ltx-2.3-22b-distilled-fp8.safetensors"
 NVFP4_CHECKPOINT_URL = "https://huggingface.co/Lightricks/LTX-2.3-nvfp4/blob/main/ltx-2.3-22b-dev-nvfp4.safetensors"
-COSMICVIBEZ_CHECKPOINT_URL = "https://huggingface.co/Cosmicvibez/LTX-2.3/blob/main/ltx-2.3-22b-distilled.safetensors"
 
 
 class ModelVariant(StrEnum):
@@ -86,7 +85,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Lightricks/LTX-2.3-nvfp4",
         ),
         ModelVariant.LTX_2_3_COSMICVIBEZ: ModelConfig(
-            pretrained_model_name="Cosmicvibez/LTX-2.3",
+            pretrained_model_name="Cosmicvibez/LTX-2.1",
         ),
     }
 
@@ -144,19 +143,6 @@ class ModelLoader(ForgeModel):
         )
         return self._transformer
 
-    def _load_cosmicvibez_transformer(
-        self, dtype: torch.dtype
-    ) -> LTX2VideoTransformer3DModel:
-        """Load the Cosmicvibez distilled transformer from a single safetensors file."""
-        self._transformer = LTX2VideoTransformer3DModel.from_single_file(
-            COSMICVIBEZ_CHECKPOINT_URL,
-            torch_dtype=dtype,
-            cross_attn_mod=True,
-            audio_cross_attn_mod=True,
-            low_cpu_mem_usage=False,
-        )
-        return self._transformer
-
     def _load_pipeline(self, dtype: torch.dtype) -> LTX2Pipeline:
         self.pipeline = LTX2Pipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -175,11 +161,6 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.LTX_2_3_NVFP4:
             if self._transformer is None:
                 self._load_nvfp4_transformer(dtype)
-            return self._transformer
-
-        if self._variant == ModelVariant.LTX_2_3_COSMICVIBEZ:
-            if self._transformer is None:
-                self._load_cosmicvibez_transformer(dtype)
             return self._transformer
 
         if self.pipeline is None:
@@ -203,11 +184,6 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.LTX_2_3_NVFP4:
             if self._transformer is None:
                 self._load_nvfp4_transformer(dtype)
-            return self._load_fp8_transformer_inputs(dtype)
-
-        if self._variant == ModelVariant.LTX_2_3_COSMICVIBEZ:
-            if self._transformer is None:
-                self._load_cosmicvibez_transformer(dtype)
             return self._load_fp8_transformer_inputs(dtype)
 
         if self.pipeline is None:
