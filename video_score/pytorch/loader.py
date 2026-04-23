@@ -162,16 +162,12 @@ class ModelLoader(ForgeModel):
         eval_prompt = REGRESSION_QUERY_PROMPT.format(
             text_prompt=self.sample_text_prompt
         )
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    *[{"type": "image"} for _ in frames],
-                    {"type": "text", "text": eval_prompt},
-                ],
-            },
-        ]
-        text = self.processor.apply_chat_template(messages, add_generation_prompt=False)
+        # Idefics2Processor.apply_chat_template requires a chat_template that
+        # TIGER-Lab/VideoScore does not ship.  Build the Idefics2 prompt directly:
+        #   User:<image>...<image>text<end_of_utterance>\nAssistant:
+        image_token = self.processor.image_token
+        image_tokens = image_token * len(frames)
+        text = f"User:{image_tokens}{eval_prompt}<end_of_utterance>\nAssistant:"
 
         inputs = self.processor(
             text=text,
