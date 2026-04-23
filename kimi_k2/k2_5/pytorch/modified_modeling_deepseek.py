@@ -53,7 +53,8 @@ from transformers.utils import (
     logging,
     replace_return_docstrings,
 )
-from transformers.utils.import_utils import is_torch_fx_available
+
+# from transformers.utils.import_utils import is_torch_fx_available
 
 from .configuration_deepseek import DeepseekV3Config
 
@@ -64,11 +65,11 @@ if is_flash_attn_2_available():
 
 # This makes `_prepare_4d_causal_attention_mask` a leaf function in the FX graph.
 # It means that the function will not be traced through and simply appear as a node in the graph.
-if is_torch_fx_available():
-    if not is_torch_greater_or_equal_than_1_13:
-        import torch.fx
+# if is_torch_fx_available():
+#     if not is_torch_greater_or_equal_than_1_13:
+#         import torch.fx
 
-    _prepare_4d_causal_attention_mask = torch.fx.wrap(_prepare_4d_causal_attention_mask)
+#     _prepare_4d_causal_attention_mask = torch.fx.wrap(_prepare_4d_causal_attention_mask)
 
 logger = logging.get_logger(__name__)
 
