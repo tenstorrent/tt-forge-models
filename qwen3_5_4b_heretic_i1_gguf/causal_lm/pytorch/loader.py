@@ -40,18 +40,18 @@ def _find_real_load_gguf_checkpoint(fn):
             == "transformers.modeling_gguf_pytorch_utils"
         ):
             return current
-        try:
-            if "model_to_load" in inspect.signature(current).parameters:
-                return current
-        except (ValueError, TypeError):
-            pass
         freevars = current.__code__.co_freevars
         cells = current.__closure__ or ()
         next_fn = None
         for i, varname in enumerate(freevars):
             if i >= len(cells):
                 break
-            if "load_gguf_checkpoint" in varname or "orig_load" in varname:
+            if (
+                "load_gguf_checkpoint" in varname
+                or "orig_load" in varname
+                or "real_fn" in varname
+                or "chain_fn" in varname
+            ):
                 try:
                     v = cells[i].cell_contents
                     if callable(v) and id(v) not in seen:
@@ -60,9 +60,17 @@ def _find_real_load_gguf_checkpoint(fn):
                 except ValueError:
                     pass
         if next_fn is None:
-            v = getattr(current, "__globals__", {}).get("_orig_load_gguf_checkpoint")
-            if v is not None and callable(v) and id(v) not in seen:
-                next_fn = v
+            globs = getattr(current, "__globals__", {})
+            for varname in (
+                "_orig_load_gguf_checkpoint",
+                "_real_load_gguf_checkpoint",
+                "_chain_fn",
+                "_real_fn",
+            ):
+                v = globs.get(varname)
+                if v is not None and callable(v) and id(v) not in seen:
+                    next_fn = v
+                    break
         if next_fn is None:
             return current
         current = next_fn
