@@ -5,6 +5,7 @@
 GOAT-AI/GOAT-70B-Storytelling model loader implementation for causal language modeling.
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -84,14 +85,26 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
+        use_random_weights = os.environ.get("TT_RANDOM_WEIGHTS") or os.environ.get(
+            "TT_COMPILE_ONLY_SYSTEM_DESC"
+        )
+
+        if self.num_layers is not None or use_random_weights:
             config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        if use_random_weights:
+            config = model_kwargs.pop("config")
+            torch_dtype = model_kwargs.pop("torch_dtype", None)
+            model = AutoModelForCausalLM.from_config(config)
+            if torch_dtype is not None:
+                model = model.to(torch_dtype)
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
         model.eval()
 
         self.config = model.config
