@@ -73,6 +73,12 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The UltraVAD model instance.
         """
         import transformers
+        import transformers.modeling_utils
+
+        # transformers.modeling_utils._init_weights was removed in transformers 5.x;
+        # the cached ultraVAD model code uses it as a boolean guard for weight init.
+        if not hasattr(transformers.modeling_utils, "_init_weights"):
+            transformers.modeling_utils._init_weights = True
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
