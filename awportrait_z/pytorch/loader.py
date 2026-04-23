@@ -15,6 +15,8 @@ from typing import Any, Optional
 
 import torch
 from diffusers import ZImagePipeline
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -75,10 +77,17 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
             low_cpu_mem_usage=False,
         )
-        self._pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=LORA_WEIGHT_NAME,
-        )
+        # The AWPortrait-Z LoRA has "diffusion_model." prefixed keys with no alpha
+        # keys. diffusers' _convert_non_diffusers_z_image_lora_to_diffusers crashes
+        # when alpha keys are missing. Pre-process the state dict to bypass the
+        # conversion: strip "diffusion_model." and add "transformer." prefix.
+        lora_path = hf_hub_download(repo_id=LORA_REPO, filename=LORA_WEIGHT_NAME)
+        lora_state_dict = load_file(lora_path)
+        lora_state_dict = {
+            "transformer." + k.removeprefix("diffusion_model."): v
+            for k, v in lora_state_dict.items()
+        }
+        self._pipe.load_lora_weights(lora_state_dict)
         self._pipe.fuse_lora()
         return self._pipe
 
