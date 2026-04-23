@@ -99,4 +99,5 @@ class ModelLoader(ForgeModel):
 
         audio_info = self.tokenizer.process_audio(query)
         inputs = self.tokenizer(query, return_tensors="pt", audio_info=audio_info)
+        inputs["audio_info"] = audio_info
         return inputs
