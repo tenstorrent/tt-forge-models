@@ -4,7 +4,12 @@
 """
 Eurydice 24B v1c i1 GGUF model loader implementation for causal language modeling.
 """
+import os
 import torch
+
+# hf-xet can hang/crash after completing the GGUF download during chunk
+# finalization; force standard HTTPS download instead.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
