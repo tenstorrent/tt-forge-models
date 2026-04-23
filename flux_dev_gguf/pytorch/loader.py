@@ -4,11 +4,15 @@
 """
 FLUX.1-dev GGUF model loader implementation for text-to-image generation
 """
+import json
+import tempfile
+from pathlib import Path
+from typing import Optional
+
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
 from huggingface_hub import hf_hub_download
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
@@ -116,6 +120,21 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # Known FLUX.1-dev transformer architecture config (avoids fetching gated black-forest-labs/FLUX.1-dev).
+    _TRANSFORMER_CONFIG = {
+        "_class_name": "FluxTransformer2DModel",
+        "attention_head_dim": 128,
+        "axes_dims_rope": [16, 56, 56],
+        "guidance_embeds": True,
+        "in_channels": 64,
+        "joint_attention_dim": 4096,
+        "num_attention_heads": 24,
+        "num_layers": 19,
+        "num_single_layers": 38,
+        "patch_size": 1,
+        "pooled_projection_dim": 768,
+    }
+
     def load_model(self, *, dtype_override=None, **kwargs):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
@@ -123,11 +142,21 @@ class ModelLoader(ForgeModel):
         repo_id = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
         local_gguf_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
-        self.transformer = FluxTransformer2DModel.from_single_file(
-            local_gguf_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+
+        # Write config locally so from_single_file doesn't fall back to the
+        # gated black-forest-labs/FLUX.1-dev repo for architecture metadata.
+        with tempfile.TemporaryDirectory() as config_dir:
+            transformer_dir = Path(config_dir) / "transformer"
+            transformer_dir.mkdir()
+            (transformer_dir / "config.json").write_text(
+                json.dumps(self._TRANSFORMER_CONFIG)
+            )
+            self.transformer = FluxTransformer2DModel.from_single_file(
+                local_gguf_path,
+                config=config_dir,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         return self.transformer
 
