@@ -78,10 +78,15 @@ class ModelLoader(ForgeModel):
 
         # GGUF repo ships only weights; load processor from the base model.
         if self.processor is None:
-            self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
+            self.processor = AutoProcessor.from_pretrained(
+                self.BASE_MODEL,
+                cache_dir=self._cache_dir,
+            )
 
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            config = AutoConfig.from_pretrained(self.BASE_MODEL)
+            config = AutoConfig.from_pretrained(
+                self.BASE_MODEL, cache_dir=self._cache_dir
+            )
             if self.num_layers is not None:
                 if hasattr(config, "text_config"):
                     config.text_config.num_hidden_layers = self.num_layers
@@ -114,7 +119,10 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
-            self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
+            self.processor = AutoProcessor.from_pretrained(
+                self.BASE_MODEL,
+                cache_dir=self._cache_dir,
+            )
 
         messages = [
             {
@@ -138,9 +146,17 @@ class ModelLoader(ForgeModel):
         )
         return inputs
 
+    @property
+    def _cache_dir(self):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            return "/tmp/tt_forge_model_cache"
+        return None
+
     def load_config(self):
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            self.config = AutoConfig.from_pretrained(self.BASE_MODEL)
+            self.config = AutoConfig.from_pretrained(
+                self.BASE_MODEL, cache_dir=self._cache_dir
+            )
         else:
             self.config = AutoConfig.from_pretrained(
                 self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
