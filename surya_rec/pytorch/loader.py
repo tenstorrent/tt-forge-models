@@ -85,10 +85,9 @@ class ModelLoader(ForgeModel):
                 "lm_head.weight": "embedder.token_embed.weight"
             }
 
-        _orig_tie_weights = SuryaModel.tie_weights
-
         def _patched_tie_weights(self, **kwargs):
-            _orig_tie_weights(self)
+            # transformers 5.2+ removed _tie_or_clone_weights; tie directly
+            self.lm_head.weight = self.embedder.token_embed.weight
 
         SuryaModel.tie_weights = _patched_tie_weights
 
