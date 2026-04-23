@@ -7,7 +7,7 @@ Driver Drowsiness Detection model loader implementation
 
 from typing import Optional
 
-from transformers import ViTForImageClassification
+from transformers import ViTForImageClassification, ViTImageProcessor
 
 from ...config import (
     ModelConfig,
@@ -19,7 +19,6 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from ...tools.utils import VisionPreprocessor
 from datasets import load_dataset
 
 
@@ -43,7 +42,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.model = None
-        self._preprocessor = None
+        self._image_processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -69,9 +68,6 @@ class ModelLoader(ForgeModel):
 
         self.model = model
 
-        if self._preprocessor is not None:
-            self._preprocessor.set_cached_model(model)
-
         if dtype_override is not None:
             model = model.to(dtype_override)
 
@@ -82,19 +78,13 @@ class ModelLoader(ForgeModel):
             dataset = load_dataset("huggingface/cats-image", split="test")
             image = dataset[0]["image"]
 
-        if self._preprocessor is None:
+        if self._image_processor is None:
             model_name = self._variant_config.pretrained_model_name
+            self._image_processor = ViTImageProcessor.from_pretrained(model_name)
 
-            self._preprocessor = VisionPreprocessor(
-                model_source=ModelSource.HUGGING_FACE,
-                model_name=model_name,
-            )
-
-            if hasattr(self, "model") and self.model is not None:
-                self._preprocessor.set_cached_model(self.model)
-
-        return self._preprocessor.preprocess(
-            image=image,
-            dtype_override=dtype_override,
-            batch_size=batch_size,
-        )
+        inputs = self._image_processor(images=image, return_tensors="pt").pixel_values
+        if batch_size > 1:
+            inputs = inputs.repeat(batch_size, 1, 1, 1)
+        if dtype_override is not None:
+            inputs = inputs.to(dtype_override)
+        return (inputs,)
