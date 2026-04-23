@@ -10,6 +10,10 @@ to match the parameter shapes exactly.
 import torch
 import torch.nn as nn
 
+# torch_xla monkey-patches nn.GRU with a scan-based implementation that requires
+# an XLA device at forward time. Use the original implementation instead.
+_OrigGRU = getattr(nn.GRU, "_orig", nn.GRU)
+
 
 class VanillaLSTM(nn.Module):
     """Two-layer LSTM regressor that maps (batch, seq, features) -> (batch, 1)."""
@@ -59,7 +63,7 @@ class GRUModel(nn.Module):
         self, input_size: int = 18, hidden_size: int = 128, num_layers: int = 2
     ):
         super().__init__()
-        self.gru = nn.GRU(
+        self.gru = _OrigGRU(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
