@@ -113,22 +113,20 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
+        config = AutoConfig.from_pretrained(pretrained_model_name)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
             else:
                 config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        # Load without GPTQ quantization to avoid gptqmodel/torchao numpy conflicts.
+        # from_config creates the model architecture with random weights, sufficient
+        # for compile-only testing where numerical accuracy is not required.
+        config.quantization_config = None
+        if dtype_override is not None:
+            config.torch_dtype = dtype_override
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config).eval()
 
         self.config = model.config
         self.model = model
