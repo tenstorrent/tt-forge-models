@@ -5,6 +5,7 @@
 Ouro-1.4B-Thinking model loader implementation for causal language modeling.
 """
 
+import sys
 from typing import Optional
 
 import torch
@@ -15,6 +16,24 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 # the model's custom remote code can import it on older installs.
 if not hasattr(_tug, "check_model_inputs"):
     _tug.check_model_inputs = lambda fn: fn
+
+
+def _patch_ouro_modules():
+    """Inject compute_default_rope_parameters into the Ouro custom module namespace.
+
+    The model's modeling_ouro.py references compute_default_rope_parameters as a
+    bare name inside OuroRotaryEmbedding.__init__, but it is only defined as a
+    @staticmethod on that class, causing a NameError. We fix this after the
+    module is loaded by AutoConfig by binding the static method at module level.
+    """
+    for mod in sys.modules.values():
+        if hasattr(mod, "OuroRotaryEmbedding") and not hasattr(
+            mod, "compute_default_rope_parameters"
+        ):
+            mod.compute_default_rope_parameters = (
+                mod.OuroRotaryEmbedding.compute_default_rope_parameters
+            )
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -106,6 +125,7 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
+        _patch_ouro_modules()
         self._patch_config(config)
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
@@ -150,5 +170,6 @@ class ModelLoader(ForgeModel):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
+        _patch_ouro_modules()
         self._patch_config(self.config)
         return self.config
