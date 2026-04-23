@@ -1,0 +1,9 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[koboldai_opt_350m_erebus/causal_lm/pytorch-OPT-350M-Erebus-single_device-inference]"
+  status: "PASS"
+  date: "20260423_123539"
+  branch: "ip-172-31-30-236-tt-xla-dev/ubuntu/2026-04-23_11-46/hf-bringup-24"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[klear_reasoner_8b/causal_lm/pytorch-8B-single_device-inference]"
+  status: "PASS"
+  date: "20260423_130359"
+  branch: "ip-172-31-30-236-tt-xla-dev/ubuntu/2026-04-23_11-46/hf-bringup-24"

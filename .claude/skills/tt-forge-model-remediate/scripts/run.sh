@@ -10,10 +10,11 @@ if [ ! -f $TT_XLA_ROOT/.env ]; then
   exit 1
 fi
 
-export XDG_CACHE_HOME="$PWD/.cache"
-export TT_METAL_CACHE="$PWD/.cache"
-export HF_HOME="$PWD/.cache/huggingface"
-export TTMLIR_VENV_DIR=$PWD/.local_venv
+export XDG_CACHE_HOME="/tmp/tt-forge-cache"
+export TT_METAL_CACHE="/tmp/tt-forge-cache"
+export HF_HOME="/tmp/tt-forge-cache/huggingface"
+export TTMLIR_VENV_DIR="/tmp/tt-forge-venv"
+export TT_FORGE_MODELS_ROOT="/data/hf-bringup/tt-xla/third_party/tt_forge_models/worktrees/ip-172-31-30-236-tt-xla-dev+ubuntu+2026-04-23_11-46+hf-bringup-24"
 
 source $TT_XLA_ROOT/.env
 
