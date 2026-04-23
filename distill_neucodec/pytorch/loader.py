@@ -93,7 +93,8 @@ class ModelLoader(ForgeModel):
                 self.model = model
 
             def forward(self, audio):
-                return self.model.encode_code(audio)
+                # Feature extractor cannot handle bfloat16; convert to float32
+                return self.model.encode_code(audio.float())
 
         model = DistillNeuCodecWrapper(codec)
         model.eval()
