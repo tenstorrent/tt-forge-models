@@ -8,7 +8,12 @@ Note: The mistral3 GGUF architecture is not yet supported by the transformers
 GGUF loader, so we load from the HF-native checkpoint instead.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoTokenizer,
+    AutoConfig,
+    Mistral3ForConditionalGeneration,
+    Ministral3ForCausalLM,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -91,14 +96,18 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
+        # Load the full conditional generation model, then extract the causal LM
+        # because the base repo uses Mistral3ForConditionalGeneration (multimodal).
+        full_model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        )
+        text_config = full_model.config.text_config
+        if self.num_layers is not None:
+            text_config.num_hidden_layers = self.num_layers
+        model = Ministral3ForCausalLM(text_config)
+        model.model = full_model.model.language_model
+        model.lm_head = full_model.lm_head
+        model = model.eval()
 
         self.config = model.config
         self.model = model
@@ -156,7 +165,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+        full_config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name,
         )
+        self.config = full_config.text_config
         return self.config
