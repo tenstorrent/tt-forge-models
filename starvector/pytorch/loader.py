@@ -104,6 +104,19 @@ def _patch_starcoder_init():
 
     sv1_module.StarVectorStarCoder.__init__ = _patched_sv1_init
 
+    # starvector_arch.py (written for transformers 4.x) never calls post_init(), so
+    # all_tied_weights_keys is missing in transformers 5.x.  Guard the method that needs it.
+    from transformers import PreTrainedModel
+
+    original_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+    def _patched_adjust(self, missing_and_mismatched):
+        if not hasattr(self, "all_tied_weights_keys"):
+            self.all_tied_weights_keys = {}
+        return original_adjust(self, missing_and_mismatched)
+
+    PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
+
 
 class ModelVariant(StrEnum):
     """Available StarVector model variants."""
