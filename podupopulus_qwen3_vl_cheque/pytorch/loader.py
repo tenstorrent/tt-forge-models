@@ -11,6 +11,11 @@ from transformers import (
 )
 from typing import Optional
 
+try:
+    import gptqmodel  # noqa: F401 - pre-import to avoid meta-tensor conflict during from_pretrained
+except ImportError:
+    pass
+
 from ...base import ForgeModel
 from ...config import (
     LLMModelConfig,
@@ -131,5 +136,6 @@ class ModelLoader(ForgeModel):
             add_generation_prompt=True,
             return_dict=True,
             return_tensors="pt",
+            truncation=False,
         )
         return inputs
