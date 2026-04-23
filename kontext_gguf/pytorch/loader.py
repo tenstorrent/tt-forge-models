@@ -83,6 +83,8 @@ class ModelLoader(ForgeModel):
         gguf_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
         self.transformer = FluxTransformer2DModel.from_single_file(
             gguf_path,
+            config=repo_id,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
