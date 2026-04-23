@@ -29,7 +29,9 @@ def _apply_gguf_patches():
             "block_count": "num_hidden_layers",
             "embedding_length": "hidden_size",
             "attention.head_count": "num_attention_heads",
-            "attention.head_count_kv": "num_key_value_heads",
+            # attention.head_count_kv is a per-layer array; set to None so the
+            # default parser skips it.  _patched_load_gguf injects the scalar.
+            "attention.head_count_kv": None,
             "attention.key_length": "head_dim",
             "attention.layer_norm_rms_epsilon": "layer_norm_epsilon",
             "context_length": "max_position_embeddings",
@@ -83,8 +85,12 @@ def _apply_gguf_patches():
 
     def _patched_load_gguf(*args, **kwargs):
         result = _orig_load_gguf(*args, **kwargs)
-        if result.get("config", {}).get("model_type") == "nemotron_h_moe":
-            result["config"]["model_type"] = "nemotron_h"
+        config = result.get("config", {})
+        if config.get("model_type") == "nemotron_h_moe":
+            config["model_type"] = "nemotron_h"
+            # The per-layer kv array is skipped by the mapping (mapped to None);
+            # inject the correct scalar for use by AutoConfig.for_model.
+            config.setdefault("num_key_value_heads", 2)
         return result
 
     _gguf_utils.load_gguf_checkpoint = _patched_load_gguf
