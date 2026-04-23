@@ -7,8 +7,6 @@ Enformer model loader implementation for gene expression prediction.
 import torch
 from typing import Optional
 
-from enformer_pytorch import from_pretrained
-
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -60,6 +58,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Enformer model instance.
         """
+        from enformer_pytorch import from_pretrained
+
         model = from_pretrained(self._variant_config.pretrained_model_name)
 
         if dtype_override is not None:
