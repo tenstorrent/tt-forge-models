@@ -84,7 +84,9 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
 
-        if os.environ.get("TT_RANDOM_WEIGHTS"):
+        if os.environ.get("TT_RANDOM_WEIGHTS") or os.environ.get(
+            "TT_COMPILE_ONLY_SYSTEM_DESC"
+        ):
             model = AutoModelForCausalLM.from_config(config)
             if dtype_override is not None:
                 model = model.to(dtype_override)
@@ -98,9 +100,7 @@ class ModelLoader(ForgeModel):
             if self.num_layers is not None:
                 model_kwargs["config"] = config
 
-            model = AutoModelForCausalLM.from_pretrained(
-                self.GGUF_REPO, **model_kwargs
-            )
+            model = AutoModelForCausalLM.from_pretrained(self.GGUF_REPO, **model_kwargs)
 
         model = model.eval()
 
