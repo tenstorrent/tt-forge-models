@@ -39,3 +39,7 @@ results:
   status: "PASS"
   date: "20260423_042835"
   branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-18"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[quantfactory_qwen_2_5_sex_gguf/causal_lm/pytorch-QUANTFACTORY_QWEN_2_5_SEX_GGUF-single_device-inference]"
+  status: "PASS"
+  date: "20260423_045111"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-18"
