@@ -136,25 +136,15 @@ class ModelLoader(ForgeModel):
             batch_size, controlnet_cond_channels, h_latent, w_latent, dtype=dtype
         )
 
-        # Image and text positional IDs for 3D RoPE
-        # Image IDs: (batch, seq_len, 3) for [temporal, height, width]
-        img_ids = torch.zeros(batch_size, seq_len, 3, dtype=dtype)
-        for i in range(h_patched):
-            for j in range(w_patched):
-                idx = i * w_patched + j
-                img_ids[:, idx, 1] = i
-                img_ids[:, idx, 2] = j
-
-        # Text IDs: (batch, text_seq_len, 3)
-        txt_ids = torch.zeros(batch_size, text_seq_len, 3, dtype=dtype)
+        # Image shapes for 3D RoPE: list of (frame, height, width) per sample
+        img_shapes = [(1, h_patched, w_patched)] * batch_size
 
         inputs = {
             "hidden_states": hidden_states,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
             "controlnet_cond": controlnet_cond,
-            "img_ids": img_ids,
-            "txt_ids": txt_ids,
+            "img_shapes": img_shapes,
             "conditioning_scale": 1.0,
         }
 
