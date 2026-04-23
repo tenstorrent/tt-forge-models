@@ -4,6 +4,8 @@
 """
 G-Health-32B-Base i1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -39,6 +41,24 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.G_HEALTH_32B_BASE_I1_GGUF
 
     GGUF_FILE = "G-Health-32B-Base.i1-Q4_K_S.gguf"
+
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix gguf version detection when installed at runtime by RequirementsManager.
+
+        transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
+        is installed later, the mapping is stale and version detection falls back to
+        gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
+        """
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+                _import_utils.is_gguf_available.cache_clear()
+            except importlib.metadata.PackageNotFoundError:
+                pass
 
     sample_text = "Give me a short introduction to large language models."
 
@@ -76,6 +96,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._fix_gguf_version_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -157,6 +178,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._fix_gguf_version_detection()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
