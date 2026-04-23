@@ -13,6 +13,7 @@ Available variants:
 - Z_IMAGE_TURBO_CHILDRENS_DRAWINGS: Z-Image-Turbo with Children's Drawings LoRA weights applied
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -74,16 +75,67 @@ class ModelLoader(ForgeModel):
             AutoPipelineForText2Image: The pipeline with LoRA adapter applied.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
-        self.pipeline = AutoPipelineForText2Image.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
-        )
-        self.pipeline.load_lora_weights(
-            ADAPTER_REPO_ID,
-            weight_name="z_image_turbo_childrens_drawings.safetensors",
-        )
+
+        if os.environ.get("TT_COMPILE_ONLY_SYSTEM_DESC") or os.environ.get(
+            "TT_RANDOM_WEIGHTS"
+        ):
+            self.pipeline = self._load_with_random_weights(dtype)
+        else:
+            self.pipeline = AutoPipelineForText2Image.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                torch_dtype=dtype,
+                **kwargs,
+            )
+            self.pipeline.load_lora_weights(
+                ADAPTER_REPO_ID,
+                weight_name="z_image_turbo_childrens_drawings.safetensors",
+            )
         return self.pipeline
+
+    def _load_with_random_weights(self, dtype):
+        """Build the pipeline from configs with random weights for compile-only testing."""
+        from diffusers import (
+            ZImagePipeline,
+            ZImageTransformer2DModel,
+            AutoencoderKL,
+            FlowMatchEulerDiscreteScheduler,
+        )
+        from transformers import AutoConfig, Qwen3Model, Qwen2Tokenizer
+
+        repo_id = self._variant_config.pretrained_model_name
+
+        transformer_config = ZImageTransformer2DModel.load_config(
+            repo_id, subfolder="transformer"
+        )
+        transformer = ZImageTransformer2DModel.from_config(transformer_config)
+        if dtype != torch.float32:
+            transformer = transformer.to(dtype)
+
+        text_encoder_config = AutoConfig.from_pretrained(
+            repo_id, subfolder="text_encoder"
+        )
+        text_encoder = Qwen3Model(text_encoder_config)
+        if dtype != torch.float32:
+            text_encoder = text_encoder.to(dtype)
+
+        tokenizer = Qwen2Tokenizer.from_pretrained(repo_id, subfolder="tokenizer")
+
+        vae_config = AutoencoderKL.load_config(repo_id, subfolder="vae")
+        vae = AutoencoderKL.from_config(vae_config)
+        if dtype != torch.float32:
+            vae = vae.to(dtype)
+
+        scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+            repo_id, subfolder="scheduler"
+        )
+
+        return ZImagePipeline(
+            text_encoder=text_encoder,
+            tokenizer=tokenizer,
+            transformer=transformer,
+            vae=vae,
+            scheduler=scheduler,
+        )
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample text prompts for the model.
