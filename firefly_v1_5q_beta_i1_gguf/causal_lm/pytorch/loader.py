@@ -4,8 +4,14 @@
 """
 Firefly V1.5Q Beta i1 GGUF model loader implementation for causal language modeling.
 """
+import inspect
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -75,6 +81,58 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _patch_load_gguf_checkpoint_compat():
+        """Wrap load_gguf_checkpoint so it accepts model_to_load (new in transformers 5.2).
+
+        Other loaders install patches with the old signature that lack this kwarg, and
+        those patches drop model_to_load before reaching the real transformers function.
+        We work around both problems:
+        1. Wrap each module's load_gguf_checkpoint to accept model_to_load.
+        2. Inside the wrapper, temporarily patch get_gguf_hf_weights_map so that
+           when the broken chain calls it with hf_model=None (because model_to_load
+           was dropped), we substitute the real model_to_load that was passed in.
+        """
+        for mod in [_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils]:
+            fn = getattr(mod, "load_gguf_checkpoint", None)
+            if fn is None:
+                continue
+            sig = inspect.signature(fn)
+            params = sig.parameters
+            has_var_kw = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+            )
+            if "model_to_load" in params or has_var_kw:
+                continue
+            _fn = fn
+
+            def _compat(
+                gguf_checkpoint_path,
+                return_tensors=False,
+                model_to_load=None,
+                _fn=_fn,
+                **kw,
+            ):
+                if return_tensors and model_to_load is not None:
+                    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+                    _stored = model_to_load
+
+                    def _compat_get_map(hf_model, *args, **kwargs):
+                        if hf_model is None:
+                            hf_model = _stored
+                        return _orig_get_map(hf_model, *args, **kwargs)
+
+                    _gguf_utils.get_gguf_hf_weights_map = _compat_get_map
+                    try:
+                        return _fn(
+                            gguf_checkpoint_path, return_tensors=return_tensors, **kw
+                        )
+                    finally:
+                        _gguf_utils.get_gguf_hf_weights_map = _orig_get_map
+                return _fn(gguf_checkpoint_path, return_tensors=return_tensors, **kw)
+
+            mod.load_gguf_checkpoint = _compat
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -94,6 +152,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        self._patch_load_gguf_checkpoint_compat()
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
