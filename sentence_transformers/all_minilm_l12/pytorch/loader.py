@@ -37,7 +37,7 @@ class ModelLoader(ForgeModel):
             max_length=256,
         ),
         ModelVariant.XENOVA_ALL_MINILM_L12_V2: LLMModelConfig(
-            pretrained_model_name="Xenova/all-MiniLM-L12-v2",
+            pretrained_model_name="sentence-transformers/all-MiniLM-L12-v2",
             max_length=256,
         ),
     }
