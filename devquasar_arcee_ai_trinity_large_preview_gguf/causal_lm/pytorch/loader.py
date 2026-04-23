@@ -8,6 +8,16 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -18,6 +28,58 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_afmoe_support():
+    """Register afmoe architecture as an alias supported via AfmoeConfig.
+
+    The afmoe (Arcee Foundation MoE) architecture is supported as a model type in
+    transformers but is not yet registered in GGUF_CONFIG_MAPPING, so GGUF loading
+    raises ValueError. This patch adds the necessary config key mappings and tokenizer
+    converter so that DevQuasar/arcee-ai Trinity GGUF models can be loaded.
+    """
+    if "afmoe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    afmoe_config_mapping = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": "head_dim",
+        "attention.sliding_window": "sliding_window",
+        "vocab_size": "vocab_size",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_shared_count": "num_shared_experts",
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "leading_dense_block_count": "num_dense_layers",
+    }
+
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["afmoe"] = afmoe_config_mapping
+    GGUF_SUPPORTED_ARCHITECTURES.append("afmoe")
+
+    GGUF_TO_FAST_CONVERTERS.setdefault("afmoe", GGUFQwen2Converter)
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+    """Wrap load_gguf_checkpoint to add afmoe GGUF support."""
+    _patch_afmoe_support()
+    return _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
+
+
+_patch_afmoe_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
