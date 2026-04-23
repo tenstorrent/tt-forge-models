@@ -4,9 +4,12 @@
 """
 OpenVLA model loader implementation for action prediction.
 """
+import glob
 import os
 import shutil
+import sys
 import torch
+from pathlib import Path
 from transformers import AutoProcessor
 from PIL import Image
 from typing import Optional
@@ -127,18 +130,50 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _fix_cached_processing_modules():
+        """Patch cached processing_prismatic.py files that use the outdated
+        transformers.tokenization_utils import (moved to tokenization_utils_base in transformers 5.x).
+        """
+        hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+        modules_cache = os.path.join(hf_home, "modules")
+        old_import = "from transformers.tokenization_utils import"
+        new_import = "from transformers.tokenization_utils_base import"
+        for cached_file in glob.glob(
+            os.path.join(
+                modules_cache, "transformers_modules", "**", "processing_prismatic.py"
+            ),
+            recursive=True,
+        ):
+            content = Path(cached_file).read_text()
+            if old_import in content:
+                Path(cached_file).write_text(content.replace(old_import, new_import))
+                for key in list(sys.modules.keys()):
+                    if "processing_prismatic" in key:
+                        del sys.modules[key]
+
     def _load_processor(self):
         """Load processor for the current variant.
 
         Returns:
             The loaded processor instance
         """
-        # Load the processor from HuggingFace
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = AutoProcessor.from_pretrained(
-            pretrained_model_name, trust_remote_code=True
-        )
-
+        # Fix any already-cached remote processing_prismatic.py that has outdated
+        # transformers imports (tokenization_utils -> tokenization_utils_base).
+        self._fix_cached_processing_modules()
+        try:
+            self.processor = AutoProcessor.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+        except ImportError as e:
+            if "PaddingStrategy" not in str(e):
+                raise
+            # The module was just downloaded and cached; fix and retry.
+            self._fix_cached_processing_modules()
+            self.processor = AutoProcessor.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
