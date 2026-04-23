@@ -5,13 +5,49 @@
 Qwen 3 VL 32B Thinking GGUF model loader implementation for image to text.
 """
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
 from typing import Optional
 
 from ....base import ForgeModel
+
+
+def _patch_qwen3vl_gguf_support():
+    """Register qwen3vl GGUF architecture as an alias for qwen3, targeting qwen3_vl model type."""
+    if "qwen3vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        mapping = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]
+        if "qwen3" in mapping:
+            mapping.setdefault("qwen3vl", mapping["qwen3"])
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add qwen3vl GGUF architecture support."""
+    _patch_qwen3vl_gguf_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "qwen3vl":
+        result["config"]["model_type"] = "qwen3_vl"
+    return result
+
+
+_patch_qwen3vl_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 from ....config import (
     LLMModelConfig,
     ModelInfo,
