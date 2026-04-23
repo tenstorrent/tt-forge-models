@@ -7,6 +7,79 @@ for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+
+
+def _patch_transformers_gptneox_gguf():
+    """Monkey-patch transformers to add gptneox GGUF architecture support.
+
+    Transformers does not include gptneox in its GGUF config/tokenizer
+    mappings.  This patch registers the architecture so that GPT-NeoX /
+    Pythia GGUF checkpoints can be loaded.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "gptneox" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("gptneox")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["gptneox"] = {
+        "context_length": "max_position_embeddings",
+        "embedding_length": "hidden_size",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "attention.head_count": "num_attention_heads",
+        "attention.layer_norm_epsilon": "layer_norm_eps",
+        "rope.dimension_count": None,
+        "vocab_size": "vocab_size",
+    }
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFGPTConverter,
+    )
+
+    if "gptneox" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["gptneox"] = GGUFGPTConverter
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "gptneox":
+            config["model_type"] = "gpt_neox"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, *args, **kwargs
+    ):
+        effective_type = (
+            hf_model.config.model_type if model_type is None else model_type
+        )
+        if effective_type == "gpt_neox":
+            model_type = "gptneox"
+        return orig_get_map(hf_model, processor, model_type, *args, **kwargs)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
 from typing import Optional
 
 from ....base import ForgeModel
@@ -72,6 +145,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _patch_transformers_gptneox_gguf()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -86,6 +160,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _patch_transformers_gptneox_gguf()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -133,6 +208,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        _patch_transformers_gptneox_gguf()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
