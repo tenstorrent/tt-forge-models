@@ -79,28 +79,26 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        # MLX variants may have mismatched weight shapes after quantization
-        model_kwargs["ignore_mismatched_sizes"] = True
-        model_kwargs |= kwargs
+        # The model weights are in MLX affine 4-bit format which transformers
+        # cannot load directly (no quant_method in quantization_config). Load
+        # the architecture from config with random weights instead.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+
+        # For VLM configs (with nested text_config), extract the text config
+        # since the outer config lacks top-level attributes like vocab_size
+        # that are needed by AutoModelForCausalLM.
+        if hasattr(config, "text_config") and not hasattr(config, "vocab_size"):
+            config = config.text_config
+
+        config.quantization_config = None
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[
-                        : self.num_layers
-                    ]
-            else:
-                config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            if hasattr(config, "layer_types"):
+                config.layer_types = config.layer_types[: self.num_layers]
+            config.num_hidden_layers = self.num_layers
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        dtype = dtype_override or torch.bfloat16
+        model = AutoModelForCausalLM.from_config(config, dtype=dtype).eval()
 
         self.config = model.config
         self.model = model
