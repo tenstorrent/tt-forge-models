@@ -104,7 +104,29 @@ def _make_patched_fn(underlying_fn):
     return _patched_load_gguf_checkpoint
 
 
+def _patch_qwen3vl_weights_map():
+    """Patch get_gguf_hf_weights_map to translate qwen3_vl -> qwen3vl.
+
+    The HF config uses model_type='qwen3_vl' but gguf-py's MODEL_ARCH_NAMES
+    stores the value as 'qwen3vl' (no underscore), so the lookup fails without
+    this alias.
+    """
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "qwen3_vl":
+            model_type = "qwen3vl"
+        return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
 _patch_qwen3vl_support()
+_patch_qwen3vl_weights_map()
 
 
 class ModelVariant(StrEnum):
@@ -178,6 +200,8 @@ class ModelLoader(ForgeModel):
         _config_utils.load_gguf_checkpoint = patched_fn
         _auto_tokenizer.load_gguf_checkpoint = patched_fn
         _tok_utils.load_gguf_checkpoint = patched_fn
+        # Re-apply weights map patch in case later-imported modules replaced it.
+        _patch_qwen3vl_weights_map()
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
