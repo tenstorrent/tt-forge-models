@@ -71,7 +71,9 @@ class ModelLoader(ForgeModel):
         # romatch explicitly casts intermediate features to float32 on CPU
         # (when torch.autocast is disabled), so bfloat16 weights cause a
         # dtype mismatch.  Always keep this model in float32.
-        model = roma_outdoor(device="cpu", **kwargs)
+        # use_custom_corr=False avoids the optional compiled `local_corr` CUDA
+        # extension which is not available in this environment.
+        model = roma_outdoor(device="cpu", use_custom_corr=False, **kwargs)
         model.eval()
         model = model.to(torch.float32)
 
