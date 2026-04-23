@@ -62,18 +62,24 @@ _orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
 
 
 def _qwen2vl_patched_get_gguf_hf_weights_map(
-    hf_model, processor, model_type=None, **kw
+    hf_model, processor, model_type=None, num_layers=None, **kw
 ):
     """Handle hf_model=None when model_to_load was dropped by intermediate patchers.
 
     When the patch chain drops model_to_load, the real load_gguf_checkpoint
     receives model_to_load=None and calls get_gguf_hf_weights_map(None, ...).
-    Fall back to the processor config's model_type so the gguf tensor name map
-    can still be built correctly.
+    Fall back to the processor config's model_type and num_hidden_layers so the
+    gguf tensor name map can still be built correctly.
     """
-    if hf_model is None and model_type is None:
-        model_type = getattr(processor, "config", {}).get("model_type")
-    return _orig_get_gguf_hf_weights_map(hf_model, processor, model_type, **kw)
+    if hf_model is None:
+        config = getattr(processor, "config", {})
+        if model_type is None:
+            model_type = config.get("model_type")
+        if num_layers is None:
+            num_layers = config.get("num_hidden_layers")
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, **kw
+    )
 
 
 _patch_qwen2vl_support()
