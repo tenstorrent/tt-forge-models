@@ -60,12 +60,15 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _fix_gguf_model_to_load_compat():
-        """Wrap load_gguf_checkpoint to accept model_to_load added in transformers>=5.
+        """Replace any monkey-patched load_gguf_checkpoint with the real transformers
+        implementation so that model_to_load (required by transformers>=5) is preserved.
 
-        Other GGUF loaders monkey-patch load_gguf_checkpoint with signatures that
-        pre-date the model_to_load kwarg. This wraps whichever version is currently
-        installed so the kwarg is accepted and silently dropped.
+        Other GGUF loaders replace load_gguf_checkpoint with wrappers whose signatures
+        pre-date the model_to_load kwarg. Loading a fresh copy of the module bypasses
+        the entire patch chain and gives us the real function that accepts model_to_load.
         """
+        import importlib.util
+
         import transformers.modeling_gguf_pytorch_utils as gguf_utils
         import transformers.models.auto.tokenization_auto as tok_auto
         import transformers.configuration_utils as config_utils
@@ -73,21 +76,26 @@ class ModelLoader(ForgeModel):
 
         current_fn = gguf_utils.load_gguf_checkpoint
         sig = inspect.signature(current_fn)
-        params = sig.parameters
-        if "model_to_load" in params or any(
-            p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+        if "model_to_load" in sig.parameters or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
         ):
             return
 
-        _orig = current_fn
+        # Load a fresh (unpatched) copy of the module to get the real function that
+        # accepts model_to_load. The fresh module's functions use its own unpatched
+        # get_gguf_hf_weights_map, which works for standard architectures like StableLM.
+        spec = importlib.util.find_spec("transformers.modeling_gguf_pytorch_utils")
+        fresh_spec = importlib.util.spec_from_file_location(
+            "_tt_gguf_fresh", spec.origin
+        )
+        fresh_mod = importlib.util.module_from_spec(fresh_spec)
+        fresh_spec.loader.exec_module(fresh_mod)
+        real_fn = fresh_mod.load_gguf_checkpoint
 
-        def _patched(*args, model_to_load=None, **kwargs):
-            return _orig(*args, **kwargs)
-
-        gguf_utils.load_gguf_checkpoint = _patched
+        gguf_utils.load_gguf_checkpoint = real_fn
         for mod in (tok_auto, config_utils, modeling_utils):
             if hasattr(mod, "load_gguf_checkpoint"):
-                mod.load_gguf_checkpoint = _patched
+                mod.load_gguf_checkpoint = real_fn
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
