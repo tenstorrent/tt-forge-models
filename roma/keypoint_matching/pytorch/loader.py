@@ -71,9 +71,17 @@ class ModelLoader(ForgeModel):
         model = roma_outdoor(device="cpu", **kwargs)
         model.eval()
 
-        model = model.to(
-            dtype_override if dtype_override is not None else torch.float32
-        )
+        target_dtype = dtype_override if dtype_override is not None else torch.float32
+        model = model.to(target_dtype)
+
+        # DINOv2 is stored in a plain Python list (not nn.Module) to hide it
+        # from DDP, so model.to() skips it. Convert manually and sync amp_dtype
+        # so forward() casts inputs to the same dtype as the weights.
+        if hasattr(model, "encoder") and hasattr(model.encoder, "dinov2_vitl14"):
+            model.encoder.dinov2_vitl14[0] = model.encoder.dinov2_vitl14[0].to(
+                target_dtype
+            )
+            model.encoder.amp_dtype = target_dtype
 
         return model
 
