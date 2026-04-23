@@ -58,6 +58,11 @@ def _patch_lfm2moe_gguf_support():
         return
 
     from transformers.modeling_gguf_pytorch_utils import Lfm2TensorProcessor
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
+
+    # lfm2moe uses a GPT-2 style tokenizer (tokenizer.ggml.model=gpt2 in GGUF)
+    GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = GGUFGPTConverter
+    GGUF_TO_FAST_CONVERTERS["lfm2moe"] = GGUFGPTConverter
 
     _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
         "lfm2moe"
