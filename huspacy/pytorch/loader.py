@@ -9,9 +9,9 @@ featuring tok2vec, NER, POS tagging, dependency parsing, and lemmatization.
 This loader extracts the static word vectors (200k vectors, 100 dimensions)
 and wraps them as a PyTorch embedding model for sentence embedding generation.
 """
+
 import torch
 import torch.nn as nn
-import spacy
 from typing import Optional
 
 from third_party.tt_forge_models.config import (
@@ -93,6 +93,8 @@ class ModelLoader(ForgeModel):
 
     def _load_nlp(self):
         if self._nlp is None:
+            import spacy
+
             model_name = self._variant_config.pretrained_model_name
             self._nlp = spacy.load(model_name)
         return self._nlp
