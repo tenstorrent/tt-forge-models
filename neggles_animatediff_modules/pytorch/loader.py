@@ -122,6 +122,10 @@ class ModelLoader(ForgeModel):
             (batch_size, 77, cross_attention_dim),
             dtype=dtype,
         )
+        # AnimateDiff pipeline repeats prompt embeds for each frame before calling unet
+        encoder_hidden_states = encoder_hidden_states.repeat_interleave(
+            num_frames, dim=0
+        )
 
         return {
             "sample": sample,
