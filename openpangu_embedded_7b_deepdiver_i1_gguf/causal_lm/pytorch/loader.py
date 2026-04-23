@@ -8,6 +8,16 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -18,6 +28,50 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_pangu_embedded_support():
+    """Register pangu-embedded as a llama-based architecture.
+
+    The openPangu-Embedded GGUF files declare architecture as 'pangu-embedded',
+    which transformers 5.x does not yet recognise. The architecture is llama-based
+    with attention biases on q/k/v/o projections.
+    """
+    if "pangu-embedded" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("pangu-embedded")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "llama" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "pangu-embedded",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["llama"],
+            )
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("pangu-embedded", GGUF_TO_FAST_CONVERTERS["llama"])
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+    """Wrap load_gguf_checkpoint to add pangu-embedded (llama-based) support."""
+    import importlib.metadata
+    import transformers.utils.import_utils as _import_utils
+
+    _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+        importlib.metadata.packages_distributions()
+    )
+    _patch_pangu_embedded_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
+    if result.get("config", {}).get("model_type") == "pangu-embedded":
+        result["config"]["model_type"] = "llama"
+        result["config"]["attention_bias"] = True
+    return result
+
+
+_patch_pangu_embedded_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
