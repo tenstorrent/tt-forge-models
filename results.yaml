@@ -11,3 +11,7 @@ results:
   status: "PASS"
   date: "20260422_230315"
   branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-22_16-54/hf-bringup-28"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[cross_encoder/passage_ranking/pytorch-ms-marco-TinyBERT-L6-single_device-inference]"
+  status: "PASS"
+  date: "20260423_011921"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-22_16-54/hf-bringup-28"
