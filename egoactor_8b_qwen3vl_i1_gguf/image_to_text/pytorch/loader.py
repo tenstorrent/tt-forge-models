@@ -6,10 +6,15 @@ EgoActor 8B Qwen3VL i1 GGUF model loader implementation for image to text.
 """
 import importlib.metadata
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import (
     Qwen3VLConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
+)
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
 )
 from typing import Optional
 
@@ -23,6 +28,45 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Wrap get_gguf_hf_weights_map to handle qwen3_vl -> qwen3vl mapping.
+
+    transformers uses 'qwen3_vl' as model_type but gguf-py uses 'qwen3vl'.
+    Also handles composite VL configs that lack num_hidden_layers at the top level.
+    """
+    if model_type is None:
+        model_type = hf_model.config.model_type
+    if model_type == "qwen3_vl":
+        model_type = "qwen3vl"
+    if num_layers is None:
+        cfg = hf_model.config
+        if hasattr(cfg, "num_hidden_layers"):
+            num_layers = cfg.num_hidden_layers
+        elif hasattr(cfg, "text_config") and hasattr(
+            cfg.text_config, "num_hidden_layers"
+        ):
+            num_layers = cfg.text_config.num_hidden_layers
+    return _orig_get_gguf_hf_weights_map(
+        hf_model,
+        processor,
+        model_type=model_type,
+        num_layers=num_layers,
+        qual_name=qual_name,
+    )
+
+
+def _patch_qwen3vl_gguf_support():
+    """Register qwen3vl as a supported GGUF architecture and patch the weights map lookup."""
+    if "qwen3vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_qwen3vl_gguf_support()
 
 
 class ModelVariant(StrEnum):
@@ -82,6 +126,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         self._fix_gguf_version_detection()
+        _patch_qwen3vl_gguf_support()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
@@ -95,8 +140,8 @@ class ModelLoader(ForgeModel):
             "BAAI-Agents/EgoActor-8b-Qwen3VL"
         )
 
-        # Pass explicit config so from_pretrained skips GGUF architecture detection
-        # (qwen3vl is not yet registered in transformers GGUF support)
+        # Pass explicit config so AutoConfig skips GGUF config parsing
+        # (qwen3vl arch not in transformers GGUF config mapping)
         config = Qwen3VLConfig()
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs
