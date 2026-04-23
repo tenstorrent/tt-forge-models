@@ -5,7 +5,7 @@
 togethercomputer/m2-bert-80M-8k-retrieval model loader implementation for
 long-context retrieval embedding generation.
 """
-import torch
+
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from typing import Optional
 
@@ -59,7 +59,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         # The model card specifies the bert-base-uncased tokenizer with an
         # extended model_max_length so the 8k context is tokenized correctly.
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -68,12 +68,10 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForSequenceClassification.from_pretrained(
@@ -82,9 +80,9 @@ class ModelLoader(ForgeModel):
         model.eval()
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         max_length = self._variant_config.max_length
 
@@ -96,10 +94,5 @@ class ModelLoader(ForgeModel):
             truncation=True,
             max_length=max_length,
         )
-
-        if dtype_override is not None:
-            for key, value in inputs.items():
-                if isinstance(value, torch.Tensor) and value.dtype == torch.float32:
-                    inputs[key] = value.to(dtype_override)
 
         return inputs
