@@ -128,7 +128,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model_kwargs["device_map"] = "auto"
+        model_kwargs["device_map"] = "cpu"
         model_kwargs["trust_remote_code"] = True
         model_kwargs |= kwargs
 
