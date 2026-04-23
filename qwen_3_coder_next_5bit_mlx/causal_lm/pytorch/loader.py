@@ -81,8 +81,13 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        # MLX quantization format has no quant_method; mark it unknown so that
+        # transformers skips quantization and loads the model as a plain float
+        # checkpoint with ignore_mismatched_sizes=True below.
+        if isinstance(config.quantization_config, dict):
+            config.quantization_config["quant_method"] = "mlx"
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
                 if hasattr(config.text_config, "layer_types"):
@@ -91,10 +96,12 @@ class ModelLoader(ForgeModel):
                     ]
             else:
                 config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+                if hasattr(config, "layer_types"):
+                    config.layer_types = config.layer_types[: self.num_layers]
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
