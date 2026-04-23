@@ -7,7 +7,9 @@ EfficientNetV2 model loader implementation (timm variants)
 
 from typing import Optional
 
+import requests
 import timm
+from PIL import Image
 from timm.data import resolve_data_config
 from timm.data.transforms_factory import create_transform
 
@@ -21,7 +23,6 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from datasets import load_dataset
 from ...tools.utils import print_compiled_model_results
 
 
@@ -76,9 +77,8 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size: int = 1):
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"].convert("RGB")
+        url = "https://huggingface.co/datasets/huggingface/cats-image/resolve/main/cats_image.jpeg"
+        image = Image.open(requests.get(url, stream=True).raw).convert("RGB")
 
         # Use cached model if available, otherwise load it
         model_for_config = (
