@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Mungert Qwen 2.5 VL 7B Instruct GGUF model loader for vision-language tasks.
+
+Note: The qwen2vl GGUF architecture is not supported by the transformers GGUF
+loader, so we fall back to the base HF checkpoint (safetensors).
 """
 import torch
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
@@ -32,16 +35,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_GGUF: LLMModelConfig(
-            pretrained_model_name="Mungert/Qwen2.5-VL-7B-Instruct-GGUF",
+            pretrained_model_name="Qwen/Qwen2.5-VL-7B-Instruct",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_GGUF
 
-    GGUF_FILE = "Qwen2.5-VL-7B-Instruct-q4_k_m.gguf"
-
-    # Processor is loaded from the original Qwen repo since the GGUF repo
-    # only contains quantized model weights without tokenizer/processor configs.
     PROCESSOR_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
 
     messages = [
@@ -95,7 +94,6 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
