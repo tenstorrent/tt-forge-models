@@ -175,6 +175,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs.setdefault("ignore_mismatched_sizes", True)
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
