@@ -108,10 +108,12 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Load config from the original non-GGUF repo to get the Step3-VL model class
-        # (AutoModelForCausalLM -> Step3VL10BForCausalLM via remote code).
+        # Load config and model class from the original non-GGUF repo.
         # The GGUF file metadata reports Qwen3ForCausalLM which doesn't match the
-        # VL model class, so we must override with the correct config.
+        # VL model class (Step3VL10BForCausalLM). The GGUF repo also lacks the
+        # remote code files, so we import the model class from the source repo.
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
         config = AutoConfig.from_pretrained(
             self._PROCESSOR_SOURCE,
             trust_remote_code=True,
@@ -123,7 +125,12 @@ class ModelLoader(ForgeModel):
             else:
                 config.num_hidden_layers = self.num_layers
 
-        model_kwargs = {"trust_remote_code": True, "config": config}
+        ModelClass = get_class_from_dynamic_module(
+            "modeling_step_vl.Step3VL10BForCausalLM",
+            self._PROCESSOR_SOURCE,
+        )
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -132,7 +139,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model = AutoModelForCausalLM.from_pretrained(
+        model = ModelClass.from_pretrained(
             pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
