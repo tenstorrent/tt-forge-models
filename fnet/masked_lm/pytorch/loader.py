@@ -90,11 +90,9 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         # Load pre-trained model from HuggingFace
-        # FNet uses Fourier transforms which require float32 on TT hardware
+        # FNet uses Fourier transforms which are not supported in bfloat16 on TT hardware
         model_kwargs = {}
-        model_kwargs["torch_dtype"] = (
-            dtype_override if dtype_override is not None else torch.float32
-        )
+        model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
         model = AutoModelForMaskedLM.from_pretrained(self.model_name, **model_kwargs)
