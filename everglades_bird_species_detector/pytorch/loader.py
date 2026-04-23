@@ -10,8 +10,6 @@ Spoonbill, White Ibis, Great Blue Heron, Wood Stork, Snowy Egret, and Anhinga.
 """
 import torch
 import numpy as np
-from deepforest import main as deepforest_main
-from datasets import load_dataset
 from typing import Optional
 
 from ...base import ForgeModel
@@ -83,6 +81,8 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The DeepForest retinanet model fine-tuned for
             Everglades bird species detection.
         """
+        from deepforest import main as deepforest_main
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         df_model = deepforest_main.deepforest()
@@ -106,6 +106,8 @@ class ModelLoader(ForgeModel):
         Returns:
             list: Input tensors as a list of image tensors, as expected by torchvision detection models.
         """
+        from datasets import load_dataset
+
         dataset = load_dataset("huggingface/cats-image")["test"]
         image = dataset[0]["image"].resize((400, 400))
 

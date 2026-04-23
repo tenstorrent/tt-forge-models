@@ -6,8 +6,6 @@ DeepForest Tree Crown Detection model loader implementation for object detection
 """
 import torch
 import numpy as np
-from deepforest import main as deepforest_main
-from datasets import load_dataset
 from typing import Optional
 
 from ...base import ForgeModel
@@ -81,6 +79,8 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The DeepForest Tree model instance for object detection.
         """
         # Load the DeepForest model and its pretrained weights
+        from deepforest import main as deepforest_main
+
         df_model = deepforest_main.deepforest()
         df_model.use_release()
 
@@ -105,6 +105,8 @@ class ModelLoader(ForgeModel):
             list: Input tensors as a list of image tensors, as expected by torchvision detection models.
         """
         # Load a sample image from HuggingFace datasets
+        from datasets import load_dataset
+
         dataset = load_dataset("huggingface/cats-image")["test"]
         image = dataset[0]["image"].resize((400, 400))
 
