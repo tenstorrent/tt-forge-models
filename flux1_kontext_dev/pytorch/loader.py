@@ -5,8 +5,10 @@
 FLUX.1-Kontext-dev model loader implementation for image editing.
 """
 
+import os
 import torch
 from diffusers import FluxKontextPipeline, AutoencoderTiny
+from diffusers.models import FluxTransformer2DModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -41,6 +43,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipe = None
+        self.transformer = None
         self.guidance_scale = 3.5
 
     @classmethod
@@ -58,6 +61,21 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_pipeline(self, dtype_override=None):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            dtype = dtype_override if dtype_override is not None else torch.bfloat16
+            self.transformer = FluxTransformer2DModel(
+                patch_size=1,
+                in_channels=64,
+                num_layers=19,
+                num_single_layers=38,
+                attention_head_dim=128,
+                num_attention_heads=24,
+                joint_attention_dim=4096,
+                pooled_projection_dim=768,
+                guidance_embeds=True,
+            ).to(dtype)
+            return self.transformer
+
         pipe_kwargs = {
             "use_safetensors": True,
         }
@@ -82,6 +100,13 @@ class ModelLoader(ForgeModel):
         return self.pipe
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            if self.transformer is None:
+                self._load_pipeline(dtype_override=dtype_override)
+            if dtype_override is not None:
+                self.transformer = self.transformer.to(dtype_override)
+            return self.transformer
+
         if self.pipe is None:
             self._load_pipeline(dtype_override=dtype_override)
 
@@ -91,6 +116,58 @@ class ModelLoader(ForgeModel):
         return self.pipe.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            if self.transformer is None:
+                self._load_pipeline(dtype_override=dtype_override)
+
+            dtype = dtype_override if dtype_override is not None else torch.bfloat16
+            config = self.transformer.config
+            max_sequence_length = 256
+            height = 128
+            width = 128
+            vae_scale_factor = 8
+            num_channels_latents = config.in_channels // 4
+
+            height_latent = 2 * (int(height) // (vae_scale_factor * 2))
+            width_latent = 2 * (int(width) // (vae_scale_factor * 2))
+            h_packed = height_latent // 2
+            w_packed = width_latent // 2
+
+            latents = torch.randn(
+                batch_size, h_packed * w_packed, num_channels_latents * 4, dtype=dtype
+            )
+            pooled_prompt_embeds = torch.randn(
+                batch_size, config.pooled_projection_dim, dtype=dtype
+            )
+            prompt_embeds = torch.randn(
+                batch_size, max_sequence_length, config.joint_attention_dim, dtype=dtype
+            )
+            text_ids = torch.zeros(max_sequence_length, 3, dtype=dtype)
+            latent_image_ids = torch.zeros(h_packed, w_packed, 3)
+            latent_image_ids[..., 1] = (
+                latent_image_ids[..., 1] + torch.arange(h_packed)[:, None]
+            )
+            latent_image_ids[..., 2] = (
+                latent_image_ids[..., 2] + torch.arange(w_packed)[None, :]
+            )
+            latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
+            guidance = (
+                torch.full([batch_size], self.guidance_scale, dtype=dtype)
+                if config.guidance_embeds
+                else None
+            )
+
+            return {
+                "hidden_states": latents,
+                "timestep": torch.tensor([1.0], dtype=dtype),
+                "guidance": guidance,
+                "pooled_projections": pooled_prompt_embeds,
+                "encoder_hidden_states": prompt_embeds,
+                "txt_ids": text_ids,
+                "img_ids": latent_image_ids,
+                "joint_attention_kwargs": {},
+            }
+
         if self.pipe is None:
             self._load_pipeline(dtype_override=dtype_override)
 
