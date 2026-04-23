@@ -1,0 +1,20 @@
+{
+  "_class_name": "CosmosTransformer3DModel",
+  "_diffusers_version": "0.32.0",
+  "in_channels": 16,
+  "out_channels": 16,
+  "num_attention_heads": 16,
+  "attention_head_dim": 128,
+  "num_layers": 28,
+  "mlp_ratio": 4.0,
+  "text_embed_dim": 1024,
+  "adaln_lora_dim": 256,
+  "max_size": [128, 240, 240],
+  "patch_size": [1, 2, 2],
+  "rope_scale": [2.0, 1.0, 1.0],
+  "concat_padding_mask": true,
+  "extra_pos_embed_type": null,
+  "use_crossattn_projection": false,
+  "crossattn_proj_in_channels": 1024,
+  "encoder_hidden_states_channels": 1024
+}

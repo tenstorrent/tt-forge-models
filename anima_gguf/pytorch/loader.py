@@ -14,6 +14,7 @@ Available variants:
 - PREVIEW3_BASE_Q5_K_M: anima-preview3-base 5-bit (medium) quantization
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -32,7 +33,9 @@ from ...config import (
 )
 
 REPO_ID = "Bedovyy/Anima-GGUF"
-CONFIG_REPO = "nvidia/Cosmos-Predict2-2B-Text2Image"
+# Local config avoids downloading the gated nvidia/Cosmos-Predict2-2B-Text2Image repo.
+# Architecture inferred from GGUF tensor shapes: 16 heads, 128 head_dim, 28 layers.
+_LOCAL_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_config")
 
 
 class ModelVariant(StrEnum):
@@ -85,7 +88,7 @@ class ModelLoader(ForgeModel):
 
         self._transformer = CosmosTransformer3DModel.from_single_file(
             model_path,
-            config=CONFIG_REPO,
+            config=_LOCAL_CONFIG,
             subfolder="transformer",
             torch_dtype=dtype,
         )
