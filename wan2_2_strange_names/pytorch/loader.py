@@ -4,18 +4,21 @@
 """
 Kokosha01/Wan2.2_StrangeNames model loader implementation.
 
-LoRA adapters for the Z-Image-Turbo pipeline published under
-Kokosha01/Wan2.2_StrangeNames. The repository bundles several
-safetensors files; each is exposed here as a separate variant.
+LoRA adapters trained on Wan 2.2 I2V A14B (hidden_dim=5120, 40 layers).
+Each safetensors file is a separate variant applied on top of the base
+WAN 2.2 transformer. LoRA keys use the original non-diffusers naming
+convention and are remapped to the diffusers WanTransformer3DModel paths
+before applying the delta weights directly.
 
 Repository: https://huggingface.co/Kokosha01/Wan2.2_StrangeNames
 """
 
+import re
 from typing import Any, Optional
 
 import safetensors.torch
 import torch
-from diffusers import ZImagePipeline
+from diffusers.models.transformers.transformer_wan import WanTransformer3DModel
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -29,8 +32,13 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "Tongyi-MAI/Z-Image-Turbo"
+BASE_MODEL = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
 LORA_REPO = "Kokosha01/Wan2.2_StrangeNames"
+
+# Wan 2.2 I2V A14B config constants (from transformer/config.json)
+_IN_CHANNELS = 36
+_TEXT_DIM = 4096
+_NUM_LAYERS = 40
 
 
 class ModelVariant(StrEnum):
@@ -58,6 +66,67 @@ _LORA_FILES = {
 }
 
 
+def _remap_lora_path(path: str) -> Optional[str]:
+    """Convert a LoRA base path (no suffix) to a WAN transformer parameter path.
+
+    Returns None for paths that have no corresponding parameter in the model
+    (e.g. image-conditional projections absent from this variant).
+    """
+    path = path.removeprefix("diffusion_model.")
+
+    # Skip image-conditional cross-attention projections (not in base model)
+    if ".cross_attn.k_img" in path or ".cross_attn.v_img" in path:
+        return None
+
+    # self_attn.{q,k,v,o} -> attn1.{to_q,to_k,to_v,to_out.0}
+    path = re.sub(r"\.self_attn\.q(?=\.|$)", ".attn1.to_q", path)
+    path = re.sub(r"\.self_attn\.k(?=\.|$)", ".attn1.to_k", path)
+    path = re.sub(r"\.self_attn\.v(?=\.|$)", ".attn1.to_v", path)
+    path = re.sub(r"\.self_attn\.o(?=\.|$)", ".attn1.to_out.0", path)
+
+    # cross_attn.{q,k,v,o} -> attn2.{to_q,to_k,to_v,to_out.0}
+    path = re.sub(r"\.cross_attn\.q(?=\.|$)", ".attn2.to_q", path)
+    path = re.sub(r"\.cross_attn\.k(?=\.|$)", ".attn2.to_k", path)
+    path = re.sub(r"\.cross_attn\.v(?=\.|$)", ".attn2.to_v", path)
+    path = re.sub(r"\.cross_attn\.o(?=\.|$)", ".attn2.to_out.0", path)
+
+    # ffn.{0,2} -> ffn.net.{0.proj,2}
+    path = re.sub(r"\.ffn\.0(?=\.|$)", ".ffn.net.0.proj", path)
+    path = re.sub(r"\.ffn\.2(?=\.|$)", ".ffn.net.2", path)
+
+    return path
+
+
+def _apply_lora(transformer: WanTransformer3DModel, state_dict: dict) -> None:
+    """Apply LoRA deltas directly to transformer parameter weights.
+
+    Uses scale=1.0 (alpha=rank convention: no scaling needed).
+    Keys that cannot be remapped to existing parameters are silently skipped.
+    """
+    model_params = dict(transformer.named_parameters())
+    down_suffix = ".lora_down.weight"
+
+    for k, down_w in state_dict.items():
+        if not k.endswith(down_suffix):
+            continue
+        base = k[: -len(down_suffix)]
+        up_w = state_dict.get(base + ".lora_up.weight")
+        if up_w is None:
+            continue
+
+        remapped = _remap_lora_path(base)
+        if remapped is None:
+            continue
+
+        param_key = remapped + ".weight"
+        if param_key not in model_params:
+            continue
+
+        delta = (up_w @ down_w).to(model_params[param_key].dtype)
+        with torch.no_grad():
+            model_params[param_key].data += delta
+
+
 class ModelLoader(ForgeModel):
     """Kokosha01/Wan2.2_StrangeNames LoRA model loader."""
 
@@ -70,7 +139,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._pipe = None
+        self._transformer: Optional[WanTransformer3DModel] = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -85,10 +154,12 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
-        """Load the Z-Image-Turbo pipeline with the selected LoRA weights fused."""
-        self._pipe = ZImagePipeline.from_pretrained(
+    def _load_transformer(
+        self, dtype: torch.dtype = torch.bfloat16
+    ) -> WanTransformer3DModel:
+        transformer = WanTransformer3DModel.from_pretrained(
             BASE_MODEL,
+            subfolder="transformer",
             torch_dtype=dtype,
             low_cpu_mem_usage=False,
         )
@@ -96,67 +167,27 @@ class ModelLoader(ForgeModel):
         lora_file = _LORA_FILES[self._variant]
         lora_path = hf_hub_download(repo_id=LORA_REPO, filename=lora_file)
         state_dict = safetensors.torch.load_file(lora_path)
+        _apply_lora(transformer, state_dict)
 
-        # Inject missing alpha keys (alpha = rank → scale = 1.0) so diffusers'
-        # _convert_non_diffusers_z_image_lora_to_diffusers doesn't KeyError.
-        down_suffix = ".lora_down.weight"
-        alpha_additions = {
-            k[: -len(down_suffix)] + ".alpha": torch.tensor(float(v.shape[0]))
-            for k, v in state_dict.items()
-            if k.endswith(down_suffix)
-            and k[: -len(down_suffix)] + ".alpha" not in state_dict
-        }
-        state_dict.update(alpha_additions)
-
-        self._pipe.load_lora_weights(state_dict)
-        self._pipe.fuse_lora()
-
-        return self._pipe
+        self._transformer = transformer
+        return transformer
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the DiT transformer with the LoRA weights fused.
-
-        Returns:
-            torch.nn.Module: The Z-Image-Turbo DiT transformer with LoRA applied.
-        """
+        """Load the WAN 2.2 I2V transformer with LoRA weights fused in-place."""
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        if self._pipe is None:
-            self._load_pipeline(dtype)
+        if self._transformer is None:
+            self._load_transformer(dtype)
         if dtype_override is not None:
-            self._pipe.transformer = self._pipe.transformer.to(dtype_override)
-        return self._pipe.transformer
+            self._transformer = self._transformer.to(dtype_override)
+        return self._transformer
 
     def load_inputs(self, **kwargs) -> Any:
-        """Load and return sample inputs for the transformer.
-
-        Returns:
-            list: [latent_input_list, timestep, prompt_embeds]
-        """
+        """Return synthetic inputs matching the WAN 3D transformer forward signature."""
         dtype = kwargs.get("dtype_override", torch.bfloat16)
-        height = 128
-        width = 128
-        prompt = "A high quality photograph of a mountain landscape"
 
-        if self._pipe is None:
-            self._load_pipeline(dtype)
+        # Patch size is [1, 2, 2] so spatial dims must be divisible by 2.
+        hidden_states = torch.randn(1, _IN_CHANNELS, 1, 8, 8, dtype=dtype)
+        timestep = torch.tensor([500], dtype=torch.long)
+        encoder_hidden_states = torch.randn(1, 16, _TEXT_DIM, dtype=dtype)
 
-        prompt_embeds, _ = self._pipe.encode_prompt(
-            prompt=prompt,
-            device="cpu",
-            do_classifier_free_guidance=False,
-        )
-
-        num_channels_latents = self._pipe.transformer.in_channels
-        vae_scale = self._pipe.vae_scale_factor * 2
-        latent_h = height // vae_scale
-        latent_w = width // vae_scale
-        latents = torch.randn(
-            1, num_channels_latents, latent_h, latent_w, dtype=torch.float32
-        )
-
-        timestep = torch.tensor([0.5], dtype=dtype)
-
-        latent_input = latents.to(dtype).unsqueeze(2)
-        latent_input_list = list(latent_input.unbind(dim=0))
-
-        return [latent_input_list, timestep, prompt_embeds]
+        return [hidden_states, timestep, encoder_hidden_states]
