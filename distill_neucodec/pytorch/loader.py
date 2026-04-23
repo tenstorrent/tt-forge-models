@@ -84,16 +84,13 @@ class ModelLoader(ForgeModel):
 
         codec = DistillNeuCodec.from_pretrained(pretrained_model_name, **kwargs)
 
-        if dtype_override is not None:
-            codec = codec.to(dtype=dtype_override)
-
         class DistillNeuCodecWrapper(nn.Module):
             def __init__(self, model):
                 super().__init__()
                 self.model = model
 
             def forward(self, audio):
-                # Feature extractor cannot handle bfloat16; convert to float32
+                # Run in float32: feature extractor cannot handle bfloat16
                 return self.model.encode_code(audio.float())
 
         model = DistillNeuCodecWrapper(codec)
