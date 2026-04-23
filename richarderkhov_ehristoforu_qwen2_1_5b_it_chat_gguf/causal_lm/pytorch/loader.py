@@ -48,6 +48,42 @@ class ModelLoader(ForgeModel):
             except importlib.metadata.PackageNotFoundError:
                 pass
 
+    @staticmethod
+    def _fix_load_gguf_checkpoint_signature():
+        """Restore original load_gguf_checkpoint if other loaders patched it with an
+        incompatible signature (missing model_to_load kwarg).
+
+        Some GGUF loaders apply a module-level monkey-patch with a fixed signature
+        (gguf_path, return_tensors=False) that does not accept model_to_load.
+        transformers.modeling_utils calls load_gguf_checkpoint(..., model_to_load=...)
+        causing a TypeError. We find the real function saved by the first patcher and
+        restore it to the module.
+        """
+        import inspect
+        import sys
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        current_fn = _gguf_utils.load_gguf_checkpoint
+        try:
+            sig = inspect.signature(current_fn)
+            if "model_to_load" in sig.parameters:
+                return
+        except (ValueError, TypeError):
+            return
+
+        for mod in sys.modules.values():
+            if mod is None:
+                continue
+            orig = getattr(mod, "_orig_load_gguf_checkpoint", None)
+            if callable(orig):
+                try:
+                    orig_sig = inspect.signature(orig)
+                    if "model_to_load" in orig_sig.parameters:
+                        _gguf_utils.load_gguf_checkpoint = orig
+                        return
+                except (ValueError, TypeError):
+                    pass
+
     _VARIANTS = {
         ModelVariant.RICHARDERKHOV_EHRISTOFORU_QWEN2_1_5B_IT_CHAT_GGUF: LLMModelConfig(
             pretrained_model_name="RichardErkhov/ehristoforu_-_Qwen2-1.5b-it-chat-gguf",
@@ -82,6 +118,7 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self, dtype_override=None):
         self._fix_gguf_version_detection()
+        self._fix_load_gguf_checkpoint_signature()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -178,6 +215,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self._fix_gguf_version_detection()
+        self._fix_load_gguf_checkpoint_signature()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
