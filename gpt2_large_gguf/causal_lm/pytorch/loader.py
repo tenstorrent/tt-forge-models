@@ -94,9 +94,22 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        _current_loader = _gguf_utils.load_gguf_checkpoint
+
+        # Other loaders monkey-patch load_gguf_checkpoint without **kwargs support.
+        # Transformers 5.2.0 added model_to_load kwarg; this wrapper accepts and drops it.
+        def _compat(gguf_path, return_tensors=False, **_extra):
+            return _current_loader(gguf_path, return_tensors=return_tensors)
+
+        _gguf_utils.load_gguf_checkpoint = _compat
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _current_loader
 
         self.config = model.config
         self.model = model
