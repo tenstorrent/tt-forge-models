@@ -229,6 +229,11 @@ def controlnet_lineart_anime_sdxl_preprocessing(
         return_dict=False,
     )
 
+    down_block_additional_residuals = [
+        r.to(torch.float32) for r in down_block_additional_residuals
+    ]
+    mid_block_additional_residual = mid_block_additional_residual.to(torch.float32)
+
     return (
         latent_model_input,
         timesteps,
