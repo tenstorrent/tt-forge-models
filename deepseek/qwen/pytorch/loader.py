@@ -1,110 +1,195 @@
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Deepseek-Qwen model loader implementation
+DeepSeek Qwen  model loader implementation.
 """
 
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from typing import Optional
 
+from ....base import ForgeModel
 from ....config import (
+    LLMModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
-from ....base import ForgeModel
-from transformers import AutoTokenizer, AutoModelForCausalLM
+
+
+class ModelVariant(StrEnum):
+    """Available DeepSeek Qwen model variants for causal language modeling."""
+
+    DEEPSEEK_QWEN_R1_DISTILL_14B = "R1_Distill_14B"
+    DEEPSEEK_QWEN_R1_DISTILL_32B = "R1_Distill_32B"
 
 
 class ModelLoader(ForgeModel):
-    """Deepseek-Qwen model loader implementation."""
+    """DeepSeek Qwen model loader implementation for causal language modeling tasks."""
 
-    def __init__(self, variant=None):
+    _VARIANTS = {
+        ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_14B: LLMModelConfig(
+            pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
+            max_length=256,
+        ),
+        ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_32B: LLMModelConfig(
+            pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+            max_length=256,
+        ),
+    }
+
+    DEFAULT_VARIANT = ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_14B
+
+    sample_text = "Who are you?"
+
+    def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
-            variant: Optional string specifying which variant to use.
+            variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
-
-        # Configuration parameters
-        self.model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B"
         self.tokenizer = None
-        self.prompt = "What is machine learning?"
+        self.config = None
+        self.model = None
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
-        """Get model information for dashboard and metrics reporting.
-
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+        """Implementation method for getting model info with validated variant.
         Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
+            variant: Optional ModelVariant specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
 
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="DeepSeek",
-            variant=variant_name,
-            group=ModelGroup.GENERALITY,
+            model="DeepSeek Qwen",
+            variant=variant,
+            group=ModelGroup.RED,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Deepseek-Qwen model instance with default settings.
-
+    def _load_tokenizer(self, dtype_override=None):
+        """Load tokenizer for the current variant.
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                            If not provided, the model will use its default dtype (typically float32).
+            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
 
         Returns:
-            torch.nn.Module: The Deepseek-Qwen model instance.
+            The loaded tokenizer instance
         """
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+
+        return self.tokenizer
+
+    def load_model(self, *, dtype_override=None, **kwargs):
+        """Load and return the DeepSeek Qwen model instance for this instance's variant.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                           If not provided, the model will use its default dtype (typically float32).
+
+        Returns:
+            torch.nn.Module: The DeepSeek Qwen model for causal language modeling.
+        """
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
-
+        model = AutoModelForCausalLM.from_pretrained(
+            pretrained_model_name, **model_kwargs
+        )
+        model.eval()
+        self.config = model.config
+        self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Deepseek-Qwen model with default settings.
+        """Load and return sample inputs for the DeepSeek Qwen model with this instance's variant settings.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                            If not provided, the model will use its default dtype (typically float32).
-            batch_size: Optional batch size to override the default batch size of 1.
+            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
+            batch_size: Batch size for the inputs.
 
         Returns:
             dict: Input tensors that can be fed to the model.
         """
         if self.tokenizer is None:
-            # Ensure tokenizer is initialized
-            self.load_model(dtype_override=dtype_override)
+            self._load_tokenizer(dtype_override=dtype_override)
 
-        messages = [{"role": "user", "content": self.prompt}]
-        text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+        max_length = self._variant_config.max_length
+        conversation = [{"role": "user", "content": self.sample_text}]
+        prompt = self.tokenizer.apply_chat_template(
+            conversation, tokenize=False, add_generation_prompt=True
         )
-        inputs = self.tokenizer(text, return_tensors="pt")
+        inputs = self.tokenizer(
+            prompt,
+            add_generation_prompt=True,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=max_length,
+        )
 
-        # Create batch
         for key in inputs:
-            inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
         return inputs
+
+    def get_mesh_config(self, num_devices: int):
+        """Return mesh shape and axis names for tensor parallel."""
+        if self.config.num_attention_heads % num_devices == 0:
+            mesh_shape = (1, num_devices)
+        elif (
+            self.config.num_attention_heads % (num_devices // 2) == 0
+            and num_devices % 2 == 0
+        ):
+            mesh_shape = (2, num_devices // 2)
+        else:
+            raise ValueError(
+                f"Cannot evenly distribute {self.config.num_attention_heads} heads "
+                f"across {num_devices} devices"
+            )
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+        return shard_specs
+
+    def load_config(self):
+        """Load and return the configuration for the model variant."""
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+        return self.config
