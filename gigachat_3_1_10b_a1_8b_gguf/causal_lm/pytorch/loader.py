@@ -9,6 +9,88 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
+
+
+def _patch_transformers_deepseek_v2_gguf():
+    """Monkey-patch transformers to add deepseek_v2 GGUF architecture support.
+
+    The GigaChat 3.1 GGUF file uses 'deepseek_v2' as the architecture name,
+    which transformers does not yet register in its GGUF loading infrastructure.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+
+    if "deepseek_v2" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("deepseek_v2")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["deepseek_v2"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "rope.dimension_count": "qk_rope_head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": None,
+        "attention.value_length": None,
+        "attention.key_length_mla": "qk_nope_head_dim",
+        "attention.value_length_mla": "v_head_dim",
+        "attention.q_lora_rank": "q_lora_rank",
+        "attention.kv_lora_rank": "kv_lora_rank",
+        "vocab_size": "vocab_size",
+        "expert_count": "n_routed_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_shared_count": "n_shared_experts",
+        "expert_group_count": "n_group",
+        "expert_group_used_count": "topk_group",
+        "expert_weights_scale": "routed_scaling_factor",
+        "expert_weights_norm": "norm_topk_prob",
+        "leading_dense_block_count": "first_k_dense_replace",
+        "expert_feed_forward_length": "moe_intermediate_size",
+    }
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+    # deepseek_v2 model_type is not in gguf-py's MODEL_ARCH_NAMES; map it to deepseek2
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+    _orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if (
+            model_type is None
+            and getattr(getattr(hf_model, "config", None), "model_type", None)
+            == "deepseek_v2"
+        ):
+            model_type = "deepseek2"
+        elif model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return _orig_get_gguf_hf_weights_map(
+            hf_model, processor, model_type, num_layers, qual_name
+        )
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+    import transformers.modeling_utils as _modeling_utils
+
+    if hasattr(_modeling_utils, "get_gguf_hf_weights_map"):
+        _modeling_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_deepseek_v2_gguf()
 from ....config import (
     LLMModelConfig,
     ModelInfo,
