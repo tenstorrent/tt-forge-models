@@ -9,7 +9,7 @@ from typing import Optional
 
 import numpy as np
 from peft import PeftModel
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoProcessor, LlavaNextVideoForConditionalGeneration
 
 from ...base import ForgeModel
 from ...config import (
@@ -72,7 +72,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        base_model = AutoModelForImageTextToText.from_pretrained(
+        base_model = LlavaNextVideoForConditionalGeneration.from_pretrained(
             self.BASE_MODEL_NAME, **model_kwargs
         )
 
