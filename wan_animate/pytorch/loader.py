@@ -90,10 +90,14 @@ class ModelLoader(ForgeModel):
         self._transformer.eval()
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+        **kwargs,
+    ) -> Any:
         """Prepare sample inputs for the Wan Animate transformer."""
-        dtype = kwargs.get("dtype_override", torch.float32)
-        batch_size = kwargs.get("batch_size", 1)
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         # WanAnimateTransformer3DModel config dims:
         #   in_channels=36 (16 noisy latent + 16 reference + 4 mask)
