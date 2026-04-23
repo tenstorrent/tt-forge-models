@@ -5,8 +5,18 @@
 NBDiff-7B-Instruct model loader implementation for causal language modeling.
 """
 import torch
+import transformers.utils as _transformers_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+# transformers 5.x removed LossKwargs; provide a shim for models that use it via trust_remote_code
+if not hasattr(_transformers_utils, "LossKwargs"):
+    from typing import TypedDict
+
+    class _LossKwargs(TypedDict, total=False):
+        labels: object
+
+    _transformers_utils.LossKwargs = _LossKwargs
 
 from ....base import ForgeModel
 from ....config import (
