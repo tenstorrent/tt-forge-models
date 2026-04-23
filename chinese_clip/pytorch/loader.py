@@ -4,8 +4,10 @@
 """
 Chinese CLIP model loader implementation for image-text similarity.
 """
+import os
+
 import torch
-from transformers import ChineseCLIPProcessor, ChineseCLIPModel
+from transformers import ChineseCLIPConfig, ChineseCLIPProcessor, ChineseCLIPModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -107,7 +109,16 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = ChineseCLIPModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        if os.environ.get("TT_RANDOM_WEIGHTS") or os.environ.get(
+            "TT_COMPILE_ONLY_SYSTEM_DESC"
+        ):
+            config = ChineseCLIPConfig.from_pretrained(pretrained_model_name)
+            model = ChineseCLIPModel(config)
+            model.return_dict = False
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model = ChineseCLIPModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         return model
