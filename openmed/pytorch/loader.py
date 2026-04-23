@@ -45,6 +45,12 @@ class ModelVariant(StrEnum):
     OPENMED_ZEROSHOT_NER_GENOME_LARGE = "ZeroShot-NER-Genome-Large"
     OPENMED_ZEROSHOT_NER_ONCOLOGY_MULTI = "ZeroShot-NER-Oncology-Multi"
     OPENMED_ZEROSHOT_NER_PATHOLOGY_XLARGE = "ZeroShot-NER-Pathology-XLarge"
+    OPENMED_ZEROSHOT_NER_SPECIES_BASE = "ZeroShot-NER-Species-Base"
+    OPENMED_ZEROSHOT_NER_ONCOLOGY_LARGE = "ZeroShot-NER-Oncology-Large"
+    OPENMED_ZEROSHOT_NER_BLOODCANCER_LARGE = "ZeroShot-NER-BloodCancer-Large"
+    OPENMED_ZEROSHOT_NER_DNA_BASE = "ZeroShot-NER-DNA-Base"
+    OPENMED_ZEROSHOT_NER_ORGANISM_MULTI = "ZeroShot-NER-Organism-Multi"
+    OPENMED_ZEROSHOT_NER_PATHOLOGY_TINY = "ZeroShot-NER-Pathology-Tiny"
 
 
 class ModelLoader(ForgeModel):
@@ -89,6 +95,24 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.OPENMED_ZEROSHOT_NER_PATHOLOGY_XLARGE: ModelConfig(
             pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Pathology-XLarge"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_SPECIES_BASE: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Species-Base"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_ONCOLOGY_LARGE: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Oncology-Large"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_BLOODCANCER_LARGE: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-BloodCancer-Large"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_DNA_BASE: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-DNA-Base"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_ORGANISM_MULTI: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Organism-Multi"
+        ),
+        ModelVariant.OPENMED_ZEROSHOT_NER_PATHOLOGY_TINY: ModelConfig(
+            pretrained_model_name="OpenMed/OpenMed-ZeroShot-NER-Pathology-Tiny"
         ),
     }
 

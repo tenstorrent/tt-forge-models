@@ -71,6 +71,7 @@ class ModelVariant(StrEnum):
     QWEN_3_32B_T_PRO_IT_2_0 = "32B_T_pro_it_2.0"
     QWEN_3_1_7B_GGUF = "1_7B_GGUF"
     QWEN_3_32B_GUARDPOINT_GGUF = "32B_Guardpoint_GGUF"
+    QWEN_3_32B_NVFP4 = "32B_NVFP4"
 
 
 class ModelLoader(ForgeModel):
@@ -228,6 +229,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_32B_GUARDPOINT_GGUF: LLMModelConfig(
             pretrained_model_name="mradermacher/Qwen3-32B-Guardpoint-i1-GGUF",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_32B_NVFP4: LLMModelConfig(
+            pretrained_model_name="nvidia/Qwen3-32B-NVFP4",
             max_length=128,
         ),
     }
