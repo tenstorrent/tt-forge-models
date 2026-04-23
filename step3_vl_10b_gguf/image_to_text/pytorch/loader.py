@@ -4,7 +4,7 @@
 """
 Step3 VL 10B GGUF model loader implementation for image to text.
 """
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+from transformers import Qwen3VLForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -129,8 +129,8 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        model = Qwen3VLForConditionalGeneration.from_pretrained(
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
