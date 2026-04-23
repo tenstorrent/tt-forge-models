@@ -6,6 +6,7 @@ Zen VL 4B Agent i1 GGUF model loader implementation for image to text.
 """
 
 from transformers import (
+    Qwen3VLConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -72,8 +73,11 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("zenlm/zen-vl-4b-agent")
 
+        # Pass explicit config to skip GGUF architecture check
+        # (qwen3vl is not yet registered in transformers GGUF support)
+        config = Qwen3VLConfig()
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
