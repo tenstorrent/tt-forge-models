@@ -101,6 +101,18 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
+        # MLX-quantized models store a quantization_config without `quant_method`,
+        # which transformers rejects. Load and strip it so we get standard weights.
+        if "config" not in model_kwargs:
+            cfg = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            if getattr(cfg, "quantization_config", None) is not None and not hasattr(
+                cfg.quantization_config, "quant_method"
+            ):
+                cfg.quantization_config = None
+            model_kwargs["config"] = cfg
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
