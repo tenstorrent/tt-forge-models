@@ -14,7 +14,6 @@ Reference: https://huggingface.co/lerobot/diffusion_pusht_keypoints
 from typing import Optional
 
 import torch
-from lerobot.policies.diffusion import DiffusionPolicy
 
 from ...base import ForgeModel
 from ...config import (
@@ -69,6 +68,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from lerobot.policies.diffusion import DiffusionPolicy
+
         dtype = dtype_override if dtype_override is not None else torch.float32
 
         self.policy = DiffusionPolicy.from_pretrained(
