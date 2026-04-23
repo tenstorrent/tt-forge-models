@@ -53,9 +53,23 @@ def _prepare_gguf_env():
     current = _gguf_utils.load_gguf_checkpoint
     if "model_to_load" not in inspect.signature(current).parameters:
         _captured = current
+        _has_var_kw = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in inspect.signature(_captured).parameters.values()
+        )
+        if _has_var_kw:
+            # **kwargs patcher: pass model_to_load through so it reaches orig_load
+            def _wrapped(gguf_path, return_tensors=False, model_to_load=None):
+                return _captured(
+                    gguf_path,
+                    return_tensors=return_tensors,
+                    model_to_load=model_to_load,
+                )
 
-        def _wrapped(gguf_path, return_tensors=False, model_to_load=None):
-            return _captured(gguf_path, return_tensors=return_tensors)
+        else:
+            # Fixed-signature patcher: strip model_to_load to avoid TypeError
+            def _wrapped(gguf_path, return_tensors=False, model_to_load=None):
+                return _captured(gguf_path, return_tensors=return_tensors)
 
         for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _modeling_utils):
             _mod.load_gguf_checkpoint = _wrapped
