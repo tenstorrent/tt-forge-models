@@ -30,7 +30,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.CNN_6_6: LLMModelConfig(
-            pretrained_model_name="Xenova/distilbart-cnn-6-6",
+            pretrained_model_name="sshleifer/distilbart-cnn-6-6",
         ),
     }
 
@@ -85,12 +85,8 @@ class ModelLoader(ForgeModel):
         """
         from transformers import AutoTokenizer
 
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self._tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
 
         return self._tokenizer
@@ -113,7 +109,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = BartForConditionalGeneration.from_pretrained(
