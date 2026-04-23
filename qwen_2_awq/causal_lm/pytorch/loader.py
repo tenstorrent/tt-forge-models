@@ -5,6 +5,7 @@
 Qwen 2 AWQ model loader implementation for causal language modeling.
 """
 
+import gptqmodel  # noqa: F401 - must import before transformers enters meta device context
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
