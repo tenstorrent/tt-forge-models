@@ -76,8 +76,8 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
 
-        # Fall back to base model tokenizer if vocab is empty (model has no tokenizer files)
-        if len(self.tokenizer.get_vocab()) == 0:
+        # Fall back to base model tokenizer if vocab is too small (model has no tokenizer files)
+        if len(self.tokenizer.get_vocab()) < 100:
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.BASE_TOKENIZER_NAME, **tokenizer_kwargs
             )
