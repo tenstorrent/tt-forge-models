@@ -120,7 +120,9 @@ class ModelLoader(ForgeModel):
         from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
 
         self.transformer = _dequantize_gguf_and_restore_linear(self.transformer)
-        self.transformer = self.transformer.to(compute_dtype)
+        # Bypass diffusers' ModelMixin.to() which blocks dtype casts on quantized models.
+        # The model is fully dequantized at this point so it's safe to cast.
+        torch.nn.Module.to(self.transformer, compute_dtype)
 
         return self.transformer
 
