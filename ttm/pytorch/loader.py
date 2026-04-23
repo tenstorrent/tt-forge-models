@@ -9,6 +9,29 @@ import torch
 from typing import Optional
 from dataclasses import dataclass
 
+# granite-tsfm 0.3.x uses download_url/is_remote_url removed in transformers 5.x
+import transformers.utils as _tu
+
+if not hasattr(_tu, "download_url"):
+    import urllib.request as _ur
+
+    def _download_url(url, *args, **kwargs):
+        import tempfile
+
+        tmp = tempfile.NamedTemporaryFile(delete=False)
+        _ur.urlretrieve(url, tmp.name)
+        return tmp.name
+
+    _tu.download_url = _download_url
+
+if not hasattr(_tu, "is_remote_url"):
+    _tu.is_remote_url = lambda url: isinstance(url, str) and url.startswith(
+        ("http://", "https://")
+    )
+
+if not hasattr(_tu, "is_offline_mode"):
+    _tu.is_offline_mode = lambda: False
+
 from ...config import (
     ModelConfig,
     ModelInfo,
