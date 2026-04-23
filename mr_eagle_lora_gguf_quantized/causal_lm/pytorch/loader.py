@@ -4,6 +4,7 @@
 """
 MrEagle LoRA GGUF Quantized model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -76,6 +77,17 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # Refresh stale PACKAGE_DISTRIBUTION_MAPPING so is_gguf_available() resolves
+        # the gguf version correctly after a runtime pip install by RequirementsManager.
+        try:
+            import transformers.utils.import_utils as _import_utils
+
+            _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+                importlib.metadata.packages_distributions()
+            )
+        except Exception:
+            pass
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
