@@ -7,7 +7,7 @@ Granite Docling model loader implementation for document understanding tasks.
 import torch
 from huggingface_hub import hf_hub_download
 from PIL import Image
-from transformers import AutoProcessor, AutoModelForVision2Seq
+from transformers import AutoProcessor
 from typing import Optional
 
 from ...base import ForgeModel
@@ -71,6 +71,8 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from transformers import AutoModelForVision2Seq
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.processor is None:
