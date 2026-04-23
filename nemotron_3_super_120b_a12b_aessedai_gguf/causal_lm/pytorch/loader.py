@@ -81,10 +81,8 @@ def _apply_gguf_patches():
     # returned config dict always has model_type="nemotron_h".
     _orig_load_gguf = _gguf_utils.load_gguf_checkpoint
 
-    def _patched_load_gguf(gguf_path, return_tensors=False, model_to_load=None):
-        result = _orig_load_gguf(
-            gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
-        )
+    def _patched_load_gguf(*args, **kwargs):
+        result = _orig_load_gguf(*args, **kwargs)
         if result.get("config", {}).get("model_type") == "nemotron_h_moe":
             result["config"]["model_type"] = "nemotron_h"
         return result
