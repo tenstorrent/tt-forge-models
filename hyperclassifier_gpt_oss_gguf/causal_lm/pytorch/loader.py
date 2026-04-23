@@ -6,7 +6,15 @@ HyperClassifier GPT-OSS 20B QAT GGUF model loader implementation for causal lang
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.utils.import_utils import (
+    PACKAGE_DISTRIBUTION_MAPPING,
+    is_gguf_available,
+)
 from typing import Optional
+
+if "gguf" not in PACKAGE_DISTRIBUTION_MAPPING:
+    PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+    is_gguf_available.cache_clear()
 
 from ....base import ForgeModel
 from ....config import (
