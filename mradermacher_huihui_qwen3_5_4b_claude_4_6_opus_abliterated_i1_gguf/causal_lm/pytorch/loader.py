@@ -4,9 +4,37 @@
 """
 mradermacher Huihui Qwen3.5 4B Claude 4.6 Opus Abliterated i1 GGUF model loader implementation for causal language modeling.
 """
+
+import importlib.metadata
+from typing import Optional
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from typing import Optional
+
+
+def _fix_gguf_in_transformers():
+    """Refresh stale transformers package metadata after dynamic gguf install.
+
+    transformers caches importlib.metadata.packages_distributions() at module
+    import time and wraps is_gguf_available() with @lru_cache.  When gguf is
+    installed after transformers is imported (as the per-test RequirementsManager
+    does), both caches are stale, causing version lookup to fall back to
+    gguf.__version__ which the gguf package does not define, producing 'N/A'
+    and an InvalidVersion error.
+    """
+    import transformers.utils.import_utils as _import_utils
+
+    try:
+        fresh = importlib.metadata.packages_distributions()
+        if "gguf" in fresh:
+            _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = fresh["gguf"]
+    except Exception:
+        pass
+    try:
+        _import_utils.is_gguf_available.cache_clear()
+    except Exception:
+        pass
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -42,6 +70,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "Huihui-Qwen3.5-4B-Claude-4.6-Opus-abliterated.i1-Q4_K_M.gguf"
 
+    # Download large GGUF files to /tmp to avoid filling up the main cache disk.
+    GGUF_CACHE_DIR = "/tmp/hf_gguf_cache"
+
     sample_text = "Give me a short introduction to large language model."
 
     def __init__(
@@ -64,10 +95,13 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
+        _fix_gguf_in_transformers()
+        tokenizer_kwargs = {
+            "gguf_file": self.GGUF_FILE,
+            "cache_dir": self.GGUF_CACHE_DIR,
+        }
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -83,15 +117,19 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {
+            "gguf_file": self.GGUF_FILE,
+            "cache_dir": self.GGUF_CACHE_DIR,
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name,
+                gguf_file=self.GGUF_FILE,
+                cache_dir=self.GGUF_CACHE_DIR,
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -157,6 +195,8 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name,
+            gguf_file=self.GGUF_FILE,
+            cache_dir=self.GGUF_CACHE_DIR,
         )
         return self.config
