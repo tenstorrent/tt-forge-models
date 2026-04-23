@@ -123,13 +123,37 @@ class ModelLoader(ForgeModel):
         then constructs the appropriate pipeline (T2V or I2V) with the base model's
         VAE in float32 for numerical stability.
         """
+        import importlib.metadata
+
+        import diffusers.quantizers.gguf.gguf_quantizer as _gguf_quantizer_mod
         import diffusers.utils.import_utils as _diffusers_import_utils
 
         if not _diffusers_import_utils._gguf_available:
-            import importlib.util
-
-            if importlib.util.find_spec("gguf") is not None:
+            try:
+                _gguf_ver = importlib.metadata.version("gguf")
                 _diffusers_import_utils._gguf_available = True
+                _diffusers_import_utils._gguf_version = _gguf_ver
+                from diffusers.quantizers.gguf.utils import (
+                    GGML_QUANT_SIZES,
+                    GGUFParameter,
+                    _dequantize_gguf_and_restore_linear,
+                    _quant_shape_from_byte_shape,
+                    _replace_with_gguf_linear,
+                )
+
+                _gguf_quantizer_mod.GGML_QUANT_SIZES = GGML_QUANT_SIZES
+                _gguf_quantizer_mod.GGUFParameter = GGUFParameter
+                _gguf_quantizer_mod._dequantize_gguf_and_restore_linear = (
+                    _dequantize_gguf_and_restore_linear
+                )
+                _gguf_quantizer_mod._quant_shape_from_byte_shape = (
+                    _quant_shape_from_byte_shape
+                )
+                _gguf_quantizer_mod._replace_with_gguf_linear = (
+                    _replace_with_gguf_linear
+                )
+            except importlib.metadata.PackageNotFoundError:
+                pass
 
         from diffusers import (
             AutoencoderKLWan,
