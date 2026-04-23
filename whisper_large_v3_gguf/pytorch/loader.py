@@ -108,6 +108,16 @@ class ModelLoader(ForgeModel):
 
         self.processor = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
 
+        # Refresh transformers' PACKAGE_DISTRIBUTION_MAPPING so that gguf,
+        # which is installed at test-time via requirements.txt, is visible to
+        # is_gguf_available().  The mapping is built at module-import time;
+        # if transformers was imported before gguf was installed the entry is
+        # missing, causing version.parse("N/A") to crash.
+        import importlib.metadata as _imeta
+        import transformers.utils.import_utils as _import_utils
+
+        _import_utils.PACKAGE_DISTRIBUTION_MAPPING = _imeta.packages_distributions()
+
         # Some GGUF loaders patch load_gguf_checkpoint without model_to_load
         # support; transformers >= 5.0 passes that kwarg. Fix at call time.
         _fn = _gguf_utils.load_gguf_checkpoint
