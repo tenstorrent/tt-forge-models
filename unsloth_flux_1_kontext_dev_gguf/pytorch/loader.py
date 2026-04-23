@@ -7,6 +7,7 @@ Unsloth FLUX.1 Kontext Dev GGUF model loader implementation for image-to-image g
 Repository:
 - https://huggingface.co/unsloth/FLUX.1-Kontext-dev-GGUF
 """
+import os
 import torch
 from diffusers import FluxTransformer2DModel, GGUFQuantizationConfig
 from typing import Optional
@@ -23,6 +24,7 @@ from ...config import (
 )
 
 REPO_ID = "unsloth/FLUX.1-Kontext-dev-GGUF"
+_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
 
 
 class ModelVariant(StrEnum):
@@ -76,7 +78,8 @@ class ModelLoader(ForgeModel):
         gguf_file = self._GGUF_FILES[self._variant]
 
         self.transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{REPO_ID}/resolve/main/{gguf_file}",
+            f"https://huggingface.co/{REPO_ID}/blob/main/{gguf_file}",
+            config=_CONFIG_DIR,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
