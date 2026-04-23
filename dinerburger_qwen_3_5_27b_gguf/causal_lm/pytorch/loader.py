@@ -18,7 +18,7 @@ from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
-from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.integrations.ggml import GGUF_CONFIG_MAPPING, GGUF_TO_FAST_CONVERTERS
 
 from ....base import ForgeModel
 from ....config import (
@@ -50,15 +50,35 @@ def _patch_qwen35_support():
 
     Qwen3.5 GGUF files declare architecture as 'qwen35' and tokenizer as
     'qwen3_5_text', which transformers 5.x does not yet recognise.
+
+    Also adds 'attention.key_length' -> 'head_dim' to the qwen35 config mapping.
+    Qwen3.5-27B uses head_dim=256 (vs Qwen3's default 128), but the base qwen3
+    mapping omits 'attention.key_length'. Without this, the model is created with
+    the wrong head_dim, causing tensor size mismatches on load.
     """
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
-    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
-        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
-                "qwen35",
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
-            )
+
+    # Build qwen35 config mapping as an independent copy of qwen3 so that we can
+    # add qwen35-specific keys (head_dim) without mutating the qwen3 entry.
+    # Some loaders (e.g. bartowski) may have set qwen35 to the same dict object
+    # as qwen3 (via setdefault), so we check for identity and re-copy if needed.
+    if "qwen3" in GGUF_CONFIG_MAPPING:
+        if GGUF_CONFIG_MAPPING.get("qwen35") is GGUF_CONFIG_MAPPING["qwen3"]:
+            GGUF_CONFIG_MAPPING["qwen35"] = dict(GGUF_CONFIG_MAPPING["qwen3"])
+        elif "qwen35" not in GGUF_CONFIG_MAPPING:
+            GGUF_CONFIG_MAPPING["qwen35"] = dict(GGUF_CONFIG_MAPPING["qwen3"])
+    if "qwen35" in GGUF_CONFIG_MAPPING:
+        GGUF_CONFIG_MAPPING["qwen35"].setdefault("attention.key_length", "head_dim")
+
+    # Sync all non-config sections (tokenizer, etc.) of GGUF_TO_TRANSFORMERS_MAPPING.
+    # GGUF_TO_TRANSFORMERS_MAPPING["config"] IS GGUF_CONFIG_MAPPING so skip it.
+    for section, mapping in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.items():
+        if section == "config":
+            continue
+        if "qwen3" in mapping:
+            mapping.setdefault("qwen35", mapping["qwen3"])
+
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
         GGUF_TO_FAST_CONVERTERS.setdefault(
