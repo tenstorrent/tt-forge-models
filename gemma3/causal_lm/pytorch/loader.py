@@ -5,8 +5,11 @@
 Gemma3 model loader implementation for causal language modeling.
 """
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
+
+import torch
+import torch.nn as nn
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....config import (
     LLMModelConfig,
@@ -19,6 +22,46 @@ from ....config import (
 )
 from ....base import ForgeModel
 from ....tools.utils import cast_input_to_type
+
+
+def _dequantize_awq_model(model):
+    """Replace AWQ quantized linear layers with regular float16 linear layers.
+
+    AWQ dequantization calls .item() during the forward pass which is
+    incompatible with XLA tracing. This replaces quantized layers with
+    regular nn.Linear layers containing the dequantized float16 weights.
+    """
+    try:
+        from gptqmodel.nn_modules.qlinear import BaseQuantLinear
+    except ImportError:
+        return model
+
+    replacements = {}
+    for name, module in model.named_modules():
+        if isinstance(module, BaseQuantLinear):
+            weight = module.dequantize_weight().contiguous()
+            has_bias = hasattr(module, "bias") and module.bias is not None
+            linear = nn.Linear(
+                module.in_features,
+                module.out_features,
+                bias=has_bias,
+                dtype=weight.dtype,
+                device=weight.device,
+            )
+            linear.weight = nn.Parameter(weight)
+            if has_bias:
+                linear.bias = nn.Parameter(module.bias.to(weight.dtype))
+            replacements[name] = linear
+
+    for name, linear in replacements.items():
+        parts = name.rsplit(".", 1)
+        if len(parts) == 2:
+            parent = model.get_submodule(parts[0])
+            setattr(parent, parts[1], linear)
+        else:
+            setattr(model, name, linear)
+
+    return model
 
 
 class ModelVariant(StrEnum):
@@ -182,6 +225,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if self._variant == ModelVariant.GEMMA_3_1B_IT_AWQ_INT4:
+            model = _dequantize_awq_model(model)
         model.eval()
         self.model = model
         self.config = model.config
