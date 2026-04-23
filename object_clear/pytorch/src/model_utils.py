@@ -164,10 +164,12 @@ def object_clear_preprocessing(
     )
     latents = latents * pipe.scheduler.init_noise_sigma
 
-    # 4. Prepare mask and masked image latents
+    # 4. Prepare mask and masked image latents (preprocess PIL Images to tensors)
+    image_tensor = pipe.image_processor.preprocess(image, height=height, width=width)
+    mask_tensor = pipe.mask_processor.preprocess(mask_image, height=height, width=width)
     mask, masked_image_latents = pipe.prepare_mask_latents(
-        mask=mask_image,
-        masked_image=image,
+        mask=mask_tensor,
+        masked_image=image_tensor,
         batch_size=batch_size * num_images_per_prompt,
         height=height,
         width=width,
