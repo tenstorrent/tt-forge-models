@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
     # lmms-lab/LLaVA-Video-7B-Qwen2 uses a custom LlavaQwenForCausalLM class incompatible
     # with standard transformers. llava-hf/LLaVA-OneVision-7B-hf is architecturally identical
     # (Qwen2-7B + SigLIP-so400m) and loads cleanly with LlavaOnevisionForConditionalGeneration.
-    BASE_MODEL_NAME = "llava-hf/LLaVA-OneVision-7B-hf"
+    BASE_MODEL_NAME = "llava-hf/llava-onevision-qwen2-7b-ov-hf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize VLM-3R LLaVA-Video Qwen2 LoRA model loader."""
