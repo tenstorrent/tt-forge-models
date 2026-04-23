@@ -8,6 +8,20 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import (
+    GGUF_CONFIG_MAPPING,
+    GGUF_TO_FAST_CONVERTERS,
+    GGUFLlamaConverter,
+)
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -18,6 +32,58 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+_GLM4MOE_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "embedding_length": "hidden_size",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "rope.freq_base": "rope_theta",
+    "rope.dimension_count": None,
+    "vocab_size": "vocab_size",
+    "expert_count": "n_routed_experts",
+    "expert_used_count": "num_experts_per_tok",
+}
+
+
+def _patch_glm4moe_support():
+    """Register glm4moe GGUF architecture so transformers can load Solar-Open-100B GGUF files.
+
+    The Solar-Open-100B GGUF file uses the glm4moe architecture which is not yet
+    supported by transformers. This patch adds the necessary mappings using standard
+    LLM field names and a llama-compatible tokenizer converter.
+    """
+    if "glm4moe" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("glm4moe")
+    if "glm4moe" not in GGUF_CONFIG_MAPPING:
+        GGUF_CONFIG_MAPPING["glm4moe"] = _GLM4MOE_CONFIG_MAPPING
+    for section, mapping in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.items():
+        if section == "config":
+            mapping.setdefault("glm4moe", _GLM4MOE_CONFIG_MAPPING)
+        else:
+            mapping.setdefault("glm4moe", {})
+    GGUF_TO_FAST_CONVERTERS.setdefault("glm4moe", GGUFLlamaConverter)
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    _patch_glm4moe_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "glm4moe":
+        result["config"]["model_type"] = "glm4_moe"
+        result["config"].setdefault("architectures", ["Glm4MoeForCausalLM"])
+    return result
+
+
+_patch_glm4moe_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
