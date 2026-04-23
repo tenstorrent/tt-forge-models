@@ -7,7 +7,7 @@ mlx-community/Qwen3.5-27B-6bit model loader for image-text-to-text generation.
 
 import torch
 from PIL import Image
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoConfig, AutoModelForImageTextToText, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -73,6 +73,13 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        # The MLX-quantized model has an MLX-format quantization_config that
+        # lacks `quant_method`, which transformers requires. Clear it so the
+        # model loads in the requested dtype without a quantizer.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.quantization_config = None
+        model_kwargs["config"] = config
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
