@@ -13,8 +13,62 @@ from typing import Optional
 
 # LlamaFlashAttention2 was removed in transformers 5.x; the model's remote code
 # imports it at module level so we must shim it before trust_remote_code loading.
+# Additionally, transformers 5.x LlamaAttention requires position_embeddings=(cos, sin)
+# and returns 2 values, but the remote DeepseekV2 code uses the 4.x interface
+# (position_ids input, 3 return values). Patch forward at the class level to bridge.
 if not hasattr(_llama_module, "LlamaFlashAttention2"):
     _llama_module.LlamaFlashAttention2 = _llama_module.LlamaAttention
+
+_orig_llama_attn_fwd = _llama_module.LlamaAttention.forward
+
+
+def _compat_llama_attn_fwd(
+    self,
+    hidden_states,
+    attention_mask=None,
+    position_ids=None,
+    past_key_value=None,
+    output_attentions=False,
+    use_cache=False,
+    position_embeddings=None,
+    **kwargs,
+):
+    if position_embeddings is None:
+        bsz, seq_len = hidden_states.shape[:2]
+        if position_ids is None:
+            position_ids = (
+                torch.arange(seq_len, device=hidden_states.device)
+                .unsqueeze(0)
+                .expand(bsz, -1)
+            )
+        rope_theta = float(getattr(self.config, "rope_theta", 10000.0))
+        inv_freq = 1.0 / (
+            rope_theta
+            ** (
+                torch.arange(
+                    0, self.head_dim, 2, dtype=torch.float32, device=position_ids.device
+                )
+                / self.head_dim
+            )
+        )
+        inv_freq_exp = inv_freq[None, :, None].expand(bsz, -1, 1)
+        freqs = (inv_freq_exp @ position_ids[:, None, :].float()).transpose(1, 2)
+        emb = torch.cat([freqs, freqs], dim=-1)
+        cos = emb.cos().to(hidden_states.dtype)
+        sin = emb.sin().to(hidden_states.dtype)
+        position_embeddings = (cos, sin)
+    result = _orig_llama_attn_fwd(
+        self,
+        hidden_states,
+        position_embeddings=position_embeddings,
+        attention_mask=attention_mask,
+    )
+    if isinstance(result, tuple) and len(result) == 2:
+        return result + (None,)
+    return result
+
+
+_llama_module.LlamaAttention.forward = _compat_llama_attn_fwd
 
 # is_torch_fx_available was removed in transformers 5.x; shim before remote code loads.
 if not hasattr(_trf_import_utils, "is_torch_fx_available"):
