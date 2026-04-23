@@ -13,10 +13,47 @@ Available variants:
 - Q3_K_S, Q3_K_M, Q4_K_S, Q4_K_M, Q5_K_S, Q5_K_M, Q6_K, Q8_0
 """
 
+import inspect
 from typing import Any, Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoTokenizer, UMT5EncoderModel  # type: ignore[import]
+
+
+def _find_real_load_gguf_checkpoint():
+    import sys
+
+    for mod in list(sys.modules.values()):
+        mod_dict = getattr(mod, "__dict__", None)
+        if mod_dict is None:
+            continue
+        for obj in list(mod_dict.values()):
+            if not callable(obj):
+                continue
+            try:
+                params = inspect.signature(obj).parameters
+                if "gguf_checkpoint_path" in params and "model_to_load" in params:
+                    return obj
+            except (ValueError, TypeError):
+                pass
+    return _gguf_utils.load_gguf_checkpoint
+
+
+def _apply_gguf_patch():
+    real_fn = _find_real_load_gguf_checkpoint()
+
+    def _patched(*args, **kwargs):
+        return real_fn(*args, **kwargs)
+
+    _gguf_utils.load_gguf_checkpoint = _patched
+    _config_utils.load_gguf_checkpoint = _patched
+    _auto_tokenizer.load_gguf_checkpoint = _patched
+    _tok_utils.load_gguf_checkpoint = _patched
+
 
 from ...base import ForgeModel
 from ...config import (
@@ -99,6 +136,7 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._encoder is None:
+            _apply_gguf_patch()
             self._encoder = UMT5EncoderModel.from_pretrained(
                 REPO_ID,
                 gguf_file=_GGUF_FILES[self._variant],
