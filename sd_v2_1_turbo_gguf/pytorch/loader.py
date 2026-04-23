@@ -115,6 +115,7 @@ class ModelLoader(ForgeModel):
             gguf_path,
             config=BASE_PIPELINE,
             subfolder="unet",
+            use_linear_projection=False,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
