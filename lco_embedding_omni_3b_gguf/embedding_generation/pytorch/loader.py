@@ -72,6 +72,23 @@ class ModelLoader(ForgeModel):
         except Exception:
             pass
 
+        # The GGUF file uses general.architecture=qwen2vl but contains only text
+        # tensors (no vision tensors) — structurally identical to qwen2. Add qwen2vl
+        # as an alias for qwen2 in the transformers GGUF loader mappings.
+        try:
+            import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+            for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+                if "qwen2" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+                    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                        "qwen2vl",
+                        _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen2"],
+                    )
+            if "qwen2vl" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+                _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+        except Exception:
+            pass
+
         tokenizer_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
