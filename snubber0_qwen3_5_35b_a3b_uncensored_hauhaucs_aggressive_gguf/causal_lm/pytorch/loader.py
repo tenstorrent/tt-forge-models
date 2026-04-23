@@ -5,6 +5,7 @@
 Snubber0 Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive GGUF model loader for causal language modeling.
 """
 
+import re
 from typing import Optional
 
 import torch
@@ -20,6 +21,146 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+
+def _patch_transformers_qwen35moe_gguf():
+    """Monkey-patch transformers to support loading Qwen3.5-35B-A3B GGUF models.
+
+    The qwen35moe GGUF architecture stores expert gate/up weights as separate
+    ffn_gate_exps / ffn_up_exps tensors, but the gguf-py name map only provides
+    ffn_gate_up_exps for the combined gate_up_proj HF parameter. This patch adds
+    the missing mappings and ensures the Qwen2MoeTensorProcessor's process() can
+    find those keys (which the map builds with a '.weight' suffix while process()
+    looks up without it).
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+        Qwen2MoeTensorProcessor,
+        GGUFTensor,
+    )
+
+    # Fix process() suffix mismatch: it looks up m["name"] (no suffix) but the
+    # map stores keys with ".weight" suffix. Also add gate_exps/up_exps aliases.
+    _sentinel = "_qwen35moe_process_fixed"
+    if not getattr(Qwen2MoeTensorProcessor, _sentinel, False):
+        import numpy as np
+
+        orig_process = Qwen2MoeTensorProcessor.process
+
+        def fixed_process(self, weights, name, **kwargs):
+            if m := re.fullmatch(self.GGUF_MOE_WEIGHTS_PATTERN, name):
+                tensor_key_mapping = kwargs.get("tensor_key_mapping")
+                parsed_parameters = kwargs.get("parsed_parameters")
+                if tensor_key_mapping:
+                    key = m["name"]
+                    if key not in tensor_key_mapping:
+                        key = m["name"] + ".weight"
+                    if key in tensor_key_mapping:
+                        self._set_moe_expert_tensor(
+                            weights, parsed_parameters, tensor_key_mapping[key], m["w"]
+                        )
+                        return GGUFTensor(weights, None, {})
+            if "ffn_gate_inp_shexp" in name:
+                weights = np.expand_dims(weights, axis=0)
+            return GGUFTensor(weights, name, {})
+
+        setattr(Qwen2MoeTensorProcessor, _sentinel, True)
+        Qwen2MoeTensorProcessor.process = fixed_process
+
+    if "qwen35moe" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
+
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35moe"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.key_length": "head_dim",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+            "expert_count": "num_experts",
+            "expert_used_count": "num_experts_per_tok",
+            "full_attention_interval": "full_attention_interval",
+        }
+
+        if "qwen3moe" in TENSOR_PROCESSORS:
+            TENSOR_PROCESSORS["qwen35moe"] = TENSOR_PROCESSORS["qwen3moe"]
+
+        from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+        if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["qwen35moe"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+            GGUF_TO_FAST_CONVERTERS["qwen3_5_moe_text"] = GGUF_TO_FAST_CONVERTERS[
+                "qwen3_moe"
+            ]
+
+        orig_load = gguf_utils.load_gguf_checkpoint
+
+        def patched_load_gguf_checkpoint(*args, **kwargs):
+            result = orig_load(*args, **kwargs)
+            if result.get("config", {}).get("model_type") == "qwen35moe":
+                result["config"]["model_type"] = "qwen3_5_moe_text"
+                config = result["config"]
+                num_layers = config.get("num_hidden_layers", 40)
+                interval = config.pop("full_attention_interval", 4)
+                layer_types = []
+                for i in range(num_layers):
+                    if (i + 1) % interval == 0:
+                        layer_types.append("full_attention")
+                    else:
+                        layer_types.append("linear_attention")
+                config["layer_types"] = layer_types
+            return result
+
+        gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+        import transformers.configuration_utils as config_utils
+        import transformers.modeling_utils as modeling_utils
+        import transformers.models.auto.tokenization_auto as tok_auto
+
+        for mod in (tok_auto, config_utils, modeling_utils):
+            if hasattr(mod, "load_gguf_checkpoint"):
+                mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+            model_type = "qwen35moe"
+        result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        if model_type == "qwen35moe":
+            extra = {}
+            for gguf_key, hf_val in list(result.items()):
+                # Add no-suffix aliases for expert weight keys so process() can look them up
+                m = re.match(
+                    r"(blk\.\d+\.ffn_(gate_up|gate|up|down)_exps)\.weight$", gguf_key
+                )
+                if m:
+                    extra[m.group(1)] = hf_val
+                # For the combined gate_up tensor, also add separate gate/up aliases
+                m2 = re.match(r"blk\.(\d+)\.ffn_gate_up_exps(\.weight)?$", gguf_key)
+                if m2:
+                    bid = m2.group(1)
+                    extra[f"blk.{bid}.ffn_gate_exps"] = hf_val
+                    extra[f"blk.{bid}.ffn_up_exps"] = hf_val
+            result.update(extra)
+        return result
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_qwen35moe_gguf()
 
 
 class ModelVariant(StrEnum):
