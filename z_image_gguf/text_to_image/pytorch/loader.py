@@ -11,7 +11,7 @@ from gguf-org/z-image-gguf.
 from typing import Optional
 
 import torch
-from diffusers import AutoencoderKL, FluxTransformer2DModel, GGUFQuantizationConfig
+from diffusers import AutoencoderKL, GGUFQuantizationConfig, ZImageTransformer2DModel
 from huggingface_hub import hf_hub_download
 
 from ....base import ForgeModel
@@ -26,11 +26,6 @@ from ....config import (
 )
 
 GGUF_REPO_ID = "gguf-org/z-image-gguf"
-
-# VAE latent dimensions for testing
-LATENT_CHANNELS = 16
-LATENT_HEIGHT = 8
-LATENT_WIDTH = 8
 
 
 class ModelVariant(StrEnum):
@@ -118,7 +113,7 @@ class ModelLoader(ForgeModel):
             filename=self._gguf_file,
         )
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
-        transformer = FluxTransformer2DModel.from_single_file(
+        transformer = ZImageTransformer2DModel.from_single_file(
             gguf_path,
             quantization_config=quantization_config,
             torch_dtype=dtype,
@@ -139,39 +134,30 @@ class ModelLoader(ForgeModel):
     def _load_vae_inputs(self, **kwargs):
         """Prepare inputs for the VAE variant."""
         dtype = kwargs.get("dtype_override", torch.float32)
-        return torch.randn(
-            1,
-            LATENT_CHANNELS,
-            LATENT_HEIGHT,
-            LATENT_WIDTH,
-            dtype=dtype,
-        )
+        return torch.randn(1, 16, 8, 8, dtype=dtype)
 
     def _load_transformer_inputs(self, **kwargs):
-        """Prepare random inputs for the transformer variant."""
+        """Prepare random inputs for the ZImageTransformer2DModel.
+
+        forward(x, t, cap_feats, return_dict=True, patch_size=2, f_patch_size=1)
+          x:         list of (in_channels, F, H, W) tensors — one per batch item; H, W divisible by patch_size
+          t:         (batch,) float tensor with values in [0, 1]
+          cap_feats: list of (seq_len, cap_feat_dim=2560) tensors — one per batch item
+        """
         dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = kwargs.get("batch_size", 1)
-        height = 128
-        width = 128
 
-        # Approximate latent dimensions
-        latent_h = height // 16
-        latent_w = width // 16
-        num_channels = 64
+        in_channels = 16
+        cap_feat_dim = 2560
+        patch_size = 2
+        H, W = 64, 64  # spatial dims must be divisible by patch_size
+        F = 1  # single frame for text-to-image
+        seq_len = 32  # caption token count
 
-        hidden_states = torch.randn(
-            batch_size, latent_h * latent_w, num_channels, dtype=dtype
-        )
-        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
-        # Dummy encoder hidden states (text embeddings)
-        encoder_hidden_states = torch.randn(batch_size, 128, 4096, dtype=dtype)
-        txt_ids = torch.zeros(batch_size, 128, 3, dtype=dtype)
-        img_ids = torch.zeros(batch_size, latent_h * latent_w, 3, dtype=dtype)
+        x = [torch.randn(in_channels, F, H, W, dtype=dtype) for _ in range(batch_size)]
+        t = torch.full((batch_size,), 0.5, dtype=dtype)
+        cap_feats = [
+            torch.randn(seq_len, cap_feat_dim, dtype=dtype) for _ in range(batch_size)
+        ]
 
-        return {
-            "hidden_states": hidden_states,
-            "timestep": timestep,
-            "encoder_hidden_states": encoder_hidden_states,
-            "txt_ids": txt_ids,
-            "img_ids": img_ids,
-        }
+        return {"x": x, "t": t, "cap_feats": cap_feats}
