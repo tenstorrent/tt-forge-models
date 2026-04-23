@@ -5,8 +5,9 @@
 DiT model loader implementation for masked image modeling.
 """
 
+import requests
+from PIL import Image
 from transformers import BeitForMaskedImageModeling, BeitImageProcessor
-from datasets import load_dataset
 from typing import Optional
 
 from ....base import ForgeModel
@@ -115,9 +116,9 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self.load_model(dtype_override=dtype_override)
 
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        # Load a sample cat image from COCO dataset (commonly used in HuggingFace examples)
+        url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+        image = Image.open(requests.get(url, stream=True).raw).convert("RGB")
 
         # Preprocess image
         inputs = self.processor(images=image, return_tensors="pt").pixel_values
