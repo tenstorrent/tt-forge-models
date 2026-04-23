@@ -4,9 +4,10 @@
 """
 xiaomi-open-source/Xiaomi-MiMo-VL-Miloco-7B-GGUF model loader implementation for causal language modeling.
 
-Note: The qwen2vl GGUF architecture is not yet supported by the transformers
-GGUF loader, so we load from the HF-native checkpoint and extract the causal LM.
+Loads the Q4_0 GGUF checkpoint via transformers native GGUF support and
+extracts the causal LM component from the vision-language model.
 """
+
 import torch
 from transformers import (
     Qwen2_5_VLForConditionalGeneration,
@@ -35,18 +36,16 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Xiaomi-MiMo-VL-Miloco-7B-GGUF model loader implementation for causal language modeling tasks.
-
-    Note: Uses the base model (safetensors) instead of GGUF because the
-    qwen2vl GGUF architecture is not yet supported by transformers.
-    """
+    """Xiaomi-MiMo-VL-Miloco-7B-GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.XIAOMI_MIMO_VL_MILOCO_7B_GGUF: LLMModelConfig(
-            pretrained_model_name="xiaomi-open-source/Xiaomi-MiMo-VL-Miloco-7B",
+            pretrained_model_name="xiaomi-open-source/Xiaomi-MiMo-VL-Miloco-7B-GGUF",
             max_length=128,
         ),
     }
+
+    GGUF_FILE = "MiMo-VL-Miloco-7B_Q4_0.gguf"
 
     DEFAULT_VARIANT = ModelVariant.XIAOMI_MIMO_VL_MILOCO_7B_GGUF
 
@@ -72,7 +71,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
+        tokenizer_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
@@ -90,13 +89,12 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        # Load the full conditional generation model, then extract the causal LM
-        # because the base repo uses Qwen2_5_VLForConditionalGeneration (multimodal).
+        # Load the full VL model from GGUF, then extract the causal LM component.
         full_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
@@ -133,6 +131,8 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
         self.config = config.text_config
         return self.config
