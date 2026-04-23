@@ -6,7 +6,23 @@ bartowski/Virtuoso-Lite-GGUF model loader implementation for causal language mod
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUFLlamaConverter
 from typing import Optional
+
+_orig_llama_converter_tokenizer = GGUFLlamaConverter.tokenizer
+
+
+def _patched_llama_converter_tokenizer(self, proto):
+    # transformers bug: ggml.py line 413 reads bos_token_id when it should read
+    # eos_token_id. Virtuoso-Lite GGUF has no bos_token_id, only eos_token_id.
+    if getattr(proto, "eos_token_id", None) is not None and not hasattr(
+        proto, "bos_token_id"
+    ):
+        proto.bos_token_id = proto.eos_token_id
+    return _orig_llama_converter_tokenizer(self, proto)
+
+
+GGUFLlamaConverter.tokenizer = _patched_llama_converter_tokenizer
 
 from ....base import ForgeModel
 from ....config import (
