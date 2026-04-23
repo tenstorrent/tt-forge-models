@@ -5,8 +5,12 @@
 FG-CLIP 2 model loader implementation for zero-shot image classification.
 """
 import torch
+import transformers.utils.generic
 from transformers import AutoImageProcessor, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
+
+if not hasattr(transformers.utils.generic, "check_model_inputs"):
+    transformers.utils.generic.check_model_inputs = lambda fn: fn
 
 from ...base import ForgeModel
 from ...config import (
@@ -87,6 +91,13 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # When torch_dtype is applied, the non-persistent int64 position_ids buffer can
+        # become corrupted (garbage values). Reset it explicitly after loading.
+        text_emb = model.text_model.embeddings
+        n = text_emb.position_ids.shape[-1]
+        text_emb.position_ids = torch.arange(n, dtype=torch.long).unsqueeze(0)
+
         model.eval()
 
         return model
@@ -103,6 +114,13 @@ class ModelLoader(ForgeModel):
         """
         if self.image_processor is None or self.tokenizer is None:
             self._load_processors()
+
+        import sys
+
+        # The ./spacy/ directory in the project root creates a namespace package that
+        # shadows real spacy and causes datasets fingerprinting to fail with AttributeError.
+        if "spacy" in sys.modules and not hasattr(sys.modules["spacy"], "Language"):
+            del sys.modules["spacy"]
 
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
