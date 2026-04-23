@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
         )
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet.to(dtype_override)
 
         return self.pipeline.unet
 
