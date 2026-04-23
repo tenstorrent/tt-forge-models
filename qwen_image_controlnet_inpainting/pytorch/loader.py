@@ -101,7 +101,7 @@ class ModelLoader(ForgeModel):
         # Model config: num_attention_heads=24, attention_head_dim=128,
         # joint_attention_dim=3584, in_channels=64, patch_size=2,
         # extra_condition_channels=4, axes_dims_rope=[16, 56, 56]
-        hidden_size = config.num_attention_heads * config.attention_head_dim  # 3072
+        in_channels = config.in_channels  # 64 (patchified: vae_channels * patch_size^2)
         joint_attention_dim = config.joint_attention_dim  # 3584
 
         # Image dimensions (small for testing)
@@ -117,8 +117,8 @@ class ModelLoader(ForgeModel):
         w_patched = w_latent // patch_size  # 8
         seq_len = h_patched * w_patched  # 64
 
-        # Hidden states (packed latent representation)
-        hidden_states = torch.randn(batch_size, seq_len, hidden_size, dtype=dtype)
+        # Hidden states: patchified latents (batch, seq_len, in_channels)
+        hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
 
         # Encoder hidden states (text embeddings)
         text_seq_len = 128
@@ -129,11 +129,11 @@ class ModelLoader(ForgeModel):
         # Timestep
         timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
 
-        # ControlNet conditioning image concatenated with mask channels
-        # (in_channels + extra_condition_channels) for inpainting
+        # ControlNet conditioning: patchified inpainting latents
+        # shape (batch, seq_len, in_channels + extra_condition_channels)
         controlnet_cond_channels = config.in_channels + config.extra_condition_channels
         controlnet_cond = torch.randn(
-            batch_size, controlnet_cond_channels, h_latent, w_latent, dtype=dtype
+            batch_size, seq_len, controlnet_cond_channels, dtype=dtype
         )
 
         # Image shapes for 3D RoPE: list of (frame, height, width) per sample
