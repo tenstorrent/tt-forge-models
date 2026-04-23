@@ -4,52 +4,26 @@
 """
 MM Grounding DINO model loader implementation for zero-shot object detection.
 """
-import math
-
 import torch
 from PIL import Image
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 from typing import Optional
 
-# Patch get_sine_pos_embed to use pos_tensor.dtype instead of hardcoded float32.
-# Without this patch, bfloat16 hidden_states + float32 position_embeddings produces
-# float32 queries which then fail against bfloat16 linear layer weights.
+# Patch with_pos_embed in text enhancer and decoder layers to cast position_embeddings
+# to hidden_state.dtype before addition. Without this, float32 text position embeddings
+# (forced via .float() in get_text_position_embeddings) added to bfloat16 hidden_states
+# produce float32 queries which then fail against bfloat16 linear layer weights.
 import transformers.models.mm_grounding_dino.modeling_mm_grounding_dino as _mm_dino_mod
 
 
-def _patched_get_sine_pos_embed(
-    pos_tensor: torch.Tensor,
-    num_pos_feats: int = 128,
-    temperature: int = 10000,
-    exchange_xy: bool = True,
-) -> torch.Tensor:
-    scale = 2 * math.pi
-    dim_t = torch.arange(
-        num_pos_feats, dtype=pos_tensor.dtype, device=pos_tensor.device
-    )
-    dim_t = temperature ** (
-        2 * torch.div(dim_t, 2, rounding_mode="floor") / num_pos_feats
-    )
-
-    def sine_func(x: torch.Tensor):
-        sin_x = x * scale / dim_t
-        sin_x = torch.stack(
-            (sin_x[..., 0::2].sin(), sin_x[..., 1::2].cos()), dim=3
-        ).flatten(2)
-        return sin_x
-
-    pos_tensor = pos_tensor.split([1] * pos_tensor.shape[-1], dim=-1)
-    position_embeddings = [sine_func(x) for x in pos_tensor]
-    if exchange_xy:
-        position_embeddings[0], position_embeddings[1] = (
-            position_embeddings[1],
-            position_embeddings[0],
-        )
-    position_embeddings = torch.cat(position_embeddings, dim=-1)
-    return position_embeddings
+def _patched_with_pos_embed(self, hidden_state: torch.Tensor, position_embeddings):
+    if position_embeddings is None:
+        return hidden_state
+    return hidden_state + position_embeddings.to(hidden_state.dtype)
 
 
-_mm_dino_mod.get_sine_pos_embed = _patched_get_sine_pos_embed
+_mm_dino_mod.MMGroundingDinoTextEnhancerLayer.with_pos_embed = _patched_with_pos_embed
+_mm_dino_mod.MMGroundingDinoDecoderLayer.with_pos_embed = _patched_with_pos_embed
 
 from ...base import ForgeModel
 from ...config import (
