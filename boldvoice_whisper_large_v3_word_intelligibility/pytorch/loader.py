@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
         """Load the BoldVoice Whisper Large V3 word intelligibility model from Hugging Face."""
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"use_cache": False}
+        model_kwargs = {"use_cache": False, "attn_implementation": "eager"}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -111,4 +111,7 @@ class ModelLoader(ForgeModel):
             dtype=torch.long,
             device=device,
         )
-        return [input_features, decoder_input_ids]
+        return {
+            "input_features": input_features,
+            "decoder_input_ids": decoder_input_ids,
+        }
