@@ -77,6 +77,7 @@ def _patch_mistral4_gguf():
     }
 
     GGUF_TO_FAST_CONVERTERS.setdefault("mistral4", GGUFQwen2Converter)
+    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFQwen2Converter)
 
     def _patched_load(gguf_path, return_tensors=False, **kwargs):
         result = _orig_load(gguf_path, return_tensors=return_tensors, **kwargs)
@@ -87,6 +88,21 @@ def _patch_mistral4_gguf():
     _gguf_utils.load_gguf_checkpoint = _patched_load
     _config_utils.load_gguf_checkpoint = _patched_load
     _auto_tokenizer.load_gguf_checkpoint = _patched_load
+
+    # get_gguf_hf_weights_map uses gguf-py architecture names (e.g. deepseek2)
+    # not HuggingFace model_type names (e.g. deepseek_v2).  Wrap it to translate.
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_map
 
 
 _patch_mistral4_gguf()
