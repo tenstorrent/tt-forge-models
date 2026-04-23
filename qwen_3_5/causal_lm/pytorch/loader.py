@@ -292,8 +292,7 @@ class ModelLoader(ForgeModel):
                 config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        if self.num_layers is not None:
-            model_kwargs["ignore_mismatched_sizes"] = True
+        model_kwargs["ignore_mismatched_sizes"] = True
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
