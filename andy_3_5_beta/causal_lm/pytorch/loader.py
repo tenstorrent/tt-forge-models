@@ -6,11 +6,12 @@ Andy-3.5-beta model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from peft import PeftModel
 from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
@@ -30,13 +31,14 @@ class ModelLoader(ForgeModel):
     """Andy-3.5-beta model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.ANDY_3_5_BETA: LLMModelConfig(
+        ModelVariant.ANDY_3_5_BETA: ModelConfig(
             pretrained_model_name="Sweaterdog/Andy-3.5-beta",
-            max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.ANDY_3_5_BETA
+
+    BASE_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
 
     sample_text = "In Minecraft, describe the steps you would take to gather wood and craft a wooden pickaxe."
 
@@ -60,12 +62,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self.BASE_MODEL_NAME, padding_side="left"
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -73,41 +71,48 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        base_model = AutoModelForCausalLM.from_pretrained(
+            self.BASE_MODEL_NAME, **model_kwargs
+        )
+
+        adapter_name = self._variant_config.pretrained_model_name
+        model = PeftModel.from_pretrained(base_model, adapter_name, subfolder="extras")
+        model = model.merge_and_unload()
+
+        for param in model.parameters():
+            param.requires_grad = False
 
         self.config = model.config
-        self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        max_length = self._variant_config.max_length
+        messages = [{"role": "user", "content": self.sample_text}]
+        text = self.tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
 
         inputs = self.tokenizer(
-            [self.sample_text],
+            text,
             return_tensors="pt",
-            padding=True,
+            padding="max_length",
             truncation=True,
-            max_length=max_length,
+            max_length=128,
         )
 
         for key in inputs:
@@ -117,7 +122,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
         return self.config
