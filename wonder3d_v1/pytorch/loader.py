@@ -113,6 +113,7 @@ class ModelLoader(ForgeModel):
             model = AutoencoderKL.from_pretrained(
                 REPO_ID, subfolder="vae", torch_dtype=dtype
             )
+            model = model.to(dtype)
             model.eval()
             return model
 
