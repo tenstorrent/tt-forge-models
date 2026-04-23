@@ -56,7 +56,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="cross-encoder/msmarco-MiniLM-L12-en-de-v1",
         ),
         ModelVariant.XENOVA_MS_MARCO_MINILM_L_12_V2: ModelConfig(
-            pretrained_model_name="Xenova/ms-marco-MiniLM-L-12-v2",
+            pretrained_model_name="cross-encoder/ms-marco-MiniLM-L-12-v2",
         ),
     }
 
