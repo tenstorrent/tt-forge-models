@@ -5,7 +5,7 @@
 Tiny Random ChatGLM model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModel, AutoTokenizer, AutoConfig
+from transformers import AutoModel, AutoTokenizer, AutoConfig, PreTrainedModel
 from typing import Optional
 
 from ....base import ForgeModel
@@ -83,14 +83,35 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # ChatGLMConfig uses seq_length but older model code accesses max_length
+        if not hasattr(config, "max_length") and hasattr(config, "seq_length"):
+            config.max_length = config.seq_length
+        # Older transformers had use_cache on PretrainedConfig; newer versions removed it
+        if not hasattr(config, "use_cache"):
+            config.use_cache = True
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # Old ChatGLM remote code doesn't call post_init(), which transformers>=5 needs
+        # to set all_tied_weights_keys. Patch the method to initialize it if absent.
+        _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+        def _patched_adjust(self_m, missing_keys):
+            if not hasattr(self_m, "all_tied_weights_keys"):
+                self_m.all_tied_weights_keys = self_m.get_expanded_tied_weights_keys(
+                    all_submodels=False
+                )
+            _orig_adjust(self_m, missing_keys)
+
+        PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust
         model.eval()
         self.config = model.config
 
