@@ -4,6 +4,7 @@
 """
 Stable Diffusion 3.5 Large Turbo GGUF model loader implementation
 """
+import os
 import torch
 from typing import Optional
 
@@ -50,7 +51,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SD3_5_LARGE_TURBO_Q8_0: "sd3.5_large_turbo-Q8_0.gguf",
     }
 
-    BASE_PIPELINE = "stabilityai/stable-diffusion-3.5-large-turbo"
+    BASE_PIPELINE = "adamo1139/stable-diffusion-3.5-large-turbo-ungated"
 
     prompt = "An astronaut riding a green horse"
 
@@ -85,8 +86,10 @@ class ModelLoader(ForgeModel):
 
         compute_dtype = dtype_override or torch.bfloat16
 
+        local_config = os.path.join(os.path.dirname(__file__), "configs")
         transformer = SD3Transformer2DModel.from_single_file(
             gguf_path,
+            config=local_config,
             quantization_config=GGUFQuantizationConfig(compute_dtype=compute_dtype),
             torch_dtype=compute_dtype,
         )
@@ -104,7 +107,7 @@ class ModelLoader(ForgeModel):
         """Load sample inputs for the SD3.5 Large Turbo GGUF model.
 
         Returns:
-            list: [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+            list: [latent_model_input, prompt_embeds, pooled_prompt_embeds, timestep]
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -122,4 +125,4 @@ class ModelLoader(ForgeModel):
             prompt_embeds = prompt_embeds.to(dtype_override)
             pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+        return [latent_model_input, prompt_embeds, pooled_prompt_embeds, timestep]
