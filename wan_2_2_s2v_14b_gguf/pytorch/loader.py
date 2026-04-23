@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -17,7 +18,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from huggingface_hub import hf_hub_download  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -30,7 +30,13 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "QuantStack/Wan2.2-S2V-14B-GGUF"
+GGUF_REPO = "QuantStack/Wan2.2-S2V-14B-GGUF"
+
+# Small spatial dimensions for compile-only testing
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 _GGUF_FILES = {
     "Q4_0": "Wan2.2-S2V-14B-Q4_0.gguf",
@@ -44,23 +50,18 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Wan 2.2 Sound-to-Video 14B GGUF model loader.
-
-    Downloads the GGUF-quantized denoising transformer from HuggingFace.
-    The GGUF file represents the UNet/transformer component of the Wan 2.2
-    Sound-to-Video pipeline.
-    """
+    """Wan 2.2 Sound-to-Video 14B GGUF model loader."""
 
     _VARIANTS = {
         ModelVariant.WAN22_S2V_14B_Q4_0: ModelConfig(
-            pretrained_model_name=REPO_ID,
+            pretrained_model_name=GGUF_REPO,
         ),
     }
     DEFAULT_VARIANT = ModelVariant.WAN22_S2V_14B_Q4_0
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._model_path = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -75,31 +76,66 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Download and return the path to the GGUF model file.
+    def load_model(
+        self,
+        *,
+        dtype_override: Optional[torch.dtype] = None,
+        **kwargs,
+    ):
+        """Load the GGUF-quantized Wan 2.2 S2V 14B transformer.
 
-        The GGUF format is not directly loadable into a PyTorch model via
-        diffusers. The returned path can be used with ComfyUI-GGUF for
-        inference.
-
-        Returns:
-            str: Local path to the downloaded GGUF model file.
+        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
+        Returns the transformer nn.Module directly for compilation testing.
         """
-        gguf_filename = _GGUF_FILES["Q4_0"]
-        self._model_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename=gguf_filename,
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+
+        from diffusers import (
+            GGUFQuantizationConfig,
+            WanTransformer3DModel,
         )
-        return self._model_path
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare dummy inputs for the sound-to-video model.
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        Returns a dict with a dummy audio waveform tensor (5 seconds at 16kHz).
-        """
-        dtype = kwargs.get("dtype_override", torch.float32)
-        sample_rate = 16000
-        duration_sec = 5
+        gguf_file = _GGUF_FILES["Q4_0"]
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+
+        self._transformer = WanTransformer3DModel.from_single_file(
+            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
+        )
+
+        return self._transformer
+
+    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
+        """Prepare tensor inputs for the WanTransformer3DModel forward pass."""
+        if self._transformer is None:
+            self.load_model()
+
+        dtype = torch.bfloat16
+        config = self._transformer.config
+
         return {
-            "audio": torch.randn(1, sample_rate * duration_sec, dtype=dtype),
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }
