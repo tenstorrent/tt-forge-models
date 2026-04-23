@@ -72,7 +72,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_transformer(
-        self, dtype: torch.dtype = torch.float32
+        self, dtype: torch.dtype = torch.bfloat16
     ) -> OvisImageTransformer2DModel:
         """Load the diffusion transformer from Ovis-Image-7B."""
         self._transformer = OvisImageTransformer2DModel.from_pretrained(
@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
         Returns:
             OvisImageTransformer2DModel instance.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         if self._transformer is None:
             return self._load_transformer(dtype)
         if dtype_override is not None:
@@ -101,7 +101,7 @@ class ModelLoader(ForgeModel):
 
         Returns a dict matching OvisImageTransformer2DModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = kwargs.get("batch_size", 1)
 
         hidden_states = torch.randn(batch_size, IMG_SEQ_LEN, IMG_DIM, dtype=dtype)
