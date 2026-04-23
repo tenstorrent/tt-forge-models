@@ -14,6 +14,7 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from transformers.modeling_gguf_pytorch_utils import (
     GGUF_SUPPORTED_ARCHITECTURES,
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
@@ -94,6 +95,12 @@ def _patch_nemotron_h_support():
     _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
         "nemotron_h"
     ] = _NEMOTRON_H_CONFIG_MAP
+    # Reuse the existing nemotron tokenizer converter for nemotron_h.
+    if (
+        "nemotron_h" not in GGUF_TO_FAST_CONVERTERS
+        and "nemotron" in GGUF_TO_FAST_CONVERTERS
+    ):
+        GGUF_TO_FAST_CONVERTERS["nemotron_h"] = GGUF_TO_FAST_CONVERTERS["nemotron"]
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
