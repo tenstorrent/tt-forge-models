@@ -173,6 +173,7 @@ class Wav2Small(Wav2Vec2PreTrainedModel):
         super().__init__(config)
         self.vgg7 = Vgg7()
         self.adv = nn.Linear(config.hidden, 3)
+        self.post_init()
 
     def forward(self, x, attention_mask=None):
         x = self.vgg7(x, attention_mask=attention_mask)
