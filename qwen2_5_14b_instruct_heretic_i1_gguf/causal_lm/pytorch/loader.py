@@ -4,9 +4,32 @@
 """
 Qwen2.5 14B Instruct Heretic i1 GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import importlib.metadata
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+
+def _patch_gguf_version():
+    """Ensure gguf.__version__ is set so transformers.is_gguf_available() can parse it.
+
+    The gguf package (>=0.10.0) ships without a __version__ attribute, causing
+    transformers._is_package_available to fall back to 'N/A' which then fails
+    packaging.version.parse.  We set it from importlib.metadata and clear the
+    lru_cache so the corrected version is used on the next availability check.
+    """
+    try:
+        import gguf as _gguf
+
+        if not hasattr(_gguf, "__version__"):
+            _gguf.__version__ = importlib.metadata.version("gguf")
+        from transformers.utils.import_utils import is_gguf_available
+
+        is_gguf_available.cache_clear()
+    except Exception:
+        pass
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -62,6 +85,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _patch_gguf_version()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -76,6 +100,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _patch_gguf_version()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
