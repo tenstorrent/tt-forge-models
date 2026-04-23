@@ -11,10 +11,16 @@ built from the original black-forest-labs/FLUX.1-Fill-dev repository.
 """
 
 import os
+from pathlib import Path
 from typing import Optional
 
 import torch
-from diffusers import FluxFillPipeline, FluxTransformer2DModel, GGUFQuantizationConfig
+from diffusers import (
+    FluxFillPipeline,
+    FluxPipeline,
+    FluxTransformer2DModel,
+    GGUFQuantizationConfig,
+)
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -29,7 +35,10 @@ from ...config import (
 )
 
 GGUF_REPO = "YarvixPA/FLUX.1-Fill-dev-GGUF"
-BASE_REPO = "black-forest-labs/FLUX.1-Fill-dev"
+# FLUX.1-schnell shares tokenizers, VAE, and scheduler with Fill-dev and is
+# publicly available (Apache 2.0), so we use it to source shared components.
+SCHNELL_REPO = "black-forest-labs/FLUX.1-schnell"
+_TRANSFORMER_CONFIG_DIR = Path(__file__).parent / "transformer_config"
 
 
 class ModelVariant(StrEnum):
@@ -91,20 +100,34 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
 
         hf_token = os.environ.get("HF_TOKEN")
-        local_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file, token=hf_token)
+        local_path = hf_hub_download(
+            repo_id=GGUF_REPO, filename=gguf_file, token=hf_token
+        )
+        # Pass a local transformer config to avoid downloading from the gated
+        # black-forest-labs/FLUX.1-Fill-dev repo (requires accepted ToS).
         transformer = FluxTransformer2DModel.from_single_file(
             local_path,
+            config=str(_TRANSFORMER_CONFIG_DIR),
             quantization_config=quantization_config,
             torch_dtype=dtype,
-            token=hf_token,
         )
 
-        self.pipe = FluxFillPipeline.from_pretrained(
-            BASE_REPO,
-            transformer=transformer,
+        # Load shared components (tokenizers, VAE, scheduler) from the
+        # publicly available FLUX.1-schnell repo, then assemble a
+        # FluxFillPipeline with the GGUF Fill transformer.
+        base = FluxPipeline.from_pretrained(
+            SCHNELL_REPO,
+            transformer=None,
             torch_dtype=dtype,
-            use_safetensors=True,
-            token=hf_token,
+        )
+        self.pipe = FluxFillPipeline(
+            scheduler=base.scheduler,
+            vae=base.vae,
+            text_encoder=base.text_encoder,
+            tokenizer=base.tokenizer,
+            text_encoder_2=base.text_encoder_2,
+            tokenizer_2=base.tokenizer_2,
+            transformer=transformer,
         )
 
         return self.pipe
