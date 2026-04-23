@@ -8,8 +8,7 @@ Repositories:
 - https://huggingface.co/vonjack/whisper-large-v3-gguf
 - https://huggingface.co/oxide-lab/whisper-large-v3-GGUF
 """
-import transformers.modeling_gguf_pytorch_utils as _gguf_utils
-
+import numpy as np
 import torch
 from transformers import (
     WhisperForConditionalGeneration,
@@ -93,55 +92,47 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = gguf_file
-
-        # Pre-load config from the base Whisper model so that random-weights
-        # mode does not need to download/parse the GGUF file just for config.
-        config = WhisperConfig.from_pretrained("openai/whisper-large-v3")
-        model_kwargs["config"] = config
-
-        self.processor = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
-
-        # Refresh transformers' PACKAGE_DISTRIBUTION_MAPPING so that gguf,
-        # which is installed at test-time via requirements.txt, is visible to
-        # is_gguf_available().  The mapping is built at module-import time;
-        # if transformers was imported before gguf was installed the entry is
-        # missing, causing version.parse("N/A") to crash.
+        # Refresh PACKAGE_DISTRIBUTION_MAPPING so that gguf, installed at
+        # test-time via requirements.txt, is visible to is_gguf_available().
         import importlib.metadata as _imeta
         import transformers.utils.import_utils as _import_utils
 
         _import_utils.PACKAGE_DISTRIBUTION_MAPPING = _imeta.packages_distributions()
 
-        # Other GGUF loaders may have patched load_gguf_checkpoint with a
-        # version that drops model_to_load; transformers >= 5.0 requires it
-        # for whisper architecture support.  Bypass any patcher chain by
-        # loading a fresh, unpatched copy of the module from its source file.
-        try:
-            import importlib.util as _ilu
+        config = WhisperConfig.from_pretrained("openai/whisper-large-v3")
+        config.use_cache = False
 
-            _spec = _ilu.spec_from_file_location(
-                "_gguf_utils_fresh", _gguf_utils.__spec__.origin
-            )
-            _fresh = _ilu.module_from_spec(_spec)
-            # Relative imports inside modeling_gguf_pytorch_utils.py require
-            # the module to know it belongs to the transformers package.
-            _fresh.__package__ = "transformers"
-            _spec.loader.exec_module(_fresh)
-            _gguf_utils.load_gguf_checkpoint = _fresh.load_gguf_checkpoint
-        except Exception:
-            pass
+        self.processor = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
 
-        model = WhisperForConditionalGeneration.from_pretrained(
-            pretrained_model_name, use_cache=False, **model_kwargs
-        ).eval()
+        # transformers does not support the whisper GGUF architecture via
+        # from_pretrained(gguf_file=...).  The oxide-lab GGUF format stores
+        # tensors under their HuggingFace names directly, so we load them
+        # manually using the gguf library and bypass from_pretrained entirely.
+        from huggingface_hub import hf_hub_download
+        from gguf import GGUFReader, dequantize
+
+        gguf_path = hf_hub_download(pretrained_model_name, gguf_file)
+
+        model = WhisperForConditionalGeneration(config)
+
+        reader = GGUFReader(gguf_path)
+        state_dict = {}
+        for tensor in reader.tensors:
+            name = tensor.name
+            if name == "mel_filters":
+                continue
+            # oxide-lab GGUF prefixes proj_out with "model." but HF does not
+            if name == "model.proj_out.weight":
+                name = "proj_out.weight"
+            weights = dequantize(tensor.data, tensor.tensor_type)
+            state_dict[name] = torch.from_numpy(np.copy(weights))
+
+        model.load_state_dict(state_dict, strict=True)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
 
+        model = model.eval()
         self.model = model
         return model
 
