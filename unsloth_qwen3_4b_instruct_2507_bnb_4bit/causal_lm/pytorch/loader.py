@@ -5,6 +5,8 @@
 unsloth/Qwen3-4B-Instruct-2507-bnb-4bit model loader implementation for causal language modeling.
 """
 
+import os
+import shutil
 from typing import Optional
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -19,6 +21,18 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+_MIN_FREE_BYTES = 5 * 1024**3
+
+
+def _get_cache_dir() -> str:
+    hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+    hub_cache = os.path.join(hf_home, "hub")
+    try:
+        free = shutil.disk_usage(os.path.dirname(hub_cache)).free
+    except Exception:
+        free = 0
+    return hub_cache if free >= _MIN_FREE_BYTES else "/tmp/hf_hub_cache"
 
 
 class ModelVariant(StrEnum):
@@ -57,7 +71,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
+        tokenizer_kwargs = {"cache_dir": _get_cache_dir()}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
@@ -72,7 +86,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"cache_dir": _get_cache_dir()}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
