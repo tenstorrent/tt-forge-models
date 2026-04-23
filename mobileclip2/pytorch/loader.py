@@ -80,6 +80,12 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The MobileCLIP2 model instance.
         """
+        # transformers 5.x removed batch_encode_plus; patch it back as __call__ alias
+        from transformers import PreTrainedTokenizerBase
+
+        if not hasattr(PreTrainedTokenizerBase, "batch_encode_plus"):
+            PreTrainedTokenizerBase.batch_encode_plus = PreTrainedTokenizerBase.__call__
+
         from open_clip import create_model_from_pretrained, get_tokenizer
 
         pretrained_model_name = self._variant_config.pretrained_model_name
