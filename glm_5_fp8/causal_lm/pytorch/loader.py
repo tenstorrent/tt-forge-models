@@ -4,9 +4,42 @@
 """
 GLM-5 FP8 model loader implementation for causal language modeling.
 """
+import sys
+import types
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+# FP8 loading on CPU dequantizes to bf16, but transformers unconditionally
+# imports triton (CUDA-only) at the module level in finegrained_fp8.py.
+# Inject a minimal stub so the import succeeds; none of the triton kernels
+# are actually invoked during CPU dequantization.
+if "triton" not in sys.modules:
+    _tl = types.ModuleType("triton.language")
+    _tl.constexpr = type("constexpr", (), {})
+    for _attr in ("float32", "float16", "bfloat16", "int8", "int32", "int64"):
+        setattr(_tl, _attr, None)
+    for _fn in (
+        "program_id",
+        "arange",
+        "load",
+        "store",
+        "zeros",
+        "max",
+        "abs",
+        "dot",
+        "cdiv",
+    ):
+        setattr(_tl, _fn, lambda *a, **kw: None)
+
+    _triton = types.ModuleType("triton")
+    _triton.language = _tl
+    _triton.jit = lambda fn=None, **kw: fn if fn is not None else (lambda f: f)
+    _triton.cdiv = lambda a, b: (a + b - 1) // b
+    _triton.next_power_of_2 = lambda n: 1 << (n - 1).bit_length()
+
+    sys.modules["triton"] = _triton
+    sys.modules["triton.language"] = _tl
 
 from ....base import ForgeModel
 from ....config import (
@@ -93,17 +126,6 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model_kwargs |= kwargs
-
-        # FP8 quantization requires triton (CUDA-only); load config and clear
-        # quantization_config so transformers dequantizes to bf16 on CPU.
-        if "config" not in model_kwargs:
-            fp8_config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
-            fp8_config.quantization_config = None
-            model_kwargs["config"] = fp8_config
-        else:
-            model_kwargs["config"].quantization_config = None
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
