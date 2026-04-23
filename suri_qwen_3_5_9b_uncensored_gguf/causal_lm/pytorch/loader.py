@@ -35,9 +35,35 @@ def _patch_qwen35_support():
         )
 
 
+def _find_real_load_gguf_checkpoint(fn):
+    """Walk the monkey-patch chain (via module globals) to find the real transformers function."""
+    seen = set()
+    while fn is not None:
+        fid = id(fn)
+        if fid in seen:
+            break
+        seen.add(fid)
+        if getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+            return fn
+        globs = getattr(fn, "__globals__", {})
+        nxt = globs.get("_orig_load_gguf_checkpoint") or globs.get(
+            "_prev_load_gguf_checkpoint"
+        )
+        if not callable(nxt):
+            break
+        fn = nxt
+    return fn
+
+
+_real_load_gguf_checkpoint = _find_real_load_gguf_checkpoint(_prev_load_gguf_checkpoint)
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add qwen35 support, accepting transformers 5.x kwargs."""
     _patch_qwen35_support()
-    result = _prev_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _real_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
     return result
