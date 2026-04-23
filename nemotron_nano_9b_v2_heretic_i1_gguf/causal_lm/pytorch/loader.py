@@ -4,8 +4,9 @@
 """
 Nemotron Nano 9B v2 Heretic i1 GGUF model loader implementation for causal language modeling.
 
-Note: The nemotron_h architecture is not supported in GGUF format by transformers,
-so this loader uses the base safetensors model from cpagac instead.
+Note: cpagac/Nemotron-Nano-9B-v2-heretic is missing modeling_nemotron_h.py, so this
+loader fetches the class from nvidia/NVIDIA-Nemotron-Nano-9B-v2-Japanese (same arch)
+and loads the heretic weights directly, bypassing trust_remote_code auto_map lookup.
 The nemotron_h model requires mamba-ssm (CUDA-only), so we install a pure PyTorch
 stub when the real package is unavailable.
 """
@@ -15,7 +16,7 @@ import importlib
 import importlib.machinery
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, AutoConfig
 from typing import Optional
 
 
@@ -80,6 +81,46 @@ def _ensure_mamba_ssm_available():
     sys.modules["mamba_ssm.ops.triton.layernorm_gated"] = layernorm_gated
     sys.modules["mamba_ssm.ops.triton.selective_state_update"] = selective_state
     sys.modules["mamba_ssm.ops.triton.ssd_combined"] = ssd_combined
+
+
+def _get_nemotron_h_model_class():
+    """Load NemotronHForCausalLM from the modules cache of a compatible model.
+
+    cpagac/Nemotron-Nano-9B-v2-heretic is missing modeling_nemotron_h.py so we
+    cannot use trust_remote_code=True on that repo. Instead we load the class from
+    nvidia/NVIDIA-Nemotron-Nano-9B-v2-Japanese which uses the same architecture and
+    has the file. Loading directly from the class bypasses the auto_map file download.
+    """
+    import glob
+    import os
+
+    from transformers import AutoConfig
+    from transformers.dynamic_module_utils import HF_MODULES_CACHE
+
+    # Ensure the Japanese model's modeling code is in the modules cache
+    AutoConfig.from_pretrained(
+        "nvidia/NVIDIA-Nemotron-Nano-9B-v2-Japanese", trust_remote_code=True
+    )
+
+    pattern = os.path.join(
+        HF_MODULES_CACHE,
+        "transformers_modules",
+        "nvidia",
+        "*",
+        "*",
+        "modeling_nemotron_h.py",
+    )
+    matches = sorted(glob.glob(pattern))
+    if not matches:
+        raise RuntimeError(
+            "Could not find modeling_nemotron_h.py in HF modules cache after loading "
+            "nvidia/NVIDIA-Nemotron-Nano-9B-v2-Japanese"
+        )
+
+    rel_path = os.path.relpath(matches[-1], HF_MODULES_CACHE)
+    module_name = rel_path.replace(os.sep, ".")[:-3]  # strip .py
+    module = importlib.import_module(module_name)
+    return module.NemotronHForCausalLM
 
 
 _ensure_mamba_ssm_available()
@@ -154,10 +195,12 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        NemotronHForCausalLM = _get_nemotron_h_model_class()
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
@@ -166,7 +209,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
+        model = NemotronHForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
 
