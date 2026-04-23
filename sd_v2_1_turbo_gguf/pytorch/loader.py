@@ -114,6 +114,7 @@ class ModelLoader(ForgeModel):
         unet = UNet2DConditionModel.from_single_file(
             gguf_path,
             config=BASE_PIPELINE,
+            subfolder="unet",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
