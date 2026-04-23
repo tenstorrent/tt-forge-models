@@ -1,0 +1,3 @@
+decord
+ffmpeg-python
+transformers==4.57.1
