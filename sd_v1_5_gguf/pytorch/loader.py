@@ -34,6 +34,36 @@ GGUF_REPO = "gpustack/stable-diffusion-v1-5-GGUF"
 BASE_PIPELINE = "sd-legacy/stable-diffusion-v1-5"
 
 
+def _dequantize_q8_0(data: torch.Tensor) -> torch.Tensor:
+    """Dequantize a Q8_0 GGUF uint8 tensor to float32.
+
+    Q8_0 blocks: [float16 scale (2 bytes), int8 values (32 bytes)] = 34 bytes/block.
+    Diffusers 0.37.1 leaves norm weights as raw uint8 bytes instead of dequantizing them.
+    """
+    n_blocks = data.numel() // 34
+    raw = data.reshape(n_blocks, 34)
+    scale = raw[:, :2].contiguous().view(torch.float16).float()
+    q_values = raw[:, 2:].contiguous().to(torch.int8).float()
+    return (q_values * scale.unsqueeze(1)).reshape(n_blocks * 32)
+
+
+def _fix_gguf_norm_weights(unet: torch.nn.Module, compute_dtype: torch.dtype) -> None:
+    """Fix norm layer weights left as raw Q8_0 bytes by diffusers 0.37.1."""
+    import torch.nn as nn
+
+    with torch.no_grad():
+        for module in unet.modules():
+            if isinstance(module, (nn.GroupNorm, nn.LayerNorm)):
+                if module.weight is not None and module.weight.dtype == torch.uint8:
+                    module.weight.data = _dequantize_q8_0(module.weight.data).to(
+                        compute_dtype
+                    )
+                if module.bias is not None and module.bias.dtype == torch.uint8:
+                    module.bias.data = _dequantize_q8_0(module.bias.data).to(
+                        compute_dtype
+                    )
+
+
 class ModelVariant(StrEnum):
     """Available Stable Diffusion v1.5 GGUF variants."""
 
@@ -125,6 +155,7 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
         )
 
+        _fix_gguf_norm_weights(self.pipeline.unet, compute_dtype)
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
