@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
         # which is incompatible with transformers (no `quant_method` attribute).
         config = AutoConfig.from_pretrained(pretrained_model_name)
         if hasattr(config, "quantization_config"):
-            config.quantization_config = None
+            delattr(config, "quantization_config")
 
         if self.num_layers is not None:
             if hasattr(config, "text_config"):
