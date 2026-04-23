@@ -13,6 +13,7 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from transformers.modeling_gguf_pytorch_utils import (
     GGUF_SUPPORTED_ARCHITECTURES,
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
@@ -36,6 +37,8 @@ def _patch_mistral3_support():
     Devstral-Small-2 uses the mistral3 GGUF architecture string which
     transformers does not yet recognise. Map it to the existing mistral
     config/weight mappings so that load_gguf_checkpoint succeeds.
+    Mistral uses the same tokenizer format as llama, so register 'mistral'
+    in GGUF_TO_FAST_CONVERTERS as an alias for 'llama'.
     """
     if "mistral3" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
@@ -45,6 +48,9 @@ def _patch_mistral3_support():
                 "mistral3",
                 _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"],
             )
+    if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("mistral", GGUF_TO_FAST_CONVERTERS["llama"])
+        GGUF_TO_FAST_CONVERTERS.setdefault("mistral3", GGUF_TO_FAST_CONVERTERS["llama"])
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
