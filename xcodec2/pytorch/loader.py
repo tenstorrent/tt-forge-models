@@ -7,7 +7,6 @@ XCodec2 neural speech codec model loader implementation.
 
 import torch
 import numpy as np
-from xcodec2.modeling_xcodec2 import XCodec2Model
 from typing import Optional
 
 from ...base import ForgeModel
@@ -52,6 +51,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the XCodec2 model instance."""
+        from xcodec2.modeling_xcodec2 import XCodec2Model
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model = XCodec2Model.from_pretrained(pretrained_model_name)
