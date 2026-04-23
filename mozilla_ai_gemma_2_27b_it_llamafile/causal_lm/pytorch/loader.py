@@ -4,6 +4,7 @@
 """
 Mozilla-AI gemma-2-27b-it-llamafile model loader implementation for causal language modeling.
 """
+import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
@@ -30,12 +31,14 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GEMMA_2_27B_IT_LLAMAFILE: LLMModelConfig(
-            pretrained_model_name="mozilla-ai/gemma-2-27b-it-llamafile",
+            pretrained_model_name="bartowski/gemma-2-27b-it-GGUF",
             max_length=256,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_2_27B_IT_LLAMAFILE
+
+    GGUF_FILE = "gemma-2-27b-it-Q4_K_M.gguf"
 
     sample_text = "What is the capital of France?"
 
@@ -51,6 +54,7 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self.tokenizer = None
+        self.config = None
         self.num_layers = num_layers
 
     @classmethod
@@ -85,6 +89,7 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -115,9 +120,12 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -128,6 +136,7 @@ class ModelLoader(ForgeModel):
 
         model.eval()
 
+        self.config = model.config
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
