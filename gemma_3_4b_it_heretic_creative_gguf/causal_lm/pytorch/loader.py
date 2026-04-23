@@ -6,6 +6,7 @@ Gemma 3 4B IT Heretic Creative GGUF model loader implementation for causal langu
 """
 import functools
 import inspect
+import threading
 import torch
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
@@ -25,30 +26,70 @@ from ....config import (
     StrEnum,
 )
 
+# Thread-local storage so model_to_load survives the monkey-patch chain that
+# strips it from intermediate _patched_load_gguf_checkpoint signatures.
+_gguf_ctx = threading.local()
+
 
 def _patch_gguf_compat():
-    """Re-wrap load_gguf_checkpoint to accept model_to_load added in transformers 5.2.0.
+    """Re-wrap load_gguf_checkpoint / get_gguf_hf_weights_map for transformers 5.2.0.
 
-    Called at model-load time so this wrapper is always outermost, even after
-    other GGUF loaders have applied their own monkey-patches during collection.
+    transformers 5.2.0 added a model_to_load parameter that is required for
+    get_gguf_hf_weights_map (state_dict lookup).  Other GGUF loaders
+    monkey-patch load_gguf_checkpoint with fixed (gguf_path, return_tensors)
+    signatures that drop model_to_load.  We:
+      1. Wrap load_gguf_checkpoint to accept model_to_load and stash it in a
+         thread-local before delegating to the existing patch chain.
+      2. Wrap get_gguf_hf_weights_map to recover model_to_load from the
+         thread-local when the chain eventually passes None.
+    Both wrappers are applied at call time so they are always the outermost
+    layer, regardless of which loaders were collected by pytest.
     """
 
-    def _wrap(fn):
+    def _wrap_load(fn):
         try:
-            if "model_to_load" in inspect.signature(fn).parameters:
+            sig = inspect.signature(fn)
+            if "model_to_load" in sig.parameters and not getattr(
+                fn, "_gguf_compat_load_wrapped", False
+            ):
                 return fn
         except (ValueError, TypeError):
             pass
+        if getattr(fn, "_gguf_compat_load_wrapped", False):
+            return fn
 
         @functools.wraps(fn)
         def _wrapper(gguf_path, return_tensors=False, model_to_load=None, **kwargs):
-            return fn(gguf_path, return_tensors=return_tensors)
+            _gguf_ctx.model = model_to_load
+            try:
+                return fn(gguf_path, return_tensors=return_tensors)
+            finally:
+                _gguf_ctx.model = None
 
+        _wrapper._gguf_compat_load_wrapped = True
         return _wrapper
+
+    def _wrap_get_map(fn):
+        if getattr(fn, "_gguf_compat_map_wrapped", False):
+            return fn
+
+        @functools.wraps(fn)
+        def _wrapper(hf_model, *args, **kwargs):
+            if hf_model is None:
+                hf_model = getattr(_gguf_ctx, "model", None)
+            return fn(hf_model, *args, **kwargs)
+
+        _wrapper._gguf_compat_map_wrapped = True
+        return _wrapper
+
+    if hasattr(_gguf_utils, "get_gguf_hf_weights_map"):
+        _gguf_utils.get_gguf_hf_weights_map = _wrap_get_map(
+            _gguf_utils.get_gguf_hf_weights_map
+        )
 
     for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils):
         if hasattr(_mod, "load_gguf_checkpoint"):
-            _mod.load_gguf_checkpoint = _wrap(_mod.load_gguf_checkpoint)
+            _mod.load_gguf_checkpoint = _wrap_load(_mod.load_gguf_checkpoint)
 
 
 class ModelVariant(StrEnum):
