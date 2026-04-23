@@ -85,9 +85,6 @@ class ModelLoader(ForgeModel):
             gguf_file = self.GGUF_FILES[self._variant]
             self.transformer = load_flux2_klein_gguf_transformer(REPO_ID, gguf_file)
 
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
-
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
