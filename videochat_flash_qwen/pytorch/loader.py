@@ -8,7 +8,13 @@ VideoChatFlash-Qwen model loader implementation for multimodal video/image condi
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer, DynamicCache
+
+# transformers 5.x renamed DynamicCache.get_usable_length -> get_seq_length
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_length=None, layer_idx=0: self.get_seq_length(layer_idx)
+    )
 
 from ...base import ForgeModel
 from ...config import (
@@ -105,6 +111,16 @@ class ModelLoader(ForgeModel):
             )
         finally:
             torch.linspace = _orig_linspace
+
+        # The inner LLM's forward() uses these attrs unconditionally, but they are only
+        # set by prepare_inputs_labels_for_multimodal (called with image inputs).
+        # Initialize safe defaults so text-only inputs work.
+        inner = getattr(model, "model", None)
+        if inner is not None:
+            inner.__dict__.setdefault("llm_compress_layer_list", [])
+            inner.__dict__.setdefault("llm_compress_type", "attention")
+            inner.__dict__.setdefault("llm_image_token_ratio_list", [])
+
         model.eval()
 
         if self.tokenizer is None:
