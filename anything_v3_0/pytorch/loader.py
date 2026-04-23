@@ -6,7 +6,7 @@ Anything V3.0 model loader implementation
 """
 
 import torch
-from typing import Optional
+from typing import Any, Optional
 
 from ...config import (
     ModelConfig,
@@ -47,6 +47,7 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
+        self.pipeline: Optional[StableDiffusionPipeline] = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -71,32 +72,66 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Anything V3.0 pipeline from Hugging Face.
+        """Load the Anything V3.0 pipeline and return its UNet module.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use torch.bfloat16.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained Anything V3.0 pipeline object.
+            torch.nn.Module: The UNet component of the Anything V3.0 pipeline.
         """
         dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionPipeline.from_pretrained(
+        self.pipeline = StableDiffusionPipeline.from_pretrained(
             self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
         )
-        return pipe
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the Anything V3.0 model.
+        """Load pre-encoded UNet inputs for the Anything V3.0 model.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+            dtype_override: Optional torch.dtype override.
+            batch_size: Batch size for the inputs.
 
         Returns:
-            list: A list of sample text prompts.
+            list: [latent_sample, timestep, encoder_hidden_states]
         """
-        prompt = [
-            "masterpiece, best quality, 1girl, white hair, golden eyes, flower meadow",
-        ] * batch_size
-        return prompt
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        dtype = self.pipeline.unet.dtype
+        prompt = (
+            "masterpiece, best quality, 1girl, white hair, golden eyes, flower meadow"
+        )
+
+        text_inputs = self.pipeline.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            encoder_hidden_states = self.pipeline.text_encoder(text_inputs.input_ids)[
+                0
+            ].to(dtype)
+
+        encoder_hidden_states = encoder_hidden_states.expand(batch_size, -1, -1)
+
+        in_channels = self.pipeline.unet.config.in_channels
+        sample_size = self.pipeline.unet.config.sample_size
+        latent_sample = torch.randn(
+            batch_size, in_channels, sample_size, sample_size, dtype=dtype
+        )
+        timestep = torch.tensor([1.0], dtype=dtype)
+
+        return [latent_sample, timestep, encoder_hidden_states]
+
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        """Unpack UNet output to the sample tensor."""
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        if hasattr(fwd_output, "sample"):
+            return fwd_output.sample
+        return fwd_output
