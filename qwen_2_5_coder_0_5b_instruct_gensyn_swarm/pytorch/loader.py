@@ -31,6 +31,9 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Qwen 2.5 Coder 0.5B Instruct Gensyn Swarm model loader for causal language modeling."""
 
+    # Base tokenizer used when a variant's repo has no tokenizer files
+    BASE_TOKENIZER_NAME = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
+
     _VARIANTS = {
         ModelVariant.SQUINTING_DORMANT_PARROT: LLMModelConfig(
             pretrained_model_name="tommymir4444/Qwen2.5-Coder-0.5B-Instruct-Gensyn-Swarm-squinting_dormant_parrot",
@@ -72,6 +75,12 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+
+        # Fall back to base model tokenizer if vocab is empty (model has no tokenizer files)
+        if len(self.tokenizer.get_vocab()) == 0:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.BASE_TOKENIZER_NAME, **tokenizer_kwargs
+            )
 
         return self.tokenizer
 
