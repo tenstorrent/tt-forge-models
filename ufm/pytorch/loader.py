@@ -5,6 +5,9 @@
 UFM (UniFlowMatch) model loader implementation for dense correspondence estimation
 """
 
+import os
+import subprocess
+import sys
 import torch
 from typing import Optional
 
@@ -18,6 +21,31 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+_UFM_REPO_URL = "https://github.com/UniFlowMatch/UFM.git"
+_UFM_CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "uniflowmatch", "UFM")
+
+
+def _ensure_uniflowmatch_importable():
+    try:
+        from uniflowmatch.models.ufm import UniFlowMatchConfidence  # noqa: F401
+
+        return
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+    if not os.path.exists(_UFM_CACHE_DIR):
+        os.makedirs(os.path.dirname(_UFM_CACHE_DIR), exist_ok=True)
+        subprocess.run(
+            ["git", "clone", "--recurse-submodules", _UFM_REPO_URL, _UFM_CACHE_DIR],
+            check=True,
+        )
+
+    uniception_path = os.path.join(_UFM_CACHE_DIR, "UniCeption")
+    if _UFM_CACHE_DIR not in sys.path:
+        sys.path.insert(0, _UFM_CACHE_DIR)
+    if uniception_path not in sys.path:
+        sys.path.insert(0, uniception_path)
 
 
 class ModelVariant(StrEnum):
@@ -58,31 +86,47 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        _ensure_uniflowmatch_importable()
 
-        from transformers import AutoModel
-
-        model = AutoModel.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **kwargs
+        from uniflowmatch.models.ufm import (
+            UniFlowMatchConfidence,
+            UniFlowMatchClassificationRefinement,
         )
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if self._variant == ModelVariant.BASE:
+            model = UniFlowMatchConfidence.from_pretrained(pretrained_model_name)
+        else:
+            model = UniFlowMatchClassificationRefinement.from_pretrained(
+                pretrained_model_name
+            )
+
+        # UFM uses DINOv2 with layer norm that upcasts to float32, so dtype conversion
+        # must not be applied — the model is designed to run with autocast instead.
 
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        # UFM expects two images: source and target, as (H, W, 3) tensors
-        # The model's inference resolution is 560x420
+        # UFM forward() expects view dicts with 'img' (B, 3, H, W) normalized tensors.
+        # The model's inference resolution is 560x420 (W x H).
+        # DINOv2 normalization: mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
         height, width = 420, 560
-        source_image = torch.randint(0, 256, (height, width, 3), dtype=torch.float32)
-        target_image = torch.randint(0, 256, (height, width, 3), dtype=torch.float32)
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
 
-        if dtype_override is not None:
-            source_image = source_image.to(dtype_override)
-            target_image = target_image.to(dtype_override)
+        raw1 = (
+            torch.randint(0, 256, (batch_size, 3, height, width), dtype=torch.float32)
+            / 255.0
+        )
+        raw2 = (
+            torch.randint(0, 256, (batch_size, 3, height, width), dtype=torch.float32)
+            / 255.0
+        )
+        img1 = (raw1 - mean) / std
+        img2 = (raw2 - mean) / std
 
-        return {
-            "source_image": source_image,
-            "target_image": target_image,
-        }
+        view1 = {"img": img1, "symmetrized": False, "data_norm_type": "dinov2"}
+        view2 = {"img": img2, "symmetrized": False, "data_norm_type": "dinov2"}
+
+        return {"view1": view1, "view2": view2}
