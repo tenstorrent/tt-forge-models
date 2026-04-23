@@ -161,6 +161,10 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        import transformers.processing_utils as _pu
+
+        if not hasattr(_pu, "_validate_images_text_input_order"):
+            _pu._validate_images_text_input_order = lambda images, text: (images, text)
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
