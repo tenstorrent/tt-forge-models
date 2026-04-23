@@ -114,7 +114,21 @@ class ModelLoader(ForgeModel):
         Requires the mantis-vl package:
             pip install mantis-vl
         """
-        from mantis.models.idefics2 import Idefics2ForSequenceClassification
+        from mantis.models.idefics2 import (
+            Idefics2ForConditionalGeneration,
+            Idefics2ForSequenceClassification,
+        )
+
+        # transformers >= 5.2.0 calls tie_weights(recompute_mapping=False);
+        # mantis-vl 0.0.5 does not accept that kwarg — patch both classes.
+        for _cls in (
+            Idefics2ForConditionalGeneration,
+            Idefics2ForSequenceClassification,
+        ):
+            if "tie_weights" in _cls.__dict__:
+                _cls.tie_weights = (lambda fn: lambda self, **kw: fn(self))(
+                    _cls.__dict__["tie_weights"]
+                )
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
