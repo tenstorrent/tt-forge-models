@@ -5,11 +5,9 @@
 GUI-Libra-8B i1 GGUF model loader implementation for image to text.
 """
 
-from transformers import (
-    Qwen3VLForConditionalGeneration,
-    AutoProcessor,
-)
 from typing import Optional
+
+from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 from ....base import ForgeModel
 from ....config import (
@@ -21,6 +19,47 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_transformers_qwen3vl_gguf():
+    """Monkey-patch transformers to add qwen3vl GGUF architecture support.
+
+    Transformers 5.x has Qwen3VLForConditionalGeneration but lacks GGUF loading
+    support for the qwen3vl architecture. The gguf-py library knows qwen3vl so
+    we only need to bridge transformers' config/tokenizer processing layer.
+    """
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+
+    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    if "qwen3vl" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUFQwen2Converter
+
+
+_patch_transformers_qwen3vl_gguf()
 
 
 class ModelVariant(StrEnum):
@@ -73,7 +112,7 @@ class ModelLoader(ForgeModel):
         self.processor = AutoProcessor.from_pretrained("GUI-Libra/GUI-Libra-8B")
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         )
         model.eval()
 
