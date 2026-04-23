@@ -21,6 +21,23 @@ from third_party.tt_forge_models.config import (
 )
 
 
+class _TapasDataFrame(pd.DataFrame):
+    """DataFrame subclass that patches iterrows() for pandas 3.0 compatibility.
+
+    The TAPAS tokenizer uses row[int] on Series from iterrows(), which raised
+    KeyError in pandas 3.0 when the index is string column labels. Resetting
+    each row's index to RangeIndex restores the pre-3.0 positional behaviour.
+    """
+
+    def iterrows(self):
+        for idx, row in super().iterrows():
+            yield idx, row.reset_index(drop=True)
+
+    @property
+    def _constructor(self):
+        return _TapasDataFrame
+
+
 class ModelVariant(StrEnum):
     """Available TAPAS model variants for masked language modeling."""
 
@@ -50,7 +67,12 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
 
         # Sample table data
-        self.table = pd.DataFrame(
+        # Wrap in _TapasDataFrame to work around two pandas 3.0 incompatibilities
+        # in the TAPAS tokenizer:
+        # 1. Arrow-backed string columns reject Cell object assignment (dtype=object fixes this).
+        # 2. row[int] on a string-indexed Series raises KeyError; overriding iterrows() to
+        #    return integer-indexed rows restores the pre-3.0 positional-fallback behavior.
+        self.table = _TapasDataFrame(
             {
                 "Player": [
                     "Lionel Messi",
@@ -61,7 +83,8 @@ class ModelLoader(ForgeModel):
                 "Goals": ["672", "700", "350", "210"],
                 "Assists": ["303", "220", "240", "100"],
                 "Team": ["Inter Miami", "Al Nassr", "Al Hilal", "PSG"],
-            }
+            },
+            dtype=object,
         )
         self.query = "Lionel Messi plays for [MASK] Miami."
 
