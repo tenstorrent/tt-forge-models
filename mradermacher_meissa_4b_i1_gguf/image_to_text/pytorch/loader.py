@@ -66,21 +66,57 @@ def _patch_transformers_qwen3vl_gguf():
     if "qwen3vl" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUFQwen2Converter
 
-    # 4. Patch get_gguf_hf_weights_map to handle composite Qwen3VLConfig and
-    #    map qwen3_vl model_type to the qwen3vl gguf arch name.
+    # 4. Patch get_gguf_hf_weights_map to handle composite Qwen3VLConfig.
+    #    Problem: the recursive name-map traversal visits model.visual.merger
+    #    before model.language_model; merger's 'norm' sub-module maps to
+    #    'output_norm' in the GGUF name map, consuming the GGUF tensor before
+    #    language_model.norm can claim it.  Since Qwen3-VL GGUF files contain
+    #    only LM weights (no vision tensors), we build the map exclusively from
+    #    the text sub-model on the first (root-level) call.
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
         hf_model, processor=None, model_type=None, num_layers=None, qual_name=""
     ):
         if model_type is None:
-            model_type = hf_model.config.model_type
+            cfg = getattr(hf_model, "config", None)
+            model_type = getattr(cfg, "model_type", None)
         if model_type == "qwen3_vl":
             model_type = "qwen3vl"
         if num_layers is None:
-            cfg = hf_model.config
-            if not hasattr(cfg, "num_hidden_layers") and hasattr(cfg, "text_config"):
+            cfg = getattr(hf_model, "config", None)
+            if (
+                cfg
+                and not hasattr(cfg, "num_hidden_layers")
+                and hasattr(cfg, "text_config")
+            ):
                 num_layers = cfg.text_config.num_hidden_layers
+
+        # Root-level call for a Qwen3-VL model: build the map from the text
+        # sub-model only to avoid vision tensors consuming LM GGUF names.
+        if model_type == "qwen3vl" and not qual_name:
+            lm_model, lm_prefix = None, ""
+            for subpath in ("model.language_model", "language_model"):
+                obj, found = hf_model, True
+                for part in subpath.split("."):
+                    try:
+                        obj = getattr(obj, part)
+                    except AttributeError:
+                        found = False
+                        break
+                if found and hasattr(obj, "named_children"):
+                    lm_model, lm_prefix = obj, subpath + "."
+                    break
+
+            if lm_model is not None:
+                weights_map = orig_get_map(
+                    lm_model, processor, "qwen3vl", num_layers, qual_name=lm_prefix
+                )
+                # output.weight (GGUF unembedding) -> lm_head.weight
+                if hasattr(hf_model, "lm_head"):
+                    weights_map["output.weight"] = "lm_head.weight"
+                return weights_map
+
         return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
@@ -116,6 +152,12 @@ def _patch_transformers_qwen3vl_gguf():
             config["model_type"] = "qwen3_vl"
             if text_cfg:
                 config["text_config"] = text_cfg
+                # Vision merger projects to LM hidden_size via linear_fc2; set
+                # out_hidden_size so the merger is created with the right output dim.
+                if "hidden_size" in text_cfg:
+                    config.setdefault("vision_config", {})[
+                        "out_hidden_size"
+                    ] = text_cfg["hidden_size"]
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
