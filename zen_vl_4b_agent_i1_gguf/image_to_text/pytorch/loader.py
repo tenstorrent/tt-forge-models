@@ -173,6 +173,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from transformers import AutoConfig
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
@@ -181,8 +183,10 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
+        # GGUF repos do not ship a processor or config; use the base model for both.
+        # The base config ensures vision_config dimensions match the GGUF checkpoint.
         self.processor = AutoProcessor.from_pretrained("zenlm/zen-vl-4b-agent")
+        model_kwargs["config"] = AutoConfig.from_pretrained("zenlm/zen-vl-4b-agent")
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
