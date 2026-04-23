@@ -4,6 +4,8 @@
 """
 Llama 3.1 8B Instruct OpenbookQA DPO model loader implementation for causal language modeling.
 """
+import os
+
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from peft import PeftModel
@@ -63,8 +65,15 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        # Use adapter model tokenizer when random weights are requested since
+        # it includes tokenizer files and avoids downloading gated base model files.
+        tokenizer_source = (
+            self._variant_config.pretrained_model_name
+            if os.environ.get("TT_RANDOM_WEIGHTS")
+            else self.BASE_MODEL_NAME
+        )
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.BASE_MODEL_NAME, **tokenizer_kwargs
+            tokenizer_source, **tokenizer_kwargs
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
@@ -73,23 +82,31 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        if self.num_layers is not None:
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
             config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            model = AutoModelForCausalLM.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
 
-        base_model = AutoModelForCausalLM.from_pretrained(
-            self.BASE_MODEL_NAME, **model_kwargs
-        )
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
 
-        adapter_name = self._variant_config.pretrained_model_name
-        model = PeftModel.from_pretrained(base_model, adapter_name)
-        model = model.merge_and_unload()
+            base_model = AutoModelForCausalLM.from_pretrained(
+                self.BASE_MODEL_NAME, **model_kwargs
+            )
+
+            adapter_name = self._variant_config.pretrained_model_name
+            model = PeftModel.from_pretrained(base_model, adapter_name)
+            model = model.merge_and_unload()
 
         for param in model.parameters():
             param.requires_grad = False
