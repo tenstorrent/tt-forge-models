@@ -4,6 +4,7 @@
 """
 SmolLM2 360M Instruct GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -61,7 +62,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _refresh_gguf_detection():
+        # transformers.utils.import_utils computes PACKAGE_DISTRIBUTION_MAPPING at
+        # import time.  When RequirementsManager installs gguf after that point the
+        # mapping is stale, causing is_gguf_available() to raise InvalidVersion
+        # because gguf lacks a __version__ attribute.  Refresh the mapping and
+        # clear the lru_cache so the next call re-evaluates with fresh metadata.
+        try:
+            import transformers.utils.import_utils as _tutils
+
+            if "gguf" not in _tutils.PACKAGE_DISTRIBUTION_MAPPING:
+                fresh = importlib.metadata.packages_distributions()
+                if "gguf" in fresh:
+                    _tutils.PACKAGE_DISTRIBUTION_MAPPING = fresh
+                    _tutils.is_gguf_available.cache_clear()
+        except Exception:
+            pass
+
     def _load_tokenizer(self, dtype_override=None):
+        self._refresh_gguf_detection()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
