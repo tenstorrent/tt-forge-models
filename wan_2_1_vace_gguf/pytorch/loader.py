@@ -172,6 +172,14 @@ class ModelLoader(ForgeModel):
                 config.text_dim,
                 dtype=dtype,
             ),
+            "control_hidden_states": torch.randn(
+                1,
+                config.vace_in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
             "timestep": torch.tensor([500], dtype=torch.long),
             "return_dict": False,
         }
