@@ -73,13 +73,11 @@ class ModelLoader(ForgeModel):
         return self._processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        import torch
         from transformers import Wav2Vec2ForSequenceClassification
 
         model_kwargs = {}
-        model_kwargs["torch_dtype"] = (
-            dtype_override if dtype_override is not None else torch.float32
-        )
+        if dtype_override is not None:
+            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = Wav2Vec2ForSequenceClassification.from_pretrained(
@@ -94,6 +92,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         import numpy as np
+        import torch
 
         if self._processor is None:
             self._load_processor(dtype_override=dtype_override)
@@ -110,5 +109,13 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override)
+                if isinstance(v, torch.Tensor) and v.is_floating_point()
+                else v
+                for k, v in inputs.items()
+            }
 
         return inputs
