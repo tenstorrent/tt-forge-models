@@ -64,6 +64,8 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self):
         self.tokenizer = AutoTokenizer.from_pretrained(self._TOKENIZER_NAME)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -72,9 +74,13 @@ class ModelLoader(ForgeModel):
 
         # BD3LM's flex attention backend requires CUDA and recent PyTorch;
         # override to sdpa so the loader works on CPU/XLA runtimes.
-        model_kwargs = {"attn_backend": "sdpa"}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        # BD3LM's timestep embedding explicitly casts to float32 internally
+        # (modeling_bd3lm.py: `t[:, None].float()`), so the model must be
+        # loaded in float32 to avoid dtype mismatch in the sigma_map MLP.
+        # low_cpu_mem_usage=False ensures gen_mask() runs on real tensors —
+        # self.mask is a plain attribute (not a registered buffer), so it
+        # stays as a meta tensor when low_cpu_mem_usage=True is used.
+        model_kwargs = {"attn_backend": "sdpa", "low_cpu_mem_usage": False}
         model_kwargs |= kwargs
 
         model = AutoModelForMaskedLM.from_pretrained(
@@ -82,6 +88,12 @@ class ModelLoader(ForgeModel):
             trust_remote_code=True,
             **model_kwargs,
         )
+        # Regenerate the attention mask on CPU after loading to ensure it is
+        # a real tensor (not a meta tensor from low_cpu_mem_usage init).
+        if hasattr(model, "backbone") and hasattr(model.backbone, "gen_mask"):
+            model.backbone.gen_mask(
+                model.backbone.n, model.backbone.block_size, attn_backend="sdpa"
+            )
         model.eval()
         return model
 
