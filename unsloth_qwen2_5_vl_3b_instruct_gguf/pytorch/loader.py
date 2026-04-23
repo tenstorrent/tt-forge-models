@@ -7,7 +7,7 @@ unsloth/Qwen2.5-VL-3B-Instruct-GGUF model loader for vision-language tasks.
 import os
 import torch
 from huggingface_hub import try_to_load_from_cache
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ...base import ForgeModel
@@ -111,8 +111,20 @@ class ModelLoader(ForgeModel):
             model_source = pretrained_model_name
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
+        # When gguf_file is specified, transformers loads the config from GGUF
+        # metadata rather than config.json. The GGUF for qwen2vl only contains
+        # text fields, so the vision config would be empty and cause dimension
+        # mismatches. Pre-load config from config.json and pass it explicitly
+        # so the full vision config is used while GGUF provides the weights.
+        config = AutoConfig.from_pretrained(model_source)
+        # get_gguf_hf_weights_map expects num_hidden_layers and model_type at
+        # the top level. Qwen2_5_VLConfig is composite; add these aliases so
+        # GGUF tensor name mapping resolves against the "qwen2vl" arch.
+        config.num_hidden_layers = config.text_config.num_hidden_layers
+        config.model_type = "qwen2vl"
+
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            model_source, **model_kwargs
+            model_source, config=config, **model_kwargs
         )
         model.eval()
         model = Wrapper(model)
@@ -138,7 +150,6 @@ class ModelLoader(ForgeModel):
             padding=True,
             return_tensors="pt",
         )
-
 
         if dtype_override is not None:
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
