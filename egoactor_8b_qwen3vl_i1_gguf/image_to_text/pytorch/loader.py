@@ -8,7 +8,7 @@ import importlib.metadata
 
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import (
-    Qwen3VLConfig,
+    AutoConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -140,9 +140,9 @@ class ModelLoader(ForgeModel):
             "BAAI-Agents/EgoActor-8b-Qwen3VL"
         )
 
-        # Pass explicit config so AutoConfig skips GGUF config parsing
-        # (qwen3vl arch not in transformers GGUF config mapping)
-        config = Qwen3VLConfig()
+        # Load config from base HF repo; GGUF config mapping doesn't support
+        # qwen3vl yet, so we need the actual architecture dimensions up front.
+        config = AutoConfig.from_pretrained("BAAI-Agents/EgoActor-8b-Qwen3VL")
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs
         )
