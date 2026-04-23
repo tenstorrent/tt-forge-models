@@ -15,10 +15,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import QwenImagePipeline
-from nunchaku.models.transformers.transformer_qwenimage import (
-    NunchakuQwenImageTransformer2DModel,
-)
 
 from ...base import ForgeModel
 from ...config import (
@@ -79,10 +75,12 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_transformer(
-        self, dtype: torch.dtype = torch.bfloat16
-    ) -> NunchakuQwenImageTransformer2DModel:
+    def _load_transformer(self, dtype: torch.dtype = torch.bfloat16):
         """Load the quantized transformer from nunchaku."""
+        from nunchaku.models.transformers.transformer_qwenimage import (
+            NunchakuQwenImageTransformer2DModel,
+        )
+
         filename = _VARIANT_FILENAMES[self._variant]
         self._transformer = NunchakuQwenImageTransformer2DModel.from_pretrained(
             f"{NUNCHAKU_REPO}/{filename}",
@@ -90,8 +88,10 @@ class ModelLoader(ForgeModel):
         self._transformer.eval()
         return self._transformer
 
-    def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> QwenImagePipeline:
+    def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16):
         """Load the full Qwen-Image pipeline with quantized transformer."""
+        from diffusers import QwenImagePipeline
+
         if self._transformer is None:
             self._load_transformer(dtype)
         self._pipe = QwenImagePipeline.from_pretrained(

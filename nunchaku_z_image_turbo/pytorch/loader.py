@@ -14,8 +14,6 @@ Available variants:
 from typing import Optional
 
 import torch
-from diffusers.pipelines.z_image.pipeline_z_image import ZImagePipeline
-from nunchaku.models.z_image import NunchakuZImageTransformer2DModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -73,6 +71,9 @@ class ModelLoader(ForgeModel):
             ZImagePipeline: The Nunchaku Z-Image-Turbo pipeline instance.
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        from diffusers.pipelines.z_image.pipeline_z_image import ZImagePipeline
+        from nunchaku.models.z_image import NunchakuZImageTransformer2DModel
 
         transformer = NunchakuZImageTransformer2DModel.from_pretrained(
             self._variant_config.pretrained_model_name,
