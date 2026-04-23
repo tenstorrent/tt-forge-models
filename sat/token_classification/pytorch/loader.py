@@ -6,8 +6,6 @@ SaT (Segment any Text) model loader implementation for token classification (sen
 """
 
 import torch
-import wtpsplit.configs  # noqa: F401 — registers custom "xlm-token" config type
-import wtpsplit.models  # noqa: F401 — registers SubwordXLMForTokenClassification
 from transformers import AutoModelForTokenClassification, AutoTokenizer
 
 from ....base import ForgeModel
@@ -68,6 +66,9 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import wtpsplit.configs  # noqa: F401 — registers custom "xlm-token" config type
+        import wtpsplit.models  # noqa: F401 — registers SubwordXLMForTokenClassification
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
