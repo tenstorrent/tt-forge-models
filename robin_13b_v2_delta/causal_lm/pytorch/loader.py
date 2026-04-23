@@ -71,8 +71,14 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        # tokenizer_config.json has empty special tokens and a broken local path
+        # for special_tokens_map_file; provide standard LLaMA tokens explicitly
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
+            use_fast=False,
+            bos_token="<s>",
+            eos_token="</s>",
+            unk_token="<unk>",
             **tokenizer_kwargs,
         )
 
