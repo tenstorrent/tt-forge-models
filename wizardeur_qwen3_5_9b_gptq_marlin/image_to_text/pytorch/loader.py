@@ -5,8 +5,8 @@
 Wizardeur Qwen3.5-9B GPTQ-marlin model loader implementation for image to text.
 """
 
+from gptqmodel import GPTQModel, BACKEND
 from transformers import (
-    Qwen3_5ForConditionalGeneration,
     AutoProcessor,
 )
 from typing import Optional
@@ -68,8 +68,8 @@ class ModelLoader(ForgeModel):
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
-        model = Qwen3_5ForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        model = GPTQModel.from_pretrained(
+            pretrained_model_name, backend=BACKEND.TORCH, **model_kwargs
         )
         model.eval()
 
