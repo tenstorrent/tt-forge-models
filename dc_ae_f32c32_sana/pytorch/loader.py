@@ -16,7 +16,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from efficientvit.ae_model_zoo import DCAE_HF
 
 from ...base import ForgeModel
 from ...config import (
@@ -77,6 +76,8 @@ class ModelLoader(ForgeModel):
         Returns:
             DCAE_HF instance for image encoding/decoding.
         """
+        from efficientvit.ae_model_zoo import DCAE_HF
+
         if self._model is None:
             self._model = DCAE_HF.from_pretrained(
                 self._variant_config.pretrained_model_name
