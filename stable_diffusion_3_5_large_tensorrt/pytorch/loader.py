@@ -8,7 +8,8 @@ The stabilityai/stable-diffusion-3.5-large-tensorrt repository hosts ONNX
 exports of stabilityai/stable-diffusion-3.5-large intended for TensorRT
 engine compilation. Since the repository does not ship PyTorch weights, this
 loader exercises the reference SD 3.5 Large transformer architecture loaded
-from the base diffusers pipeline.
+from the adamo1139/stable-diffusion-3.5-large-ungated mirror (the base
+stabilityai repo is gated).
 """
 
 from typing import Optional
@@ -48,7 +49,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LARGE_TENSORRT
 
-    BASE_PIPELINE = "stabilityai/stable-diffusion-3.5-large"
+    BASE_PIPELINE = "adamo1139/stable-diffusion-3.5-large-ungated"
 
     prompt = "An astronaut riding a green horse"
 
