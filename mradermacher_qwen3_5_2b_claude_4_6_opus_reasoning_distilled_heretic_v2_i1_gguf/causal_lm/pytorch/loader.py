@@ -35,7 +35,7 @@ def _patch_qwen35_support():
 
 
 def _find_real_load_gguf_checkpoint(max_depth=50):
-    """Traverse the monkey-patch chain to find the original transformers function."""
+    """Traverse the monkey-patch chain (globals and closures) to find the original transformers function."""
     func = _gguf_utils.load_gguf_checkpoint
     seen = set()
     for _ in range(max_depth):
@@ -49,8 +49,14 @@ def _find_real_load_gguf_checkpoint(max_depth=50):
         ):
             return func
         next_func = None
-        for name in ("_orig_load_gguf_checkpoint", "orig_load"):
-            candidate = func.__globals__.get(name)
+        # Search module-level globals for common "saved original" names
+        for name in (
+            "_orig_load_gguf_checkpoint",
+            "orig_load",
+            "_real_load_gguf_checkpoint",
+            "_original_load_gguf_checkpoint",
+        ):
+            candidate = (getattr(func, "__globals__", None) or {}).get(name)
             if (
                 candidate is not None
                 and callable(candidate)
@@ -58,6 +64,24 @@ def _find_real_load_gguf_checkpoint(max_depth=50):
             ):
                 next_func = candidate
                 break
+        # Many loaders define the patch inside a helper function, so the original
+        # is captured as a closure variable rather than a module global. Walk the
+        # closure cells, matching on the free-variable name.
+        if next_func is None:
+            freevars = getattr(getattr(func, "__code__", None), "co_freevars", ())
+            for i, cell in enumerate(getattr(func, "__closure__", None) or ()):
+                try:
+                    candidate = cell.cell_contents
+                except ValueError:
+                    continue
+                if not callable(candidate) or id(candidate) in seen:
+                    continue
+                varname = freevars[i] if i < len(freevars) else ""
+                if any(
+                    kw in varname.lower() for kw in ("load", "orig", "real", "original")
+                ):
+                    next_func = candidate
+                    break
         if next_func is None:
             break
         func = next_func
