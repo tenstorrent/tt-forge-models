@@ -5,8 +5,6 @@
 QuantTrio Qwen3-VL-30B-A3B-Thinking AWQ model loader implementation for image to text.
 """
 
-import os
-
 from transformers import (
     Qwen3VLMoeForConditionalGeneration,
     AutoConfig,
@@ -87,14 +85,18 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Redirect HF cache to /tmp (741GB tmpfs) since /data/hf-bringup may be full
-        os.environ["HF_HOME"] = "/tmp/huggingface"
+        # Use /tmp (741GB tmpfs) since /data/hf-bringup may be full.
+        # Pass cache_dir explicitly because huggingface_hub captures HF_HOME at
+        # import time, so os.environ changes after import have no effect.
+        cache_dir = "/tmp/huggingface"
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
             # Load config and strip AWQ quantization so gptqmodel is not required
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, cache_dir=cache_dir
+            )
             if hasattr(config, "quantization_config"):
                 delattr(config, "quantization_config")
             model_kwargs["config"] = config
@@ -105,10 +107,12 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # AWQ repos may not ship a processor; fall back to the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-30B-A3B-Thinking")
+        self.processor = AutoProcessor.from_pretrained(
+            "Qwen/Qwen3-VL-30B-A3B-Thinking", cache_dir=cache_dir
+        )
 
         model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, cache_dir=cache_dir, **model_kwargs
         )
         model.eval()
 
