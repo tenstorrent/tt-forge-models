@@ -11,7 +11,7 @@ and instantiate with random weights for compile-only testing.
 """
 
 import torch
-from transformers import AutoConfig, AutoTokenizer, Qwen2ForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -84,9 +84,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = Qwen2ForCausalLM(config, **model_kwargs)
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
         model.eval()
 
         return model
