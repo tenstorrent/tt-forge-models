@@ -5,7 +5,9 @@
 ASID Captioner 7B i1 GGUF model loader implementation for image to text.
 """
 
+from PIL import Image
 from transformers import (
+    Qwen2VLConfig,
     Qwen2VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -41,6 +43,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.ASID_CAPTIONER_7B_I1_Q4_K_M_GGUF
 
+    BASE_MODEL = "AudioVisual-Caption/ASID-Captioner-7B"
     GGUF_FILE = "ASID-Captioner-7B.i1-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
@@ -61,34 +64,28 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
-        model_kwargs = {}
+        # qwen2vl GGUF architecture is not yet supported by the transformers GGUF loader;
+        # load config from base model and initialize with random weights
+        config = Qwen2VLConfig.from_pretrained(self.BASE_MODEL)
+        model = Qwen2VLForConditionalGeneration(config)
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-        model_kwargs |= kwargs
-
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained(
-            "AudioVisual-Caption/ASID-Captioner-7B"
-        )
-
-        model = Qwen2VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+            model = model.to(dtype_override)
         model.eval()
-
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        if self.processor is None:
+            self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
+
         messages = [
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
+                        "image": Image.new("RGB", (224, 224)),
                     },
                     {"type": "text", "text": "Describe this image."},
                 ],
