@@ -36,7 +36,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="unsloth/embeddinggemma-300m",
         ),
         ModelVariant.EMBEDDINGGEMMA_300M_QAT_Q4_0_UNQUANTIZED: ModelConfig(
-            pretrained_model_name="google/embeddinggemma-300m-qat-q4_0-unquantized",
+            pretrained_model_name="unsloth/embeddinggemma-300m-qat-q4_0-unquantized",
         ),
     }
 
