@@ -4,8 +4,15 @@
 """
 TheBloke WhiteRabbitNeo 13B GGUF model loader implementation for causal language modeling.
 """
+import os
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
+    LlamaForCausalLM,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -39,6 +46,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.WHITE_RABBIT_NEO_13B_Q4_K_M_GGUF
 
     GGUF_FILE = "whiterabbitneo-13b.Q4_K_M.gguf"
+    BASE_MODEL_NAME = "NousResearch/Llama-2-13b-hf"
 
     sample_text = "Explain how a SQL injection vulnerability works."
 
@@ -62,14 +70,16 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.tokenizer = AutoTokenizer.from_pretrained(self.BASE_MODEL_NAME)
+        else:
+            tokenizer_kwargs = {}
+            if dtype_override is not None:
+                tokenizer_kwargs["torch_dtype"] = dtype_override
+            tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -81,23 +91,32 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            model = LlamaForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
             )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
-
+        model.eval()
         self.config = model.config
         self.model = model
         return model
@@ -143,7 +162,10 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
+        else:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
