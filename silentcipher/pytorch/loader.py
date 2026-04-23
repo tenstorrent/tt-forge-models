@@ -72,10 +72,56 @@ class ModelLoader(ForgeModel):
 
     def _load_pipeline(self):
         """Load the full SilentCipher pipeline wrapper."""
-        import silentcipher
+        import importlib.util
+        import os
+        import sys
 
-        model_type = self._MODEL_TYPE[self._variant]
-        self._pipeline = silentcipher.get_model(model_type=model_type, device="cpu")
+        # The model directory is named 'silentcipher', which shadows the PyPI
+        # silentcipher package on sys.path. Find the package in site-packages
+        # and temporarily override sys.modules so relative imports within the
+        # package (e.g. `from .server import get_model`) resolve correctly.
+        local_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+        pkg_dir = None
+        for path in sys.path:
+            candidate_dir = os.path.join(path, "silentcipher")
+            if (
+                os.path.isfile(os.path.join(candidate_dir, "__init__.py"))
+                and os.path.abspath(candidate_dir) != local_dir
+            ):
+                pkg_dir = os.path.abspath(candidate_dir)
+                break
+
+        if pkg_dir is None:
+            raise ImportError("silentcipher PyPI package not found in sys.path")
+
+        # Save existing silentcipher* entries so we can restore them afterward.
+        saved = {
+            k: v
+            for k, v in sys.modules.items()
+            if k == "silentcipher" or k.startswith("silentcipher.")
+        }
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "silentcipher",
+                os.path.join(pkg_dir, "__init__.py"),
+                submodule_search_locations=[pkg_dir],
+            )
+            silentcipher_pkg = importlib.util.module_from_spec(spec)
+            sys.modules["silentcipher"] = silentcipher_pkg
+            spec.loader.exec_module(silentcipher_pkg)
+            model_type = self._MODEL_TYPE[self._variant]
+            self._pipeline = silentcipher_pkg.get_model(
+                model_type=model_type, device="cpu"
+            )
+        finally:
+            for key in [
+                k
+                for k in sys.modules
+                if k == "silentcipher" or k.startswith("silentcipher.")
+            ]:
+                del sys.modules[key]
+            sys.modules.update(saved)
+
         return self._pipeline
 
     def load_model(self, *, dtype_override=None, **kwargs):
