@@ -102,8 +102,25 @@ class ModelLoader(ForgeModel):
             importlib.metadata.packages_distributions()
         )
 
+    @staticmethod
+    def _apply_gguf_compat_patch():
+        """Re-apply compat wrapper so model_to_load kwarg from transformers 5.x is accepted.
+
+        Other loaders collected before this test may have replaced the wrapper
+        with their own patches that lack the model_to_load parameter.
+        """
+        current = _gguf_utils.load_gguf_checkpoint
+
+        def _wrapped(gguf_path, return_tensors=False, model_to_load=None):
+            return current(gguf_path, return_tensors=return_tensors)
+
+        _gguf_utils.load_gguf_checkpoint = _wrapped
+        _config_utils.load_gguf_checkpoint = _wrapped
+        _model_utils.load_gguf_checkpoint = _wrapped
+
     def load_model(self, *, dtype_override=None, **kwargs):
         self._refresh_transformers_pkg_cache()
+        self._apply_gguf_compat_patch()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -165,6 +182,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self._refresh_transformers_pkg_cache()
+        self._apply_gguf_compat_patch()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
