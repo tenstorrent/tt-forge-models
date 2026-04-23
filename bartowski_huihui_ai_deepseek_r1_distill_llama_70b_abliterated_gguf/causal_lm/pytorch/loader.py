@@ -5,6 +5,8 @@
 bartowski huihui-ai DeepSeek-R1-Distill-Llama-70B-abliterated GGUF model loader
 implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
@@ -15,6 +17,25 @@ from typing import Optional
 
 # The primary data partition is full; redirect large GGUF downloads to tmpfs.
 _GGUF_CACHE_DIR = "/tmp/hf_cache_bartowski_deepseek_r1_70b_abliterated"
+
+
+def _fix_gguf_version_detection():
+    """Fix gguf version detection when installed at runtime by RequirementsManager.
+
+    transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
+    is installed later, the mapping is stale and version detection falls back to
+    gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
+    Also clear the lru_cache on is_gguf_available to force re-detection.
+    """
+    import transformers.utils.import_utils as _import_utils
+
+    if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        try:
+            importlib.metadata.version("gguf")
+            _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+        except importlib.metadata.PackageNotFoundError:
+            pass
+    _import_utils.is_gguf_available.cache_clear()
 
 
 def _find_real_load_gguf_checkpoint():
@@ -55,6 +76,7 @@ def _find_real_load_gguf_checkpoint():
 
 
 def _ensure_gguf_checkpoint_accepts_model_to_load():
+    _fix_gguf_version_detection()
     real_fn = _find_real_load_gguf_checkpoint()
     for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils):
         _mod.load_gguf_checkpoint = real_fn
@@ -215,6 +237,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _ensure_gguf_checkpoint_accepts_model_to_load()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name,
             gguf_file=self.GGUF_FILE,
