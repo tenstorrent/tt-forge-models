@@ -18,7 +18,7 @@ from transformers.modeling_gguf_pytorch_utils import (
 from typing import Optional
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to fix stale PACKAGE_DISTRIBUTION_MAPPING for gguf.
 
     transformers caches importlib.metadata.packages_distributions() at module
@@ -35,7 +35,7 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
             _import_utils.is_gguf_available.cache_clear()
     except _importlib_metadata.PackageNotFoundError:
         pass
-    return _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    return _orig_load_gguf_checkpoint(*args, **kwargs)
 
 
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
