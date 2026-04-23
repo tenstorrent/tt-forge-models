@@ -104,11 +104,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         # MLX quantization format lacks `quant_method`, which newer transformers
-        # versions require. Load config and clear quantization_config so weights
+        # versions require. Load config and delete quantization_config so weights
         # are loaded in the target dtype instead.
+        # Note: setting to None is not enough — transformers uses `hasattr` to
+        # detect pre-quantized models, so the attribute must be removed entirely.
         if "config" not in model_kwargs:
             cfg = AutoConfig.from_pretrained(pretrained_model_name)
-            cfg.quantization_config = None
+            if hasattr(cfg, "quantization_config"):
+                del cfg.quantization_config
             model_kwargs["config"] = cfg
 
         model = AutoModelForCausalLM.from_pretrained(
