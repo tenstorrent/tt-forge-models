@@ -7,6 +7,7 @@ DeepSeek R1 Distill Qwen AWQ model loader implementation for causal language mod
 
 from typing import Optional
 
+import gptqmodel  # noqa: F401 - pre-import before from_pretrained sets meta device context
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
