@@ -71,32 +71,40 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Anything V5 (genai-archive) pipeline from Hugging Face.
+        """Load and return the Anything V5 UNet from Hugging Face.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use torch.bfloat16.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained Anything V5 pipeline object.
+            UNet2DConditionModel: The pre-trained UNet from the Anything V5 pipeline.
         """
         dtype = dtype_override or torch.bfloat16
         pipe = StableDiffusionPipeline.from_pretrained(
             self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
         )
-        return pipe
+        self.scheduler = pipe.scheduler
+        model = pipe.unet
+        return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the Anything V5 (genai-archive) model.
+        """Load and return sample inputs for the Anything V5 UNet.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+            dtype_override: Optional torch.dtype for input tensors.
+            batch_size: Optional batch size for the inputs.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Dictionary with sample latents, timestep, and encoder hidden states.
         """
-        prompt = [
-            "masterpiece, best quality, 1girl, long hair, cherry blossoms, detailed eyes, soft lighting",
-        ] * batch_size
-        return prompt
+        dtype = dtype_override or torch.bfloat16
+        # SD1.x UNet: 4 latent channels, 64x64 spatial (for 512x512 output), 77-token CLIP embeddings
+        sample = torch.randn((batch_size, 4, 64, 64), dtype=dtype)
+        timestep = torch.tensor([1])
+        encoder_hidden_states = torch.randn((batch_size, 77, 768), dtype=dtype)
+        return {
+            "sample": sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+        }
