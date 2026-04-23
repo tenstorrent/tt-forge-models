@@ -8,7 +8,7 @@ DeepSeek Janus model loader implementation for multimodal understanding.
 from typing import Optional
 
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoProcessor
+from janus.models import MultiModalityCausalLM, VLChatProcessor
 
 from ....base import ForgeModel
 from ....config import (
@@ -61,8 +61,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+        self.processor = VLChatProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name
         )
         return self.processor
 
@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(str(model_name), **model_kwargs)
+        model = MultiModalityCausalLM.from_pretrained(str(model_name), **model_kwargs)
         model.eval()
 
         if self.processor is None:
@@ -91,8 +91,17 @@ class ModelLoader(ForgeModel):
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         image = Image.open(image_file)
 
+        conversation = [
+            {
+                "role": "<|User|>",
+                "content": f"<image_placeholder>\n{self.sample_text}",
+                "images": [image],
+            },
+            {"role": "<|Assistant|>", "content": ""},
+        ]
+
         inputs = self.processor(
-            images=image, text=self.sample_text, return_tensors="pt"
+            conversations=conversation, images=[image], force_batchify=True
         )
 
         if dtype_override:
