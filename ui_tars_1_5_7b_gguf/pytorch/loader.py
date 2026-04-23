@@ -165,6 +165,14 @@ class ModelLoader(ForgeModel):
         model = Qwen2VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         )
+
+        # GGUF loading doesn't populate mrope_section from qwen2vl.rope.dimension_sections
+        if "mrope_section" not in model.config.text_config.rope_parameters:
+            model.config.text_config.rope_parameters = {
+                **model.config.text_config.rope_parameters,
+                "mrope_section": [16, 24, 24],
+            }
+
         model.eval()
         model = Wrapper(model)
 
