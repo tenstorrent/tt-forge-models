@@ -11,6 +11,41 @@ import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
+
+
+def _patch_qwen35moe_weight_map():
+    """Fix qwen35moe GGUF weight map to use separate ffn_gate/up_exps tensors.
+
+    The patched get_gguf_hf_weights_map from other loaders maps qwen3_5_moe_text
+    -> qwen35moe, which uses the fused ffn_gate_up_exps tensor. But the actual
+    GGUF file has separate ffn_gate_exps/ffn_up_exps tensors (qwen3moe format).
+    Override to use qwen3moe architecture, which triggers the Qwen2MoeTensorProcessor
+    fallback that adds ffn_gate_exps/ffn_up_exps -> gate_up_proj mappings.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+    from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+
+    _guard = "_mradermacher_qwen35moe_24b_a3b_weight_map_patched"
+    if _guard in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append(_guard)
+
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            if hf_model is not None:
+                model_type = hf_model.config.model_type
+        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe", "qwen35moe"):
+            model_type = "qwen3moe"
+        return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_map
+
+
+_patch_qwen35moe_weight_map()
 from ....config import (
     Framework,
     LLMModelConfig,
