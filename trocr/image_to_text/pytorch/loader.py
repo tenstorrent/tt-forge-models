@@ -72,9 +72,8 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         from transformers import VisionEncoderDecoderModel
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        target_dtype = dtype_override if dtype_override is not None else torch.float32
+        model_kwargs = {"torch_dtype": target_dtype}
         model_kwargs |= kwargs
 
         model = VisionEncoderDecoderModel.from_pretrained(
@@ -82,7 +81,9 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        # Fix sinusoidal positional embeddings left on meta device after loading
+        # TrOCRSinusoidalPositionalEmbedding.weights is a plain attribute (not a
+        # registered buffer), so model.to(dtype) skips it. Re-create or cast it
+        # explicitly to avoid dtype mismatches during the forward pass.
         embed_positions = model.decoder.model.decoder.embed_positions
         if hasattr(embed_positions, "weights") and embed_positions.weights is not None:
             if embed_positions.weights.device.type == "meta":
@@ -91,9 +92,7 @@ class ModelLoader(ForgeModel):
                     embed_positions.embedding_dim,
                     embed_positions.padding_idx,
                 )
-
-        if dtype_override is not None:
-            model.to(dtype_override)
+            embed_positions.weights = embed_positions.weights.to(target_dtype)
 
         return model
 
@@ -113,7 +112,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
 
-        return pixel_values
+        decoder_input_ids = torch.tensor([[self._processor.tokenizer.bos_token_id]])
+
+        return {"pixel_values": pixel_values, "decoder_input_ids": decoder_input_ids}
 
     def decode_output(self, co_out):
         """Decode model outputs into human-readable text.
