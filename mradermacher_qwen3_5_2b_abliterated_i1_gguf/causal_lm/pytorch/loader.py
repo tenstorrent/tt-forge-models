@@ -81,6 +81,124 @@ class ModelLoader(ForgeModel):
             except importlib.metadata.PackageNotFoundError:
                 pass
 
+    @staticmethod
+    def _patch_qwen35_support():
+        """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3.
+
+        Qwen 3.5 uses the same model architecture as Qwen 3 but the GGUF file
+        declares architecture as 'qwen35' and tokenizer class as 'qwen3_5_text',
+        which transformers 5.x does not yet recognise.
+        """
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        from transformers.modeling_gguf_pytorch_utils import (
+            GGUF_SUPPORTED_ARCHITECTURES,
+        )
+        from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+        if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+            GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+        for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+            if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                    "qwen35",
+                    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+                )
+        if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS.setdefault(
+                "qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"]
+            )
+            GGUF_TO_FAST_CONVERTERS.setdefault(
+                "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+            )
+
+    @staticmethod
+    def _find_original_load_gguf_checkpoint():
+        """Traverse monkey-patch chain to get the original transformers function.
+
+        Other GGUF loaders monkey-patch load_gguf_checkpoint with old signatures that
+        lack the model_to_load parameter added in transformers 5.2.0. We traverse the
+        chain via __globals__ and __closure__ to find the original unpatched function.
+        """
+        import transformers.modeling_gguf_pytorch_utils as _m
+
+        fn = _m.load_gguf_checkpoint
+        visited_ids = set()
+
+        while True:
+            fn_id = id(fn)
+            if fn_id in visited_ids:
+                break
+            visited_ids.add(fn_id)
+
+            if (
+                getattr(fn, "__module__", "")
+                == "transformers.modeling_gguf_pytorch_utils"
+            ):
+                return fn
+
+            next_fn = None
+            for name in (
+                "_orig_load_gguf_checkpoint",
+                "_base_load_gguf_checkpoint",
+                "_real_load_gguf_checkpoint",
+            ):
+                candidate = getattr(fn, "__globals__", {}).get(name)
+                if candidate is not None and callable(candidate):
+                    next_fn = candidate
+                    break
+
+            if next_fn is None and getattr(fn, "__closure__", None):
+                for cell in fn.__closure__:
+                    try:
+                        val = cell.cell_contents
+                        if callable(val) and "load_gguf_checkpoint" in getattr(
+                            val, "__name__", ""
+                        ):
+                            next_fn = val
+                            break
+                    except ValueError:
+                        pass
+
+            if next_fn is None:
+                break
+            fn = next_fn
+
+        return fn
+
+    @staticmethod
+    def _install_gguf_patch():
+        """Install a correctly-signed wrapper for load_gguf_checkpoint.
+
+        Replaces any previously installed monkey-patches (which may lack the
+        model_to_load parameter added in transformers 5.2.0) with a wrapper that
+        accepts the full signature and also handles the qwen35 architecture.
+        """
+        import transformers.configuration_utils as _config_utils
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        import transformers.models.auto.tokenization_auto as _auto_tokenizer
+        import transformers.tokenization_utils_tokenizers as _tok_utils
+
+        ModelLoader._patch_qwen35_support()
+        _true_orig = ModelLoader._find_original_load_gguf_checkpoint()
+
+        def _fixed_load_gguf_checkpoint(
+            gguf_checkpoint_path, return_tensors=False, model_to_load=None
+        ):
+            ModelLoader._patch_qwen35_support()
+            result = _true_orig(
+                gguf_checkpoint_path,
+                return_tensors=return_tensors,
+                model_to_load=model_to_load,
+            )
+            if result.get("config", {}).get("model_type") == "qwen35":
+                result["config"]["model_type"] = "qwen3"
+            return result
+
+        _gguf_utils.load_gguf_checkpoint = _fixed_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _fixed_load_gguf_checkpoint
+        _auto_tokenizer.load_gguf_checkpoint = _fixed_load_gguf_checkpoint
+        _tok_utils.load_gguf_checkpoint = _fixed_load_gguf_checkpoint
+
     def _load_tokenizer(self, dtype_override=None):
         self._fix_gguf_version_detection()
         tokenizer_kwargs = {}
@@ -101,6 +219,9 @@ class ModelLoader(ForgeModel):
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        self._fix_gguf_version_detection()
+        self._install_gguf_patch()
 
         model_kwargs = {}
         if dtype_override is not None:
