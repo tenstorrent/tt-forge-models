@@ -16,6 +16,11 @@ class Wrapper(torch.nn.Module):
         self.model = model
 
     def forward(self, input_ids, attention_mask, pixel_values, image_grid_thw):
+        # The model passes attention_mask straight to F.scaled_dot_product_attention,
+        # which requires bool or float dtype, not the int64 that the processor returns.
+        # Reshape [B, S] → [B, 1, 1, S] bool so it broadcasts correctly over heads.
+        if attention_mask is not None:
+            attention_mask = attention_mask[:, None, None, :].bool()
         inputs = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
