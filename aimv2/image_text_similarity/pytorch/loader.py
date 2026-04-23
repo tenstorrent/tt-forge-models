@@ -6,9 +6,23 @@ AIMv2 LIT model loader implementation for image-text similarity.
 """
 
 import torch
-from transformers import AutoProcessor, AutoModel
+from transformers import AutoProcessor, AutoModel, PreTrainedModel
 from typing import Optional
-from datasets import load_dataset
+from PIL import Image
+
+# AIMv2 model code doesn't call self.post_init() in __init__, so transformers 5.x
+# fails when _finalize_model_loading accesses all_tied_weights_keys. Patch to
+# initialize the attribute lazily if missing.
+_original_adjust_tied = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+
+def _safe_adjust_tied(self, *args, **kwargs):
+    if not hasattr(self, "all_tied_weights_keys"):
+        self.all_tied_weights_keys = {}
+    return _original_adjust_tied(self, *args, **kwargs)
+
+
+PreTrainedModel._adjust_tied_keys_with_tied_pointers = _safe_adjust_tied
 
 from ....base import ForgeModel
 from ....config import (
@@ -121,8 +135,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (224, 224), color=(128, 128, 128))
 
         self.text_prompts = [
             "Picture of a dog.",
