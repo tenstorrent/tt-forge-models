@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.ARLIAI_GLM_4_5_AIR_DERESTRICTED_GGUF
 
-    GGUF_FILE = "ArliAI_GLM-4.5-Air-Derestricted-Q4_K_M.gguf"
+    GGUF_FILE = "ArliAI_GLM-4.5-Air-Derestricted-Q2_K_L.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
