@@ -4,9 +4,103 @@
 """
 Huihui Qwen 3.5 9B Abliterated Grimoire DPO i1 GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import importlib.metadata
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+
+def _patch_is_gguf_available():
+    """Patch transformers' is_gguf_available to handle gguf packages lacking __version__.
+
+    The gguf package does not define __version__. When gguf is installed after
+    transformers is imported, PACKAGE_DISTRIBUTION_MAPPING is already cached without
+    it, causing the version fallback to return 'N/A' and crash packaging.version.parse.
+    We override is_gguf_available to use importlib.metadata.version directly.
+    """
+    try:
+        import transformers.utils.import_utils as _tf_utils
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        from packaging import version as _packaging_version
+
+        def _patched_is_gguf_available(min_version=None):
+            try:
+                if min_version is None:
+                    return _orig_is_gguf_available()
+                return _orig_is_gguf_available(min_version)
+            except Exception:
+                try:
+                    _min = (
+                        min_version
+                        if min_version is not None
+                        else _tf_utils.GGUF_MIN_VERSION
+                    )
+                    gguf_ver = importlib.metadata.version("gguf")
+                    return _packaging_version.parse(
+                        gguf_ver
+                    ) >= _packaging_version.parse(_min)
+                except Exception:
+                    return False
+
+        _orig_is_gguf_available = _tf_utils.is_gguf_available
+        _tf_utils.is_gguf_available = _patched_is_gguf_available
+        _gguf_utils.is_gguf_available = _patched_is_gguf_available
+    except Exception:
+        pass
+
+
+_patch_is_gguf_available()
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_qwen35_support():
+    """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3.
+
+    Qwen 3.5 uses the same model architecture as Qwen 3 but the GGUF file
+    declares architecture as 'qwen35' and tokenizer class as 'qwen3_5_text',
+    which transformers 5.x does not yet recognise.
+    """
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
+    _patch_qwen35_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
+    if result.get("config", {}).get("model_type") == "qwen35":
+        result["config"]["model_type"] = "qwen3"
+    return result
+
+
+_patch_qwen35_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
@@ -88,6 +182,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["ignore_mismatched_sizes"] = True
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
