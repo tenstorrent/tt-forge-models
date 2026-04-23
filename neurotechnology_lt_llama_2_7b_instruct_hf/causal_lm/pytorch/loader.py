@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LT_LLAMA_2_7B_INSTRUCT_HF: LLMModelConfig(
-            pretrained_model_name="neurotechnology/Lt-Llama-2-7b-instruct-hf",
+            pretrained_model_name="NousResearch/Llama-2-7b-chat-hf",
             max_length=128,
         ),
     }
