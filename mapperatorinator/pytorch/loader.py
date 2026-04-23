@@ -125,6 +125,17 @@ class ModelLoader(ForgeModel):
         from osuT5.model.modeling_mapperatorinator import Mapperatorinator
         from transformers import AutoConfig, AutoModel
 
+        # Mapperatorinator.__init__ does not call self.post_init(), which newer
+        # transformers requires to initialise all_tied_weights_keys. Patch it here.
+        _orig_init = Mapperatorinator.__init__
+
+        def _patched_init(self, config):
+            _orig_init(self, config)
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.post_init()
+
+        Mapperatorinator.__init__ = _patched_init
+
         AutoConfig.register("mapperatorinator", MapperatorinatorConfig)
         AutoModel.register(MapperatorinatorConfig, Mapperatorinator)
 
