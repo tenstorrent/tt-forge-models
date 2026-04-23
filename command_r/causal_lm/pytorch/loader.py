@@ -59,6 +59,8 @@ def _patch_command_r_gguf_support():
 
     if "command-r" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["command-r"] = GGUFLlamaConverter
+    if "cohere" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["cohere"] = GGUFLlamaConverter
 
     def _patched_load_gguf_checkpoint(*args, **kwargs):
         result = _orig_load_gguf_checkpoint(*args, **kwargs)
