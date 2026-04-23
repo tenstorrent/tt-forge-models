@@ -8,6 +8,11 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -18,6 +23,47 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _find_original_load_gguf():
+    """Walk the patch chain to find the real transformers load_gguf_checkpoint.
+
+    Other GGUF loaders capture the previous patch either as a module-level global
+    (_orig_load_gguf_checkpoint) or as a closure variable (e.g. orig_load inside a
+    helper function). We try both to traverse the full chain.
+    """
+    func = _gguf_utils.load_gguf_checkpoint
+    seen = set()
+    while True:
+        fid = id(func)
+        if fid in seen:
+            break
+        seen.add(fid)
+        if (
+            getattr(func, "__module__", "")
+            == "transformers.modeling_gguf_pytorch_utils"
+        ):
+            break
+        next_func = None
+        # Try module-level global first (e.g. _orig_load_gguf_checkpoint = ...)
+        orig = func.__globals__.get("_orig_load_gguf_checkpoint")
+        if orig is not None and callable(orig) and id(orig) not in seen:
+            next_func = orig
+        # Fall back to closure (e.g. orig_load captured inside a helper function)
+        if next_func is None and func.__closure__:
+            for i, varname in enumerate(func.__code__.co_freevars):
+                if "orig" in varname:
+                    try:
+                        candidate = func.__closure__[i].cell_contents
+                        if callable(candidate) and id(candidate) not in seen:
+                            next_func = candidate
+                            break
+                    except ValueError:
+                        pass
+        if next_func is None:
+            break
+        func = next_func
+    return func
 
 
 class ModelVariant(StrEnum):
@@ -76,31 +122,50 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        _real_orig = _find_original_load_gguf()
 
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+        def _our_patched(*args, **kw):
+            return _real_orig(*args, **kw)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        _old_gguf = _gguf_utils.load_gguf_checkpoint
+        _old_cfg = _config_utils.load_gguf_checkpoint
+        _old_tok = _auto_tokenizer.load_gguf_checkpoint
+        _old_toku = _tok_utils.load_gguf_checkpoint
+        _gguf_utils.load_gguf_checkpoint = _our_patched
+        _config_utils.load_gguf_checkpoint = _our_patched
+        _auto_tokenizer.load_gguf_checkpoint = _our_patched
+        _tok_utils.load_gguf_checkpoint = _our_patched
+        try:
+            pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            if self.tokenizer is None:
+                self._load_tokenizer(dtype_override=dtype_override)
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.config = model.config
-        self.model = model
-        return model
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+
+            self.config = model.config
+            self.model = model
+            return model
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _old_gguf
+            _config_utils.load_gguf_checkpoint = _old_cfg
+            _auto_tokenizer.load_gguf_checkpoint = _old_tok
+            _tok_utils.load_gguf_checkpoint = _old_toku
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
