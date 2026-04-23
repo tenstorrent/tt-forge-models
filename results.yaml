@@ -1,0 +1,13 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[cross_encoder/passage_ranking/pytorch-msmarco-MiniLM-L12-en-de-v1-single_device-inference]"
+  status: "PASS"
+  date: "20260423_030821"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-13"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[gemma3_1b_gguf/causal_lm/pytorch-1B_IT_GGUF-single_device-inference]"
+  status: "PASS"
+  date: "20260423_070434"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-13"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[paligemma2/image_text_to_text/pytorch-google/paligemma2-3b-pt-896-single_device-inference]"
+  status: "MAX_FAILED_ATTEMPTS"
+  date: "20260423_073629"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-13"
