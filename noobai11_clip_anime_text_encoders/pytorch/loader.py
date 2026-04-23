@@ -119,7 +119,7 @@ class ModelLoader(ForgeModel):
 
         weights_path = hf_hub_download(REPO_ID, weights_filename)
         state_dict = load_file(weights_path)
-        model.load_state_dict(state_dict)
+        model.load_state_dict(state_dict, strict=False)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
