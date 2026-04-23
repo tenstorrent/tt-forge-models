@@ -4,6 +4,7 @@
 """
 029 Shisa Gamma 7B v1 v2new DPO 405B i1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -26,6 +27,25 @@ class ModelVariant(StrEnum):
     SHISA_GAMMA_7B_V1_V2NEW_DPO405B_I1_Q4_K_M_GGUF = (
         "029_SHISA_GAMMA_7B_V1_V2NEW_DPO405B_I1_Q4_K_M_GGUF"
     )
+
+
+def _refresh_gguf_in_transformers_mapping():
+    """Refresh transformers' package distribution mapping to include gguf.
+
+    transformers caches importlib.metadata.packages_distributions() at module
+    import time. When gguf is installed mid-session (via requirements.txt),
+    the cached mapping is stale and is_gguf_available() returns version 'N/A',
+    causing packaging.version.InvalidVersion. Re-scanning the metadata fixes this.
+    """
+    try:
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            _import_utils.PACKAGE_DISTRIBUTION_MAPPING.update(
+                importlib.metadata.packages_distributions()
+            )
+    except Exception:
+        pass
 
 
 class ModelLoader(ForgeModel):
@@ -78,6 +98,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _refresh_gguf_in_transformers_mapping()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -138,6 +159,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        _refresh_gguf_in_transformers_mapping()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
