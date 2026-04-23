@@ -55,9 +55,11 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_surya_for_transformers5():
-        # surya-ocr 0.17.1 has two incompatibilities with transformers 5.2+:
+        # surya-ocr 0.17.1 has three incompatibilities with transformers 5.2+:
         # 1. ROPE_INIT_FUNCTIONS no longer contains 'default'; add it back.
-        # 2. SuryaModel.__init__ doesn't call self.post_init(), which is required
+        # 2. SuryaModel._tied_weights_keys is a list but transformers 5.2+ expects
+        #    a dict mapping target weight name → source weight name.
+        # 3. SuryaModel.__init__ doesn't call self.post_init(), which is required
         #    by transformers 5.2+ to initialize all_tied_weights_keys.
         from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
         from surya.common.surya import SuryaModel
@@ -77,6 +79,11 @@ class ModelLoader(ForgeModel):
                 return inv_freq, 1.0
 
             ROPE_INIT_FUNCTIONS["default"] = _compute_default
+
+        if isinstance(SuryaModel._tied_weights_keys, list):
+            SuryaModel._tied_weights_keys = {
+                "lm_head.weight": "embedder.token_embed.weight"
+            }
 
         _orig_surya_init = SuryaModel.__init__
 
