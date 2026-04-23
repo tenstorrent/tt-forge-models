@@ -75,6 +75,105 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _pre_patch_chatglm_tokenizer(pretrained_model_name):
+        # Transformers 5.x calls get_vocab() during __init__ via _add_tokens(), which
+        # accesses vocab_size -> sp_tokenizer before sp_tokenizer is initialized.
+        # Pre-load the class via get_class_from_dynamic_module and patch __init__
+        # to set sp_tokenizer first, before calling super().__init__().
+        import sys
+
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        cls = get_class_from_dynamic_module(
+            "tokenization_chatglm.ChatGLMTokenizer",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+
+        if getattr(cls, "_patched_sp_init", False):
+            return
+
+        mod = sys.modules.get(cls.__module__)
+        if mod is None or not hasattr(mod, "SPTokenizer"):
+            return
+
+        SPTokenizer = mod.SPTokenizer
+        orig_init = cls.__init__
+
+        def patched_init(self, vocab_file, *args, num_image_tokens=20000, **kwargs):
+            if not hasattr(self, "sp_tokenizer"):
+                self.sp_tokenizer = SPTokenizer(
+                    vocab_file, num_image_tokens=num_image_tokens
+                )
+            orig_init(
+                self, vocab_file, *args, num_image_tokens=num_image_tokens, **kwargs
+            )
+
+        cls.__init__ = patched_init
+        cls._patched_sp_init = True
+
+        # Also patch _pad to accept the padding_side kwarg added in transformers 5.x.
+        orig_pad = cls._pad
+
+        def patched_pad(
+            self,
+            encoded_inputs,
+            max_length=None,
+            padding_strategy=None,
+            pad_to_multiple_of=None,
+            padding_side=None,
+            return_attention_mask=None,
+            **kwargs,
+        ):
+            old_ps = self.padding_side
+            if padding_side is not None:
+                self.padding_side = padding_side
+            try:
+                from transformers.utils import PaddingStrategy as _PS
+
+                ps = (
+                    padding_strategy if padding_strategy is not None else _PS.DO_NOT_PAD
+                )
+                return orig_pad(
+                    self,
+                    encoded_inputs,
+                    max_length=max_length,
+                    padding_strategy=ps,
+                    pad_to_multiple_of=pad_to_multiple_of,
+                    return_attention_mask=return_attention_mask,
+                )
+            finally:
+                self.padding_side = old_ps
+
+        cls._pad = patched_pad
+
+    @staticmethod
+    def _pre_patch_chatglm_model(pretrained_model_name):
+        # ChatGLMForConditionalGeneration.__init__ doesn't call self.post_init(), which
+        # transformers 5.x requires to set all_tied_weights_keys. Patch __init__ to
+        # call post_init() after the original initialization completes.
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        cls = get_class_from_dynamic_module(
+            "modeling_chatglm.ChatGLMForConditionalGeneration",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+
+        if getattr(cls, "_patched_post_init", False):
+            return
+
+        orig_init = cls.__init__
+
+        def patched_init(self, config, *args, **kwargs):
+            orig_init(self, config, *args, **kwargs)
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.post_init()
+
+        cls.__init__ = patched_init
+        cls._patched_post_init = True
+
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
 
@@ -90,6 +189,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        self._pre_patch_chatglm_tokenizer(pretrained_model_name)
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **tokenizer_kwargs
         )
@@ -118,7 +218,13 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        self._pre_patch_chatglm_model(pretrained_model_name)
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # ChatGLM hard-codes dtype=torch.half in __init__, which can leave some
+        # parameters as float16 even when torch_dtype=bfloat16 is requested, causing
+        # mixed-dtype errors in layer_norm.  Cast the whole model to ensure consistency.
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
         return model
 
