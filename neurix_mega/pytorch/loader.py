@@ -27,7 +27,7 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-schnell"
+BASE_MODEL = "lzyvegetable/FLUX.1-schnell"
 LORA_REPO = "NeurixYUFI/Neurix-Mega"
 LORA_FILENAME = "flux-schnell-lora.safetensors"
 
