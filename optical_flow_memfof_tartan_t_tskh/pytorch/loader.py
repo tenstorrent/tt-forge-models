@@ -72,8 +72,9 @@ class ModelLoader(ForgeModel):
         model = MEMFOF.from_pretrained(pretrained_model_name, **kwargs)
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        # dtype_override intentionally not applied: the model generates float32
+        # coordinate tensors internally, which causes grid_sample to fail when
+        # model weights/activations are in bfloat16.
 
         return model
 
@@ -83,13 +84,10 @@ class ModelLoader(ForgeModel):
         Generates a synthetic triplet of Full HD RGB frames with pixel values
         in the [0, 256) range expected by the model.
         """
-        inputs = torch.randint(
+        # Always float32: model generates float32 coords internally, so inputs
+        # and model must stay in float32 to avoid grid_sample dtype mismatch.
+        return torch.randint(
             0,
             256,
             (batch_size, self.num_frames, 3, self.frame_height, self.frame_width),
-        )
-
-        if dtype_override is not None:
-            inputs = inputs.to(dtype_override)
-
-        return inputs
+        ).float()
