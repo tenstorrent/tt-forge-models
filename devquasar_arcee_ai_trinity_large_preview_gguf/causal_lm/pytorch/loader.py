@@ -25,10 +25,18 @@ def _patch_transformers_afmoe_gguf():
         GGUF_TO_TRANSFORMERS_MAPPING,
     )
 
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
     if "afmoe" in GGUF_SUPPORTED_ARCHITECTURES:
         return
 
     GGUF_SUPPORTED_ARCHITECTURES.append("afmoe")
+
+    # afmoe uses Qwen2-style BPE with <|im_start|>/<|im_end|> special tokens
+    GGUF_TO_FAST_CONVERTERS["afmoe"] = GGUFQwen2Converter
 
     GGUF_TO_TRANSFORMERS_MAPPING["config"]["afmoe"] = {
         "context_length": "max_position_embeddings",
