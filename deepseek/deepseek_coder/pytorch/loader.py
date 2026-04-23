@@ -56,6 +56,9 @@ class ModelLoader(ForgeModel):
         ),
     }
 
+    # No GGUF variants for this loader
+    _GGUF_FILES = {}
+
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.DEEPSEEK_1_3B_INSTRUCT
 
