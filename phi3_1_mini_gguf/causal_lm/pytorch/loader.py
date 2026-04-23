@@ -4,6 +4,7 @@
 """
 Phi-3.1-mini GGUF model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -62,6 +63,16 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        try:
+            import importlib.metadata
+            import transformers.utils.import_utils as _tiu
+
+            _tiu.PACKAGE_DISTRIBUTION_MAPPING = (
+                importlib.metadata.packages_distributions()
+            )
+        except Exception:
+            pass
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -77,6 +88,19 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        # gguf is installed dynamically by RequirementsManager after transformers was
+        # imported, so PACKAGE_DISTRIBUTION_MAPPING is stale and doesn't include gguf.
+        # Refresh it so is_gguf_available() finds gguf via importlib.metadata.
+        try:
+            import importlib.metadata
+            import transformers.utils.import_utils as _tiu
+
+            _tiu.PACKAGE_DISTRIBUTION_MAPPING = (
+                importlib.metadata.packages_distributions()
+            )
+        except Exception:
+            pass
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
