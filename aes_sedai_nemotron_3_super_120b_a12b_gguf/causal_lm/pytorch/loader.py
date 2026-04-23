@@ -19,6 +19,7 @@ from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 from ....base import ForgeModel
 from ....config import (
@@ -170,6 +171,11 @@ def _patch_nemotron_h_moe_support():
 
     if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
         _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["nemotron_h_moe"] = {}
+
+    # The tokenizer converter uses model_type (nemotron_h) as the key.
+    # Map it to the nemotron converter since the tokenizer family is the same.
+    if "nemotron" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["nemotron_h"] = GGUF_TO_FAST_CONVERTERS["nemotron"]
 
 
 def _register_nemotron_h_classes():
