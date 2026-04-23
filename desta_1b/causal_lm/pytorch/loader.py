@@ -5,7 +5,13 @@
 DESTA-1B model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import sentencepiece as spm
+from huggingface_hub import hf_hub_download
+from tokenizers import Tokenizer
+from tokenizers.models import Unigram
+from tokenizers.pre_tokenizers import Metaspace
+from tokenizers.decoders import Metaspace as MetaspaceDecoder
+from transformers import AutoModelForCausalLM, AutoConfig, PreTrainedTokenizerFast
 from typing import Optional
 
 from ....base import ForgeModel
@@ -62,16 +68,27 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
+        pretrained_model_name = self._variant_config.pretrained_model_name
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        # Build tokenizer directly from the SentencePiece model because
+        # transformers 5.x LlamaTokenizer uses BPE and does not load SP models.
+        sp_path = hf_hub_download(pretrained_model_name, "sentencepiece.model")
+        sp = spm.SentencePieceProcessor()
+        sp.Load(sp_path)
+
+        vocab = [(sp.id_to_piece(i), sp.GetScore(i)) for i in range(sp.GetPieceSize())]
+        inner = Tokenizer(Unigram(vocab=vocab, unk_id=0))
+        inner.pre_tokenizer = Metaspace(replacement="▁", prepend_scheme="first")
+        inner.decoder = MetaspaceDecoder(replacement="▁", prepend_scheme="first")
+
+        self.tokenizer = PreTrainedTokenizerFast(
+            tokenizer_object=inner,
+            bos_token="<s>",
+            eos_token="</s>",
+            unk_token="<unk>",
+            pad_token="<pad>",
+            model_max_length=self._variant_config.max_length,
         )
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
