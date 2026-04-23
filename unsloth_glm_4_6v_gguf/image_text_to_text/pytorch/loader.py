@@ -133,6 +133,8 @@ def _patch_transformers_glm4moe_gguf():
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
     # Map glm4v_moe_text model_type back to glm4moe for gguf-py tensor name mapping.
+    # Also extract num_layers from text_config for composite Glm4vMoeConfig which
+    # lacks a top-level num_hidden_layers attribute.
     orig_get_map = _gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
@@ -142,6 +144,10 @@ def _patch_transformers_glm4moe_gguf():
             model_type = hf_model.config.model_type
         if model_type in ("glm4v_moe_text", "glm4v_moe"):
             model_type = "glm4moe"
+            if num_layers is None:
+                text_cfg = getattr(hf_model.config, "text_config", None)
+                if text_cfg is not None:
+                    num_layers = getattr(text_cfg, "num_hidden_layers", None)
         return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
     _gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
