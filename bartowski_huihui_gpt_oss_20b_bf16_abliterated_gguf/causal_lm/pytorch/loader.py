@@ -13,7 +13,6 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
@@ -37,7 +36,9 @@ def _patch_gpt_oss_support():
     GGUF_SUPPORTED_ARCHITECTURES.append("gpt-oss")
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
         if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            mapping = dict(_gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"])
+            mapping = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"]
+            )
             mapping["expert_feed_forward_length"] = "moe_intermediate_size"
             mapping["attention.sliding_window"] = "sliding_window"
             _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gpt-oss"] = mapping
@@ -50,22 +51,40 @@ def _patch_gpt_oss_support():
             ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
 
 
-def _patched_load_gguf_checkpoint(*args, **kwargs):
-    """Wrap load_gguf_checkpoint to add gpt-oss support and fix model_type."""
-    _patch_gpt_oss_support()
-    result = _orig_load_gguf_checkpoint(*args, **kwargs)
-    if result.get("config", {}).get("model_type") == "gpt-oss":
-        result["config"]["model_type"] = "qwen3_moe"
-    return result
+def _find_true_original(fn):
+    """Walk the patch chain to find the real transformers load_gguf_checkpoint."""
+    seen = set()
+    while True:
+        fn_id = id(fn)
+        if fn_id in seen:
+            break
+        seen.add(fn_id)
+        if getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+            return fn
+        orig = (getattr(fn, "__globals__", {}) or {}).get("_orig_load_gguf_checkpoint")
+        if orig is None or not callable(orig):
+            break
+        fn = orig
+    return fn
 
 
 def _install_gpt_oss_patch():
-    """Re-apply gpt-oss patch; other loaders may have overridden it."""
+    """Re-apply gpt-oss patch, bypassing any broken patches from other loaders."""
     _patch_gpt_oss_support()
-    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    true_orig = _find_true_original(_gguf_utils.load_gguf_checkpoint)
+
+    def _patched(*args, **kwargs):
+        _patch_gpt_oss_support()
+        result = true_orig(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "gpt-oss":
+            result["config"]["model_type"] = "qwen3_moe"
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched
+    _config_utils.load_gguf_checkpoint = _patched
+    _auto_tokenizer.load_gguf_checkpoint = _patched
+    _tok_utils.load_gguf_checkpoint = _patched
 
 
 class ModelVariant(StrEnum):
