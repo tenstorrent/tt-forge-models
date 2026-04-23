@@ -5,9 +5,12 @@
 Wangkanai Qwen3-VL 8B Instruct model loader implementation for image to text.
 """
 
+import os
+
 from transformers import (
-    Qwen3VLForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
+    Qwen3VLForConditionalGeneration,
 )
 from typing import Optional
 
@@ -21,6 +24,10 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+# wangkanai/qwen3-vl-8b-instruct is a GGUF-only repo; use the official model
+# for config and processor loading
+OFFICIAL_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 
 
 class ModelVariant(StrEnum):
@@ -63,26 +70,27 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         else:
             model_kwargs["torch_dtype"] = "auto"
 
-        model_kwargs["device_map"] = "auto"
-
         model_kwargs |= kwargs
 
-        # wangkanai/qwen3-vl-8b-instruct lacks processor config files; use official model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
+        self.processor = AutoProcessor.from_pretrained(OFFICIAL_MODEL)
 
-        model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(OFFICIAL_MODEL)
+            model = Qwen3VLForConditionalGeneration(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model = Qwen3VLForConditionalGeneration.from_pretrained(
+                OFFICIAL_MODEL, **model_kwargs
+            )
+
         model.eval()
-
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
