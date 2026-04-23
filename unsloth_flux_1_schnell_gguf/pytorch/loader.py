@@ -31,7 +31,7 @@ from ...config import (
 )
 
 GGUF_REPO = "unsloth/FLUX.1-schnell-GGUF"
-BASE_REPO = "black-forest-labs/FLUX.1-schnell"
+BASE_REPO = "lzyvegetable/FLUX.1-schnell"
 
 
 class ModelVariant(StrEnum):
