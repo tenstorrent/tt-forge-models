@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.MISTRAL_7B_INSTRUCT_V0_3_Q3F16_1_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/Mistral-7B-Instruct-v0.3-q3f16_1-MLC",
+            pretrained_model_name="mistralai/Mistral-7B-Instruct-v0.3",
             max_length=128,
         ),
     }
