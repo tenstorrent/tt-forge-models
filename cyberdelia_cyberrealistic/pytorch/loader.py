@@ -11,11 +11,18 @@ Available variants:
 - V8: CyberRealistic v8.0 (CyberRealistic_V8_FP32.safetensors)
 """
 
+import os
 from typing import Optional
 
 import torch
-from diffusers import StableDiffusionPipeline
+from diffusers import (
+    AutoencoderKL,
+    DDIMScheduler,
+    StableDiffusionPipeline,
+    UNet2DConditionModel,
+)
 from huggingface_hub import hf_hub_download
+from transformers import CLIPTextConfig, CLIPTextModel, CLIPTokenizer
 
 from ...base import ForgeModel
 from ...config import (
@@ -30,6 +37,7 @@ from ...config import (
 
 REPO_ID = "cyberdelia/CyberRealistic"
 CHECKPOINT_FILE = "CyberRealistic_V8_FP32.safetensors"
+BASE_SD15_REPO = "runwayml/stable-diffusion-v1-5"
 
 
 class ModelVariant(StrEnum):
@@ -72,12 +80,45 @@ class ModelLoader(ForgeModel):
             StableDiffusionPipeline: The loaded pipeline instance.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
-        model_path = hf_hub_download(repo_id=REPO_ID, filename=CHECKPOINT_FILE)
-        self.pipeline = StableDiffusionPipeline.from_single_file(
-            model_path,
-            torch_dtype=dtype,
-            **kwargs,
-        )
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            # Avoid the 4 GB single-file download in compile-only environments.
+            # Fetch only the small config/tokenizer files from the base SD 1.5 repo
+            # and instantiate each component with random weights.
+            unet = UNet2DConditionModel(
+                **UNet2DConditionModel.load_config(BASE_SD15_REPO, subfolder="unet")
+            ).to(dtype)
+            vae = AutoencoderKL(
+                **AutoencoderKL.load_config(BASE_SD15_REPO, subfolder="vae")
+            ).to(dtype)
+            text_encoder_config = CLIPTextConfig.from_pretrained(
+                BASE_SD15_REPO, subfolder="text_encoder"
+            )
+            text_encoder = CLIPTextModel(text_encoder_config).to(dtype)
+            tokenizer = CLIPTokenizer.from_pretrained(
+                BASE_SD15_REPO, subfolder="tokenizer"
+            )
+            scheduler = DDIMScheduler.from_pretrained(
+                BASE_SD15_REPO, subfolder="scheduler"
+            )
+            self.pipeline = StableDiffusionPipeline(
+                unet=unet,
+                vae=vae,
+                text_encoder=text_encoder,
+                tokenizer=tokenizer,
+                scheduler=scheduler,
+                safety_checker=None,
+                feature_extractor=None,
+                requires_safety_checker=False,
+            )
+        else:
+            model_path = hf_hub_download(repo_id=REPO_ID, filename=CHECKPOINT_FILE)
+            self.pipeline = StableDiffusionPipeline.from_single_file(
+                model_path,
+                torch_dtype=dtype,
+                **kwargs,
+            )
+
         return self.pipeline
 
     def load_inputs(self, dtype_override=None, batch_size=1):
