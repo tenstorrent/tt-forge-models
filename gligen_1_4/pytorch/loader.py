@@ -46,6 +46,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -62,38 +63,58 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the GLIGEN pipeline from Hugging Face.
+        """Load the GLIGEN pipeline and return the UNet as a torch.nn.Module.
 
         Returns:
-            StableDiffusionGLIGENPipeline: The pre-trained GLIGEN pipeline object.
+            torch.nn.Module: The UNet component of the GLIGEN pipeline.
         """
         dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionGLIGENPipeline.from_pretrained(
+        self.pipeline = StableDiffusionGLIGENPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
             **kwargs,
         )
-        return pipe
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the GLIGEN model.
+        """Load preprocessed tensor inputs for the GLIGEN UNet.
 
         Returns:
-            dict: A dictionary with prompt, gligen_phrases, gligen_boxes,
-                  and gligen_scheduled_sampling_beta.
+            list: [sample, timestep, encoder_hidden_states] tensors for the UNet.
         """
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        dtype = dtype_override or torch.bfloat16
+        pipe = self.pipeline
+
         prompt = [
             "a waterfall and a modern high speed train in a beautiful forest with fall foliage",
         ] * batch_size
-        gligen_phrases = [
-            ["a waterfall", "a modern high speed train"],
-        ] * batch_size
-        gligen_boxes = [
-            [[0.1387, 0.2051, 0.4277, 0.7090], [0.4980, 0.4355, 0.8516, 0.7266]],
-        ] * batch_size
-        return {
-            "prompt": prompt,
-            "gligen_phrases": gligen_phrases,
-            "gligen_boxes": gligen_boxes,
-            "gligen_scheduled_sampling_beta": 1,
-        }
+
+        # Encode text prompt
+        text_inputs = pipe.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=pipe.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            encoder_hidden_states = pipe.text_encoder(text_inputs.input_ids)[0].to(
+                dtype
+            )
+
+        # Create dummy latent (SD1.x uses 64x64 latent for 512x512 images)
+        height, width = 512, 512
+        latent_height = height // pipe.vae_scale_factor
+        latent_width = width // pipe.vae_scale_factor
+        in_channels = pipe.unet.config.in_channels
+        sample = torch.randn(
+            batch_size, in_channels, latent_height, latent_width, dtype=dtype
+        )
+
+        # Single timestep
+        timestep = torch.tensor([1], dtype=torch.long)
+
+        return [sample, timestep, encoder_hidden_states]
