@@ -165,6 +165,11 @@ class ModelLoader(ForgeModel):
                 n = inputs["pixel_values"].shape[0]
             inputs["image_flags"] = torch.ones(n, 1, dtype=torch.long)
 
+        if dtype_override is not None:
+            for key, value in inputs.items():
+                if hasattr(value, "to") and value.is_floating_point():
+                    inputs[key] = value.to(dtype_override)
+
         if batch_size > 1:
             for key, value in inputs.items():
                 if hasattr(value, "repeat_interleave"):
