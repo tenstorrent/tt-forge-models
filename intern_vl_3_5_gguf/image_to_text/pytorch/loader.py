@@ -5,6 +5,8 @@
 InternVL3.5 GGUF model loader implementation for image to text.
 """
 
+import os
+
 from huggingface_hub import hf_hub_download
 from transformers import AutoModelForImageTextToText, AutoProcessor
 from typing import Optional
@@ -90,16 +92,19 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+        gguf_filename = self._GGUF_FILES[self._variant]
         gguf_path = hf_hub_download(
             repo_id=self._GGUF_REPOS[self._variant],
-            filename=self._GGUF_FILES[self._variant],
+            filename=gguf_filename,
         )
+        # gguf_file must be a basename relative to a local snapshot dir
+        gguf_dir = os.path.dirname(gguf_path)
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model_kwargs["gguf_file"] = gguf_path
+        model_kwargs["gguf_file"] = gguf_filename
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(
@@ -107,9 +112,7 @@ class ModelLoader(ForgeModel):
             trust_remote_code=True,
         )
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        model = AutoModelForImageTextToText.from_pretrained(gguf_dir, **model_kwargs)
         model.eval()
 
         return model
