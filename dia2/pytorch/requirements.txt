@@ -1,1 +1,1 @@
-dia2 @ git+https://github.com/nari-labs/dia2.git
+safetensors>=0.4.0
