@@ -171,7 +171,17 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
-        )
+        if (
+            self._variant
+            == ModelVariant.DEEPSEEK_R1_DISTILL_LLAMA_8B_GGUF_MATRIXPORTALX
+        ):
+            # matrixportalx repo has no config.json; use unsloth's config.json (same architecture)
+            config_name = self._VARIANTS[
+                ModelVariant.DEEPSEEK_R1_DISTILL_LLAMA_8B_GGUF
+            ].pretrained_model_name
+            self.config = AutoConfig.from_pretrained(config_name)
+        else:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
+            )
         return self.config
