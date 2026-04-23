@@ -92,6 +92,7 @@ class ModelLoader(ForgeModel):
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
+        model_kwargs["ignore_mismatched_sizes"] = True
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
