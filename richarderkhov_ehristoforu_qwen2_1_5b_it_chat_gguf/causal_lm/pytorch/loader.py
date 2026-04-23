@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
         except (ValueError, TypeError):
             return
 
-        for mod in sys.modules.values():
+        for mod in list(sys.modules.values()):
             if mod is None:
                 continue
             orig = getattr(mod, "_orig_load_gguf_checkpoint", None)
