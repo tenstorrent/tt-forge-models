@@ -36,6 +36,35 @@ from ....tools.utils import get_file
 from ....deepseek.deepseek_ocr.pytorch.src.model_utils import preprocess
 
 
+def _patch_deepseekocr_cuda_calls(model):
+    """Patch DeepseekOCRModel.forward to remove hard-coded .cuda() calls."""
+    import sys
+    import types
+
+    for name, module in model.named_modules():
+        if type(module).__name__ != "DeepseekOCRModel":
+            continue
+        cls = type(module)
+        orig_forward = cls.forward
+
+        def _patched_forward(self, *args, **kwargs):
+            import torch as _torch
+
+            _orig_cuda = _torch.Tensor.cuda
+
+            def _noop_cuda(t, *a, **kw):
+                return t
+
+            _torch.Tensor.cuda = _noop_cuda
+            try:
+                return orig_forward(self, *args, **kwargs)
+            finally:
+                _torch.Tensor.cuda = _orig_cuda
+
+        cls.forward = _patched_forward
+        break
+
+
 class ModelVariant(StrEnum):
     """Available DeepSeek-OCR 8-bit MLX model variants."""
 
@@ -97,29 +126,22 @@ class ModelLoader(ForgeModel):
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
 
-        # CLIPVisionEmbeddings.position_ids may exceed the loaded embedding table size.
-        # Register a pre-hook to clamp position_ids to valid range before each forward.
+        # CLIPVisionEmbeddings.position_ids gets corrupted to large values after model.to()
+        # due to an expand-tensor aliasing issue. Clamp it before each forward call.
         def _clip_pos_ids_hook(module, args):
             emb = getattr(module, "position_embedding", None)
             ids = getattr(module, "position_ids", None)
             if isinstance(emb, nn.Embedding) and ids is not None:
                 n = emb.weight.shape[0]
-                max_id = int(ids.max())
-                print(
-                    f"[deepseek_ocr_8bit_mlx hook] emb rows={n}, ids shape={ids.shape},"
-                    f" dtype={ids.dtype}, max_id={max_id}"
-                )
-                if max_id >= n:
+                if int(ids.max()) >= n:
                     module.position_ids = ids.clamp(0, n - 1)
 
-        clip_ve_count = 0
         for module in model.modules():
             if type(module).__name__ == "CLIPVisionEmbeddings":
                 module.register_forward_pre_hook(_clip_pos_ids_hook)
-                clip_ve_count += 1
-        print(
-            f"[deepseek_ocr_8bit_mlx] registered hooks on {clip_ve_count} CLIPVisionEmbeddings modules"
-        )
+
+        # The remote model code calls .cuda() on a mask tensor; patch it away.
+        _patch_deepseekocr_cuda_calls(model)
 
         model.config.return_dict = False
         model.config.use_cache = False
