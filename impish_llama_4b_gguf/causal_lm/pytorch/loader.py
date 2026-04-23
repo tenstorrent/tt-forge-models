@@ -6,9 +6,32 @@ Impish LLAMA 4B GGUF model loader implementation for causal language modeling.
 
 Based on Llama architecture, quantized from SicariusSicariiStuff/Impish_LLAMA_4B.
 """
+import inspect
+
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _find_real_load_gguf_checkpoint():
+    """Walk the monkey-patch chain to find the transformers load_gguf_checkpoint
+    that accepts model_to_load (added in transformers 5.x).
+
+    Other GGUF loaders in this repo patch load_gguf_checkpoint at import time
+    with versions that omit model_to_load, breaking AutoModelForCausalLM.from_pretrained.
+    """
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen = set()
+    while fn is not None:
+        if id(fn) in seen:
+            break
+        seen.add(id(fn))
+        if "model_to_load" in inspect.signature(fn).parameters:
+            return fn
+        fn = fn.__globals__.get("_orig_load_gguf_checkpoint")
+    return _gguf_utils.load_gguf_checkpoint
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -96,9 +119,17 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Other GGUF loaders patch load_gguf_checkpoint without model_to_load
+        # support (added in transformers 5.x). Temporarily restore the real
+        # function so from_pretrained can pass model_to_load correctly.
+        _saved = _gguf_utils.load_gguf_checkpoint
+        _gguf_utils.load_gguf_checkpoint = _find_real_load_gguf_checkpoint()
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _saved
 
         self.config = model.config
         self.model = model
