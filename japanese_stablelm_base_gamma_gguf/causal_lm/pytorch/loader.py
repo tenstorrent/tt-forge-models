@@ -84,12 +84,18 @@ class ModelLoader(ForgeModel):
         # Load a fresh (unpatched) copy of the module to get the real function that
         # accepts model_to_load. The fresh module's functions use its own unpatched
         # get_gguf_hf_weights_map, which works for standard architectures like StableLM.
+        import sys
+
+        mod_name = "transformers._tt_gguf_fresh"
         spec = importlib.util.find_spec("transformers.modeling_gguf_pytorch_utils")
-        fresh_spec = importlib.util.spec_from_file_location(
-            "_tt_gguf_fresh", spec.origin
-        )
+        fresh_spec = importlib.util.spec_from_file_location(mod_name, spec.origin)
         fresh_mod = importlib.util.module_from_spec(fresh_spec)
-        fresh_spec.loader.exec_module(fresh_mod)
+        fresh_mod.__package__ = "transformers"
+        sys.modules[mod_name] = fresh_mod
+        try:
+            fresh_spec.loader.exec_module(fresh_mod)
+        finally:
+            sys.modules.pop(mod_name, None)
         real_fn = fresh_mod.load_gguf_checkpoint
 
         gguf_utils.load_gguf_checkpoint = real_fn
