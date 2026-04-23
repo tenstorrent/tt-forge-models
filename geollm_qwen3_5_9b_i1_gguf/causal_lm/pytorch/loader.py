@@ -40,11 +40,9 @@ def _patch_transformers_qwen35_gguf():
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
-    if "qwen35" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
-
-    # 1. Register qwen35 as a supported architecture
-    GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    # 1. Register qwen35 as a supported architecture (idempotent)
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
 
     # 2. Add config mapping for qwen35
     GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35"] = {
@@ -95,34 +93,42 @@ def _patch_transformers_qwen35_gguf():
     if "qwen35" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen35"] = GGUFQwen2Converter
 
-    # 4. Patch load_gguf_checkpoint to handle qwen35 -> qwen3_5_text
-    orig_load = gguf_utils.load_gguf_checkpoint
+    # 4. Patch load_gguf_checkpoint to handle qwen35 -> qwen3_5_text.
+    # Use a marker so we wrap at most once, but always apply the correct mapping.
+    _marker = "_geollm_qwen35_patched"
+    if not getattr(gguf_utils.load_gguf_checkpoint, _marker, False):
+        orig_load = gguf_utils.load_gguf_checkpoint
 
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
-        if result.get("config", {}).get("model_type") == "qwen35":
-            result["config"]["model_type"] = "qwen3_5_text"
-            config = result["config"]
-            num_layers = config.get("num_hidden_layers", 32)
-            interval = config.pop("full_attention_interval", 4)
-            layer_types = []
-            for i in range(num_layers):
-                if (i + 1) % interval == 0:
-                    layer_types.append("full_attention")
-                else:
-                    layer_types.append("linear_attention")
-            config["layer_types"] = layer_types
-        return result
+        def patched_load_gguf_checkpoint(*args, **kwargs):
+            result = orig_load(*args, **kwargs)
+            cfg = result.get("config", {})
+            # Handle both: qwen35 returned directly, or qwen3 if another loader
+            # already wrongly remapped qwen35->qwen3 (detectable via full_attention_interval)
+            is_qwen35 = cfg.get("model_type") == "qwen35"
+            is_wrongly_mapped = (
+                cfg.get("model_type") == "qwen3" and "full_attention_interval" in cfg
+            )
+            if is_qwen35 or is_wrongly_mapped:
+                cfg["model_type"] = "qwen3_5_text"
+                num_layers = cfg.get("num_hidden_layers", 32)
+                interval = cfg.pop("full_attention_interval", 4)
+                layer_types = [
+                    "full_attention" if (i + 1) % interval == 0 else "linear_attention"
+                    for i in range(num_layers)
+                ]
+                cfg["layer_types"] = layer_types
+            return result
 
-    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+        setattr(patched_load_gguf_checkpoint, _marker, True)
+        gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    import transformers.models.auto.tokenization_auto as tok_auto
-    import transformers.configuration_utils as config_utils
-    import transformers.modeling_utils as modeling_utils
+        import transformers.models.auto.tokenization_auto as tok_auto
+        import transformers.configuration_utils as config_utils
+        import transformers.modeling_utils as modeling_utils
 
-    for mod in (tok_auto, config_utils, modeling_utils):
-        if hasattr(mod, "load_gguf_checkpoint"):
-            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+        for mod in (tok_auto, config_utils, modeling_utils):
+            if hasattr(mod, "load_gguf_checkpoint"):
+                mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
     # 5. Patch get_gguf_hf_weights_map to handle qwen3_5_text -> qwen35
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
