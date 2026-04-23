@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
         )
 
         if dtype_override is not None:
-            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
+            self.pipeline = self.pipeline.to(dtype_override)
 
         return self.pipeline.unet
 
@@ -119,6 +119,10 @@ class ModelLoader(ForgeModel):
             latent_model_input = latent_model_input.to(dtype_override)
             timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
+            added_cond_kwargs = {
+                k: v.to(dtype_override) if isinstance(v, torch.Tensor) else v
+                for k, v in added_cond_kwargs.items()
+            }
 
         return {
             "sample": latent_model_input,
