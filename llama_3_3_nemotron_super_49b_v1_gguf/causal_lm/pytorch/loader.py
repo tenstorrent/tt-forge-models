@@ -43,7 +43,11 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
     config = result.get("config", {})
     if config.get("model_type") == "deci":
         config["model_type"] = "llama"
-        for field in ("num_attention_heads", "num_key_value_heads"):
+        for field in (
+            "num_attention_heads",
+            "num_key_value_heads",
+            "intermediate_size",
+        ):
             val = config.get(field)
             if isinstance(val, list):
                 non_zero = [v for v in val if v]
