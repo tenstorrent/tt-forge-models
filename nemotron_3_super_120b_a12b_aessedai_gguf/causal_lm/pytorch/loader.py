@@ -98,7 +98,9 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
             result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=False)
             result.setdefault("tensors", {})
             return _fix_nemotron_h_moe_config(result)
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
     return _fix_nemotron_h_moe_config(result)
 
 
