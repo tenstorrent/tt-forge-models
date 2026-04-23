@@ -4,10 +4,26 @@
 """
 Napoleon 3.5 12B i1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata as _importlib_metadata
 from typing import Optional
 
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_pytorch_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+
+
+def _is_gguf_available(min_version: str = "0.10.0") -> bool:
+    # transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time, so
+    # dynamically-installed gguf is not found. Use importlib.metadata directly.
+    try:
+        from packaging.version import Version
+
+        return Version(_importlib_metadata.version("gguf")) >= Version(min_version)
+    except Exception:
+        return False
+
+
+_gguf_pytorch_utils.is_gguf_available = _is_gguf_available
 
 from ....base import ForgeModel
 from ....config import (
