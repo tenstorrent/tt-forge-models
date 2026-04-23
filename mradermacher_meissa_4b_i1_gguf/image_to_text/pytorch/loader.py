@@ -61,6 +61,21 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import importlib.metadata
+
+        import transformers.utils.import_utils as _transformers_import_utils
+
+        # gguf is installed at runtime; refresh the static mapping so
+        # transformers' is_gguf_available() can look up the version.
+        if "gguf" not in _transformers_import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _transformers_import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = [
+                    "gguf"
+                ]
+            except importlib.metadata.PackageNotFoundError:
+                pass
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
