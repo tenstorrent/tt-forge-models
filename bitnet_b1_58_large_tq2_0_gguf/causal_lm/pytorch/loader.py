@@ -9,6 +9,37 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_transformers_for_bitnet_gguf():
+    """Patch transformers to support bitnet GGUF architecture (not in GGUF_CONFIG_MAPPING yet)."""
+    from transformers.integrations.ggml import (
+        GGUF_CONFIG_MAPPING,
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "bitnet" not in GGUF_CONFIG_MAPPING:
+        GGUF_CONFIG_MAPPING["bitnet"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+        }
+    if "bitnet" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["bitnet"] = GGUFLlamaConverter
+    if "bitnet" not in gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("bitnet")
+
+
+_patch_transformers_for_bitnet_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
