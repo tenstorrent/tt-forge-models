@@ -5,6 +5,8 @@
 Aesthetics Predictor V2 model loader implementation for image aesthetic score prediction.
 """
 
+import os
+
 import torch
 from transformers import AutoConfig, CLIPProcessor
 from transformers.dynamic_module_utils import get_class_from_dynamic_module
@@ -67,21 +69,29 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["dtype"] = dtype_override
-        model_kwargs |= kwargs
-
         # Load the config then directly instantiate the remote model class to avoid
         # config_class mismatch validation added in transformers 5.x (AutoModel
         # rejects models whose config_class != the loaded config class).
+        # AestheticsPredictorConfig inherits CLIPVisionConfig so it can be passed
+        # directly to the model constructor.
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
         model_class = get_class_from_dynamic_module(
             config.auto_map["AutoModel"], pretrained_model_name
         )
-        model = model_class.from_pretrained(pretrained_model_name, **model_kwargs)
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            model = model_class(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model = model_class.from_pretrained(pretrained_model_name, **model_kwargs)
+
         model.eval()
 
         return model
