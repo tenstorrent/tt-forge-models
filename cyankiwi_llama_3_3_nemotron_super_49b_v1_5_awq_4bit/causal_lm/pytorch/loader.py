@@ -4,7 +4,9 @@
 """
 cyankiwi Llama 3.3 Nemotron Super 49B v1.5 AWQ 4bit model loader implementation for causal language modeling.
 """
+import sys
 import torch
+import torch.nn as nn
 import transformers.generation.utils as _gen_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -78,6 +80,26 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _patch_decilm_init_weights():
+        """Patch DeciLMPreTrainedModel._init_weights to skip quantized Linear layers.
+
+        compressed-tensors replaces Linear.weight with a packed tensor; the custom
+        modeling_decilm.py was written for plain transformers and crashes on these.
+        """
+        for mod_name, mod in sys.modules.items():
+            if "modeling_decilm" in mod_name and hasattr(mod, "DeciLMPreTrainedModel"):
+                cls = mod.DeciLMPreTrainedModel
+                orig = cls._init_weights
+
+                def _safe_init_weights(self, module, _orig=orig):
+                    if isinstance(module, nn.Linear) and not hasattr(module, "weight"):
+                        return
+                    _orig(self, module)
+
+                cls._init_weights = _safe_init_weights
+                break
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -89,12 +111,16 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Load config first so the dynamic module (modeling_decilm) is cached in
+        # sys.modules, then patch _init_weights before the full model load.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        self._patch_decilm_init_weights()
+
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
