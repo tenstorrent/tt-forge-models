@@ -21,10 +21,22 @@ Available variants:
 - VISUAL_IDENTITY_DESIGN: Visual identity design LoRA
 """
 
+import os
 from typing import Any, Optional
 
 import torch
-from diffusers import FluxPipeline
+from diffusers import (
+    AutoencoderKL,
+    FlowMatchEulerDiscreteScheduler,
+    FluxPipeline,
+    FluxTransformer2DModel,
+)
+from transformers import (
+    CLIPTextModel,
+    CLIPTokenizer,
+    T5EncoderModel,
+    T5TokenizerFast,
+)
 
 from ...base import ForgeModel
 from ...config import (
@@ -37,7 +49,7 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+BASE_MODEL = "camenduru/FLUX.1-dev-diffusers"
 LORA_REPO = "ali-vilab/In-Context-LoRA"
 
 
@@ -96,6 +108,44 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_pipeline_random_weights(self, dtype: torch.dtype) -> FluxPipeline:
+        """Construct FluxPipeline from configs with random weights (no large downloads)."""
+        model_name = self._variant_config.pretrained_model_name
+
+        transformer_config = FluxTransformer2DModel.load_config(
+            model_name, subfolder="transformer"
+        )
+        transformer = FluxTransformer2DModel.from_config(transformer_config).to(dtype)
+
+        from transformers import T5Config
+
+        t5_config = T5Config.from_pretrained(model_name, subfolder="text_encoder_2")
+        text_encoder_2 = T5EncoderModel(t5_config).to(dtype)
+
+        text_encoder = CLIPTextModel.from_pretrained(
+            model_name, subfolder="text_encoder", torch_dtype=dtype
+        )
+        vae = AutoencoderKL.from_pretrained(
+            model_name, subfolder="vae", torch_dtype=dtype
+        )
+        tokenizer = CLIPTokenizer.from_pretrained(model_name, subfolder="tokenizer")
+        tokenizer_2 = T5TokenizerFast.from_pretrained(
+            model_name, subfolder="tokenizer_2"
+        )
+        scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+            model_name, subfolder="scheduler"
+        )
+
+        return FluxPipeline(
+            scheduler=scheduler,
+            text_encoder=text_encoder,
+            tokenizer=tokenizer,
+            text_encoder_2=text_encoder_2,
+            tokenizer_2=tokenizer_2,
+            vae=vae,
+            transformer=transformer,
+        )
+
     def load_model(
         self,
         *,
@@ -109,17 +159,32 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
-        self.pipeline = FluxPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
+        # Use random weights when explicitly requested or in compile-only mode
+        # (compile-only validates model architecture, not weight values)
+        use_random = bool(os.environ.get("TT_RANDOM_WEIGHTS")) or bool(
+            os.environ.get("TT_COMPILE_ONLY_SYSTEM_DESC")
         )
 
-        lora_file = _LORA_FILES[self._variant]
-        self.pipeline.load_lora_weights(
-            LORA_REPO,
-            weight_name=lora_file,
-        )
+        if use_random:
+            self.pipeline = self._load_pipeline_random_weights(dtype)
+        else:
+            # hf-xet segfaults in this environment; disable it for downloads
+            os.environ["HF_HUB_DISABLE_XET"] = "1"
+            import huggingface_hub.constants as hf_constants
+
+            hf_constants.HF_HUB_DISABLE_XET = True
+
+            self.pipeline = FluxPipeline.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                torch_dtype=dtype,
+                **kwargs,
+            )
+
+            lora_file = _LORA_FILES[self._variant]
+            self.pipeline.load_lora_weights(
+                LORA_REPO,
+                weight_name=lora_file,
+            )
 
         return self.pipeline
 
