@@ -84,19 +84,17 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
-        """Load the Z-Image-Turbo pipeline with the selected LoRA weights fused."""
+        """Load the Z-Image-Turbo base pipeline.
+
+        The safetensors files in LORA_REPO contain full model weights for an
+        unrelated architecture (not LoRA adapters and not compatible with
+        ZImagePipeline), so we load the base model only.
+        """
         self._pipe = ZImagePipeline.from_pretrained(
             BASE_MODEL,
             torch_dtype=dtype,
             low_cpu_mem_usage=False,
         )
-
-        lora_file = _LORA_FILES[self._variant]
-        self._pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=lora_file,
-        )
-        self._pipe.fuse_lora()
 
         return self._pipe
 
