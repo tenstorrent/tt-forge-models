@@ -113,7 +113,11 @@ class ModelLoader(ForgeModel):
                 messages, tokenize=False, add_generation_prompt=True
             )
         except ValueError:
-            text = self.sample_text
+            text = (
+                f"<|im_start|>system\n{messages[0]['content']}<|im_end|>\n"
+                f"<|im_start|>user\n{messages[1]['content']}<|im_end|>\n"
+                f"<|im_start|>assistant\n"
+            )
         prompts = [text]
 
         inputs = self.tokenizer(
