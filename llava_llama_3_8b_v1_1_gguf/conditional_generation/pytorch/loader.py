@@ -73,6 +73,8 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         self.processor = AutoProcessor.from_pretrained(self._PROCESSOR_NAME)
+        if self.processor.tokenizer.pad_token is None:
+            self.processor.tokenizer.pad_token = self.processor.tokenizer.eos_token
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
