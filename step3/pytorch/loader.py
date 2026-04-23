@@ -5,6 +5,7 @@
 Step3 VL model loader implementation for multimodal conditional generation.
 """
 
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoProcessor
 from PIL import Image
@@ -55,6 +56,24 @@ class ModelLoader(ForgeModel):
     sample_text = "What is shown in this image?"
     sample_image_url = "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
 
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix gguf version detection when installed at runtime by RequirementsManager.
+
+        transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
+        is installed later, the mapping is stale and version detection falls back to
+        gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
+        """
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+                _import_utils.is_gguf_available.cache_clear()
+            except importlib.metadata.PackageNotFoundError:
+                pass
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
@@ -78,6 +97,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        self._fix_gguf_version_detection()
         processor_name = self._BASE_PROCESSOR_NAMES.get(
             self._variant, self._variant_config.pretrained_model_name
         )
@@ -88,6 +108,7 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._fix_gguf_version_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.processor is None:
