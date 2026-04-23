@@ -13,7 +13,12 @@ Reference: https://huggingface.co/Derify/ModChemBERT-IR-BASE
 from typing import Optional
 
 import torch
+import transformers.models.modernbert.modeling_modernbert as _mbert_module
 from transformers import AutoModelForMaskedLM, AutoTokenizer
+
+# transformers>=5.x renamed MODERNBERT_ATTENTION_FUNCTION to ALL_ATTENTION_FUNCTIONS
+if not hasattr(_mbert_module, "MODERNBERT_ATTENTION_FUNCTION"):
+    _mbert_module.MODERNBERT_ATTENTION_FUNCTION = _mbert_module.ALL_ATTENTION_FUNCTIONS
 
 from ....base import ForgeModel
 from ....config import (
