@@ -52,6 +52,12 @@ def _apply_gguf_patches():
     if "nemotron_h_moe" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
         _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("nemotron_h_moe")
 
+    # Register the tokenizer converter: NemotronH uses a GPT2-based vocabulary.
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
+
+    if "nemotron_h" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["nemotron_h"] = GGUFGPTConverter
+
     # The gguf library assigns model_type "nemotron_h" (arch key 81) to the
     # pure-SSM variant and "nemotron_h_moe" (arch key 82) to the MoE variant.
     # transformers uses model_type="nemotron_h" for NemotronHForCausalLM, so
